@@ -65,7 +65,7 @@ foreach ($members as $m) {
         <?php else : foreach ($batches as $b) : ?>
             <tr>
                 <td><?php echo esc_html($b->filename); ?></td>
-                <td><?php echo esc_html(wp_date('d M Y H:i', strtotime($b->uploaded_at))); ?></td>
+                <td><?php echo esc_html(wp_date('D d M Y H:i', strtotime($b->uploaded_at))); ?></td>
                 <td><?php echo esc_html($b->row_count); ?></td>
                 <td><?php echo esc_html($b->matched_count); ?></td>
             </tr>
