@@ -61,6 +61,8 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         // whatever's left.
         $known_shares = [];
         $known_nights = [];
+        $known_dates = [];
+        $known_edit_url = [];
         foreach ($suggested_ids as $member_id) {
             $item = $tx->suggested_type ? AVBK_DB::find_relevant_open_fee_item($member_id, $tx->suggested_type) : null;
             if ($item) {
@@ -69,6 +71,21 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
                     if ($participation && $participation->nights) {
                         $known_nights[$member_id] = (int) $participation->nights;
+                        // Actual dates present (not just the night count) —
+                        // same "non-empty status = present" rule the
+                        // Kampdeelname list itself uses for "Dagen aanwezig",
+                        // so this always matches what that screen shows.
+                        $days = AVPVH_DB::get_participation_days((int) $participation->id);
+                        $present_dates = array_keys(array_filter($days, fn($status) => $status !== ''));
+                        sort($present_dates);
+                        if ($present_dates) {
+                            $known_dates[$member_id] = [reset($present_dates), end($present_dates)];
+                        }
+                        $known_edit_url[$member_id] = add_query_arg([
+                            'page' => 'avpvh-kampdeelname-detail',
+                            'camp_id' => (int) $item->camp_id,
+                            'id' => (int) $participation->id,
+                        ], admin_url('admin.php'));
                     }
                 }
             }
@@ -109,10 +126,18 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                         <tr>
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
                             <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
-                                <?php if (isset($known_shares[$member_id])) : ?>
-                                    <span class="description">
-                                        (eigen bijdrage<?php echo isset($known_nights[$member_id]) ? ', ' . esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en') : ''; ?>)
-                                    </span>
+                                <?php if (isset($known_shares[$member_id])) :
+                                    $nights_text = isset($known_nights[$member_id])
+                                        ? ', ' . esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en')
+                                        : '';
+                                    $dates_text = isset($known_dates[$member_id])
+                                        ? ' (' . esc_html(wp_date('d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('d M', strtotime($known_dates[$member_id][1]))) . ')'
+                                        : '';
+                                    ?>
+                                    <span class="description">(eigen bijdrage<?php echo $nights_text . $dates_text; ?>)</span>
+                                    <?php if (isset($known_edit_url[$member_id])) : ?>
+                                        <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                         </tr>
