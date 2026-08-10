@@ -15,6 +15,8 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_camp_rate',     [$this, 'handle_delete_camp_rate']);
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
+        add_action('admin_post_avbk_generate_contribution_fees_now', [$this, 'handle_generate_contribution_fees_now']);
+        add_action('admin_post_avbk_generate_camp_fees_now',         [$this, 'handle_generate_camp_fees_now']);
     }
 
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
@@ -191,6 +193,41 @@ class AVBK_Admin {
             AVBK_DB::delete_camp_rate($id);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_rate_deleted' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Manual trigger for the daily cron job — lets the treasurer apply a
+     * just-entered rate table immediately instead of waiting for the next
+     * 03:00 run.
+     */
+    public function handle_generate_contribution_fees_now(): void {
+        check_admin_referer('avbk_generate_contribution_fees_now');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $year = (int) ($_POST['year'] ?? current_time('Y'));
+        AVBK_Fee_Generation::generate_contribution_fees($year);
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'year' => $year, 'contribution_fees_generated' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Backfills camp fee items for every existing participation record of
+     * this camp — needed because the live save hook only fires on a *new*
+     * save, so participation entered before a rate existed never generated
+     * one on its own.
+     */
+    public function handle_generate_camp_fees_now(): void {
+        check_admin_referer('avbk_generate_camp_fees_now');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $camp_id = (int) ($_POST['camp_id'] ?? 0);
+        $count = $camp_id ? AVBK_Fee_Generation::generate_camp_fees($camp_id) : 0;
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_fees_generated' => $count,
+        ], admin_url('admin.php')));
         exit;
     }
 

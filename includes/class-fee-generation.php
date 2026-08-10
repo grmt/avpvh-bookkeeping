@@ -18,7 +18,7 @@ class AVBK_Fee_Generation {
     const CRON_HOOK = 'avbk_generate_contribution_fees';
 
     public function __construct() {
-        add_action(self::CRON_HOOK, [$this, 'generate_contribution_fees']);
+        add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
         add_action('avpvh_camp_participation_saved', [$this, 'on_camp_participation_saved'], 10, 3);
     }
 
@@ -29,7 +29,7 @@ class AVBK_Fee_Generation {
     }
 
     /** Creates/refreshes every active member's contribution fee item for $year (defaults to the current year). */
-    public function generate_contribution_fees(?int $year = null): void {
+    public static function generate_contribution_fees(?int $year = null): void {
         $year = $year ?? (int) current_time('Y');
         $rates = AVBK_DB::get_contribution_rates($year);
         if (!$rates) {
@@ -57,9 +57,34 @@ class AVBK_Fee_Generation {
         if (!$participation || !$participation->nights) {
             return; // nothing to charge until nights are known
         }
+        self::generate_camp_fee_item($member_id, $camp_id, (int) $participation->nights);
+    }
+
+    /**
+     * Backfill/refresh every existing participation record for one camp —
+     * needed because the live hook above only fires on a *new* save.
+     * Participation entered before this plugin existed (or before a rate
+     * was configured) never generated a fee item on its own; this is the
+     * one-click catch-up for that. Returns how many fee items were
+     * created/updated.
+     */
+    public static function generate_camp_fees(int $camp_id): int {
+        $count = 0;
+        foreach (AVPVH_DB::get_participation_for_camp($camp_id) as $participation) {
+            if (!$participation->nights) {
+                continue;
+            }
+            if (self::generate_camp_fee_item((int) $participation->member_id, $camp_id, (int) $participation->nights)) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    private static function generate_camp_fee_item(int $member_id, int $camp_id, int $nights): bool {
         $member = AVPVH_DB::get_member($member_id);
         if (!$member || empty($member->birth_date)) {
-            return; // can't place an age-bracket rate without a birth date
+            return false; // can't place an age-bracket rate without a birth date
         }
         $camp = AVPVH_DB::get_camp($camp_id);
         // Age at the camp's own start date, not "now" — a member's age
@@ -68,12 +93,13 @@ class AVBK_Fee_Generation {
         $age = self::age_on((string) $member->birth_date, $reference_date);
         $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
         if (!$rate) {
-            return; // no bracket covers this age — surfaced as an admin notice instead of guessing
+            return false; // no bracket covers this age — surfaced as an admin notice instead of guessing
         }
-        $amount = round((float) $rate->day_rate * (int) $participation->nights, 2);
+        $amount = round((float) $rate->day_rate * $nights, 2);
         $label = $rate->label !== '' ? " ({$rate->label})" : '';
         $description = trim('Kamp ' . ($camp->name ?? '') . ' ' . ($camp->year ?? '')) . $label;
         AVBK_DB::upsert_camp_fee_item($member_id, $camp_id, $amount, $description);
+        return true;
     }
 
     /** Age in whole years as of $reference_date (not "now" — needed to generate correct rates for past/future years). */

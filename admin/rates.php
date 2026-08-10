@@ -21,6 +21,12 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
     <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['camp_rate_saved']) || isset($_GET['camp_rate_deleted']) || isset($_GET['settings_saved'])) : ?>
         <div class="notice notice-success"><p>Opgeslagen.</p></div>
     <?php endif; ?>
+    <?php if (isset($_GET['contribution_fees_generated'])) : ?>
+        <div class="notice notice-success"><p>Contributiebijdragen gegenereerd/bijgewerkt voor <?php echo esc_html($_GET['year'] ?? ''); ?>.</p></div>
+    <?php endif; ?>
+    <?php if (isset($_GET['camp_fees_generated'])) : ?>
+        <div class="notice notice-success"><p><?php echo esc_html((int) $_GET['camp_fees_generated']); ?> kampbijdrage(n) gegenereerd/bijgewerkt.</p></div>
+    <?php endif; ?>
 
     <h2>Contributietarieven</h2>
     <p class="description">Leeftijd wordt bepaald op 1 januari van het gekozen jaar. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;.</p>
@@ -72,6 +78,13 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
         </tr>
         </tbody>
     </table>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
+        <?php wp_nonce_field('avbk_generate_contribution_fees_now'); ?>
+        <input type="hidden" name="action" value="avbk_generate_contribution_fees_now">
+        <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
+        <button type="submit" class="button">Contributiebijdragen nu genereren/bijwerken voor <?php echo esc_html($year); ?></button>
+        <span class="description">Draait normaal automatisch elke nacht &mdash; gebruik dit om meteen bij te werken na een tariefwijziging.</span>
+    </form>
 
     <h2>Kampbijdrage per nacht</h2>
     <p class="description">Leeftijd wordt bepaald op de startdatum van het kamp. Net als bij contributie: meerdere leeftijdsgroepen per kamp mogelijk, bijv. kinderen 0 t/m 3 gratis, 4 t/m 12 &euro;10/nacht, overige deelnemers &euro;20/nacht. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;.</p>
@@ -134,6 +147,13 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
         </tr>
         </tbody>
     </table>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
+        <?php wp_nonce_field('avbk_generate_camp_fees_now'); ?>
+        <input type="hidden" name="action" value="avbk_generate_camp_fees_now">
+        <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+        <button type="submit" class="button">Kampbijdragen genereren/bijwerken voor dit kamp</button>
+        <span class="description">Nodig na het instellen/wijzigen van tarieven &mdash; bestaande deelnameregistraties genereren anders pas een bijdrage bij hun eerstvolgende wijziging.</span>
+    </form>
     <?php endif; ?>
 
     <h2>Instellingen</h2>
