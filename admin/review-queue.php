@@ -136,7 +136,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                                     }
                                     ?>
                                     <?php if ($detail_parts) : ?>
-                                        <span class="description">(<?php echo implode(', ', $detail_parts); ?>)</span>
+                                        <span class="description">inschrijving: <?php echo implode(', ', $detail_parts); ?></span>
                                     <?php endif; ?>
                                     <?php if (isset($known_edit_url[$member_id])) : ?>
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>
