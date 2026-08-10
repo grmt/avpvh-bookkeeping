@@ -6,16 +6,19 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 $year = (int) ($_GET['year'] ?? current_time('Y'));
 $rates = AVBK_DB::get_contribution_rates($year);
+
 $camps = AVPVH_DB::get_camps();
-$camp_rates = [];
-foreach (AVBK_DB::get_camp_rates() as $cr) {
-    $camp_rates[(int) $cr->camp_id] = $cr;
+$camp_id = (int) ($_GET['camp_id'] ?? 0);
+if (!$camp_id) {
+    $current_camp = AVPVH_DB::get_current_camp();
+    $camp_id = $current_camp ? (int) $current_camp->id : ($camps ? (int) $camps[0]->id : 0);
 }
+$camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
 ?>
 <div class="wrap">
     <h1>Tarieven &amp; instellingen</h1>
 
-    <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['camp_rate_saved']) || isset($_GET['settings_saved'])) : ?>
+    <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['camp_rate_saved']) || isset($_GET['camp_rate_deleted']) || isset($_GET['settings_saved'])) : ?>
         <div class="notice notice-success"><p>Opgeslagen.</p></div>
     <?php endif; ?>
 
@@ -71,25 +74,67 @@ foreach (AVBK_DB::get_camp_rates() as $cr) {
     </table>
 
     <h2>Kampbijdrage per nacht</h2>
-    <table class="wp-list-table widefat striped" style="max-width:600px">
-        <thead><tr><th>Kamp</th><th>Jaar</th><th>Tarief per nacht</th><th></th></tr></thead>
+    <p class="description">Leeftijd wordt bepaald op de startdatum van het kamp. Net als bij contributie: meerdere leeftijdsgroepen per kamp mogelijk, bijv. kinderen 0 t/m 3 gratis, 4 t/m 12 &euro;10/nacht, overige deelnemers &euro;20/nacht. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;.</p>
+    <form method="get" style="margin-bottom:1rem">
+        <input type="hidden" name="page" value="avbk-rates">
+        <label>Kamp:
+            <select name="camp_id" onchange="this.form.submit()">
+                <?php foreach ($camps as $camp) : ?>
+                    <option value="<?php echo esc_attr($camp->id); ?>" <?php selected($camp_id, (int) $camp->id); ?>>
+                        <?php echo esc_html($camp->name . ' (' . $camp->year . ')'); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
+    </form>
+
+    <?php if (!$camp_id) : ?>
+        <p>Nog geen kamp aangemaakt in AV-PvH Leden.</p>
+    <?php else : ?>
+    <table class="wp-list-table widefat striped" style="max-width:700px">
+        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Tarief per nacht</th><th></th></tr></thead>
         <tbody>
-        <?php foreach ($camps as $camp) :
-            $existing = $camp_rates[(int) $camp->id] ?? null; ?>
+        <?php foreach ($camp_rates as $rate) : ?>
             <tr>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('avbk_save_camp_rate'); ?>
                     <input type="hidden" name="action" value="avbk_save_camp_rate">
-                    <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp->id); ?>">
-                    <td><?php echo esc_html($camp->name); ?></td>
-                    <td><?php echo esc_html($camp->year); ?></td>
-                    <td>&euro; <input type="text" name="day_rate" value="<?php echo esc_attr($existing ? number_format((float) $existing->day_rate, 2, ',', '') : ''); ?>" placeholder="0,00" style="width:6em"></td>
-                    <td><button type="submit" class="button button-small">Opslaan</button></td>
+                    <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
+                    <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+                    <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%"></td>
+                    <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
+                    <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
+                    <td>&euro; <input type="text" name="day_rate" value="<?php echo esc_attr(number_format((float) $rate->day_rate, 2, ',', '')); ?>" style="width:6em"></td>
+                    <td>
+                        <button type="submit" class="button button-small">Opslaan</button>
                 </form>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                    <?php wp_nonce_field('avbk_delete_camp_rate'); ?>
+                    <input type="hidden" name="action" value="avbk_delete_camp_rate">
+                    <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
+                    <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+                    <button type="submit" class="button button-small" onclick="return confirm('Tarief verwijderen?');">Verwijderen</button>
+                </form>
+                    </td>
             </tr>
         <?php endforeach; ?>
+        <tr>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('avbk_save_camp_rate'); ?>
+                <input type="hidden" name="action" value="avbk_save_camp_rate">
+                <input type="hidden" name="id" value="0">
+                <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+                <td><input type="text" name="label" placeholder="bijv. Kinderen 4-12" style="width:100%"></td>
+                <td><input type="number" name="min_age" style="width:5em"></td>
+                <td><input type="number" name="max_age" style="width:5em"></td>
+                <td>&euro; <input type="text" name="day_rate" placeholder="0,00" style="width:6em"></td>
+                <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
+            </form>
+        </tr>
         </tbody>
     </table>
+    <?php endif; ?>
 
     <h2>Instellingen</h2>
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -98,11 +143,11 @@ foreach (AVBK_DB::get_camp_rates() as $cr) {
         <table class="form-table" style="max-width:600px">
             <tr>
                 <th><label for="club_iban">IBAN vereniging</label></th>
-                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', '')); ?>"></td>
+                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', 'NL35INGB0674059859')); ?>"></td>
             </tr>
             <tr>
                 <th><label for="club_name">Naam op rekening</label></th>
-                <td><input type="text" id="club_name" name="club_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_name', '')); ?>"></td>
+                <td><input type="text" id="club_name" name="club_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_name', "Archeologische Vereniging Philips van Horne")); ?>"></td>
             </tr>
             <tr>
                 <th><label for="reference_prefix">Betalingskenmerk-prefix</label></th>

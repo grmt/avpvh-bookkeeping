@@ -53,17 +53,26 @@ class AVBK_Fee_Generation {
     }
 
     public function on_camp_participation_saved(int $member_id, int $camp_id, int $participation_id): void {
-        $rate = AVBK_DB::get_camp_rate($camp_id);
-        if (!$rate) {
-            return; // no day-rate set for this camp yet — surfaced as an admin notice instead of guessing
-        }
         $participation = AVPVH_DB::get_participation_by_id($participation_id);
         if (!$participation || !$participation->nights) {
             return; // nothing to charge until nights are known
         }
+        $member = AVPVH_DB::get_member($member_id);
+        if (!$member || empty($member->birth_date)) {
+            return; // can't place an age-bracket rate without a birth date
+        }
         $camp = AVPVH_DB::get_camp($camp_id);
+        // Age at the camp's own start date, not "now" — a member's age
+        // bracket for a past or future camp must reflect their age *then*.
+        $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
+        $age = self::age_on((string) $member->birth_date, $reference_date);
+        $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
+        if (!$rate) {
+            return; // no bracket covers this age — surfaced as an admin notice instead of guessing
+        }
         $amount = round((float) $rate->day_rate * (int) $participation->nights, 2);
-        $description = trim('Kamp ' . ($camp->name ?? '') . ' ' . ($camp->year ?? ''));
+        $label = $rate->label !== '' ? " ({$rate->label})" : '';
+        $description = trim('Kamp ' . ($camp->name ?? '') . ' ' . ($camp->year ?? '')) . $label;
         AVBK_DB::upsert_camp_fee_item($member_id, $camp_id, $amount, $description);
     }
 

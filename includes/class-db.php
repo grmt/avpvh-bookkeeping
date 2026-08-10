@@ -19,14 +19,20 @@ class AVBK_DB {
             KEY year (year)
         ) $charset;");
 
-        // One row per avm_camps.id (read via AVPVH_DB, not a real FK — see
-        // class-db.php's cross-plugin note in the plan).
+        // Camp fees are age-bracketed per camp, same shape as
+        // avb_contribution_rates (e.g. a real informatiefje: 0-3 free,
+        // 4-12 €10/night, 13+ €20/night) — several rows per camp_id, not
+        // one flat rate. camp_id is read via AVPVH_DB, not a real FK — see
+        // class-db.php's cross-plugin note in the plan.
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_camp_rates (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             camp_id INT UNSIGNED NOT NULL,
+            min_age TINYINT UNSIGNED NULL,
+            max_age TINYINT UNSIGNED NULL,
+            label VARCHAR(50) NOT NULL DEFAULT '',
             day_rate DECIMAL(8,2) NOT NULL,
             PRIMARY KEY (id),
-            UNIQUE KEY camp_id (camp_id)
+            KEY camp_id (camp_id)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_fee_items (
@@ -102,9 +108,24 @@ class AVBK_DB {
     }
 
     public static function maybe_upgrade(): void {
+        global $wpdb;
         $version = get_option('avbk_db_version', '0');
         if (version_compare($version, '1.0', '<')) {
             self::install();
+        }
+        if (version_compare($version, '1.1', '<')) {
+            // avb_camp_rates went from one flat rate per camp to an
+            // age-bracketed table (several rows per camp) — see install().
+            $has_min_age = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_camp_rates LIKE 'min_age'");
+            if (!$has_min_age) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_camp_rates DROP INDEX camp_id");
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_camp_rates
+                    ADD COLUMN min_age TINYINT UNSIGNED NULL AFTER camp_id,
+                    ADD COLUMN max_age TINYINT UNSIGNED NULL AFTER min_age,
+                    ADD COLUMN label VARCHAR(50) NOT NULL DEFAULT '' AFTER max_age,
+                    ADD KEY camp_id (camp_id)");
+            }
+            update_option('avbk_db_version', '1.1');
         }
     }
 
@@ -160,11 +181,26 @@ class AVBK_DB {
     // Camp rates
     // -------------------------------------------------------------------
 
-    public static function get_camp_rate(int $camp_id): ?object {
+    /** All age-bracket rate rows for one camp, e.g. kids 0-3 free / 4-12 €10/night / 13+ €20/night. */
+    public static function get_camp_rates_for_camp(int $camp_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_camp_rates WHERE camp_id = %d ORDER BY min_age ASC",
+            $camp_id
+        )) ?: [];
+    }
+
+    /** The rate row covering $age for this camp, or null if no bracket matches. */
+    public static function get_camp_rate_for_age(int $camp_id, int $age): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_camp_rates WHERE camp_id = %d",
-            $camp_id
+            "SELECT * FROM {$wpdb->prefix}avb_camp_rates
+             WHERE camp_id = %d
+               AND (min_age IS NULL OR min_age <= %d)
+               AND (max_age IS NULL OR max_age >= %d)
+             ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
+             LIMIT 1",
+            $camp_id, $age, $age
         )) ?: null;
     }
 
@@ -173,23 +209,35 @@ class AVBK_DB {
         return $wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_camp_rates") ?: [];
     }
 
-    /** Camps (from avpvh-members) with no day-rate configured yet — camp fee items can't generate for these. */
+    /** Camps (from avpvh-members) with no rate brackets configured yet — camp fee items can't generate for these. */
     public static function get_camps_without_rate(): array {
-        $rated_camp_ids = wp_list_pluck(self::get_camp_rates(), 'camp_id');
+        $rated_camp_ids = array_unique(array_map('intval', wp_list_pluck(self::get_camp_rates(), 'camp_id')));
         return array_values(array_filter(
             AVPVH_DB::get_camps(),
             fn($camp) => !in_array((int) $camp->id, $rated_camp_ids, true)
         ));
     }
 
-    public static function save_camp_rate(int $camp_id, float $day_rate): void {
+    public static function save_camp_rate(int $id, int $camp_id, ?int $min_age, ?int $max_age, string $label, float $day_rate): int {
         global $wpdb;
-        $existing = self::get_camp_rate($camp_id);
-        if ($existing) {
-            $wpdb->update("{$wpdb->prefix}avb_camp_rates", ['day_rate' => $day_rate], ['id' => $existing->id]);
-            return;
+        $data = [
+            'camp_id'  => $camp_id,
+            'min_age'  => $min_age,
+            'max_age'  => $max_age,
+            'label'    => $label,
+            'day_rate' => $day_rate,
+        ];
+        if ($id > 0) {
+            $wpdb->update("{$wpdb->prefix}avb_camp_rates", $data, ['id' => $id]);
+            return $id;
         }
-        $wpdb->insert("{$wpdb->prefix}avb_camp_rates", ['camp_id' => $camp_id, 'day_rate' => $day_rate]);
+        $wpdb->insert("{$wpdb->prefix}avb_camp_rates", $data);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function delete_camp_rate(int $id): void {
+        global $wpdb;
+        $wpdb->delete("{$wpdb->prefix}avb_camp_rates", ['id' => $id]);
     }
 
     // -------------------------------------------------------------------
