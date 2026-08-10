@@ -212,6 +212,26 @@ class AVBK_DB {
         )) ?: null;
     }
 
+    /**
+     * The member's own open fee item for $type (their most recent camp's
+     * camp fee, or the current year's contribution) — used by the review
+     * queue to default a multi-member split to what each person actually
+     * owes (nights x day-rate, or their age-bracket rate) instead of a
+     * blind even split of the payment amount.
+     */
+    public static function find_relevant_open_fee_item(int $member_id, string $type): ?object {
+        $item = null;
+        if ($type === 'camp') {
+            $camp = AVPVH_DB::get_current_camp();
+            if ($camp) {
+                $item = self::get_camp_fee_item($member_id, (int) $camp->id);
+            }
+        } elseif ($type === 'contribution') {
+            $item = self::get_contribution_fee_item($member_id, (int) current_time('Y'));
+        }
+        return ($item && $item->status === 'open') ? $item : null;
+    }
+
     /** Insert or update the member's contribution fee item for $year. Returns the fee_item id. */
     public static function upsert_contribution_fee_item(int $member_id, int $year, float $amount, string $description): int {
         global $wpdb;

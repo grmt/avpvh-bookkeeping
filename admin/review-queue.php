@@ -40,8 +40,22 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
 
     <?php foreach ($queue as $tx) :
         $suggested_ids = array_filter(array_map('intval', explode(',', $tx->suggested_member_ids)));
-        $n = max(1, count($suggested_ids));
-        $even_share = round((float) $tx->amount / $n, 2);
+
+        // Default each candidate's split to what they actually owe (nights
+        // x day-rate for a camp, their age-bracket rate for contribution)
+        // rather than blindly splitting the payment evenly — only members
+        // with no determinable fee item fall back to an even share of
+        // whatever's left.
+        $known_shares = [];
+        foreach ($suggested_ids as $member_id) {
+            $item = $tx->suggested_type ? AVBK_DB::find_relevant_open_fee_item($member_id, $tx->suggested_type) : null;
+            if ($item) {
+                $known_shares[$member_id] = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            }
+        }
+        $unknown_ids = array_values(array_diff($suggested_ids, array_keys($known_shares)));
+        $remaining_for_unknown = round((float) $tx->amount - array_sum($known_shares), 2);
+        $even_share = $unknown_ids ? round($remaining_for_unknown / count($unknown_ids), 2) : 0.0;
         ?>
         <div class="avbk-review-row">
             <div class="avbk-review-row-header">
@@ -70,11 +84,15 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     <?php
                     $row_index = 0;
                     foreach ($suggested_ids as $member_id) :
-                        $share = ($row_index === $n - 1) ? round((float) $tx->amount - $even_share * ($n - 1), 2) : $even_share;
+                        $share = $known_shares[$member_id] ?? $even_share;
                         ?>
                         <tr>
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
-                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6"></td>
+                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
+                                <?php if (isset($known_shares[$member_id])) : ?>
+                                    <span class="description">(eigen bijdrage)</span>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                     <?php $row_index++; endforeach;
 
