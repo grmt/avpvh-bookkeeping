@@ -72,7 +72,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         ?>
         <div class="avbk-review-row">
             <div class="avbk-review-row-header">
-                <strong><?php echo esc_html(wp_date('d-m-Y', strtotime($tx->transaction_date))); ?></strong>
+                <strong><?php echo esc_html(wp_date('d M Y', strtotime($tx->transaction_date))); ?></strong>
                 &mdash; <strong>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></strong>
                 &mdash; <?php echo esc_html($tx->counterparty_name); ?>
                 <?php if ($tx->status === 'unmatched') : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>

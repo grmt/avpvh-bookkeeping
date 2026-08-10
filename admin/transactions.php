@@ -24,7 +24,7 @@ $status_label = [
             <tr><td colspan="6">Nog geen transacties geïmporteerd.</td></tr>
         <?php else : foreach ($transactions as $tx) : ?>
             <tr>
-                <td><?php echo esc_html(wp_date('d-m-Y', strtotime($tx->transaction_date))); ?></td>
+                <td><?php echo esc_html(wp_date('d M Y', strtotime($tx->transaction_date))); ?></td>
                 <td><?php echo $tx->direction === 'in' ? 'Bij' : 'Af'; ?></td>
                 <td>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></td>
                 <td><?php echo esc_html($tx->counterparty_name); ?></td>
