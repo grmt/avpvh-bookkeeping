@@ -19,6 +19,10 @@ foreach ($members as $m) {
         $members_with_balance++;
     }
 }
+// Contribution and camp fee items both need an age bracket, so a missing
+// birth date silently blocks fee-item generation for that member — a
+// recurring, easy-to-miss cause of "why isn't this working" surprises.
+$members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date)));
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>
@@ -43,6 +47,17 @@ foreach ($members as $m) {
             <p><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-review')); ?>">
                 <?php echo esc_html(count($review_queue)); ?> transactie(s) wachten op controle &rarr;
             </a></p>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($members_without_birth_date) : ?>
+        <div class="notice notice-warning">
+            <p><?php echo esc_html(count($members_without_birth_date)); ?> lid/leden zonder geboortedatum &mdash; contributie- en kampbijdrage kunnen hiervoor niet worden berekend:</p>
+            <ul style="margin-left:1.5em;list-style:disc">
+                <?php foreach ($members_without_birth_date as $m) : ?>
+                    <li><a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $m->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></a></li>
+                <?php endforeach; ?>
+            </ul>
         </div>
     <?php endif; ?>
 

@@ -46,17 +46,25 @@ class AVBK_Matcher {
         return (float) $raw;
     }
 
-    public static function classify_type(string $description): ?string {
+    /**
+     * A description can name more than one fee at once ("KAMP EN
+     * CONTRIBUTIE 2026") — a single type string would silently drop one.
+     * Returns every type mentioned, contribution first, or [] if neither
+     * keyword appears.
+     */
+    public static function classify_types(string $description): array {
         $d = mb_strtolower($description);
+        $types = [];
         foreach (['contributie', 'lidmaatschap', 'lidgeld', 'inschrijving', 'inschrijfkosten'] as $kw) {
             if (str_contains($d, $kw)) {
-                return 'contribution';
+                $types[] = 'contribution';
+                break;
             }
         }
         if (str_contains($d, 'kamp')) {
-            return 'camp';
+            $types[] = 'camp';
         }
-        return null;
+        return $types;
     }
 
     /** Reference code (e.g. "PVH-42") in free text -> member_id, or null. */

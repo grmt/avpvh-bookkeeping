@@ -38,7 +38,7 @@ class AVBK_Import {
                 continue;
             }
 
-            $type_hint = AVBK_Matcher::classify_type($tx['description']);
+            $type_hints = AVBK_Matcher::classify_types($tx['description']);
 
             $ref_member_id = AVBK_Matcher::match_reference_code($tx['description']);
             $iban_member_id = AVBK_DB::find_member_id_by_iban($tx['counterparty_iban']);
@@ -47,7 +47,7 @@ class AVBK_Import {
             if ($confident_member_id && AVPVH_DB::get_member($confident_member_id)) {
                 $tx['status'] = 'matched';
                 $tx_id = AVBK_DB::insert_transaction($tx);
-                self::apply_payment($tx_id, [$confident_member_id], $tx['amount'], $tx['counterparty_iban'], $type_hint);
+                self::apply_payment($tx_id, [$confident_member_id], $tx['amount'], $tx['counterparty_iban'], $type_hints);
                 $matched_count++;
                 continue;
             }
@@ -55,7 +55,7 @@ class AVBK_Import {
             $candidates = AVBK_Matcher::find_candidates($tx['counterparty_name'], $tx['description']);
             $tx['status'] = $candidates ? 'suggested' : 'unmatched';
             $tx['suggested_member_ids'] = implode(',', array_map(fn($c) => $c['member']->id, $candidates));
-            $tx['suggested_type'] = $type_hint ?? '';
+            $tx['suggested_type'] = implode(',', $type_hints);
             AVBK_DB::insert_transaction($tx);
         }
 
@@ -76,14 +76,14 @@ class AVBK_Import {
     public static function recompute_suggestions(): int {
         $changed = 0;
         foreach (AVBK_DB::get_review_queue() as $tx) {
-            $type_hint = AVBK_Matcher::classify_type($tx->description);
+            $type_hints = AVBK_Matcher::classify_types($tx->description);
 
             $ref_member_id = AVBK_Matcher::match_reference_code($tx->description);
             $iban_member_id = AVBK_DB::find_member_id_by_iban($tx->counterparty_iban);
             $confident_member_id = $ref_member_id ?: $iban_member_id;
 
             if ($confident_member_id && AVPVH_DB::get_member($confident_member_id)) {
-                self::apply_payment((int) $tx->id, [$confident_member_id], (float) $tx->amount, $tx->counterparty_iban, $type_hint);
+                self::apply_payment((int) $tx->id, [$confident_member_id], (float) $tx->amount, $tx->counterparty_iban, $type_hints);
                 $changed++;
                 continue;
             }
@@ -91,7 +91,7 @@ class AVBK_Import {
             $candidates = AVBK_Matcher::find_candidates($tx->counterparty_name, $tx->description);
             $new_status = $candidates ? 'suggested' : 'unmatched';
             $new_ids = implode(',', array_map(fn($c) => $c['member']->id, $candidates));
-            $new_type = $type_hint ?? '';
+            $new_type = implode(',', $type_hints);
 
             if ($new_status !== $tx->status || $new_ids !== $tx->suggested_member_ids || $new_type !== $tx->suggested_type) {
                 AVBK_DB::update_transaction_suggestion((int) $tx->id, $new_status, $new_ids, $new_type);
@@ -106,7 +106,7 @@ class AVBK_Import {
      * the last member), allocates each share to that member's open fee
      * items oldest-first, and remembers the IBAN for next time.
      */
-    public static function apply_payment(int $transaction_id, array $member_ids, float $amount, string $iban, ?string $type_hint = null): void {
+    public static function apply_payment(int $transaction_id, array $member_ids, float $amount, string $iban, ?array $type_hints = null): void {
         $member_ids = array_values(array_unique(array_map('intval', $member_ids)));
         if (!$member_ids) {
             return;
@@ -118,7 +118,7 @@ class AVBK_Import {
         foreach ($member_ids as $i => $member_id) {
             $this_share = ($i === $n - 1) ? round($remaining_total, 2) : $share;
             $remaining_total -= $this_share;
-            self::allocate_to_open_items($transaction_id, $member_id, $this_share, $type_hint);
+            self::allocate_to_open_items($transaction_id, $member_id, $this_share, $type_hints);
             if ($iban !== '') {
                 AVBK_DB::remember_iban($member_id, $iban);
             }
@@ -130,7 +130,7 @@ class AVBK_Import {
      * Confirms a review-queue row with an explicit treasurer-chosen split
      * (member_id => amount), rather than an even split.
      */
-    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?string $type_hint = null): void {
+    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null): void {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return;
@@ -141,7 +141,7 @@ class AVBK_Import {
             if ($member_id <= 0 || $amount <= 0) {
                 continue;
             }
-            self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hint);
+            self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
             if ($tx->counterparty_iban !== '') {
                 AVBK_DB::remember_iban($member_id, $tx->counterparty_iban);
             }
@@ -151,17 +151,19 @@ class AVBK_Import {
 
     /**
      * Allocates $amount to a member's open fee items, oldest first
-     * (matching $type_hint's items first when given), leaving any
-     * un-allocatable remainder simply unallocated — an overpayment or a
-     * payment with nothing open to apply it to isn't modeled as a credit
-     * balance in this version; the treasurer sees it as a partly-applied
-     * transaction in "Alle transacties".
+     * (matching any of $type_hints first when given — a "kamp en
+     * contributie" payment can rightly pay off both fee types from one
+     * transaction), leaving any un-allocatable remainder simply
+     * unallocated — an overpayment or a payment with nothing open to
+     * apply it to isn't modeled as a credit balance in this version; the
+     * treasurer sees it as a partly-applied transaction in "Alle
+     * transacties".
      */
-    private static function allocate_to_open_items(int $transaction_id, int $member_id, float $amount, ?string $type_hint): void {
+    private static function allocate_to_open_items(int $transaction_id, int $member_id, float $amount, ?array $type_hints): void {
         $open_items = AVBK_DB::get_open_fee_items_for_member($member_id);
-        if ($type_hint) {
-            usort($open_items, function ($a, $b) use ($type_hint) {
-                return ($b->type === $type_hint) <=> ($a->type === $type_hint);
+        if ($type_hints) {
+            usort($open_items, function ($a, $b) use ($type_hints) {
+                return (int) in_array($b->type, $type_hints, true) <=> (int) in_array($a->type, $type_hints, true);
             });
         }
 

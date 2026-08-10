@@ -62,21 +62,29 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
 
     <?php foreach ($queue as $tx) :
         $suggested_ids = array_filter(array_map('intval', explode(',', $tx->suggested_member_ids)));
+        $suggested_types = array_values(array_filter(explode(',', $tx->suggested_type)));
 
         // Default each candidate's split to what they actually owe (nights
         // x day-rate for a camp, their age-bracket rate for contribution)
         // rather than blindly splitting the payment evenly — only members
         // with no determinable fee item fall back to an even share of
-        // whatever's left.
+        // whatever's left. A description can name both fee types at once
+        // ("KAMP EN CONTRIBUTIE 2026"), so sum across every type it
+        // mentions, not just one.
         $known_shares = [];
         $known_nights = [];
         $known_dates = [];
         $known_edit_url = [];
         $known_ages = [];
         foreach ($suggested_ids as $member_id) {
-            $item = $tx->suggested_type ? AVBK_DB::find_relevant_open_fee_item($member_id, $tx->suggested_type) : null;
-            if ($item) {
-                $known_shares[$member_id] = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            foreach ($suggested_types as $type) {
+                $item = AVBK_DB::find_relevant_open_fee_item($member_id, $type);
+                if (!$item) {
+                    continue;
+                }
+                $known_shares[$member_id] = ($known_shares[$member_id] ?? 0)
+                    + round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+
                 if ($item->type === 'contribution') {
                     $member = AVPVH_DB::get_member($member_id);
                     if ($member && $member->birth_date) {
@@ -106,6 +114,9 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     }
                 }
             }
+            if (isset($known_shares[$member_id])) {
+                $known_shares[$member_id] = round($known_shares[$member_id], 2);
+            }
         }
         $unknown_ids = array_values(array_diff($suggested_ids, array_keys($known_shares)));
         $remaining_for_unknown = round((float) $tx->amount - array_sum($known_shares), 2);
@@ -125,14 +136,9 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 <input type="hidden" name="action" value="avbk_confirm_transaction">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
-                <label>
-                    Type:
-                    <select name="type">
-                        <option value="">&mdash;</option>
-                        <option value="contribution" <?php selected($tx->suggested_type, 'contribution'); ?>>Contributie</option>
-                        <option value="camp" <?php selected($tx->suggested_type, 'camp'); ?>>Kamp</option>
-                    </select>
-                </label>
+                <label>Type:</label>
+                <label><input type="checkbox" name="type[]" value="contribution" <?php checked(in_array('contribution', $suggested_types, true)); ?>> Contributie</label>
+                <label><input type="checkbox" name="type[]" value="camp" <?php checked(in_array('camp', $suggested_types, true)); ?>> Kamp</label>
 
                 <table class="avbk-review-split">
                     <?php
@@ -144,22 +150,21 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
                             <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
                                 <?php if (isset($known_shares[$member_id])) :
-                                    $detail_label = null;
-                                    $detail_parts = [];
-                                    if (isset($known_nights[$member_id])) {
-                                        $detail_label = 'inschrijving';
-                                        $detail_parts[] = esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en');
-                                    }
-                                    if (isset($known_dates[$member_id])) {
-                                        $detail_parts[] = esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1])));
-                                    }
+                                    // Both fragments can apply at once ("kamp en contributie" for the same person) — show each labeled separately rather than one label overwriting the other.
+                                    $fragments = [];
                                     if (isset($known_ages[$member_id])) {
-                                        $detail_label = 'leeftijd';
-                                        $detail_parts[] = esc_html($known_ages[$member_id]) . ' jaar';
+                                        $fragments[] = 'leeftijd: ' . esc_html($known_ages[$member_id]) . ' jaar';
+                                    }
+                                    if (isset($known_nights[$member_id])) {
+                                        $nights_parts = [esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en')];
+                                        if (isset($known_dates[$member_id])) {
+                                            $nights_parts[] = esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1])));
+                                        }
+                                        $fragments[] = 'inschrijving: ' . implode(', ', $nights_parts);
                                     }
                                     ?>
-                                    <?php if ($detail_parts) : ?>
-                                        <span class="description"><?php echo esc_html($detail_label); ?>: <?php echo implode(', ', $detail_parts); ?></span>
+                                    <?php if ($fragments) : ?>
+                                        <span class="description"><?php echo implode(' &middot; ', $fragments); ?></span>
                                     <?php endif; ?>
                                     <?php if (isset($known_edit_url[$member_id])) : ?>
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>

@@ -96,7 +96,11 @@ class AVBK_Admin {
         }
 
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
-        $type_hint = sanitize_key($_POST['type'] ?? '') ?: null;
+        $type_hints = array_values(array_intersect(
+            array_map('sanitize_key', (array) ($_POST['type'] ?? [])),
+            ['contribution', 'camp']
+        ));
+        $type_hints = $type_hints ?: null;
         $member_ids = array_map('intval', (array) ($_POST['member_id'] ?? []));
         $amounts = array_map(fn($a) => (float) str_replace(',', '.', (string) $a), (array) ($_POST['amount'] ?? []));
 
@@ -108,7 +112,7 @@ class AVBK_Admin {
         }
 
         if ($transaction_id && $member_amounts) {
-            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hint);
+            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirmed' => '1'], admin_url('admin.php')));
