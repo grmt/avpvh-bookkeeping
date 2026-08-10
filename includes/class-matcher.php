@@ -177,16 +177,13 @@ class AVBK_Matcher {
             return null;
         }
 
+        $needle_tokens = array_values(array_filter(explode(' ', $needle)));
+
         $best = null;
         $best_score = 0;
         foreach ($members as $member) {
             $full = self::normalize(avpvh_format_name($member));
-            similar_text($needle, $full, $pct);
-            // A bare first name ("Timo") against a full name ("Timo
-            // Bergsma") scores low on similar_text purely from length —
-            // give it credit when it's an exact match of the first token.
-            $first_token_bonus = (strtok($full, ' ') === strtok($needle, ' ')) ? 25 : 0;
-            $score = min(100, (int) round($pct + $first_token_bonus));
+            $score = self::name_score($needle, $needle_tokens, $full);
             if ($score > $best_score) {
                 $best_score = $score;
                 $best = $member;
@@ -194,5 +191,38 @@ class AVBK_Matcher {
         }
 
         return ($best && $best_score >= self::MIN_SCORE) ? ['member' => $best, 'score' => $best_score] : null;
+    }
+
+    /**
+     * Order-insensitive: bank payer fields are routinely "LASTNAME
+     * FIRSTNAME" (e.g. "JANSEN PIET"), which a plain character-similarity
+     * comparison against "Piet Jansen" scores badly on purely because the
+     * words are swapped — similar_text finds the longest common
+     * *substring*, and a swap can shorten that a lot even though every word
+     * matches. Score by how many needle tokens appear as a whole word (or a
+     * significant prefix, so "Timo" still matches "Timo Bergsma") in
+     * the full name, regardless of order, and only fall back to raw
+     * character similarity as a floor for close-but-not-token-exact cases.
+     */
+    private static function name_score(string $needle, array $needle_tokens, string $full): int {
+        if (!$needle_tokens) {
+            return 0;
+        }
+        $full_tokens = array_values(array_filter(explode(' ', $full)));
+        $matched = 0;
+        foreach ($needle_tokens as $nt) {
+            foreach ($full_tokens as $ft) {
+                if ($nt === $ft || (mb_strlen($nt) >= 3 && mb_strlen($ft) >= 3
+                        && (str_starts_with($ft, $nt) || str_starts_with($nt, $ft)))) {
+                    $matched++;
+                    break;
+                }
+            }
+        }
+        $token_score = ($matched / count($needle_tokens)) * 100;
+
+        similar_text($needle, $full, $char_pct);
+
+        return (int) round(max($token_score, $char_pct));
     }
 }
