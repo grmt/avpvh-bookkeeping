@@ -127,14 +127,17 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
                             <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
                                 <?php if (isset($known_shares[$member_id])) :
-                                    $nights_text = isset($known_nights[$member_id])
-                                        ? ', ' . esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en')
-                                        : '';
-                                    $dates_text = isset($known_dates[$member_id])
-                                        ? ' (' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1]))) . ')'
-                                        : '';
+                                    $detail_parts = [];
+                                    if (isset($known_nights[$member_id])) {
+                                        $detail_parts[] = esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en');
+                                    }
+                                    if (isset($known_dates[$member_id])) {
+                                        $detail_parts[] = esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1])));
+                                    }
                                     ?>
-                                    <span class="description">(eigen bijdrage<?php echo $nights_text . $dates_text; ?>)</span>
+                                    <?php if ($detail_parts) : ?>
+                                        <span class="description">(<?php echo implode(', ', $detail_parts); ?>)</span>
+                                    <?php endif; ?>
                                     <?php if (isset($known_edit_url[$member_id])) : ?>
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>
                                     <?php endif; ?>
