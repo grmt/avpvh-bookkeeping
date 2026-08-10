@@ -64,6 +64,44 @@ class AVBK_Import {
     }
 
     /**
+     * Re-runs matching against every still-open review-queue row (status
+     * 'suggested' or 'unmatched') using the *current* AVBK_Matcher —
+     * without re-reading the export file, whose rows are already in the DB
+     * and would just be skipped by the dedupe check on re-upload. Needed
+     * because a matcher fix/improvement doesn't retroactively touch
+     * suggestions computed by the old code at import time. Returns how
+     * many rows changed (newly auto-applied, or just got a different
+     * suggestion).
+     */
+    public static function recompute_suggestions(): int {
+        $changed = 0;
+        foreach (AVBK_DB::get_review_queue() as $tx) {
+            $type_hint = AVBK_Matcher::classify_type($tx->description);
+
+            $ref_member_id = AVBK_Matcher::match_reference_code($tx->description);
+            $iban_member_id = AVBK_DB::find_member_id_by_iban($tx->counterparty_iban);
+            $confident_member_id = $ref_member_id ?: $iban_member_id;
+
+            if ($confident_member_id && AVPVH_DB::get_member($confident_member_id)) {
+                self::apply_payment((int) $tx->id, [$confident_member_id], (float) $tx->amount, $tx->counterparty_iban, $type_hint);
+                $changed++;
+                continue;
+            }
+
+            $candidates = AVBK_Matcher::find_candidates($tx->counterparty_name, $tx->description);
+            $new_status = $candidates ? 'suggested' : 'unmatched';
+            $new_ids = implode(',', array_map(fn($c) => $c['member']->id, $candidates));
+            $new_type = $type_hint ?? '';
+
+            if ($new_status !== $tx->status || $new_ids !== $tx->suggested_member_ids || $new_type !== $tx->suggested_type) {
+                AVBK_DB::update_transaction_suggestion((int) $tx->id, $new_status, $new_ids, $new_type);
+                $changed++;
+            }
+        }
+        return $changed;
+    }
+
+    /**
      * Splits $amount evenly across $member_ids (remainder cent-rounding on
      * the last member), allocates each share to that member's open fee
      * items oldest-first, and remembers the IBAN for next time.

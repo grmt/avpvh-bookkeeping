@@ -45,9 +45,18 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         <div class="notice notice-success"><p>Transactie bevestigd.</p></div>
     <?php elseif (isset($_GET['ignored'])) : ?>
         <div class="notice notice-success"><p>Transactie genegeerd.</p></div>
+    <?php elseif (isset($_GET['recomputed'])) : ?>
+        <div class="notice notice-success"><p><?php echo esc_html((int) $_GET['recomputed']); ?> transactie(s) opnieuw beoordeeld.</p></div>
     <?php endif; ?>
 
-    <?php if (!$queue) : ?>
+    <?php if ($queue) : ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:1rem">
+            <?php wp_nonce_field('avbk_recompute_suggestions'); ?>
+            <input type="hidden" name="action" value="avbk_recompute_suggestions">
+            <button type="submit" class="button">Suggesties opnieuw berekenen</button>
+            <span class="description">Gebruik dit na een verbetering aan de koppel-logica &mdash; werkt de suggesties hieronder bij zonder het bankbestand opnieuw te hoeven uploaden.</span>
+        </form>
+    <?php else : ?>
         <p>Niets te controleren &mdash; alles is automatisch gekoppeld of er is nog niets geïmporteerd.</p>
     <?php endif; ?>
 

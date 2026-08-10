@@ -479,6 +479,15 @@ class AVBK_DB {
         $wpdb->update("{$wpdb->prefix}avb_transactions", ['status' => $status], ['id' => $id]);
     }
 
+    public static function update_transaction_suggestion(int $id, string $status, string $suggested_member_ids, string $suggested_type): void {
+        global $wpdb;
+        $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['status' => $status, 'suggested_member_ids' => $suggested_member_ids, 'suggested_type' => $suggested_type],
+            ['id' => $id]
+        );
+    }
+
     /** Rows still needing the treasurer's attention — everything else applied itself. */
     public static function get_review_queue(): array {
         global $wpdb;
