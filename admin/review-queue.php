@@ -1,0 +1,100 @@
+<?php
+defined('ABSPATH') || exit;
+if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
+    wp_die('Geen toegang.');
+}
+
+$queue = AVBK_DB::get_review_queue();
+$all_members = AVPVH_DB::get_members(['status' => 'active']);
+
+function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
+    ?>
+    <select name="<?php echo esc_attr($name); ?>">
+        <option value="">&mdash; kies lid &mdash;</option>
+        <?php foreach ($members as $m) : ?>
+            <option value="<?php echo esc_attr($m->id); ?>" <?php selected($selected_id, (int) $m->id); ?>>
+                <?php echo esc_html(avpvh_format_name($m, 'list')); ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <?php
+}
+?>
+<div class="wrap">
+    <h1>Te controleren transacties</h1>
+
+    <?php if (isset($_GET['imported'])) : ?>
+        <div class="notice notice-success">
+            <p><?php echo esc_html((int) ($_GET['row_count'] ?? 0)); ?> nieuwe transactie(s) geïmporteerd,
+               <?php echo esc_html((int) ($_GET['matched_count'] ?? 0)); ?> daarvan automatisch gekoppeld.</p>
+        </div>
+    <?php elseif (isset($_GET['confirmed'])) : ?>
+        <div class="notice notice-success"><p>Transactie bevestigd.</p></div>
+    <?php elseif (isset($_GET['ignored'])) : ?>
+        <div class="notice notice-success"><p>Transactie genegeerd.</p></div>
+    <?php endif; ?>
+
+    <?php if (!$queue) : ?>
+        <p>Niets te controleren &mdash; alles is automatisch gekoppeld of er is nog niets geïmporteerd.</p>
+    <?php endif; ?>
+
+    <?php foreach ($queue as $tx) :
+        $suggested_ids = array_filter(array_map('intval', explode(',', $tx->suggested_member_ids)));
+        $n = max(1, count($suggested_ids));
+        $even_share = round((float) $tx->amount / $n, 2);
+        ?>
+        <div class="avbk-review-row">
+            <div class="avbk-review-row-header">
+                <strong><?php echo esc_html(wp_date('d-m-Y', strtotime($tx->transaction_date))); ?></strong>
+                &mdash; <strong>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></strong>
+                &mdash; <?php echo esc_html($tx->counterparty_name); ?>
+                <?php if ($tx->status === 'unmatched') : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
+            </div>
+            <p class="description"><?php echo esc_html($tx->description); ?></p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form">
+                <?php wp_nonce_field('avbk_confirm_transaction'); ?>
+                <input type="hidden" name="action" value="avbk_confirm_transaction">
+                <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+
+                <label>
+                    Type:
+                    <select name="type">
+                        <option value="">&mdash;</option>
+                        <option value="contribution" <?php selected($tx->suggested_type, 'contribution'); ?>>Contributie</option>
+                        <option value="camp" <?php selected($tx->suggested_type, 'camp'); ?>>Kamp</option>
+                    </select>
+                </label>
+
+                <table class="avbk-review-split">
+                    <?php
+                    $row_index = 0;
+                    foreach ($suggested_ids as $member_id) :
+                        $share = ($row_index === $n - 1) ? round((float) $tx->amount - $even_share * ($n - 1), 2) : $even_share;
+                        ?>
+                        <tr>
+                            <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
+                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6"></td>
+                        </tr>
+                    <?php $row_index++; endforeach;
+
+                    // A few blank slots to add members the suggestion missed, or to split a payment across more people than guessed.
+                    for ($extra = 0; $extra < 3; $extra++, $row_index++) : ?>
+                        <tr>
+                            <td><?php avbk_member_select("member_id[$row_index]", $all_members); ?></td>
+                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="" size="6" placeholder="0,00"></td>
+                        </tr>
+                    <?php endfor; ?>
+                </table>
+
+                <?php submit_button('Bevestigen', 'primary', 'submit', false); ?>
+            </form>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">
+                <?php wp_nonce_field('avbk_ignore_transaction'); ?>
+                <input type="hidden" name="action" value="avbk_ignore_transaction">
+                <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                <?php submit_button('Negeren (geen bijdrage)', 'secondary', 'submit', false); ?>
+            </form>
+        </div>
+    <?php endforeach; ?>
+</div>

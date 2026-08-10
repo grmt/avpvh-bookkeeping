@@ -1,0 +1,31 @@
+.avbk-balance {
+    margin: 1.5rem 0;
+}
+
+.avbk-balance-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.avbk-balance-table th,
+.avbk-balance-table td {
+    padding: .5rem .75rem;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+}
+
+.avbk-balance-table tfoot th {
+    border-top: 2px solid #333;
+    border-bottom: none;
+}
+
+.avbk-balance-qr {
+    max-width: 200px;
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.avbk-balance-qr svg {
+    width: 100%;
+    height: auto;
+}
