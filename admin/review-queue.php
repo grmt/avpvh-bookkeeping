@@ -63,10 +63,18 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         $known_nights = [];
         $known_dates = [];
         $known_edit_url = [];
+        $known_ages = [];
         foreach ($suggested_ids as $member_id) {
             $item = $tx->suggested_type ? AVBK_DB::find_relevant_open_fee_item($member_id, $tx->suggested_type) : null;
             if ($item) {
                 $known_shares[$member_id] = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+                if ($item->type === 'contribution') {
+                    $member = AVPVH_DB::get_member($member_id);
+                    if ($member && $member->birth_date) {
+                        $year = (int) ($item->year ?: current_time('Y'));
+                        $known_ages[$member_id] = AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01");
+                    }
+                }
                 if ($item->type === 'camp' && $item->camp_id) {
                     $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
                     if ($participation && $participation->nights) {
@@ -127,16 +135,22 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
                             <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
                                 <?php if (isset($known_shares[$member_id])) :
+                                    $detail_label = null;
                                     $detail_parts = [];
                                     if (isset($known_nights[$member_id])) {
+                                        $detail_label = 'inschrijving';
                                         $detail_parts[] = esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en');
                                     }
                                     if (isset($known_dates[$member_id])) {
                                         $detail_parts[] = esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1])));
                                     }
+                                    if (isset($known_ages[$member_id])) {
+                                        $detail_label = 'leeftijd';
+                                        $detail_parts[] = esc_html($known_ages[$member_id]) . ' jaar';
+                                    }
                                     ?>
                                     <?php if ($detail_parts) : ?>
-                                        <span class="description">inschrijving: <?php echo implode(', ', $detail_parts); ?></span>
+                                        <span class="description"><?php echo esc_html($detail_label); ?>: <?php echo implode(', ', $detail_parts); ?></span>
                                     <?php endif; ?>
                                     <?php if (isset($known_edit_url[$member_id])) : ?>
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>

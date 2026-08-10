@@ -102,8 +102,12 @@ class AVBK_Fee_Generation {
         return true;
     }
 
-    /** Age in whole years as of $reference_date (not "now" — needed to generate correct rates for past/future years). */
-    private static function age_on(string $birth_date, string $reference_date): int {
+    /**
+     * Age in whole years as of $reference_date (not "now" — needed to
+     * generate correct rates for past/future years). Public so admin
+     * screens can show "why this rate" too (e.g. the review queue).
+     */
+    public static function age_on(string $birth_date, string $reference_date): int {
         $birth = new \DateTime($birth_date);
         $ref = new \DateTime($reference_date);
         return $birth->diff($ref)->y;
