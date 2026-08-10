@@ -7,6 +7,19 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 $queue = AVBK_DB::get_review_queue();
 $all_members = AVPVH_DB::get_members(['status' => 'active']);
 
+// The bank description is a flat "Naam: X Omschrijving: Y IBAN: Z ..."
+// string — bold the field labels so it reads as a mini key/value list
+// instead of a wall of text. Escape first, then bold the (already-safe,
+// no HTML-special-character) label text; never the other way round.
+function avbk_format_description(string $description): string {
+    $escaped = esc_html($description);
+    $labels = ['Naam:', 'Omschrijving:', 'IBAN:', 'Datum/Tijd:', 'Valutadatum:', 'Kenmerk:', 'Overige partij:', 'Mutatiesoort:'];
+    foreach ($labels as $label) {
+        $escaped = preg_replace('/(?<=^|\s)' . preg_quote($label, '/') . '/', '<strong>' . $label . '</strong>', $escaped);
+    }
+    return $escaped;
+}
+
 function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
     ?>
     <select name="<?php echo esc_attr($name); ?>">
@@ -64,7 +77,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 &mdash; <?php echo esc_html($tx->counterparty_name); ?>
                 <?php if ($tx->status === 'unmatched') : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
             </div>
-            <p class="description"><?php echo esc_html($tx->description); ?></p>
+            <p class="description"><?php echo avbk_format_description($tx->description); ?></p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form">
                 <?php wp_nonce_field('avbk_confirm_transaction'); ?>
