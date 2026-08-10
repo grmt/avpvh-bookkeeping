@@ -60,10 +60,17 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         // with no determinable fee item fall back to an even share of
         // whatever's left.
         $known_shares = [];
+        $known_nights = [];
         foreach ($suggested_ids as $member_id) {
             $item = $tx->suggested_type ? AVBK_DB::find_relevant_open_fee_item($member_id, $tx->suggested_type) : null;
             if ($item) {
                 $known_shares[$member_id] = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+                if ($item->type === 'camp' && $item->camp_id) {
+                    $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
+                    if ($participation && $participation->nights) {
+                        $known_nights[$member_id] = (int) $participation->nights;
+                    }
+                }
             }
         }
         $unknown_ids = array_values(array_diff($suggested_ids, array_keys($known_shares)));
@@ -103,7 +110,9 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
                             <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
                                 <?php if (isset($known_shares[$member_id])) : ?>
-                                    <span class="description">(eigen bijdrage)</span>
+                                    <span class="description">
+                                        (eigen bijdrage<?php echo isset($known_nights[$member_id]) ? ', ' . esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en') : ''; ?>)
+                                    </span>
                                 <?php endif; ?>
                             </td>
                         </tr>
