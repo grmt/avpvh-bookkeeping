@@ -52,7 +52,7 @@ class AVBK_Import {
                 continue;
             }
 
-            $candidates = AVBK_Matcher::find_candidates($tx['counterparty_name'], $tx['description']);
+            $candidates = self::find_candidates_for_row($tx['counterparty_iban'], $tx['counterparty_name'], $tx['description']);
             $tx['status'] = $candidates ? 'suggested' : 'unmatched';
             $tx['suggested_member_ids'] = implode(',', array_map(fn($c) => $c['member']->id, $candidates));
             $tx['suggested_type'] = implode(',', $type_hints);
@@ -88,7 +88,7 @@ class AVBK_Import {
                 continue;
             }
 
-            $candidates = AVBK_Matcher::find_candidates($tx->counterparty_name, $tx->description);
+            $candidates = self::find_candidates_for_row($tx->counterparty_iban, $tx->counterparty_name, $tx->description);
             $new_status = $candidates ? 'suggested' : 'unmatched';
             $new_ids = implode(',', array_map(fn($c) => $c['member']->id, $candidates));
             $new_type = implode(',', $type_hints);
@@ -102,9 +102,35 @@ class AVBK_Import {
     }
 
     /**
+     * A known IBAN with 2+ remembered owners (joint account) is a stronger
+     * signal than a fuzzy name guess — surface all of them as high-
+     * confidence candidates before falling back to name matching. A single-
+     * owner IBAN is handled earlier as an auto-apply, not here.
+     */
+    private static function find_candidates_for_row(string $counterparty_iban, string $counterparty_name, string $description): array {
+        if ($counterparty_iban !== '') {
+            $joint_owner_ids = AVBK_DB::get_member_ids_by_iban($counterparty_iban);
+            if (count($joint_owner_ids) >= 2) {
+                $candidates = [];
+                foreach ($joint_owner_ids as $member_id) {
+                    $member = AVPVH_DB::get_member($member_id);
+                    if ($member) {
+                        $candidates[] = ['member' => $member, 'score' => 90];
+                    }
+                }
+                if ($candidates) {
+                    return $candidates;
+                }
+            }
+        }
+        return AVBK_Matcher::find_candidates($counterparty_name, $description);
+    }
+
+    /**
      * Splits $amount evenly across $member_ids (remainder cent-rounding on
      * the last member), allocates each share to that member's open fee
-     * items oldest-first, and remembers the IBAN for next time.
+     * items oldest-first, and — only when this transaction pays for
+     * exactly one member — remembers the IBAN for next time.
      */
     public static function apply_payment(int $transaction_id, array $member_ids, float $amount, string $iban, ?array $type_hints = null): void {
         $member_ids = array_values(array_unique(array_map('intval', $member_ids)));
@@ -119,9 +145,9 @@ class AVBK_Import {
             $this_share = ($i === $n - 1) ? round($remaining_total, 2) : $share;
             $remaining_total -= $this_share;
             self::allocate_to_open_items($transaction_id, $member_id, $this_share, $type_hints);
-            if ($iban !== '') {
-                AVBK_DB::remember_iban($member_id, $iban);
-            }
+        }
+        if ($iban !== '' && $n === 1) {
+            AVBK_DB::remember_iban($member_ids[0], $iban);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
     }
@@ -135,6 +161,7 @@ class AVBK_Import {
         if (!$tx) {
             return;
         }
+        $paid_member_ids = [];
         foreach ($member_amounts as $member_id => $amount) {
             $member_id = (int) $member_id;
             $amount = (float) $amount;
@@ -142,9 +169,16 @@ class AVBK_Import {
                 continue;
             }
             self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
-            if ($tx->counterparty_iban !== '') {
-                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban);
-            }
+            $paid_member_ids[] = $member_id;
+        }
+        // An IBAN only ever gets remembered for a single, unambiguous
+        // payer/recipient — a treasurer paying on behalf of someone else
+        // (or a family paying for several members at once) must never
+        // teach the system "this IBAN belongs to" whoever it happened to
+        // be split across this one time, or a future payment from that
+        // same account would auto-match to the wrong person.
+        if ($tx->counterparty_iban !== '' && count($paid_member_ids) === 1) {
+            AVBK_DB::remember_iban($paid_member_ids[0], $tx->counterparty_iban);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
     }

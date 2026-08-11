@@ -164,9 +164,17 @@ class AVBK_Matcher {
         return trim(preg_replace('/\s+via\s+.*/iu', '', $name));
     }
 
-    /** Splits on the connectors seen in real payer/beneficiary text: comma, " - ", " en ", "e/o" (en/of). */
+    /**
+     * Splits on the connectors seen in real payer/beneficiary text: comma,
+     * " - ", " en ", "e/o" (en/of). The hyphen separator requires actual
+     * surrounding whitespace ("van Groen W. - van Mulder L.") — a bare hyphen
+     * with no spaces is a compound surname, not a joiner (a real example:
+     * "J F M Aziz-Dekker" is one person, not "Aziz" and "Dekker"; a bare
+     * "-" split wrongly cut it into two names and one half then happened to
+     * exact-match an unrelated member named "Aziz").
+     */
     private static function split_names(string $text): array {
-        $parts = preg_split('/\s*(?:,|;|\bes?\/o\b|\ben\b|-)\s*/iu', $text);
+        $parts = preg_split('/\s*[,;]\s*|\bes?\/o\b|\ben\b|\s+-\s+/iu', $text);
         return array_values(array_filter(array_map('trim', $parts), fn($p) => mb_strlen($p) >= 2));
     }
 
@@ -207,10 +215,15 @@ class AVBK_Matcher {
      * comparison against "Piet Jansen" scores badly on purely because the
      * words are swapped — similar_text finds the longest common
      * *substring*, and a swap can shorten that a lot even though every word
-     * matches. Score by how many needle tokens appear as a whole word (or a
-     * significant prefix, so "Timo" still matches "Timo Bergsma") in
+     * matches. Score by how many needle tokens appear as a whole word in
      * the full name, regardless of order, and only fall back to raw
      * character similarity as a floor for close-but-not-token-exact cases.
+     *
+     * Deliberately exact-match only, no prefix matching: a prefix rule
+     * ("Aziz" is a text-prefix of "Aziz-Dekker") wrongly treated two
+     * different members' surnames as a match just because one is a
+     * hyphenated compound sharing a root with the other's plain surname —
+     * exact-token-or-character-similarity-floor is a safer combination.
      */
     private static function name_score(string $needle, array $needle_tokens, string $full): int {
         if (!$needle_tokens) {
@@ -219,12 +232,8 @@ class AVBK_Matcher {
         $full_tokens = array_values(array_filter(explode(' ', $full)));
         $matched = 0;
         foreach ($needle_tokens as $nt) {
-            foreach ($full_tokens as $ft) {
-                if ($nt === $ft || (mb_strlen($nt) >= 3 && mb_strlen($ft) >= 3
-                        && (str_starts_with($ft, $nt) || str_starts_with($nt, $ft)))) {
-                    $matched++;
-                    break;
-                }
+            if (in_array($nt, $full_tokens, true)) {
+                $matched++;
             }
         }
         $token_score = ($matched / count($needle_tokens)) * 100;

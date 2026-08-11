@@ -102,13 +102,20 @@ class AVBK_DB {
             KEY member_id (member_id)
         ) $charset;");
 
+        // An IBAN is not 1:1 with a member — bank accounts are held in a
+        // name, and one member can have several accounts, but a joint
+        // account (a real example: "H. Post e/o M.C. Hendriks") also
+        // genuinely belongs to more than one member at once. So this is a
+        // plain many-to-many table: unique per (iban, member_id) pair, not
+        // per iban.
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_known_ibans (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NOT NULL,
             iban VARCHAR(34) NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            UNIQUE KEY iban (iban),
+            UNIQUE KEY iban_member (iban, member_id),
+            KEY iban (iban),
             KEY member_id (member_id)
         ) $charset;");
 
@@ -156,6 +163,27 @@ class AVBK_DB {
                     ADD COLUMN for_students TINYINT(1) UNSIGNED NOT NULL DEFAULT 0 AFTER max_age");
             }
             update_option('avbk_db_version', '1.3');
+        }
+        if (version_compare($version, '1.4', '<')) {
+            // avb_known_ibans was 1:1 (unique per iban) — a joint account
+            // genuinely belongs to more than one member, so it needs to be
+            // many-to-many (unique per iban+member pair instead). Existing
+            // rows are already unique per iban, so they satisfy the new
+            // constraint unchanged.
+            $indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}avb_known_ibans WHERE Key_name = 'iban'");
+            $has_old_unique_iban = false;
+            foreach ($indexes as $idx) {
+                if ((int) $idx->Non_unique === 0) {
+                    $has_old_unique_iban = true;
+                }
+            }
+            if ($has_old_unique_iban) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_known_ibans DROP INDEX iban");
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_known_ibans
+                    ADD UNIQUE KEY iban_member (iban, member_id),
+                    ADD KEY iban (iban)");
+            }
+            update_option('avbk_db_version', '1.4');
         }
     }
 
@@ -358,6 +386,83 @@ class AVBK_DB {
             $item = self::get_contribution_fee_item($member_id, (int) current_time('Y'));
         }
         return ($item && $item->status === 'open') ? $item : null;
+    }
+
+    /**
+     * Everything the review queue's per-candidate line shows for one member
+     * across the fee types a transaction was tagged with: amount still
+     * open, the age/student or nights/dates fragment, an estimated-amount
+     * warning, and the two "edit" links. Shared between the initial page
+     * render and the AJAX endpoint that refreshes this when the treasurer
+     * swaps the selected member on an already-rendered row — one source of
+     * truth for both so they can never drift out of sync.
+     */
+    public static function get_member_fee_detail(int $member_id, array $types): array {
+        $member = AVPVH_DB::get_member($member_id);
+        $detail = [
+            'share' => 0.0,
+            'fragments_html' => '',
+            'estimated_text' => '',
+            'nights_edit_url' => '',
+            'member_edit_url' => $member ? add_query_arg(['member_id' => $member_id], home_url('/member-profile/')) : '',
+            'found' => false,
+        ];
+        if (!$member) {
+            return $detail;
+        }
+
+        $fragments = [];
+        foreach ($types as $type) {
+            $item = self::find_relevant_open_fee_item($member_id, $type);
+            if (!$item) {
+                continue;
+            }
+            $detail['found'] = true;
+            $detail['share'] += round((float) $item->amount_due - self::get_fee_item_paid((int) $item->id), 2);
+            if (!empty($item->is_estimated)) {
+                $detail['estimated_text'] = "\u{26A0} " . ($item->estimate_reason ?: 'Geschat bedrag.');
+            }
+
+            if ($type === 'contribution') {
+                // Student is a status, not an age bracket — showing an age
+                // next to a student-rate amount would misleadingly imply
+                // age is what set the price.
+                if (!empty($member->is_student)) {
+                    $fragments[] = 'scholier/student';
+                } elseif ($member->birth_date) {
+                    $year = (int) ($item->year ?: current_time('Y'));
+                    $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
+                }
+            }
+            if ($type === 'camp' && $item->camp_id) {
+                $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
+                if ($participation && $participation->nights) {
+                    $nights_parts = [(int) $participation->nights . ' nacht' . ((int) $participation->nights === 1 ? '' : 'en')];
+                    // Actual dates present (not just the night count) — same
+                    // "non-empty status = present" rule the Kampdeelname
+                    // list itself uses for "Dagen aanwezig".
+                    $days = AVPVH_DB::get_participation_days((int) $participation->id);
+                    $present_dates = array_keys(array_filter($days, fn($status) => $status !== ''));
+                    sort($present_dates);
+                    if ($present_dates) {
+                        $nights_parts[] = esc_html(wp_date('D d M', strtotime(reset($present_dates))))
+                            . '&ndash;' . esc_html(wp_date('D d M', strtotime(end($present_dates))));
+                    }
+                    $fragments[] = 'inschrijving: ' . implode(', ', $nights_parts);
+                    $detail['nights_edit_url'] = add_query_arg([
+                        'page' => 'avpvh-kampdeelname-detail',
+                        'camp_id' => (int) $item->camp_id,
+                        'id' => (int) $participation->id,
+                    ], admin_url('admin.php'));
+                }
+            }
+        }
+        $detail['share'] = round($detail['share'], 2);
+        // Each fragment is already safe (plain text, or the date range
+        // which carries a pre-escaped "&ndash;") — esc_html-ing the joined
+        // result here would double-encode that entity.
+        $detail['fragments_html'] = implode(' &middot; ', $fragments);
+        return $detail;
     }
 
     /** Insert or update the member's contribution fee item for $year. Returns the fee_item id. */
@@ -626,36 +731,38 @@ class AVBK_DB {
     // a generic description.
     // -------------------------------------------------------------------
 
+    /** Adds this (iban, member) pairing if it's new — never removes any other member already linked to the same IBAN (joint accounts genuinely belong to more than one person). */
     public static function remember_iban(int $member_id, string $iban): void {
         global $wpdb;
         $iban = strtoupper(str_replace(' ', '', $iban));
         if ($iban === '') {
             return;
         }
-        $existing = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s", $iban
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s AND member_id = %d",
+            $iban, $member_id
         ));
-        if ($existing) {
-            if ((int) $existing->member_id !== $member_id) {
-                // IBAN moved to a different member (e.g. a shared/joint
-                // account previously attributed to someone else) — the
-                // most recent confirmation wins.
-                $wpdb->update("{$wpdb->prefix}avb_known_ibans", ['member_id' => $member_id], ['id' => $existing->id]);
-            }
+        if ($exists) {
             return;
         }
         $wpdb->insert("{$wpdb->prefix}avb_known_ibans", ['member_id' => $member_id, 'iban' => $iban]);
     }
 
-    public static function find_member_id_by_iban(string $iban): ?int {
+    /** Every member known to be associated with this IBAN — could be more than one (joint account). */
+    public static function get_member_ids_by_iban(string $iban): array {
         global $wpdb;
         $iban = strtoupper(str_replace(' ', '', $iban));
         if ($iban === '') {
-            return null;
+            return [];
         }
-        $member_id = $wpdb->get_var($wpdb->prepare(
+        return array_map('intval', $wpdb->get_col($wpdb->prepare(
             "SELECT member_id FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s", $iban
-        ));
-        return $member_id ? (int) $member_id : null;
+        )));
+    }
+
+    /** Only confident when exactly one member is known for this IBAN — a shared/joint account is ambiguous and belongs in manual review, not an auto-match. */
+    public static function find_member_id_by_iban(string $iban): ?int {
+        $member_ids = self::get_member_ids_by_iban($iban);
+        return count($member_ids) === 1 ? $member_ids[0] : null;
     }
 }
