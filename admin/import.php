@@ -26,4 +26,45 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
         </table>
         <?php submit_button('Uploaden en verwerken'); ?>
     </form>
+
+    <h2>Geschiedenis</h2>
+    <?php $batches = AVBK_DB::get_import_batches(); ?>
+    <?php if (!$batches) : ?>
+        <p>Nog geen bankexport geüpload.</p>
+    <?php else : ?>
+        <table class="wp-list-table widefat striped">
+            <thead>
+                <tr>
+                    <th>Geüpload</th>
+                    <th>Bestand</th>
+                    <th>Periode</th>
+                    <th>Rijen</th>
+                    <th>Automatisch gekoppeld</th>
+                    <th>Door</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($batches as $batch) :
+                    $uploader = $batch->uploaded_by ? get_userdata((int) $batch->uploaded_by) : false;
+                    ?>
+                    <tr>
+                        <td><?php echo esc_html(wp_date('D d M Y H:i', strtotime($batch->uploaded_at))); ?></td>
+                        <td><?php echo esc_html($batch->filename); ?></td>
+                        <td>
+                            <?php if ($batch->first_transaction_date && $batch->last_transaction_date) : ?>
+                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->first_transaction_date))); ?>
+                                &ndash;
+                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->last_transaction_date))); ?>
+                            <?php else : ?>
+                                &mdash;
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo esc_html($batch->row_count); ?></td>
+                        <td><?php echo esc_html($batch->matched_count); ?></td>
+                        <td><?php echo esc_html($uploader ? $uploader->display_name : '—'); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
 </div>

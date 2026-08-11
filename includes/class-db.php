@@ -615,10 +615,18 @@ class AVBK_DB {
         );
     }
 
+    /** Each batch plus the date range of the transactions it actually contained — a treasurer re-uploading an export needs to see "which periods have I already covered", not just when/how big each upload was. */
     public static function get_import_batches(int $limit = 50): array {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_import_batches ORDER BY uploaded_at DESC LIMIT %d",
+            "SELECT b.*,
+                    MIN(t.transaction_date) AS first_transaction_date,
+                    MAX(t.transaction_date) AS last_transaction_date
+             FROM {$wpdb->prefix}avb_import_batches b
+             LEFT JOIN {$wpdb->prefix}avb_transactions t ON t.import_batch_id = b.id
+             GROUP BY b.id
+             ORDER BY b.uploaded_at DESC
+             LIMIT %d",
             $limit
         )) ?: [];
     }
