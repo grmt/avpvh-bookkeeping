@@ -47,7 +47,7 @@ class AVBK_Import {
             if ($confident_member_id && AVPVH_DB::get_member($confident_member_id)) {
                 $tx['status'] = 'matched';
                 $tx_id = AVBK_DB::insert_transaction($tx);
-                self::apply_payment($tx_id, [$confident_member_id], $tx['amount'], $tx['counterparty_iban'], $type_hints);
+                self::apply_payment($tx_id, [$confident_member_id], $tx['amount'], $tx['counterparty_iban'], $type_hints, $tx['counterparty_name']);
                 $matched_count++;
                 continue;
             }
@@ -83,7 +83,7 @@ class AVBK_Import {
             $confident_member_id = $ref_member_id ?: $iban_member_id;
 
             if ($confident_member_id && AVPVH_DB::get_member($confident_member_id)) {
-                self::apply_payment((int) $tx->id, [$confident_member_id], (float) $tx->amount, $tx->counterparty_iban, $type_hints);
+                self::apply_payment((int) $tx->id, [$confident_member_id], (float) $tx->amount, $tx->counterparty_iban, $type_hints, $tx->counterparty_name);
                 $changed++;
                 continue;
             }
@@ -130,9 +130,10 @@ class AVBK_Import {
      * Splits $amount evenly across $member_ids (remainder cent-rounding on
      * the last member), allocates each share to that member's open fee
      * items oldest-first, and — only when this transaction pays for
-     * exactly one member — remembers the IBAN for next time.
+     * exactly one member — remembers the IBAN and backfills initials for
+     * next time.
      */
-    public static function apply_payment(int $transaction_id, array $member_ids, float $amount, string $iban, ?array $type_hints = null): void {
+    public static function apply_payment(int $transaction_id, array $member_ids, float $amount, string $iban, ?array $type_hints = null, string $counterparty_name = ''): void {
         $member_ids = array_values(array_unique(array_map('intval', $member_ids)));
         if (!$member_ids) {
             return;
@@ -146,8 +147,11 @@ class AVBK_Import {
             $remaining_total -= $this_share;
             self::allocate_to_open_items($transaction_id, $member_id, $this_share, $type_hints);
         }
-        if ($iban !== '' && $n === 1) {
-            AVBK_DB::remember_iban($member_ids[0], $iban);
+        if ($n === 1) {
+            if ($iban !== '') {
+                AVBK_DB::remember_iban($member_ids[0], $iban);
+            }
+            self::maybe_backfill_initials($member_ids[0], $counterparty_name);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
     }
@@ -171,16 +175,40 @@ class AVBK_Import {
             self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
             $paid_member_ids[] = $member_id;
         }
-        // An IBAN only ever gets remembered for a single, unambiguous
-        // payer/recipient — a treasurer paying on behalf of someone else
-        // (or a family paying for several members at once) must never
-        // teach the system "this IBAN belongs to" whoever it happened to
-        // be split across this one time, or a future payment from that
-        // same account would auto-match to the wrong person.
-        if ($tx->counterparty_iban !== '' && count($paid_member_ids) === 1) {
-            AVBK_DB::remember_iban($paid_member_ids[0], $tx->counterparty_iban);
+        // An IBAN (and the initials backfill below) only ever gets learned
+        // for a single, unambiguous payer/recipient — a treasurer paying on
+        // behalf of someone else (or a family paying for several members at
+        // once) must never teach the system "this account/name belongs to"
+        // whoever it happened to be split across this one time, or a future
+        // payment would auto-match to the wrong person.
+        if (count($paid_member_ids) === 1) {
+            if ($tx->counterparty_iban !== '') {
+                AVBK_DB::remember_iban($paid_member_ids[0], $tx->counterparty_iban);
+            }
+            self::maybe_backfill_initials($paid_member_ids[0], $tx->counterparty_name);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
+    }
+
+    /**
+     * Recognizes "<initials> <surname>" in a bank transaction's own payer
+     * name (e.g. "S J M Kramer") and, only when the member doesn't already
+     * have initials on file, saves it — never overwrites a value someone
+     * already entered, since that may have been sourced from an actual
+     * passport rather than guessed from one bank transaction.
+     */
+    private static function maybe_backfill_initials(int $member_id, string $counterparty_name): void {
+        if ($counterparty_name === '') {
+            return;
+        }
+        $member = AVPVH_DB::get_member($member_id);
+        if (!$member || !empty($member->initials)) {
+            return;
+        }
+        $initials = AVBK_Matcher::extract_initials($counterparty_name, $member->last_name);
+        if ($initials) {
+            AVPVH_DB::update_member_initials($member_id, $initials);
+        }
     }
 
     /**

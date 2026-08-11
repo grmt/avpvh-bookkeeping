@@ -178,6 +178,57 @@ class AVBK_Matcher {
         return array_values(array_filter(array_map('trim', $parts), fn($p) => mb_strlen($p) >= 2));
     }
 
+    /** "S.J.M." -> "S J M" — one token per letter, so it lines up with how normalize() tokenizes bank text like "S J M Kramer" (each initial its own space-separated token). */
+    private static function spaced_initials(string $initials): string {
+        $letters = preg_replace('/[^A-Za-z]/', '', $initials);
+        return implode(' ', str_split($letters));
+    }
+
+    /**
+     * If $counterparty_name is shaped like "<initials> <surname>" (with or
+     * without honorific/periods — "S J M Kramer", "Hr P M H Smits",
+     * "M.C. Hendriks") AND the surname matches $last_name, returns the
+     * canonical "S.J.M." initials string. Returns null for anything else —
+     * including a spelled-out first name ("Simon Kramer") — so this only
+     * ever captures genuine initials, never misfiles a full given name.
+     */
+    public static function extract_initials(string $counterparty_name, string $last_name): ?string {
+        $name = self::strip_via_suffix($counterparty_name);
+        $name = preg_replace('/\b(hr|dhr|mw|mevr|dr|drs|ing|mr)\b\.?/iu', '', $name);
+        $name = trim(preg_replace('/\s+/u', ' ', $name));
+
+        $parts = explode(' ', $name);
+        if (count($parts) < 2) {
+            return null;
+        }
+        $surname = array_pop($parts);
+        if (mb_strtolower($surname) !== mb_strtolower(trim($last_name))) {
+            return null;
+        }
+
+        $letters = '';
+        foreach ($parts as $part) {
+            $had_period = str_contains($part, '.');
+            $part = str_replace('.', '', $part);
+            // A period is strong evidence of a glued multi-initial token
+            // ("R.P.M.E.M." for five given names) — allow it more length
+            // than a bare word, which is more likely a spelled-out name.
+            $max_len = $had_period ? 6 : 4;
+            if ($part === '' || mb_strlen($part) > $max_len || !preg_match('/^[A-Za-z]+$/u', $part)) {
+                return null;
+            }
+            // A period-less, already-lowercase word ("van", "den", "de")
+            // reads as a tussenvoegsel/connector, not initials — bank
+            // exports write real initials capitalized (a lone single
+            // letter is unambiguous either way, so it's still accepted).
+            if (!$had_period && mb_strlen($part) > 1 && $part === mb_strtolower($part)) {
+                return null;
+            }
+            $letters .= mb_strtoupper($part);
+        }
+        return $letters !== '' ? implode('.', str_split($letters)) . '.' : null;
+    }
+
     private static function normalize(string $s): string {
         $s = mb_strtolower($s);
         $s = preg_replace('/\b(hr|dhr|mw|mevr|dr|drs|ing|mr)\b\.?/u', '', $s);
@@ -200,6 +251,17 @@ class AVBK_Matcher {
         foreach ($members as $member) {
             $full = self::normalize(avpvh_format_name($member));
             $score = self::name_score($needle, $needle_tokens, $full);
+
+            // Bank account holders are routinely printed as initials +
+            // surname ("S J M Kramer", "P M H Smits") rather than a full
+            // first name — score against that form too, taking whichever
+            // is higher, since a member's own `first_name` alone would
+            // never token-match multi-letter bank initials.
+            if (!empty($member->initials)) {
+                $initials_full = self::normalize(self::spaced_initials($member->initials) . ' ' . $member->last_name);
+                $score = max($score, self::name_score($needle, $needle_tokens, $initials_full));
+            }
+
             if ($score > $best_score) {
                 $best_score = $score;
                 $best = $member;
