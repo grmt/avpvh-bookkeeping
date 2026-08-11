@@ -39,17 +39,27 @@ class AVBK_Fee_Generation {
         foreach (AVPVH_DB::get_members(['status' => 'active']) as $member) {
             $is_estimated = false;
             $reason = '';
-            if (!empty($member->birth_date)) {
-                $age = self::age_on((string) $member->birth_date, "$year-01-01");
-                $rate = AVBK_DB::get_rate_for_age($year, $age);
-            } else {
-                // No birth date on file — assume adult rather than
-                // silently skipping the member entirely; flag it so the
-                // treasurer can verify/correct instead of the fee item
-                // just never existing.
-                $rate = AVBK_DB::get_adult_contribution_rate($year);
-                $is_estimated = true;
-                $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
+            $rate = null;
+
+            // Student is a status flag, not an age bracket (a 22-year-old
+            // can be either) — it wins over age when set and a student
+            // rate is actually configured.
+            if (!empty($member->is_student)) {
+                $rate = AVBK_DB::get_student_contribution_rate($year);
+            }
+            if (!$rate) {
+                if (!empty($member->birth_date)) {
+                    $age = self::age_on((string) $member->birth_date, "$year-01-01");
+                    $rate = AVBK_DB::get_rate_for_age($year, $age);
+                } else {
+                    // No birth date on file — assume adult rather than
+                    // silently skipping the member entirely; flag it so
+                    // the treasurer can verify/correct instead of the fee
+                    // item just never existing.
+                    $rate = AVBK_DB::get_adult_contribution_rate($year);
+                    $is_estimated = true;
+                    $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
+                }
             }
             if (!$rate) {
                 continue; // no bracket covers this age, or no rates configured at all yet

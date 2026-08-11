@@ -8,11 +8,17 @@ class AVBK_DB {
         $charset = $wpdb->get_charset_collate();
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+        // for_students is independent of the age brackets — "scholier/
+        // student" is a status (AVPVH_DB member.is_student), not derivable
+        // from age alone (a 22-year-old can be either). A for_students=1
+        // row wins over age when the member is flagged, regardless of
+        // min_age/max_age on that row.
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_contribution_rates (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             year SMALLINT UNSIGNED NOT NULL,
             min_age TINYINT UNSIGNED NULL,
             max_age TINYINT UNSIGNED NULL,
+            for_students TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
             label VARCHAR(50) NOT NULL DEFAULT '',
             amount DECIMAL(8,2) NOT NULL,
             PRIMARY KEY (id),
@@ -141,6 +147,16 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.2');
         }
+        if (version_compare($version, '1.3', '<')) {
+            // A student rate is a status flag, not another age bracket —
+            // see the note on the table definition in install().
+            $has_for_students = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_contribution_rates LIKE 'for_students'");
+            if (!$has_for_students) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_contribution_rates
+                    ADD COLUMN for_students TINYINT(1) UNSIGNED NOT NULL DEFAULT 0 AFTER max_age");
+            }
+            update_option('avbk_db_version', '1.3');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -155,12 +171,26 @@ class AVBK_DB {
         )) ?: [];
     }
 
-    /** The rate row covering $age in $year, or null if none configured. */
+    /** The student rate for $year, if one is configured — checked before age, since student is a status flag, not an age bracket. */
+    public static function get_student_contribution_rate(int $year): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates WHERE year = %d AND for_students = 1 LIMIT 1",
+            $year
+        )) ?: null;
+    }
+
+    /**
+     * The rate row covering $age in $year, or null if none configured.
+     * Excludes for_students rows — those only ever apply via the
+     * is_student flag (get_student_contribution_rate), never by
+     * coincidentally matching someone's age.
+     */
     public static function get_rate_for_age(int $year, int $age): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
-             WHERE year = %d
+             WHERE year = %d AND for_students = 0
                AND (min_age IS NULL OR min_age <= %d)
                AND (max_age IS NULL OR max_age >= %d)
              ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
@@ -175,27 +205,29 @@ class AVBK_DB {
      * estimated) rather than being silently skipped. The open-ended
      * (max_age IS NULL) bracket wins if one exists — that's the "everyone
      * else" catch-all in every rate table seen so far — otherwise whichever
-     * bracket has the highest min_age.
+     * bracket has the highest min_age. Excludes for_students rows, same
+     * reason as get_rate_for_age().
      */
     public static function get_adult_contribution_rate(int $year): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
-             WHERE year = %d
+             WHERE year = %d AND for_students = 0
              ORDER BY (max_age IS NULL) DESC, min_age DESC
              LIMIT 1",
             $year
         )) ?: null;
     }
 
-    public static function save_contribution_rate(int $id, int $year, ?int $min_age, ?int $max_age, string $label, float $amount): int {
+    public static function save_contribution_rate(int $id, int $year, ?int $min_age, ?int $max_age, string $label, float $amount, bool $for_students = false): int {
         global $wpdb;
         $data = [
-            'year'    => $year,
-            'min_age' => $min_age,
-            'max_age' => $max_age,
-            'label'   => $label,
-            'amount'  => $amount,
+            'year'         => $year,
+            'min_age'      => $min_age,
+            'max_age'      => $max_age,
+            'for_students' => (int) $for_students,
+            'label'        => $label,
+            'amount'       => $amount,
         ];
         if ($id > 0) {
             $wpdb->update("{$wpdb->prefix}avb_contribution_rates", $data, ['id' => $id]);

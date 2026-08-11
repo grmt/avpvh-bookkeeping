@@ -91,9 +91,14 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
 
                 if ($item->type === 'contribution') {
                     $member = AVPVH_DB::get_member($member_id);
-                    if ($member && $member->birth_date) {
+                    // Student is a status, not an age bracket — showing an
+                    // age next to a student-rate amount would misleadingly
+                    // imply age is what set the price.
+                    if ($member && !empty($member->is_student)) {
+                        $known_ages[$member_id] = 'scholier/student';
+                    } elseif ($member && $member->birth_date) {
                         $year = (int) ($item->year ?: current_time('Y'));
-                        $known_ages[$member_id] = AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01");
+                        $known_ages[$member_id] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
                     }
                 }
                 if ($item->type === 'camp' && $item->camp_id) {
@@ -157,7 +162,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                                     // Both fragments can apply at once ("kamp en contributie" for the same person) — show each labeled separately rather than one label overwriting the other.
                                     $fragments = [];
                                     if (isset($known_ages[$member_id])) {
-                                        $fragments[] = 'leeftijd: ' . esc_html($known_ages[$member_id]) . ' jaar';
+                                        $fragments[] = esc_html($known_ages[$member_id]);
                                     }
                                     if (isset($known_nights[$member_id])) {
                                         $nights_parts = [esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en')];

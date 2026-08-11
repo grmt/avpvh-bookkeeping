@@ -142,11 +142,12 @@ class AVBK_Admin {
         $year = (int) ($_POST['year'] ?? 0);
         $min_age = $_POST['min_age'] !== '' ? (int) $_POST['min_age'] : null;
         $max_age = $_POST['max_age'] !== '' ? (int) $_POST['max_age'] : null;
+        $for_students = !empty($_POST['for_students']);
         $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
         $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
 
         if ($year && $amount > 0) {
-            AVBK_DB::save_contribution_rate($id, $year, $min_age, $max_age, $label, $amount);
+            AVBK_DB::save_contribution_rate($id, $year, $min_age, $max_age, $label, $amount, $for_students);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'rate_saved' => '1', 'year' => $year], admin_url('admin.php')));

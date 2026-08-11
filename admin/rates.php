@@ -29,15 +29,15 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
     <?php endif; ?>
 
     <h2>Contributietarieven</h2>
-    <p class="description">Leeftijd wordt bepaald op 1 januari van het gekozen jaar. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;.</p>
+    <p class="description">Leeftijd wordt bepaald op 1 januari van het gekozen jaar. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd.</p>
     <form method="get" style="margin-bottom:1rem">
         <input type="hidden" name="page" value="avbk-rates">
         <label>Jaar: <input type="number" name="year" value="<?php echo esc_attr($year); ?>" style="width:6em"></label>
         <?php submit_button('Wisselen', 'secondary', '', false); ?>
     </form>
 
-    <table class="wp-list-table widefat striped" style="max-width:700px">
-        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Bedrag</th><th></th></tr></thead>
+    <table class="wp-list-table widefat striped" style="max-width:800px">
+        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Bedrag</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($rates as $rate) : ?>
             <tr>
@@ -49,6 +49,7 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
                     <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%"></td>
                     <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
                     <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
+                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
                     <td>&euro; <input type="text" name="amount" value="<?php echo esc_attr(number_format((float) $rate->amount, 2, ',', '')); ?>" style="width:6em"></td>
                     <td>
                         <button type="submit" class="button button-small">Opslaan</button>
@@ -72,6 +73,7 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
                 <td><input type="text" name="label" placeholder="bijv. Jeugd" style="width:100%"></td>
                 <td><input type="number" name="min_age" style="width:5em"></td>
                 <td><input type="number" name="max_age" style="width:5em"></td>
+                <td style="text-align:center"><input type="checkbox" name="for_students" value="1"></td>
                 <td>&euro; <input type="text" name="amount" placeholder="0,00" style="width:6em"></td>
                 <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
             </form>
