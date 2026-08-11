@@ -44,6 +44,8 @@ class AVBK_DB {
             description VARCHAR(255) NOT NULL DEFAULT '',
             amount_due DECIMAL(8,2) NOT NULL,
             status ENUM('open','waived') NOT NULL DEFAULT 'open',
+            is_estimated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            estimate_reason VARCHAR(255) NOT NULL DEFAULT '',
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY member_id (member_id),
@@ -127,6 +129,18 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.1');
         }
+        if (version_compare($version, '1.2', '<')) {
+            // Fee items generated from an assumed-adult rate (no birth date
+            // on file) get flagged so the treasurer can spot/verify them —
+            // see AVBK_Fee_Generation.
+            $has_is_estimated = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_fee_items LIKE 'is_estimated'");
+            if (!$has_is_estimated) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items
+                    ADD COLUMN is_estimated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0 AFTER status,
+                    ADD COLUMN estimate_reason VARCHAR(255) NOT NULL DEFAULT '' AFTER is_estimated");
+            }
+            update_option('avbk_db_version', '1.2');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -152,6 +166,25 @@ class AVBK_DB {
              ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
              LIMIT 1",
             $year, $age, $age
+        )) ?: null;
+    }
+
+    /**
+     * The "adult" bracket for $year — used when a member's birth date is
+     * unknown so a fee item still generates (assumed adult, flagged as
+     * estimated) rather than being silently skipped. The open-ended
+     * (max_age IS NULL) bracket wins if one exists — that's the "everyone
+     * else" catch-all in every rate table seen so far — otherwise whichever
+     * bracket has the highest min_age.
+     */
+    public static function get_adult_contribution_rate(int $year): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
+             WHERE year = %d
+             ORDER BY (max_age IS NULL) DESC, min_age DESC
+             LIMIT 1",
+            $year
         )) ?: null;
     }
 
@@ -201,6 +234,18 @@ class AVBK_DB {
              ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
              LIMIT 1",
             $camp_id, $age, $age
+        )) ?: null;
+    }
+
+    /** The "adult" bracket for this camp — same fallback rule as get_adult_contribution_rate(). */
+    public static function get_adult_camp_rate(int $camp_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_camp_rates
+             WHERE camp_id = %d
+             ORDER BY (max_age IS NULL) DESC, min_age DESC
+             LIMIT 1",
+            $camp_id
         )) ?: null;
     }
 
@@ -281,49 +326,53 @@ class AVBK_DB {
     }
 
     /** Insert or update the member's contribution fee item for $year. Returns the fee_item id. */
-    public static function upsert_contribution_fee_item(int $member_id, int $year, float $amount, string $description): int {
+    public static function upsert_contribution_fee_item(int $member_id, int $year, float $amount, string $description, bool $is_estimated = false, string $estimate_reason = ''): int {
         global $wpdb;
         $existing = self::get_contribution_fee_item($member_id, $year);
         if ($existing) {
             if ($existing->status === 'open') {
                 $wpdb->update(
                     "{$wpdb->prefix}avb_fee_items",
-                    ['amount_due' => $amount, 'description' => $description],
+                    ['amount_due' => $amount, 'description' => $description, 'is_estimated' => (int) $is_estimated, 'estimate_reason' => $estimate_reason],
                     ['id' => $existing->id]
                 );
             }
             return (int) $existing->id;
         }
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
-            'member_id'   => $member_id,
-            'type'        => 'contribution',
-            'year'        => $year,
-            'description' => $description,
-            'amount_due'  => $amount,
+            'member_id'       => $member_id,
+            'type'            => 'contribution',
+            'year'            => $year,
+            'description'     => $description,
+            'amount_due'      => $amount,
+            'is_estimated'    => (int) $is_estimated,
+            'estimate_reason' => $estimate_reason,
         ]);
         return (int) $wpdb->insert_id;
     }
 
     /** Insert or update the member's camp fee item, kept current as attendance/nights change. Returns the fee_item id. */
-    public static function upsert_camp_fee_item(int $member_id, int $camp_id, float $amount, string $description): int {
+    public static function upsert_camp_fee_item(int $member_id, int $camp_id, float $amount, string $description, bool $is_estimated = false, string $estimate_reason = ''): int {
         global $wpdb;
         $existing = self::get_camp_fee_item($member_id, $camp_id);
         if ($existing) {
             if ($existing->status === 'open') {
                 $wpdb->update(
                     "{$wpdb->prefix}avb_fee_items",
-                    ['amount_due' => $amount, 'description' => $description],
+                    ['amount_due' => $amount, 'description' => $description, 'is_estimated' => (int) $is_estimated, 'estimate_reason' => $estimate_reason],
                     ['id' => $existing->id]
                 );
             }
             return (int) $existing->id;
         }
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
-            'member_id'   => $member_id,
-            'type'        => 'camp',
-            'camp_id'     => $camp_id,
-            'description' => $description,
-            'amount_due'  => $amount,
+            'member_id'       => $member_id,
+            'type'            => 'camp',
+            'camp_id'         => $camp_id,
+            'description'     => $description,
+            'amount_due'      => $amount,
+            'is_estimated'    => (int) $is_estimated,
+            'estimate_reason' => $estimate_reason,
         ]);
         return (int) $wpdb->insert_id;
     }

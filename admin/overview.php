@@ -52,7 +52,7 @@ $members_without_birth_date = array_values(array_filter($members, fn($m) => empt
 
     <?php if ($members_without_birth_date) : ?>
         <div class="notice notice-warning">
-            <p><?php echo esc_html(count($members_without_birth_date)); ?> lid/leden zonder geboortedatum &mdash; contributie- en kampbijdrage kunnen hiervoor niet worden berekend:</p>
+            <p><?php echo esc_html(count($members_without_birth_date)); ?> lid/leden zonder geboortedatum &mdash; hun contributie/kampbijdrage wordt gegenereerd met het volwassen tarief als aanname (gemarkeerd in rood bij hun bijdrage). Voeg de geboortedatum toe en genereer opnieuw om dit te corrigeren:</p>
             <ul style="margin-left:1.5em;list-style:disc">
                 <?php foreach ($members_without_birth_date as $m) : ?>
                     <li><a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $m->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></a></li>

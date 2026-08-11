@@ -27,7 +27,12 @@ $members = AVPVH_DB::get_members(['status' => 'active']);
                     <tr><td colspan="6">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php else : foreach ($balance['items'] as $item) : ?>
                     <tr>
-                        <td><?php echo esc_html($item->description); ?></td>
+                        <td>
+                            <?php echo esc_html($item->description); ?>
+                            <?php if (!empty($item->is_estimated)) : ?>
+                                <br><span style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
+                            <?php endif; ?>
+                        </td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?></td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></td>
@@ -56,11 +61,16 @@ $members = AVPVH_DB::get_members(['status' => 'active']);
             <thead><tr><th>Naam</th><th>Openstaand saldo</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($members as $m) :
-                $balance = AVBK_DB::get_member_balance((int) $m->id); ?>
+                $balance = AVBK_DB::get_member_balance((int) $m->id);
+                $has_estimate = (bool) array_filter($balance['items'], fn($i) => !empty($i->is_estimated) && $i->status === 'open');
+                ?>
                 <tr>
                     <td><?php echo esc_html(avpvh_format_name($m, 'list')); ?></td>
                     <td<?php echo $balance['balance'] > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>
                         &euro; <?php echo esc_html(number_format($balance['balance'], 2, ',', '.')); ?>
+                        <?php if ($has_estimate) : ?>
+                            <span style="color:#b32d2e" title="Bevat een geschat bedrag (geen geboortedatum bekend)">&#9888;</span>
+                        <?php endif; ?>
                     </td>
                     <td><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id)); ?>">Details</a></td>
                 </tr>

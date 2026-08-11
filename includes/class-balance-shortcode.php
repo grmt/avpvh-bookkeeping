@@ -68,7 +68,12 @@ class AVBK_Balance_Shortcode {
                         : ($item->remaining <= 0.005 ? 'Betaald' : 'Open');
                     ?>
                     <tr>
-                        <td><?php echo esc_html($item->description); ?></td>
+                        <td>
+                            <?php echo esc_html($item->description); ?>
+                            <?php if (!empty($item->is_estimated)) : ?>
+                                <br><span style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
+                            <?php endif; ?>
+                        </td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?></td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></td>

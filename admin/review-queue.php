@@ -76,6 +76,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         $known_dates = [];
         $known_edit_url = [];
         $known_ages = [];
+        $known_estimated = [];
         foreach ($suggested_ids as $member_id) {
             foreach ($suggested_types as $type) {
                 $item = AVBK_DB::find_relevant_open_fee_item($member_id, $type);
@@ -84,6 +85,9 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 }
                 $known_shares[$member_id] = ($known_shares[$member_id] ?? 0)
                     + round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+                if (!empty($item->is_estimated)) {
+                    $known_estimated[$member_id] = $item->estimate_reason ?: 'Geschat bedrag.';
+                }
 
                 if ($item->type === 'contribution') {
                     $member = AVPVH_DB::get_member($member_id);
@@ -165,6 +169,9 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                                     ?>
                                     <?php if ($fragments) : ?>
                                         <span class="description"><?php echo implode(' &middot; ', $fragments); ?></span>
+                                    <?php endif; ?>
+                                    <?php if (isset($known_estimated[$member_id])) : ?>
+                                        <br><span style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($known_estimated[$member_id]); ?></span>
                                     <?php endif; ?>
                                     <?php if (isset($known_edit_url[$member_id])) : ?>
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>

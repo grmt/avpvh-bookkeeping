@@ -37,17 +37,26 @@ class AVBK_Fee_Generation {
         }
 
         foreach (AVPVH_DB::get_members(['status' => 'active']) as $member) {
-            if (empty($member->birth_date)) {
-                continue; // can't place an age-based rate without a birth date
+            $is_estimated = false;
+            $reason = '';
+            if (!empty($member->birth_date)) {
+                $age = self::age_on((string) $member->birth_date, "$year-01-01");
+                $rate = AVBK_DB::get_rate_for_age($year, $age);
+            } else {
+                // No birth date on file — assume adult rather than
+                // silently skipping the member entirely; flag it so the
+                // treasurer can verify/correct instead of the fee item
+                // just never existing.
+                $rate = AVBK_DB::get_adult_contribution_rate($year);
+                $is_estimated = true;
+                $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
             }
-            $age = self::age_on((string) $member->birth_date, "$year-01-01");
-            $rate = AVBK_DB::get_rate_for_age($year, $age);
             if (!$rate) {
-                continue; // no bracket covers this age — treasurer needs to widen the rate table
+                continue; // no bracket covers this age, or no rates configured at all yet
             }
             $label = $rate->label !== '' ? " ({$rate->label})" : '';
             AVBK_DB::upsert_contribution_fee_item(
-                (int) $member->id, $year, (float) $rate->amount, "Contributie {$year}{$label}"
+                (int) $member->id, $year, (float) $rate->amount, "Contributie {$year}{$label}", $is_estimated, $reason
             );
         }
     }
@@ -83,22 +92,34 @@ class AVBK_Fee_Generation {
 
     private static function generate_camp_fee_item(int $member_id, int $camp_id, int $nights): bool {
         $member = AVPVH_DB::get_member($member_id);
-        if (!$member || empty($member->birth_date)) {
-            return false; // can't place an age-bracket rate without a birth date
+        if (!$member) {
+            return false;
         }
         $camp = AVPVH_DB::get_camp($camp_id);
-        // Age at the camp's own start date, not "now" — a member's age
-        // bracket for a past or future camp must reflect their age *then*.
-        $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
-        $age = self::age_on((string) $member->birth_date, $reference_date);
-        $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
+        $is_estimated = false;
+        $reason = '';
+        if (!empty($member->birth_date)) {
+            // Age at the camp's own start date, not "now" — a member's age
+            // bracket for a past or future camp must reflect their age
+            // *then*.
+            $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
+            $age = self::age_on((string) $member->birth_date, $reference_date);
+            $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
+        } else {
+            // No birth date on file — assume adult rather than silently
+            // skipping the member entirely; flag it so the treasurer can
+            // verify/correct instead of the fee item just never existing.
+            $rate = AVBK_DB::get_adult_camp_rate($camp_id);
+            $is_estimated = true;
+            $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
+        }
         if (!$rate) {
-            return false; // no bracket covers this age — surfaced as an admin notice instead of guessing
+            return false; // no bracket covers this age, or no rates configured at all yet
         }
         $amount = round((float) $rate->day_rate * $nights, 2);
         $label = $rate->label !== '' ? " ({$rate->label})" : '';
         $description = trim('Kamp ' . ($camp->name ?? '') . ' ' . ($camp->year ?? '')) . $label;
-        AVBK_DB::upsert_camp_fee_item($member_id, $camp_id, $amount, $description);
+        AVBK_DB::upsert_camp_fee_item($member_id, $camp_id, $amount, $description, $is_estimated, $reason);
         return true;
     }
 

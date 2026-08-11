@@ -78,7 +78,12 @@ class AVBK_Fee_Popup {
                             continue;
                         } ?>
                         <li>
-                            <span><?php echo esc_html($item->description); ?></span>
+                            <span>
+                                <?php echo esc_html($item->description); ?>
+                                <?php if (!empty($item->is_estimated)) : ?>
+                                    <br><small style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></small>
+                                <?php endif; ?>
+                            </span>
                             <span>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></span>
                         </li>
                     <?php endforeach; ?>
