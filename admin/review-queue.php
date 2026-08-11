@@ -33,6 +33,10 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
     <?php
 }
 ?>
+<script type="application/json" id="avbk-review-config"><?php echo wp_json_encode([
+    'ajaxUrl' => admin_url('admin-ajax.php'),
+    'nonce'   => wp_create_nonce('avbk_review_queue'),
+]); ?></script>
 <div class="wrap">
     <h1>Te controleren transacties</h1>
 
@@ -70,61 +74,15 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         // with no determinable fee item fall back to an even share of
         // whatever's left. A description can name both fee types at once
         // ("KAMP EN CONTRIBUTIE 2026"), so sum across every type it
-        // mentions, not just one.
+        // mentions, not just one. AVBK_DB::get_member_fee_detail() is the
+        // same lookup the AJAX endpoint uses to refresh this when the
+        // treasurer changes the selected member after page load.
+        $known_detail = [];
         $known_shares = [];
-        $known_nights = [];
-        $known_dates = [];
-        $known_edit_url = [];
-        $known_ages = [];
-        $known_estimated = [];
         foreach ($suggested_ids as $member_id) {
-            foreach ($suggested_types as $type) {
-                $item = AVBK_DB::find_relevant_open_fee_item($member_id, $type);
-                if (!$item) {
-                    continue;
-                }
-                $known_shares[$member_id] = ($known_shares[$member_id] ?? 0)
-                    + round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
-                if (!empty($item->is_estimated)) {
-                    $known_estimated[$member_id] = $item->estimate_reason ?: 'Geschat bedrag.';
-                }
-
-                if ($item->type === 'contribution') {
-                    $member = AVPVH_DB::get_member($member_id);
-                    // Student is a status, not an age bracket — showing an
-                    // age next to a student-rate amount would misleadingly
-                    // imply age is what set the price.
-                    if ($member && !empty($member->is_student)) {
-                        $known_ages[$member_id] = 'scholier/student';
-                    } elseif ($member && $member->birth_date) {
-                        $year = (int) ($item->year ?: current_time('Y'));
-                        $known_ages[$member_id] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
-                    }
-                }
-                if ($item->type === 'camp' && $item->camp_id) {
-                    $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
-                    if ($participation && $participation->nights) {
-                        $known_nights[$member_id] = (int) $participation->nights;
-                        // Actual dates present (not just the night count) —
-                        // same "non-empty status = present" rule the
-                        // Kampdeelname list itself uses for "Dagen aanwezig",
-                        // so this always matches what that screen shows.
-                        $days = AVPVH_DB::get_participation_days((int) $participation->id);
-                        $present_dates = array_keys(array_filter($days, fn($status) => $status !== ''));
-                        sort($present_dates);
-                        if ($present_dates) {
-                            $known_dates[$member_id] = [reset($present_dates), end($present_dates)];
-                        }
-                        $known_edit_url[$member_id] = add_query_arg([
-                            'page' => 'avpvh-kampdeelname-detail',
-                            'camp_id' => (int) $item->camp_id,
-                            'id' => (int) $participation->id,
-                        ], admin_url('admin.php'));
-                    }
-                }
-            }
-            if (isset($known_shares[$member_id])) {
-                $known_shares[$member_id] = round($known_shares[$member_id], 2);
+            $known_detail[$member_id] = AVBK_DB::get_member_fee_detail($member_id, $suggested_types);
+            if ($known_detail[$member_id]['found']) {
+                $known_shares[$member_id] = $known_detail[$member_id]['share'];
             }
         }
         $unknown_ids = array_values(array_diff($suggested_ids, array_keys($known_shares)));
@@ -154,44 +112,31 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     $row_index = 0;
                     foreach ($suggested_ids as $member_id) :
                         $share = $known_shares[$member_id] ?? $even_share;
+                        $d = $known_detail[$member_id];
                         ?>
                         <tr>
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
-                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
-                                <?php if (isset($known_shares[$member_id])) :
-                                    // Both fragments can apply at once ("kamp en contributie" for the same person) — show each labeled separately rather than one label overwriting the other.
-                                    $fragments = [];
-                                    if (isset($known_ages[$member_id])) {
-                                        $fragments[] = esc_html($known_ages[$member_id]);
-                                    }
-                                    if (isset($known_nights[$member_id])) {
-                                        $nights_parts = [esc_html($known_nights[$member_id]) . ' nacht' . ($known_nights[$member_id] === 1 ? '' : 'en')];
-                                        if (isset($known_dates[$member_id])) {
-                                            $nights_parts[] = esc_html(wp_date('D d M', strtotime($known_dates[$member_id][0]))) . '&ndash;' . esc_html(wp_date('D d M', strtotime($known_dates[$member_id][1])));
-                                        }
-                                        $fragments[] = 'inschrijving: ' . implode(', ', $nights_parts);
-                                    }
-                                    ?>
-                                    <?php if ($fragments) : ?>
-                                        <span class="description"><?php echo implode(' &middot; ', $fragments); ?></span>
-                                    <?php endif; ?>
-                                    <?php if (isset($known_estimated[$member_id])) : ?>
-                                        <br><span style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($known_estimated[$member_id]); ?></span>
-                                    <?php endif; ?>
-                                    <?php if (isset($known_edit_url[$member_id])) : ?>
-                                        <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>
-                                    <?php endif; ?>
-                                <?php endif; ?>
-                                <a href="<?php echo esc_url(add_query_arg(['member_id' => $member_id], home_url('/member-profile/'))); ?>" target="_blank" class="description">bewerk lid (o.a. scholier/student, geboortedatum)</a>
+                            <td>
+                                &euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" class="avbk-amount-input" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
+                                <span class="avbk-detail-fragments description"><?php echo $d['fragments_html']; ?></span>
+                                <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text']); ?></span>
+                                <a href="<?php echo esc_url($d['nights_edit_url'] ?: '#'); ?>" target="_blank" class="avbk-detail-nights-link description"<?php echo $d['nights_edit_url'] ? '' : ' style="display:none"'; ?>>wijzig overnachtingen</a>
+                                <a href="<?php echo esc_url($d['member_edit_url']); ?>" target="_blank" class="avbk-detail-member-link description">bewerk lid (o.a. scholier/student, geboortedatum)</a>
                             </td>
                         </tr>
                     <?php $row_index++; endforeach;
 
-                    // A few blank slots to add members the suggestion missed, or to split a payment across more people than guessed.
+                    // A few blank slots to add members the suggestion missed, or to split a payment across more people than guessed — same live-updating markup, just empty until a member is picked.
                     for ($extra = 0; $extra < 3; $extra++, $row_index++) : ?>
                         <tr>
                             <td><?php avbk_member_select("member_id[$row_index]", $all_members); ?></td>
-                            <td>&euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" value="" size="6" placeholder="0,00"></td>
+                            <td>
+                                &euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" class="avbk-amount-input" value="" size="6" placeholder="0,00">
+                                <span class="avbk-detail-fragments description"></span>
+                                <span class="avbk-detail-estimated"></span>
+                                <a href="#" target="_blank" class="avbk-detail-nights-link description" style="display:none">wijzig overnachtingen</a>
+                                <a href="#" target="_blank" class="avbk-detail-member-link description" style="display:none">bewerk lid (o.a. scholier/student, geboortedatum)</a>
+                            </td>
                         </tr>
                     <?php endfor; ?>
                 </table>

@@ -18,6 +18,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_generate_contribution_fees_now', [$this, 'handle_generate_contribution_fees_now']);
         add_action('admin_post_avbk_generate_camp_fees_now',         [$this, 'handle_generate_camp_fees_now']);
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
+        add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
     }
 
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
@@ -48,6 +49,9 @@ class AVBK_Admin {
             return;
         }
         wp_enqueue_style('avbk-admin', AVBK_PLUGIN_URL . 'assets/admin.css', [], avbk_asset_version('assets/admin.css'));
+        if (str_contains($hook, 'avbk-review')) {
+            wp_enqueue_script('avbk-review-queue', AVBK_PLUGIN_URL . 'assets/review-queue.js', [], avbk_asset_version('assets/review-queue.js'), true);
+        }
     }
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
@@ -235,6 +239,29 @@ class AVBK_Admin {
             'page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_fees_generated' => $count,
         ], admin_url('admin.php')));
         exit;
+    }
+
+    /**
+     * Backs the review queue's live refresh: when the treasurer changes the
+     * selected member on an already-rendered row (correcting a wrong
+     * suggestion, or filling a blank slot), the amount/age/nights detail
+     * needs to reflect the newly picked person instead of staying frozen on
+     * whoever was originally suggested.
+     */
+    public function ajax_member_fee_detail(): void {
+        check_ajax_referer('avbk_review_queue', 'nonce');
+        if (!$this->can_manage()) {
+            wp_send_json_error('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $types = array_values(array_intersect(
+            array_map('sanitize_key', (array) ($_POST['types'] ?? [])),
+            ['contribution', 'camp']
+        ));
+        if (!$member_id) {
+            wp_send_json_error('Ontbrekend lid.', 400);
+        }
+        wp_send_json_success(AVBK_DB::get_member_fee_detail($member_id, $types));
     }
 
     public function handle_recompute_suggestions(): void {
