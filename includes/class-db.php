@@ -202,18 +202,21 @@ class AVBK_DB {
     /**
      * The "adult" bracket for $year — used when a member's birth date is
      * unknown so a fee item still generates (assumed adult, flagged as
-     * estimated) rather than being silently skipped. The open-ended
-     * (max_age IS NULL) bracket wins if one exists — that's the "everyone
-     * else" catch-all in every rate table seen so far — otherwise whichever
-     * bracket has the highest min_age. Excludes for_students rows, same
-     * reason as get_rate_for_age().
+     * estimated) rather than being silently skipped. Only ever a genuinely
+     * open-ended bracket (max_age IS NULL) — the real "everyone else"
+     * catch-all. Deliberately does NOT fall back to "whichever bracket has
+     * the highest min_age" when no open-ended one exists: with only a
+     * capped child bracket configured so far (e.g. "Kinderen 4-15"), that
+     * would pick the child rate and mislabel it as an assumed-adult
+     * amount — worse than just not generating a fee item yet. Excludes
+     * for_students rows, same reason as get_rate_for_age().
      */
     public static function get_adult_contribution_rate(int $year): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
-             WHERE year = %d AND for_students = 0
-             ORDER BY (max_age IS NULL) DESC, min_age DESC
+             WHERE year = %d AND for_students = 0 AND max_age IS NULL
+             ORDER BY min_age DESC
              LIMIT 1",
             $year
         )) ?: null;
@@ -269,13 +272,13 @@ class AVBK_DB {
         )) ?: null;
     }
 
-    /** The "adult" bracket for this camp — same fallback rule as get_adult_contribution_rate(). */
+    /** The "adult" bracket for this camp — same fallback rule (and same reasoning) as get_adult_contribution_rate(). */
     public static function get_adult_camp_rate(int $camp_id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_camp_rates
-             WHERE camp_id = %d
-             ORDER BY (max_age IS NULL) DESC, min_age DESC
+             WHERE camp_id = %d AND max_age IS NULL
+             ORDER BY min_age DESC
              LIMIT 1",
             $camp_id
         )) ?: null;

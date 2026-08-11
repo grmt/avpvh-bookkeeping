@@ -19,7 +19,11 @@ $members = AVPVH_DB::get_members(['status' => 'active']);
         if ($member) :
             $balance = AVBK_DB::get_member_balance($detail_member_id); ?>
             <h2><?php echo esc_html(avpvh_format_name($member)); ?></h2>
-            <p><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>">&larr; Terug naar ledenoverzicht</a></p>
+            <p>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>">&larr; Terug naar ledenoverzicht</a>
+                &nbsp;|&nbsp;
+                <a href="<?php echo esc_url(add_query_arg(['member_id' => $detail_member_id], home_url('/member-profile/'))); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
+            </p>
             <table class="wp-list-table widefat striped">
                 <thead><tr><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
                 <tbody>

@@ -182,6 +182,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                                         <a href="<?php echo esc_url($known_edit_url[$member_id]); ?>" target="_blank" class="description">wijzig overnachtingen</a>
                                     <?php endif; ?>
                                 <?php endif; ?>
+                                <a href="<?php echo esc_url(add_query_arg(['member_id' => $member_id], home_url('/member-profile/'))); ?>" target="_blank" class="description">bewerk lid (o.a. scholier/student, geboortedatum)</a>
                             </td>
                         </tr>
                     <?php $row_index++; endforeach;
