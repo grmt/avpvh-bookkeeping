@@ -57,7 +57,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:1rem">
             <?php wp_nonce_field('avbk_recompute_suggestions'); ?>
             <input type="hidden" name="action" value="avbk_recompute_suggestions">
-            <button type="submit" class="button">Suggesties opnieuw berekenen</button>
+            <button type="submit" class="button button-small">Suggesties opnieuw berekenen</button>
             <span class="description">Gebruik dit na een verbetering aan de koppel-logica &mdash; werkt de suggesties hieronder bij zonder het bankbestand opnieuw te hoeven uploaden.</span>
         </form>
     <?php else : ?>
