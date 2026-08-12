@@ -102,7 +102,7 @@ class AVBK_Balance_Shortcode {
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; ?></div>
                     <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-balance-qr-ref">Omschrijving bij een handmatige overschrijving: <code><?php echo esc_html(AVBK_QR::remittance_for_balance($balance['items'], $target_id)); ?></code></p>
+                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html(AVBK_QR::remittance_for_balance($balance['items'], $target_id)); ?></code></p>
                 <?php endif; ?>
             <?php endif; ?>
 
