@@ -60,7 +60,7 @@ class AVBK_Fee_Popup {
             return;
         }
 
-        $reference = AVBK_QR::reference_code((int) $member->id);
+        $reference = AVBK_QR::remittance_for_balance($balance['items'], (int) $member->id);
         $qr_svg = AVBK_QR::for_member_balance((int) $member->id, $balance['balance'], $balance['items']);
 
         $config = wp_json_encode([
