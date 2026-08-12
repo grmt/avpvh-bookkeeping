@@ -119,6 +119,24 @@ class AVBK_DB {
             KEY member_id (member_id)
         ) $charset;");
 
+        // A member's "I don't understand/agree with this" message about
+        // their own balance — sent by e-mail to the penningmeester
+        // immediately, but also kept here as a standing todo list (see
+        // admin/disputes.php) so a question doesn't just disappear into an
+        // inbox and get forgotten.
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_disputes (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id INT UNSIGNED NOT NULL,
+            message TEXT NOT NULL,
+            status ENUM('open','resolved') NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP NULL,
+            resolved_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY member_id (member_id),
+            KEY status (status)
+        ) $charset;");
+
         update_option('avbk_db_version', '1.0');
     }
 
@@ -184,6 +202,22 @@ class AVBK_DB {
                     ADD KEY iban (iban)");
             }
             update_option('avbk_db_version', '1.4');
+        }
+        if (version_compare($version, '1.5', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_disputes (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                member_id INT UNSIGNED NOT NULL,
+                message TEXT NOT NULL,
+                status ENUM('open','resolved') NOT NULL DEFAULT 'open',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP NULL,
+                resolved_by BIGINT UNSIGNED NULL,
+                PRIMARY KEY (id),
+                KEY member_id (member_id),
+                KEY status (status)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.5');
         }
     }
 
@@ -593,6 +627,40 @@ class AVBK_DB {
         ];
     }
 
+    /**
+     * A fee item's description is generated as "{base} ({rate label})" —
+     * see AVBK_Fee_Generation — with no separate column for the label, so
+     * this splits it back apart for display (a "Tarief" column, distinct
+     * from the plain description). Falls back to treating the whole string
+     * as the base with no label when there's no trailing "(...)" — always
+     * true for older items generated before rate labels existed.
+     */
+    public static function split_fee_description(string $description): array {
+        if (preg_match('/^(.*)\s\(([^)]+)\)$/', $description, $m)) {
+            return ['base' => $m[1], 'label' => $m[2]];
+        }
+        return ['base' => $description, 'label' => ''];
+    }
+
+    /**
+     * Human "how many" for one fee item — nights for a camp item (a camp
+     * fee is nights × day-rate, but nights itself was never stored on the
+     * fee item, only used to compute amount_due at generation time — so
+     * this looks it up live from the participation record, same source of
+     * truth the review queue already uses). Nothing for a flat per-year
+     * contribution, which has no natural quantity.
+     */
+    public static function fee_item_quantity_label(object $item): string {
+        if ($item->type === 'camp' && $item->camp_id) {
+            $participation = AVPVH_DB::get_participation((int) $item->member_id, (int) $item->camp_id);
+            if ($participation && $participation->nights) {
+                $n = (int) $participation->nights;
+                return $n . ' nacht' . ($n === 1 ? '' : 'en');
+            }
+        }
+        return '';
+    }
+
     // -------------------------------------------------------------------
     // Import batches
     // -------------------------------------------------------------------
@@ -629,6 +697,46 @@ class AVBK_DB {
              LIMIT %d",
             $limit
         )) ?: [];
+    }
+
+    // -------------------------------------------------------------------
+    // Disputes — a member's "I don't understand/agree with this" message
+    // about their own balance, kept as a standing todo list for the
+    // penningmeester (see admin/disputes.php) alongside the e-mail sent
+    // when it's submitted (AVBK_Balance_Shortcode::handle_dispute()).
+    // -------------------------------------------------------------------
+
+    public static function create_dispute(int $member_id, string $message): int {
+        global $wpdb;
+        $wpdb->insert("{$wpdb->prefix}avb_disputes", [
+            'member_id' => $member_id,
+            'message'   => $message,
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function get_disputes(string $status = 'open'): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE status = %s ORDER BY created_at ASC",
+            $status
+        )) ?: [];
+    }
+
+    public static function count_open_disputes(): int {
+        global $wpdb;
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_disputes WHERE status = 'open'"
+        );
+    }
+
+    public static function resolve_dispute(int $id, int $resolved_by): void {
+        global $wpdb;
+        $wpdb->update(
+            "{$wpdb->prefix}avb_disputes",
+            ['status' => 'resolved', 'resolved_at' => current_time('mysql'), 'resolved_by' => $resolved_by],
+            ['id' => $id]
+        );
     }
 
     // -------------------------------------------------------------------

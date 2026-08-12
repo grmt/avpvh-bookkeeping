@@ -65,12 +65,47 @@ class AVBK_QR {
         return (new QRCode($options))->render($payload);
     }
 
-    /** Convenience: the member's balance QR, or null if there's nothing to pay or settings are incomplete. */
-    public static function for_member_balance(int $member_id, float $balance): ?string {
+    /**
+     * The EPC remittance text: a human summary of what's actually being
+     * paid for (open items only — "Contributie 2026, Kamp Goeblange 2026
+     * (6 nachten)") followed by the auto-match reference code, so a
+     * banking app's payment screen and the resulting statement line both
+     * say more than a bare "PVH-91". Truncates the summary half, never the
+     * reference half — that's what AVBK_Matcher::match_reference_code()
+     * depends on for future auto-matching, and EPC caps this field at 140
+     * characters total.
+     */
+    public static function remittance_for_balance(array $items, int $member_id): string {
+        $reference = self::reference_code($member_id);
+        $fragments = [];
+        foreach ($items as $item) {
+            if ($item->status === 'waived' || $item->remaining <= 0.005) {
+                continue;
+            }
+            $parts = AVBK_DB::split_fee_description((string) $item->description);
+            $qty = AVBK_DB::fee_item_quantity_label($item);
+            $fragments[] = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
+        }
+        $summary = implode(', ', $fragments);
+        if ($summary === '') {
+            return $reference;
+        }
+
+        $suffix = ' - ' . $reference;
+        $max_summary_len = 140 - mb_strlen($suffix);
+        if (mb_strlen($summary) > $max_summary_len) {
+            $summary = mb_substr($summary, 0, max(0, $max_summary_len - 1)) . '…';
+        }
+        return $summary . $suffix;
+    }
+
+    /** Convenience: the member's balance QR, or null if there's nothing to pay or settings are incomplete. $items (from AVBK_DB::get_member_balance()) makes the payment message describe what it's for instead of just the reference code — optional so existing callers that only have the total keep working. */
+    public static function for_member_balance(int $member_id, float $balance, array $items = []): ?string {
         if ($balance <= 0) {
             return null;
         }
-        $payload = self::epc_payload($balance, self::reference_code($member_id));
+        $remittance = $items ? self::remittance_for_balance($items, $member_id) : self::reference_code($member_id);
+        $payload = self::epc_payload($balance, $remittance);
         return $payload ? self::svg($payload) : null;
     }
 }

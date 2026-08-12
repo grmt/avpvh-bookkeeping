@@ -5,13 +5,22 @@
 .avbk-balance-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
 }
 
 .avbk-balance-table th,
 .avbk-balance-table td {
-    padding: .5rem .75rem;
+    padding: .5rem .4rem;
     border-bottom: 1px solid #ddd;
     text-align: left;
+}
+
+.avbk-balance-table thead th {
+    white-space: nowrap;
+}
+
+.avbk-balance-table td {
+    word-break: break-word;
 }
 
 .avbk-balance-table tfoot th {
@@ -19,13 +28,49 @@
     border-bottom: none;
 }
 
+@media (max-width: 600px) {
+    .avbk-balance-table {
+        font-size: .85rem;
+    }
+
+    .avbk-balance-table th,
+    .avbk-balance-table td {
+        padding: .4rem .3rem;
+    }
+}
+
 .avbk-balance-qr {
     max-width: 200px;
-    margin: 1.5rem 0;
+    margin: 1.5rem auto 0;
     text-align: center;
 }
 
 .avbk-balance-qr svg {
     width: 100%;
     height: auto;
+}
+
+.avbk-balance-qr-hint {
+    max-width: 480px;
+    margin: .5rem auto 0;
+    text-align: center;
+}
+
+.avbk-balance-qr-ref {
+    text-align: center;
+}
+
+.avbk-balance-notice {
+    background: #d7f2d7;
+    border-left: 4px solid #46b450;
+    padding: .75rem 1rem;
+}
+
+.avbk-balance-dispute {
+    margin-top: 1.5rem;
+}
+
+.avbk-balance-dispute summary {
+    cursor: pointer;
+    color: #2271b1;
 }

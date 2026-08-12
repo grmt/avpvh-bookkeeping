@@ -61,7 +61,7 @@ class AVBK_Fee_Popup {
         }
 
         $reference = AVBK_QR::reference_code((int) $member->id);
-        $qr_svg = AVBK_QR::for_member_balance((int) $member->id, $balance['balance']);
+        $qr_svg = AVBK_QR::for_member_balance((int) $member->id, $balance['balance'], $balance['items']);
 
         $config = wp_json_encode([
             'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -93,6 +93,7 @@ class AVBK_Fee_Popup {
                 </p>
                 <?php if ($qr_svg) : ?>
                     <div class="avbk-fee-popup-qr"><?php echo $qr_svg; ?></div>
+                    <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
                     <p class="avbk-fee-popup-ref">Vermeld bij een overschrijving: <code><?php echo esc_html($reference); ?></code></p>
                 <?php endif; ?>
                 <button id="avbk-fee-dismiss" class="button"><?php esc_html_e('Sluiten', 'avpvh-bookkeeping'); ?></button>

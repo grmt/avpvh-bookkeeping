@@ -178,6 +178,13 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
                     <p class="description">Wordt gebruikt in de QR-code, bijv. &ldquo;PVH-42&rdquo;. Betalingen met dit kenmerk in de omschrijving worden automatisch gekoppeld.</p>
                 </td>
             </tr>
+            <tr>
+                <th><label for="penningmeester_email">E-mail penningmeester</label></th>
+                <td>
+                    <input type="email" id="penningmeester_email" name="penningmeester_email" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>">
+                    <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
+                </td>
+            </tr>
         </table>
         <?php submit_button('Instellingen opslaan'); ?>
     </form>

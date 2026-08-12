@@ -18,6 +18,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_generate_contribution_fees_now', [$this, 'handle_generate_contribution_fees_now']);
         add_action('admin_post_avbk_generate_camp_fees_now',         [$this, 'handle_generate_camp_fees_now']);
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
+        add_action('admin_post_avbk_resolve_dispute',                [$this, 'handle_resolve_dispute']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
     }
 
@@ -42,6 +43,10 @@ class AVBK_Admin {
         add_submenu_page('avbk-overview', 'Alle transacties', 'Alle transacties', 'read', 'avbk-transactions', [$this, 'render_transactions']);
         add_submenu_page('avbk-overview', 'Ledenoverzicht', 'Ledenoverzicht', 'read', 'avbk-members', [$this, 'render_members']);
         add_submenu_page('avbk-overview', 'Tarieven', 'Tarieven', 'read', 'avbk-rates', [$this, 'render_rates']);
+
+        $open_disputes = AVBK_DB::count_open_disputes();
+        $disputes_label = 'Bezwaren' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Bezwaren', $disputes_label, 'read', 'avbk-disputes', [$this, 'render_disputes']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -55,6 +60,7 @@ class AVBK_Admin {
     }
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
+    public function render_disputes(): void { require AVBK_PLUGIN_DIR . 'admin/disputes.php'; }
     public function render_import(): void { require AVBK_PLUGIN_DIR . 'admin/import.php'; }
     public function render_review(): void { require AVBK_PLUGIN_DIR . 'admin/review-queue.php'; }
     public function render_transactions(): void { require AVBK_PLUGIN_DIR . 'admin/transactions.php'; }
@@ -274,6 +280,19 @@ class AVBK_Admin {
         exit;
     }
 
+    public function handle_resolve_dispute(): void {
+        check_admin_referer('avbk_resolve_dispute');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $id = (int) ($_POST['id'] ?? 0);
+        if ($id) {
+            AVBK_DB::resolve_dispute($id, get_current_user_id());
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-disputes', 'resolved' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
     public function handle_waive_fee_item(): void {
         check_admin_referer('avbk_waive_fee_item');
         if (!$this->can_manage()) {
@@ -296,6 +315,7 @@ class AVBK_Admin {
         update_option('avbk_club_iban', strtoupper(str_replace(' ', '', sanitize_text_field(wp_unslash($_POST['club_iban'] ?? '')))));
         update_option('avbk_club_name', sanitize_text_field(wp_unslash($_POST['club_name'] ?? '')));
         update_option('avbk_reference_prefix', sanitize_text_field(wp_unslash($_POST['reference_prefix'] ?? 'PVH')));
+        update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }
