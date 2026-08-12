@@ -1,5 +1,7 @@
+/* Matches .avpvh-member-profile-form's own max-width (avpvh-members/assets/registration.css) — this shortcode sits right below that form on the profile page, and without this it falls back to the theme's much narrower default content width instead of lining up with it. */
 .avbk-balance {
-    margin: 1.5rem 0;
+    max-width: 900px;
+    margin: 1.5rem auto;
 }
 
 .avbk-balance-table {
