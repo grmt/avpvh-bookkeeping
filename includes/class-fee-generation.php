@@ -51,14 +51,25 @@ class AVBK_Fee_Generation {
                 if (!empty($member->birth_date)) {
                     $age = self::age_on((string) $member->birth_date, "$year-01-01");
                     $rate = AVBK_DB::get_rate_for_age($year, $age);
+                } elseif (!empty($member->birth_year)) {
+                    // Only the birth *year* is known — a real, if
+                    // imprecise, age beats the no-date-at-all fallback
+                    // below (a known 11-year-old shouldn't get bumped to
+                    // the adult rate just because the exact day is lost).
+                    $age = self::age_from_year((int) $member->birth_year, "$year-01-01");
+                    $rate = AVBK_DB::get_rate_for_age($year, $age);
+                    if ($rate) {
+                        $is_estimated = true;
+                        $reason = "Alleen geboortejaar {$member->birth_year} bekend — leeftijd bij benadering ({$age} jaar).";
+                    }
                 } else {
-                    // No birth date on file — assume adult rather than
-                    // silently skipping the member entirely; flag it so
-                    // the treasurer can verify/correct instead of the fee
-                    // item just never existing.
+                    // No birth date on file at all — assume adult rather
+                    // than silently skipping the member entirely; flag it
+                    // so the treasurer can verify/correct instead of the
+                    // fee item just never existing.
                     $rate = AVBK_DB::get_adult_contribution_rate($year);
                     $is_estimated = true;
-                    $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
+                    $reason = 'Leeftijd niet bekend — volwassen tarief aangenomen.';
                 }
             }
             if (!$rate) {
@@ -108,20 +119,29 @@ class AVBK_Fee_Generation {
         $camp = AVPVH_DB::get_camp($camp_id);
         $is_estimated = false;
         $reason = '';
+        // Age at the camp's own start date, not "now" — a member's age
+        // bracket for a past or future camp must reflect their age *then*.
+        $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
         if (!empty($member->birth_date)) {
-            // Age at the camp's own start date, not "now" — a member's age
-            // bracket for a past or future camp must reflect their age
-            // *then*.
-            $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
             $age = self::age_on((string) $member->birth_date, $reference_date);
             $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
+        } elseif (!empty($member->birth_year)) {
+            // Only the birth *year* is known — a real, if imprecise, age
+            // beats the no-date-at-all fallback below.
+            $age = self::age_from_year((int) $member->birth_year, $reference_date);
+            $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
+            if ($rate) {
+                $is_estimated = true;
+                $reason = "Alleen geboortejaar {$member->birth_year} bekend — leeftijd bij benadering ({$age} jaar).";
+            }
         } else {
-            // No birth date on file — assume adult rather than silently
-            // skipping the member entirely; flag it so the treasurer can
-            // verify/correct instead of the fee item just never existing.
+            // No birth date on file at all — assume adult rather than
+            // silently skipping the member entirely; flag it so the
+            // treasurer can verify/correct instead of the fee item just
+            // never existing.
             $rate = AVBK_DB::get_adult_camp_rate($camp_id);
             $is_estimated = true;
-            $reason = 'Geen geboortedatum bekend — volwassen tarief aangenomen.';
+            $reason = 'Leeftijd niet bekend — volwassen tarief aangenomen.';
         }
         if (!$rate) {
             return false; // no bracket covers this age, or no rates configured at all yet
@@ -142,5 +162,18 @@ class AVBK_Fee_Generation {
         $birth = new \DateTime($birth_date);
         $ref = new \DateTime($reference_date);
         return $birth->diff($ref)->y;
+    }
+
+    /**
+     * Approximate age from a birth *year* alone (day/month unknown) —
+     * reference year minus birth year, i.e. assuming a 1 January birthday.
+     * Can be off by up to a year in either direction depending on the real
+     * birthday, which is exactly why every caller flags the result as
+     * estimated; still real information, unlike the "no birth date at all"
+     * fallback. Public for the same reason age_on() is — admin screens
+     * showing "why this rate" need it too.
+     */
+    public static function age_from_year(int $birth_year, string $reference_date): int {
+        return (int) (new \DateTime($reference_date))->format('Y') - $birth_year;
     }
 }

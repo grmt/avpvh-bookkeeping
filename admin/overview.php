@@ -19,10 +19,11 @@ foreach ($members as $m) {
         $members_with_balance++;
     }
 }
-// Contribution and camp fee items both need an age bracket, so a missing
-// birth date silently blocks fee-item generation for that member — a
-// recurring, easy-to-miss cause of "why isn't this working" surprises.
-$members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date)));
+// Contribution and camp fee items both need an age bracket. A birth *year*
+// alone (no exact date) still gets a real, if approximate, age — only a
+// member with neither falls back to the "assume adult" estimate this
+// warning is really about.
+$members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date) && empty($m->birth_year)));
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>

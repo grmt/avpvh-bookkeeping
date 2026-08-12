@@ -463,9 +463,12 @@ class AVBK_DB {
                 // age is what set the price.
                 if (!empty($member->is_student)) {
                     $fragments[] = 'scholier/student';
-                } elseif ($member->birth_date) {
+                } elseif (!empty($member->birth_date)) {
                     $year = (int) ($item->year ?: current_time('Y'));
                     $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
+                } elseif (!empty($member->birth_year)) {
+                    $year = (int) ($item->year ?: current_time('Y'));
+                    $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_from_year((int) $member->birth_year, "$year-01-01") . ' jaar (bij benadering)';
                 }
             }
             if ($type === 'camp' && $item->camp_id) {
