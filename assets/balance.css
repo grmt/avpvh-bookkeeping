@@ -76,3 +76,11 @@
     cursor: pointer;
     color: #2271b1;
 }
+
+.avbk-balance-dispute-textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: .75rem;
+    text-align: left;
+}

@@ -102,7 +102,7 @@ class AVBK_Balance_Shortcode {
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; ?></div>
                     <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html(AVBK_QR::remittance_for_balance($balance['items'], $target_id)); ?></code></p>
+                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::remittance_for_balance($balance['items'], $target_id)); ?></code></p>
                 <?php endif; ?>
             <?php endif; ?>
 
@@ -113,7 +113,7 @@ class AVBK_Balance_Shortcode {
                     <input type="hidden" name="action" value="avbk_submit_dispute">
                     <input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>">
                     <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
-                    <textarea name="message" rows="4" style="width:100%;max-width:500px" required placeholder="Bijv.: ik heb dit al betaald, of dit bedrag klopt volgens mij niet, ..."></textarea>
+                    <textarea name="message" rows="4" class="avbk-balance-dispute-textarea" required placeholder="Bijv.: ik heb dit al betaald, of dit bedrag klopt volgens mij niet, ..."></textarea>
                     <br>
                     <button type="submit" class="button">Versturen</button>
                 </form>
