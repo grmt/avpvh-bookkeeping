@@ -185,6 +185,20 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
                     <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
                 </td>
             </tr>
+            <tr>
+                <th><label for="congress_event_label">Congres/reünie &mdash; omschrijving</label></th>
+                <td>
+                    <input type="text" id="congress_event_label" name="congress_event_label" class="regular-text" value="<?php echo esc_attr(get_option('avbk_congress_event_label', 'Congres/Reünie 10 oktober 2026')); ?>">
+                    <p class="description">Titel op de aanmeldpagina (<code>[avpvh_bk_congress]</code>) en op de bijdrage-regel die bij aanmelding wordt aangemaakt.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="congress_fee_amount">Congres/reünie &mdash; deelnamekosten</label></th>
+                <td>
+                    &euro; <input type="text" id="congress_fee_amount" name="congress_fee_amount" value="<?php echo esc_attr(number_format((float) get_option('avbk_congress_fee_amount', 0), 2, ',', '')); ?>" style="width:6em">
+                    <p class="description">Bedrag per aanmelding. Op 0 laten schakelt het aanmaken van een bijdrage-regel (en dus de QR-betaling) uit &mdash; de aanmelding zelf blijft dan wel werken.</p>
+                </td>
+            </tr>
         </table>
         <?php submit_button('Instellingen opslaan'); ?>
     </form>

@@ -44,7 +44,7 @@ class AVBK_DB {
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_fee_items (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NOT NULL,
-            type ENUM('contribution','camp') NOT NULL,
+            type ENUM('contribution','camp','event') NOT NULL,
             year SMALLINT UNSIGNED NULL,
             camp_id INT UNSIGNED NULL,
             description VARCHAR(255) NOT NULL DEFAULT '',
@@ -137,6 +137,37 @@ class AVBK_DB {
             KEY status (status)
         ) $charset;");
 
+        // One row per public congress/reunion sign-up (see AVBK_Congress).
+        // member_id starts NULL until find_or_create_member_for_registration()
+        // resolves it (immediately, in practice — kept nullable defensively
+        // for a future case where that resolution might legitimately fail).
+        // confirm_token is the bearer credential for the public "view my
+        // registration + QR" link mailed to the registrant — unguessable,
+        // not tied to a login, by design (most registrants are not existing
+        // WP users).
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_congress_registrations (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id INT UNSIGNED NULL,
+            fee_item_id INT UNSIGNED NULL,
+            first_name VARCHAR(100) NOT NULL DEFAULT '',
+            suffix VARCHAR(50) NOT NULL DEFAULT '',
+            last_name VARCHAR(100) NOT NULL DEFAULT '',
+            email VARCHAR(255) NOT NULL DEFAULT '',
+            phone VARCHAR(50) NOT NULL DEFAULT '',
+            match_type VARCHAR(20) NOT NULL DEFAULT '',
+            needs_review TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            review_note VARCHAR(255) NOT NULL DEFAULT '',
+            confirm_token CHAR(43) NOT NULL,
+            status ENUM('pending_confirmation','confirmed') NOT NULL DEFAULT 'pending_confirmation',
+            email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            email_error VARCHAR(255) NOT NULL DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at TIMESTAMP NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY confirm_token (confirm_token),
+            KEY member_id (member_id)
+        ) $charset;");
+
         update_option('avbk_db_version', '1.0');
     }
 
@@ -218,6 +249,33 @@ class AVBK_DB {
                 KEY status (status)
             ) {$wpdb->get_charset_collate()};");
             update_option('avbk_db_version', '1.5');
+        }
+        if (version_compare($version, '1.6', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items MODIFY COLUMN type ENUM('contribution','camp','event') NOT NULL");
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_congress_registrations (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                member_id INT UNSIGNED NULL,
+                fee_item_id INT UNSIGNED NULL,
+                first_name VARCHAR(100) NOT NULL DEFAULT '',
+                suffix VARCHAR(50) NOT NULL DEFAULT '',
+                last_name VARCHAR(100) NOT NULL DEFAULT '',
+                email VARCHAR(255) NOT NULL DEFAULT '',
+                phone VARCHAR(50) NOT NULL DEFAULT '',
+                match_type VARCHAR(20) NOT NULL DEFAULT '',
+                needs_review TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                review_note VARCHAR(255) NOT NULL DEFAULT '',
+                confirm_token CHAR(43) NOT NULL,
+                status ENUM('pending_confirmation','confirmed') NOT NULL DEFAULT 'pending_confirmation',
+                email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                email_error VARCHAR(255) NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                confirmed_at TIMESTAMP NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY confirm_token (confirm_token),
+                KEY member_id (member_id)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.6');
         }
     }
 
@@ -892,5 +950,147 @@ class AVBK_DB {
     public static function find_member_id_by_iban(string $iban): ?int {
         $member_ids = self::get_member_ids_by_iban($iban);
         return count($member_ids) === 1 ? $member_ids[0] : null;
+    }
+
+    // -------------------------------------------------------------------
+    // Congress/reunion public registration — see AVBK_Congress.
+    // -------------------------------------------------------------------
+
+    /**
+     * Resolves a registrant to an avm_members row: exact e-mail match wins
+     * (strongest signal — LLDAP e-mail addresses are globally unique), then
+     * an exact case-insensitive first+last name match. A single name match
+     * also gets the submitted e-mail linked as a new identity so the
+     * registrant can log in with it (OAuth or otherwise) afterwards without
+     * a separate "link your account" step.
+     *
+     * Zero or ambiguous (>1) name matches both fall through to creating a
+     * brand-new visitor member — cheap to reverse (deactivate/merge later)
+     * versus the alternative of guessing wrong and attaching a payment to
+     * the wrong person. The ambiguous case is flagged via $review_note so
+     * the treasurer can spot and reconcile a likely duplicate.
+     *
+     * Returns ['member_id' => int, 'match_type' => 'email'|'name'|'new', 'review_note' => string].
+     */
+    public static function find_or_create_member_for_registration(
+        string $first_name, string $suffix, string $last_name, string $email, string $phone
+    ): array {
+        $by_email = AVPVH_DB::get_member_by_email($email);
+        if ($by_email) {
+            return ['member_id' => (int) $by_email->id, 'match_type' => 'email', 'review_note' => ''];
+        }
+
+        $matches = AVPVH_DB::find_members_by_name($first_name, $last_name);
+        if (count($matches) === 1) {
+            $member_id = (int) $matches[0]->id;
+            AVPVH_DB::ensure_identity($member_id, 'email', $email);
+            return ['member_id' => $member_id, 'match_type' => 'name', 'review_note' => ''];
+        }
+
+        $review_note = '';
+        if (count($matches) > 1) {
+            $review_note = 'Mogelijk duplicaat — bestaande leden met dezelfde naam: '
+                . implode(', ', array_map(fn($m) => avpvh_format_name($m, 'list'), $matches));
+        }
+
+        $base_uid = preg_replace('/[^a-z0-9._-]/', '.', strtolower("{$first_name}.{$last_name}"));
+        $uid = $base_uid;
+        $n = 1;
+        while (AVPVH_LLDAP::get_user_display_name($uid) !== null) {
+            $n++;
+            $uid = "{$base_uid}{$n}";
+        }
+        $display_name = trim(preg_replace('/\s+/', ' ', "{$first_name} {$suffix} {$last_name}"));
+
+        $created = AVPVH_LLDAP::create_user($uid, $email, $display_name);
+        if (is_wp_error($created)) {
+            // The registration itself must still succeed even if the LLDAP
+            // write fails (e.g. e-mail already claimed by an account with no
+            // matching avm_members row) — record it unlinked so the
+            // treasurer can create/link the member by hand.
+            return ['member_id' => 0, 'match_type' => 'new', 'review_note' => 'Kon geen lid aanmaken: ' . $created->get_error_message()];
+        }
+
+        $member_id = AVPVH_DB::create_member($uid, $first_name, $suffix, $last_name, null, 'visitor');
+        if ($phone !== '') {
+            AVPVH_DB::update_member_with_audit($member_id, ['phone' => $phone], ['%s']);
+        }
+        return ['member_id' => $member_id, 'match_type' => 'new', 'review_note' => $review_note];
+    }
+
+    /** Insert-or-reuse this member's open event fee item for $description (e.g. one row per congress edition, deduped by description so a re-submitted registration is a no-op, not a duplicate charge). Returns the fee_item id. */
+    public static function upsert_event_fee_item(int $member_id, string $description, float $amount): int {
+        global $wpdb;
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'event' AND description = %s",
+            $member_id, $description
+        ));
+        if ($existing) {
+            return (int) $existing->id;
+        }
+        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+            'member_id'   => $member_id,
+            'type'        => 'event',
+            'description' => $description,
+            'amount_due'  => $amount,
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function create_congress_registration(array $data): array {
+        global $wpdb;
+        $token = wp_generate_password(43, false, false);
+        $wpdb->insert("{$wpdb->prefix}avb_congress_registrations", [
+            'member_id'     => $data['member_id'] ?: null,
+            'fee_item_id'   => $data['fee_item_id'] ?: null,
+            'first_name'    => $data['first_name'],
+            'suffix'        => $data['suffix'],
+            'last_name'     => $data['last_name'],
+            'email'         => $data['email'],
+            'phone'         => $data['phone'],
+            'match_type'    => $data['match_type'],
+            'needs_review'  => $data['review_note'] !== '' ? 1 : 0,
+            'review_note'   => $data['review_note'],
+            'confirm_token' => $token,
+        ]);
+        return ['id' => (int) $wpdb->insert_id, 'token' => $token];
+    }
+
+    public static function get_congress_registration_by_token(string $token): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_congress_registrations WHERE confirm_token = %s", $token
+        )) ?: null;
+    }
+
+    /** Idempotent — reopening the same confirmation link later just re-shows the QR without resetting confirmed_at. */
+    public static function confirm_congress_registration(int $id): void {
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}avb_congress_registrations SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
+            current_time('mysql'), $id
+        ));
+    }
+
+    public static function mark_congress_email_result(int $id, bool $sent, string $error = ''): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_congress_registrations", [
+            'email_sent'  => (int) $sent,
+            'email_error' => $error,
+        ], ['id' => $id]);
+    }
+
+    public static function get_congress_registrations(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}avb_congress_registrations ORDER BY created_at DESC"
+        ) ?: [];
+    }
+
+    public static function count_congress_needs_attention(): int {
+        global $wpdb;
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_congress_registrations WHERE needs_review = 1 OR email_sent = 0"
+        );
     }
 }

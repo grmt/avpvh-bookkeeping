@@ -47,6 +47,10 @@ class AVBK_Admin {
         $open_disputes = AVBK_DB::count_open_disputes();
         $disputes_label = 'Bezwaren' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bezwaren', $disputes_label, 'read', 'avbk-disputes', [$this, 'render_disputes']);
+
+        $congress_attention = AVBK_DB::count_congress_needs_attention();
+        $congress_label = 'Congres/Reünie' . ($congress_attention ? " <span class=\"awaiting-mod count-{$congress_attention}\"><span class=\"pending-count\">{$congress_attention}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Congres/Reünie', $congress_label, 'read', 'avbk-congress', [$this, 'render_congress']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -61,6 +65,7 @@ class AVBK_Admin {
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
     public function render_disputes(): void { require AVBK_PLUGIN_DIR . 'admin/disputes.php'; }
+    public function render_congress(): void { require AVBK_PLUGIN_DIR . 'admin/congress.php'; }
     public function render_import(): void { require AVBK_PLUGIN_DIR . 'admin/import.php'; }
     public function render_review(): void { require AVBK_PLUGIN_DIR . 'admin/review-queue.php'; }
     public function render_transactions(): void { require AVBK_PLUGIN_DIR . 'admin/transactions.php'; }
@@ -316,6 +321,8 @@ class AVBK_Admin {
         update_option('avbk_club_name', sanitize_text_field(wp_unslash($_POST['club_name'] ?? '')));
         update_option('avbk_reference_prefix', sanitize_text_field(wp_unslash($_POST['reference_prefix'] ?? 'PVH')));
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
+        update_option('avbk_congress_event_label', sanitize_text_field(wp_unslash($_POST['congress_event_label'] ?? '')) ?: 'Congres/Reünie 10 oktober 2026');
+        update_option('avbk_congress_fee_amount', (float) str_replace(',', '.', (string) ($_POST['congress_fee_amount'] ?? '0')));
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }

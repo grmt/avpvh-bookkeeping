@@ -1,0 +1,62 @@
+/* Same fix as .avbk-balance (assets/balance.css) — without an explicit
+   max-width this inherits the theme's narrower default content width
+   instead of a comfortable reading/form width. */
+.avbk-congress {
+    max-width: 900px;
+    margin: 1.5rem auto;
+}
+
+.avbk-congress-form p {
+    margin: 0 0 1rem;
+}
+
+.avbk-congress-form label {
+    display: block;
+    font-weight: 600;
+}
+
+.avbk-congress-form input[type="text"],
+.avbk-congress-form input[type="email"],
+.avbk-congress-form input[type="tel"] {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    box-sizing: border-box;
+    font-weight: normal;
+    margin-top: .25rem;
+}
+
+.avbk-congress-honeypot {
+    position: absolute;
+    left: -9999px;
+}
+
+.avbk-congress-notice {
+    padding: .75rem 1rem;
+}
+
+.avbk-congress-error {
+    background: #fbeaea;
+    border-left: 4px solid #d63638;
+}
+
+.avbk-congress-qr {
+    max-width: 200px;
+    margin: 1.5rem auto 0;
+    text-align: center;
+}
+
+.avbk-congress-qr svg {
+    width: 100%;
+    height: auto;
+}
+
+.avbk-congress-qr-hint {
+    max-width: 480px;
+    margin: .5rem auto 0;
+    text-align: center;
+}
+
+.avbk-congress-qr-ref {
+    text-align: center;
+}

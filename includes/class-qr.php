@@ -112,4 +112,18 @@ class AVBK_QR {
         $payload = self::epc_payload($balance, $remittance);
         return $payload ? self::svg($payload) : null;
     }
+
+    /** Convenience: a single fee item's own QR (e.g. a congress registration) rather than the member's whole balance — null if it's already fully paid or settings are incomplete. */
+    public static function for_fee_item(int $member_id, object $fee_item): ?string {
+        $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
+        if ($remaining <= 0) {
+            return null;
+        }
+        $remittance = self::reference_code($member_id) . ': ' . $fee_item->description;
+        if (mb_strlen($remittance) > 140) {
+            $remittance = mb_substr($remittance, 0, 139) . '…';
+        }
+        $payload = self::epc_payload($remaining, $remittance);
+        return $payload ? self::svg($payload) : null;
+    }
 }
