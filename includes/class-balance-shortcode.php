@@ -60,6 +60,7 @@ class AVBK_Balance_Shortcode {
             <?php if (!empty($_GET['dispute_sent'])) : ?>
                 <p class="avbk-balance-notice">Je bericht is verstuurd naar de penningmeester.</p>
             <?php endif; ?>
+            <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
             <table class="avbk-balance-table">
                 <thead>
                     <tr><th>Omschrijving</th><th>Tarief</th><th>Aantal</th><th>Bedrag</th><th>Betaald</th><th>Openstaand</th><th>Status</th></tr>

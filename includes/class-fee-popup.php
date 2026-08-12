@@ -91,6 +91,7 @@ class AVBK_Fee_Popup {
                 <p class="avbk-fee-popup-total">
                     Totaal open: <strong>&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></strong>
                 </p>
+                <p class="avbk-fee-popup-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
                 <?php if ($qr_svg) : ?>
                     <div class="avbk-fee-popup-qr"><?php echo $qr_svg; ?></div>
                     <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>

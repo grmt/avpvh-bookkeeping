@@ -684,6 +684,15 @@ class AVBK_DB {
     }
 
     /** Each batch plus the date range of the transactions it actually contained — a treasurer re-uploading an export needs to see "which periods have I already covered", not just when/how big each upload was. */
+    /** The most recent incoming transaction date actually imported — "payments are processed up to this date" for the member-facing popup/balance view. Falls back to a fixed placeholder date when nothing has been imported yet at all, rather than showing a blank/confusing "never". */
+    public static function get_last_processed_date(): string {
+        global $wpdb;
+        $date = $wpdb->get_var(
+            "SELECT MAX(transaction_date) FROM {$wpdb->prefix}avb_transactions WHERE direction = 'in'"
+        );
+        return $date ?: '2025-12-31';
+    }
+
     public static function get_import_batches(int $limit = 50): array {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
