@@ -175,16 +175,23 @@ class AVBK_Import {
             self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
             $paid_member_ids[] = $member_id;
         }
-        // An IBAN (and the initials backfill below) only ever gets learned
-        // for a single, unambiguous payer/recipient — a treasurer paying on
-        // behalf of someone else (or a family paying for several members at
-        // once) must never teach the system "this account/name belongs to"
-        // whoever it happened to be split across this one time, or a future
-        // payment would auto-match to the wrong person.
-        if (count($paid_member_ids) === 1) {
-            if ($tx->counterparty_iban !== '') {
-                AVBK_DB::remember_iban($paid_member_ids[0], $tx->counterparty_iban);
+        // The IBAN is safe to remember for every payer on a split payment —
+        // avb_known_ibans is many-to-many, and a joint account with 2+
+        // remembered owners is only ever surfaced as candidates to confirm
+        // (see find_candidates_for_row()), never auto-applied — so this
+        // never causes a silent misallocation, only a better default
+        // suggestion the next time this account pays (e.g. the whole Hoek
+        // family sharing one account).
+        if ($tx->counterparty_iban !== '') {
+            foreach ($paid_member_ids as $member_id) {
+                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban);
             }
+        }
+        // Initials backfill stays single-payer-only: it parses one name
+        // string ("S J M Kramer") into initials for one specific member,
+        // and a split transaction gives no way to know which part of that
+        // name belongs to which of several payers.
+        if (count($paid_member_ids) === 1) {
             self::maybe_backfill_initials($paid_member_ids[0], $tx->counterparty_name);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
