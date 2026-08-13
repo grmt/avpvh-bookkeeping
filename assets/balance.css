@@ -68,6 +68,28 @@
     padding: .75rem 1rem;
 }
 
+.avbk-balance-also-form fieldset {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: .75rem 1rem;
+    margin: 1rem 0;
+}
+
+.avbk-balance-also-form legend {
+    font-weight: 600;
+    padding: 0 .4rem;
+}
+
+.avbk-balance-also-form label {
+    display: inline-block;
+    margin: 0 1rem .5rem 0;
+}
+
+.avbk-balance-also-form button {
+    display: block;
+    margin-top: .5rem;
+}
+
 .avbk-balance-dispute {
     margin-top: 1.5rem;
 }

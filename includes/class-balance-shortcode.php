@@ -50,7 +50,45 @@ class AVBK_Balance_Shortcode {
             return '';
         }
 
-        $balance = AVBK_DB::get_member_balance($target_id);
+        // "Betaal ook voor" — fold a household/family member's open items
+        // into this same view + a single combined QR, for the common
+        // real-world case of one bank transfer covering a whole family
+        // (see AVBK_Matcher's docblock: "Lidgeld Anna, Bram en
+        // Cas"). Candidates are $target_member's own household, not
+        // the viewer's — the two only differ when bestuur/admin is viewing
+        // someone else's page via ?member_id=, and it's that person's
+        // household that makes sense to combine with.
+        $household = array_values(array_filter(
+            AVPVH_DB::get_manageable_members($target_id),
+            fn($m) => (int) $m->id !== $target_id
+        ));
+        $requested_also = array_map('intval', (array) ($_GET['also'] ?? []));
+        $also_ids = array_values(array_intersect($requested_also, wp_list_pluck($household, 'id')));
+
+        $combined_ids = array_merge([$target_id], $also_ids);
+        $combined_members = [$target_id => $target_member];
+        foreach ($household as $hm) {
+            if (in_array((int) $hm->id, $also_ids, true)) {
+                $combined_members[(int) $hm->id] = $hm;
+            }
+        }
+        $show_member_column = count($combined_ids) > 1;
+
+        $items = [];
+        $total_due = 0.0;
+        $total_paid = 0.0;
+        foreach ($combined_ids as $mid) {
+            $b = AVBK_DB::get_member_balance($mid);
+            array_push($items, ...$b['items']);
+            $total_due += $b['total_due'];
+            $total_paid += $b['total_paid'];
+        }
+        $balance = [
+            'items'      => $items,
+            'total_due'  => round($total_due, 2),
+            'total_paid' => round($total_paid, 2),
+            'balance'    => round($total_due - $total_paid, 2),
+        ];
 
         ob_start();
         ?>
@@ -61,13 +99,33 @@ class AVBK_Balance_Shortcode {
                 <p class="avbk-balance-notice">Je bericht is verstuurd naar de penningmeester.</p>
             <?php endif; ?>
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
+
+            <?php if ($household) : ?>
+                <form method="get" class="avbk-balance-also-form">
+                    <?php if ($requested_id) : ?><input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>"><?php endif; ?>
+                    <fieldset>
+                        <legend>Betaal ook voor:</legend>
+                        <?php foreach ($household as $hm) : ?>
+                            <label>
+                                <input type="checkbox" name="also[]" value="<?php echo esc_attr($hm->id); ?>" <?php checked(in_array((int) $hm->id, $also_ids, true)); ?>>
+                                <?php echo esc_html(avpvh_format_name($hm)); ?>
+                            </label>
+                        <?php endforeach; ?>
+                        <button type="submit" class="button button-small">Toepassen</button>
+                    </fieldset>
+                </form>
+            <?php endif; ?>
+
             <table class="avbk-balance-table">
                 <thead>
-                    <tr><th>Omschrijving</th><th>Tarief</th><th>Aantal</th><th>Bedrag</th><th>Betaald</th><th>Openstaand</th><th>Status</th></tr>
+                    <tr>
+                        <?php if ($show_member_column) : ?><th>Lid</th><?php endif; ?>
+                        <th>Omschrijving</th><th>Tarief</th><th>Aantal</th><th>Bedrag</th><th>Betaald</th><th>Openstaand</th><th>Status</th>
+                    </tr>
                 </thead>
                 <tbody>
                 <?php if (!$balance['items']) : ?>
-                    <tr><td colspan="7">Nog geen bijdragen geregistreerd.</td></tr>
+                    <tr><td colspan="<?php echo $show_member_column ? 8 : 7; ?>">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php else : foreach ($balance['items'] as $item) :
                     $status = $item->status === 'waived'
                         ? 'Kwijtgescholden'
@@ -76,6 +134,9 @@ class AVBK_Balance_Shortcode {
                     $qty = AVBK_DB::fee_item_quantity_label($item);
                     ?>
                     <tr>
+                        <?php if ($show_member_column) : ?>
+                            <td><?php echo esc_html(avpvh_format_name($combined_members[(int) $item->member_id] ?? $target_member)); ?></td>
+                        <?php endif; ?>
                         <td>
                             <?php echo esc_html($parts['base']); ?>
                             <?php if (!empty($item->is_estimated)) : ?>
@@ -93,17 +154,31 @@ class AVBK_Balance_Shortcode {
                 </tbody>
                 <tfoot>
                     <tr>
-                        <th colspan="5">Totaal openstaand</th>
+                        <th colspan="<?php echo $show_member_column ? 6 : 5; ?>">Totaal openstaand</th>
                         <th colspan="2">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></th>
                     </tr>
                 </tfoot>
             </table>
             <?php if ($balance['balance'] > 0.005) :
-                $qr = AVBK_QR::for_member_balance($target_id, $balance['balance'], $balance['items']); ?>
+                if ($show_member_column) {
+                    $entries = [];
+                    foreach ($items as $item) {
+                        if ($item->status === 'waived' || $item->remaining <= 0.005) {
+                            continue;
+                        }
+                        $entries[] = ['item' => $item, 'name' => ($combined_members[(int) $item->member_id] ?? $target_member)->first_name];
+                    }
+                    $qr = AVBK_QR::for_combined_balance($target_id, $balance['balance'], $entries);
+                    $reference_text = AVBK_QR::remittance_for_combined($entries, $target_id);
+                } else {
+                    $qr = AVBK_QR::for_member_balance($target_id, $balance['balance'], $balance['items']);
+                    $reference_text = AVBK_QR::remittance_for_balance($balance['items'], $target_id);
+                }
+                ?>
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; ?></div>
                     <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::remittance_for_balance($balance['items'], $target_id)); ?></code></p>
+                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html($reference_text); ?></code></p>
                 <?php endif; ?>
             <?php endif; ?>
 

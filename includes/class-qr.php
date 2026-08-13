@@ -126,4 +126,50 @@ class AVBK_QR {
         $payload = self::epc_payload($remaining, $remittance);
         return $payload ? self::svg($payload) : null;
     }
+
+    /**
+     * Like remittance_for_balance(), but for one payment covering more than
+     * one household member at once (a parent paying for the whole family
+     * in a single transfer — the "betaal ook voor" picker on the balance
+     * shortcode). Each fragment is prefixed with the member's first name
+     * since two people otherwise often produce an identical-looking
+     * fragment (two "Contributie 2026 (Scholieren/Studenten)" lines are
+     * meaningless without knowing whose is whose).
+     * $entries: array of ['item' => object (from get_member_balance()), 'name' => string].
+     */
+    public static function remittance_for_combined(array $entries, int $reference_member_id): string {
+        $reference = self::reference_code($reference_member_id);
+        $fragments = [];
+        foreach ($entries as $entry) {
+            $item = $entry['item'];
+            if ($item->status === 'waived' || $item->remaining <= 0.005) {
+                continue;
+            }
+            $parts = AVBK_DB::split_fee_description((string) $item->description);
+            $qty = AVBK_DB::fee_item_quantity_label($item);
+            $base = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
+            $fragments[] = "{$entry['name']}: {$base}";
+        }
+        $summary = implode(', ', $fragments);
+        if ($summary === '') {
+            return $reference;
+        }
+
+        $prefix = $reference . ': ';
+        $max_summary_len = 140 - mb_strlen($prefix);
+        if (mb_strlen($summary) > $max_summary_len) {
+            $summary = mb_substr($summary, 0, max(0, $max_summary_len - 1)) . '…';
+        }
+        return $prefix . $summary;
+    }
+
+    /** Convenience: the combined QR for remittance_for_combined() — null if there's nothing to pay or settings are incomplete. */
+    public static function for_combined_balance(int $reference_member_id, float $balance, array $entries): ?string {
+        if ($balance <= 0) {
+            return null;
+        }
+        $remittance = $entries ? self::remittance_for_combined($entries, $reference_member_id) : self::reference_code($reference_member_id);
+        $payload = self::epc_payload($balance, $remittance);
+        return $payload ? self::svg($payload) : null;
+    }
 }
