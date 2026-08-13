@@ -3,6 +3,19 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!configEl) return;
     var cfg = JSON.parse(configEl.textContent);
 
+    // Every form on this page is a full-page admin-post submit (recompute,
+    // confirm, ignore) — without this, the submit button just sits there
+    // looking clickable for as long as the request takes, inviting a
+    // second, wasted click before the page navigates away.
+    document.querySelectorAll('form').forEach(function (form) {
+        form.addEventListener('submit', function () {
+            var btn = form.querySelector('button[type="submit"], input[type="submit"]');
+            if (!btn || btn.disabled) return;
+            btn.disabled = true;
+            if (btn.tagName === 'BUTTON') btn.textContent = 'Bezig...';
+        });
+    });
+
     // Once the first (payer) row on a transaction has a member selected,
     // pre-suggest their household/family as an option group at the top of
     // every still-blank row below it — the overwhelmingly likely candidates
