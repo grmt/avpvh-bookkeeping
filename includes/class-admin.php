@@ -127,8 +127,16 @@ class AVBK_Admin {
             }
         }
 
-        if ($transaction_id && $member_amounts) {
-            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints);
+        $extra_category = sanitize_text_field(wp_unslash($_POST['extra_category'] ?? ''));
+        $extra = $extra_category !== '' ? [
+            'member_id'   => (int) ($_POST['extra_member_id'] ?? 0),
+            'category'    => $extra_category,
+            'description' => sanitize_text_field(wp_unslash($_POST['extra_description'] ?? '')),
+            'amount'      => (float) str_replace(',', '.', (string) ($_POST['extra_amount'] ?? '0')),
+        ] : null;
+
+        if ($transaction_id && ($member_amounts || $extra)) {
+            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints, $extra);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirmed' => '1'], admin_url('admin.php')));

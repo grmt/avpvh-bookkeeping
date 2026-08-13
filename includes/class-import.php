@@ -160,7 +160,18 @@ class AVBK_Import {
      * Confirms a review-queue row with an explicit treasurer-chosen split
      * (member_id => amount), rather than an even split.
      */
-    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null): void {
+    /**
+     * $extra (optional): a one-off charge outside the recurring
+     * contribution/camp system — drank, eten, boek, t-shirt, congres, or
+     * anything else the treasurer notices on this transaction that isn't
+     * already covered by $member_amounts. Shape:
+     * ['member_id' => int, 'category' => string, 'description' => string, 'amount' => float].
+     * Unlike a contribution/camp item (generated in advance, then matched
+     * to a later payment), this fee item and its payment are created in
+     * the same action — the bank transaction itself is both the charge
+     * and its settlement, so it's created already fully paid.
+     */
+    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null, ?array $extra = null): void {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return;
@@ -175,6 +186,15 @@ class AVBK_Import {
             self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
             $paid_member_ids[] = $member_id;
         }
+
+        if ($extra && (int) ($extra['member_id'] ?? 0) > 0 && (float) ($extra['amount'] ?? 0) > 0 && ($extra['category'] ?? '') !== '') {
+            $extra_member_id = (int) $extra['member_id'];
+            $extra_amount = round((float) $extra['amount'], 2);
+            $fee_item_id = AVBK_DB::create_other_fee_item($extra_member_id, $extra['category'], $extra['description'] ?? '', $extra_amount);
+            AVBK_DB::allocate($transaction_id, $fee_item_id, $extra_member_id, $extra_amount);
+            $paid_member_ids[] = $extra_member_id;
+        }
+
         // The IBAN is safe to remember for every payer on a split payment —
         // avb_known_ibans is many-to-many, and a joint account with 2+
         // remembered owners is only ever surfaced as candidates to confirm

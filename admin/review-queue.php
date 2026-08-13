@@ -141,6 +141,20 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     <?php endfor; ?>
                 </table>
 
+                <div class="avbk-review-extra">
+                    <label>Overige regel (optioneel):</label>
+                    <select name="extra_category">
+                        <option value="">&mdash; geen &mdash;</option>
+                        <?php foreach (['Drank', 'Eten', 'Boek', 'T-shirt', 'Congres'] as $cat) : ?>
+                            <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html($cat); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <input type="text" name="extra_description" placeholder="Omschrijving (optioneel)">
+                    &euro; <input type="text" name="extra_amount" class="avbk-amount-input" placeholder="0,00" size="6">
+                    <?php avbk_member_select('extra_member_id', $all_members); ?>
+                    <p class="description">Voor een losse post buiten contributie/kamp om (drank, eten, boek, t-shirt, congres, ...) &mdash; wordt meteen als betaald geregistreerd voor het gekozen lid.</p>
+                </div>
+
                 <?php submit_button('Bevestigen', 'primary', 'submit', false); ?>
             </form>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">

@@ -73,3 +73,18 @@
 .avbk-detail-estimated:empty {
     display: none;
 }
+
+.avbk-review-extra {
+    border-top: 1px solid #e2e4e7;
+    margin: .75rem 0 .5rem;
+    padding-top: .5rem;
+}
+
+.avbk-review-extra select,
+.avbk-review-extra input[type="text"] {
+    margin-right: .4rem;
+}
+
+.avbk-review-extra .description {
+    margin: .25rem 0 0;
+}

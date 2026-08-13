@@ -24,6 +24,7 @@ foreach ($members as $m) {
 // member with neither falls back to the "assume adult" estimate this
 // warning is really about.
 $members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date) && empty($m->birth_year)));
+$stale_fee_items = AVBK_Fee_Generation::find_stale_fee_items();
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>
@@ -57,6 +58,22 @@ $members_without_birth_date = array_values(array_filter($members, fn($m) => empt
             <ul style="margin-left:1.5em;list-style:disc">
                 <?php foreach ($members_without_birth_date as $m) : ?>
                     <li><a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $m->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></a></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($stale_fee_items) : ?>
+        <div class="notice notice-warning">
+            <p><?php echo esc_html(count($stale_fee_items)); ?> bijdrage-regel(s) zijn mogelijk verouderd &mdash; het bedrag in het systeem komt niet meer overeen met een verse berekening op basis van de huidige gegevens (bijv. geboortedatum of aantal nachten gewijzigd nadat de bijdrage werd berekend). Genereer opnieuw via <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-rates')); ?>">Tarieven</a> om te corrigeren:</p>
+            <ul style="margin-left:1.5em;list-style:disc">
+                <?php foreach ($stale_fee_items as $s) : ?>
+                    <li>
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $s->member->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($s->member, 'list')); ?></a>
+                        &mdash; <?php echo esc_html($s->item->description); ?>:
+                        systeem &euro;<?php echo esc_html(number_format((float) $s->item->amount_due, 2, ',', '.')); ?>,
+                        nu zou dat &euro;<?php echo esc_html(number_format($s->current_amount, 2, ',', '.')); ?> zijn
+                    </li>
                 <?php endforeach; ?>
             </ul>
         </div>

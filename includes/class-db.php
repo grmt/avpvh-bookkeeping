@@ -44,9 +44,10 @@ class AVBK_DB {
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_fee_items (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NOT NULL,
-            type ENUM('contribution','camp','event') NOT NULL,
+            type ENUM('contribution','camp','event','other') NOT NULL,
             year SMALLINT UNSIGNED NULL,
             camp_id INT UNSIGNED NULL,
+            category VARCHAR(50) NOT NULL DEFAULT '',
             description VARCHAR(255) NOT NULL DEFAULT '',
             amount_due DECIMAL(8,2) NOT NULL,
             status ENUM('open','waived') NOT NULL DEFAULT 'open',
@@ -276,6 +277,14 @@ class AVBK_DB {
                 KEY member_id (member_id)
             ) {$wpdb->get_charset_collate()};");
             update_option('avbk_db_version', '1.6');
+        }
+        if (version_compare($version, '1.7', '<')) {
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items MODIFY COLUMN type ENUM('contribution','camp','event','other') NOT NULL");
+            $has_category = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_fee_items LIKE 'category'");
+            if (!$has_category) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '' AFTER camp_id");
+            }
+            update_option('avbk_db_version', '1.7');
         }
     }
 
@@ -610,6 +619,34 @@ class AVBK_DB {
             'estimate_reason' => $estimate_reason,
         ]);
         return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * A one-off charge outside the recurring contribution/camp system —
+     * drank, eten, boek, t-shirt, or anything else the treasurer notices on
+     * a bank transaction. Unlike upsert_contribution_fee_item()/
+     * upsert_camp_fee_item(), this always inserts a new row rather than
+     * updating an existing one: two "Drank" charges for the same member
+     * are two real, separate charges, never a correction of each other.
+     */
+    public static function create_other_fee_item(int $member_id, string $category, string $description, float $amount): int {
+        global $wpdb;
+        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+            'member_id'   => $member_id,
+            'type'        => 'other',
+            'category'    => $category,
+            'description' => $description !== '' ? "{$category} ({$description})" : $category,
+            'amount_due'  => $amount,
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    /** Every open (non-waived) contribution/camp fee item — AVBK_Fee_Generation::find_stale_fee_items() recomputes each against today's rate table/birth data to catch the "edited after the fee item was generated" class of bug (a birth date fixed, nights corrected — anything other than the one save that already triggers a refresh). */
+    public static function get_open_contribution_and_camp_fee_items(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE status = 'open' AND type IN ('contribution', 'camp')"
+        ) ?: [];
     }
 
     public static function get_fee_item(int $id): ?object {
