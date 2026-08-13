@@ -3,7 +3,62 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!configEl) return;
     var cfg = JSON.parse(configEl.textContent);
 
+    // Once the first (payer) row on a transaction has a member selected,
+    // pre-suggest their household/family as an option group at the top of
+    // every still-blank row below it — the overwhelmingly likely candidates
+    // for the rest of a multi-person payment, and much faster to pick from
+    // than the full member list.
+    function applyHouseholdSuggestions(form, selects, candidates) {
+        selects.forEach(function (select, idx) {
+            if (idx === 0 || select.value) return; // leave the trigger row and any already-filled row alone
+
+            var existing = select.querySelector('optgroup[data-avbk-suggested]');
+            if (existing) existing.remove();
+            if (!candidates.length) return;
+
+            var group = document.createElement('optgroup');
+            group.label = 'Suggesties (familie/huisgenoten)';
+            group.setAttribute('data-avbk-suggested', '1');
+            candidates.forEach(function (c) {
+                var opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.label;
+                group.appendChild(opt);
+            });
+            select.insertBefore(group, select.firstChild);
+        });
+    }
+
+    function loadHouseholdSuggestions(form) {
+        var selects = Array.from(form.querySelectorAll('select[name^="member_id"]'));
+        var first = selects[0];
+        if (!first || !first.value) return;
+
+        var body = new URLSearchParams();
+        body.set('action', 'avbk_household_candidates');
+        body.set('nonce', cfg.nonce);
+        body.set('member_id', first.value);
+
+        fetch(cfg.ajaxUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res.success) return;
+                applyHouseholdSuggestions(form, selects, res.data);
+            });
+    }
+
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {
+        loadHouseholdSuggestions(form); // rows often already arrive pre-filled with a suggested payer
+
+        var firstSelect = form.querySelector('select[name^="member_id"]');
+        if (firstSelect) {
+            firstSelect.addEventListener('change', function () { loadHouseholdSuggestions(form); });
+        }
+
         form.querySelectorAll('select[name^="member_id"]').forEach(function (select) {
             select.addEventListener('change', function () {
                 var row = select.closest('tr');

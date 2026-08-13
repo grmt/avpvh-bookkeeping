@@ -20,6 +20,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
         add_action('admin_post_avbk_resolve_dispute',                [$this, 'handle_resolve_dispute']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
+        add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
     }
 
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
@@ -273,6 +274,36 @@ class AVBK_Admin {
             wp_send_json_error('Ontbrekend lid.', 400);
         }
         wp_send_json_success(AVBK_DB::get_member_fee_detail($member_id, $types));
+    }
+
+    /**
+     * Backs the review queue's "fill the other blank rows" convenience: once
+     * the treasurer picks the first payer on a row, their household/family
+     * members are the overwhelmingly likely candidates for the rest of that
+     * payment (parents paying for kids, partners paying for each other —
+     * see the class docblock on AVBK_Matcher for the real examples this is
+     * modeled on) — far more useful to suggest than scrolling the full
+     * ~200-member list. Reuses AVPVH_DB::get_manageable_members(), the same
+     * self-or-household rule the profile form and balance shortcode already
+     * use elsewhere in this codebase.
+     */
+    public function ajax_household_candidates(): void {
+        check_ajax_referer('avbk_review_queue', 'nonce');
+        if (!$this->can_manage()) {
+            wp_send_json_error('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        if (!$member_id) {
+            wp_send_json_error('Ontbrekend lid.', 400);
+        }
+        $candidates = array_values(array_filter(
+            AVPVH_DB::get_manageable_members($member_id),
+            fn($m) => (int) $m->id !== $member_id
+        ));
+        wp_send_json_success(array_map(fn($m) => [
+            'id'    => (int) $m->id,
+            'label' => avpvh_format_name($m, 'list'),
+        ], $candidates));
     }
 
     public function handle_recompute_suggestions(): void {
