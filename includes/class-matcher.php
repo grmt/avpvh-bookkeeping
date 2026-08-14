@@ -47,23 +47,36 @@ class AVBK_Matcher {
     }
 
     /**
-     * A description can name more than one fee at once ("KAMP EN
-     * CONTRIBUTIE 2026") — a single type string would silently drop one.
-     * Returns every type mentioned, contribution first, or [] if neither
-     * keyword appears.
+     * A description can name more than one activity at once ("KAMP EN
+     * CONTRIBUTIE 2026", "kampbijdrage + drankafrekening") — a single type
+     * string would silently drop one. Returns every activity *name*
+     * mentioned (e.g. ['Kamp', 'Drank'], matching the confirm form's
+     * per-row Activiteit-dropdown), scanned dynamically against
+     * AVPVH_DB::get_activity_types() — the same admin-editable list, so a
+     * newly added activity type (e.g. "Excursie") is recognized here too
+     * without a code change, not a hardcoded keyword list. Contributie
+     * additionally matches a few common real-world phrasings that don't
+     * literally say "contributie".
      */
     public static function classify_types(string $description): array {
         $d = mb_strtolower($description);
         $types = [];
-        foreach (['contributie', 'lidmaatschap', 'lidgeld', 'inschrijving', 'inschrijfkosten'] as $kw) {
-            if (str_contains($d, $kw)) {
-                $types[] = 'contribution';
-                break;
+
+        foreach (AVPVH_DB::get_activity_types() as $activity_type) {
+            if (str_contains($d, mb_strtolower($activity_type->name))) {
+                $types[] = $activity_type->name;
             }
         }
-        if (str_contains($d, 'kamp')) {
-            $types[] = 'camp';
+
+        if (!in_array('Contributie', $types, true)) {
+            foreach (['contributie', 'lidmaatschap', 'lidgeld', 'inschrijving', 'inschrijfkosten'] as $kw) {
+                if (str_contains($d, $kw)) {
+                    $types[] = 'Contributie';
+                    break;
+                }
+            }
         }
+
         return $types;
     }
 

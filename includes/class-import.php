@@ -138,6 +138,19 @@ class AVBK_Import {
         if (!$member_ids) {
             return;
         }
+        // $type_hints comes from AVBK_Matcher::classify_types() as activity
+        // *names* ('Kamp', 'Drank', ...) — avb_fee_items.type is the older,
+        // narrower ENUM ('contribution'/'camp'/'event'/'other'), so map
+        // through AVBK_DB::activity_fee_type_map() for the priority-sort
+        // comparison inside allocate_to_open_items(). A hint with no fee-
+        // item-type equivalent (Drank, Overig, ...) just drops out here —
+        // this auto-apply path only ever pays off *existing* open items,
+        // never creates a new one-off item the way the confirm form can.
+        $fee_type_map = AVBK_DB::activity_fee_type_map();
+        $enum_type_hints = $type_hints
+            ? array_values(array_filter(array_map(fn($name) => $fee_type_map[$name] ?? null, $type_hints)))
+            : null;
+
         $n = count($member_ids);
         $share = round($amount / $n, 2);
         $remaining_total = $amount;
@@ -145,7 +158,7 @@ class AVBK_Import {
         foreach ($member_ids as $i => $member_id) {
             $this_share = ($i === $n - 1) ? round($remaining_total, 2) : $share;
             $remaining_total -= $this_share;
-            self::allocate_to_open_items($transaction_id, $member_id, $this_share, $type_hints);
+            self::allocate_to_open_items($transaction_id, $member_id, $this_share, $enum_type_hints ?: null);
         }
         if ($n === 1) {
             if ($iban !== '') {
@@ -157,48 +170,47 @@ class AVBK_Import {
     }
 
     /**
-     * Confirms a review-queue row with an explicit treasurer-chosen split
-     * (member_id => amount), rather than an even split.
+     * Confirms a review-queue row with an explicit treasurer-chosen split —
+     * one row per (member, activity, amount). Unlike the old member-wide
+     * $type_hints priority-sort, each row's activity is a deliberate,
+     * explicit statement of what that money is for, so contribution and
+     * camp (or drank, or anything else) for the same person in the same
+     * payment can be split across separate rows instead of blended into
+     * one combined amount per member.
+     *
+     * $rows: array of ['member_id' => int, 'activity' => string,
+     * 'description' => string, 'amount' => float]. 'activity' is one of
+     * AVBK_DB::activity_fee_type_map()'s keys (Contributie/Kamp/Congres —
+     * allocated against that member's existing open fee item of that
+     * type) or any other activity-type name (Drank/Eten/Overig/... — a
+     * brand new, already-paid fee item is created for it on the spot,
+     * same as the old "overige regel"; 'description' is optional free
+     * text folded into that item's own description).
      */
-    /**
-     * $extras (optional): one-off charges outside the recurring
-     * contribution/camp system — drank, eten, boek, t-shirt, congres,
-     * overig, or anything else the treasurer notices on this transaction
-     * that isn't already covered by $member_amounts. A transaction can
-     * carry several at once (e.g. drank + t-shirt in one payment). Each
-     * entry: ['member_id' => int, 'category' => string, 'description' =>
-     * string, 'amount' => float]. Unlike a contribution/camp item
-     * (generated in advance, then matched to a later payment), this fee
-     * item and its payment are created in the same action — the bank
-     * transaction itself is both the charge and its settlement, so it's
-     * created already fully paid.
-     */
-    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null, ?array $extras = null): void {
+    public static function confirm_transaction(int $transaction_id, array $rows): void {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return;
         }
+        $fee_type_map = AVBK_DB::activity_fee_type_map();
         $paid_member_ids = [];
-        foreach ($member_amounts as $member_id => $amount) {
-            $member_id = (int) $member_id;
-            $amount = (float) $amount;
-            if ($member_id <= 0 || $amount <= 0) {
+        foreach ($rows as $row) {
+            $member_id = (int) ($row['member_id'] ?? 0);
+            $amount = round((float) ($row['amount'] ?? 0), 2);
+            $activity = trim((string) ($row['activity'] ?? ''));
+            if ($member_id <= 0 || $amount <= 0 || $activity === '') {
                 continue;
             }
-            self::allocate_to_open_items($transaction_id, $member_id, $amount, $type_hints);
+            if (isset($fee_type_map[$activity])) {
+                self::allocate_to_open_items_of_type($transaction_id, $member_id, $amount, $fee_type_map[$activity]);
+            } else {
+                $description = (string) ($row['description'] ?? '');
+                $fee_item_id = AVBK_DB::create_other_fee_item($member_id, $activity, $description, $amount);
+                AVBK_DB::allocate($transaction_id, $fee_item_id, $member_id, $amount);
+            }
             $paid_member_ids[] = $member_id;
         }
-
-        foreach ((array) $extras as $extra) {
-            if ((int) ($extra['member_id'] ?? 0) <= 0 || (float) ($extra['amount'] ?? 0) <= 0 || ($extra['category'] ?? '') === '') {
-                continue;
-            }
-            $extra_member_id = (int) $extra['member_id'];
-            $extra_amount = round((float) $extra['amount'], 2);
-            $fee_item_id = AVBK_DB::create_other_fee_item($extra_member_id, $extra['category'], $extra['description'] ?? '', $extra_amount);
-            AVBK_DB::allocate($transaction_id, $fee_item_id, $extra_member_id, $extra_amount);
-            $paid_member_ids[] = $extra_member_id;
-        }
+        $paid_member_ids = array_values(array_unique($paid_member_ids));
 
         // The IBAN is safe to remember for every payer on a split payment —
         // avb_known_ibans is many-to-many, and a joint account with 2+
@@ -220,6 +232,7 @@ class AVBK_Import {
             self::maybe_backfill_initials($paid_member_ids[0], $tx->counterparty_name);
         }
         AVBK_DB::update_transaction_status($transaction_id, 'matched');
+        AVBK_DB::clear_transaction_draft($transaction_id);
     }
 
     /**
@@ -260,6 +273,38 @@ class AVBK_Import {
                 return (int) in_array($b->type, $type_hints, true) <=> (int) in_array($a->type, $type_hints, true);
             });
         }
+
+        $remaining = round($amount, 2);
+        foreach ($open_items as $item) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $due_left = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            if ($due_left <= 0) {
+                continue;
+            }
+            $alloc = min($remaining, $due_left);
+            AVBK_DB::allocate($transaction_id, (int) $item->id, $member_id, $alloc);
+            $remaining = round($remaining - $alloc, 2);
+        }
+    }
+
+    /**
+     * Allocates $amount to a member's open fee items of exactly $type,
+     * oldest first — the confirm-form counterpart to allocate_to_open_items()
+     * above (used by the fully-automatic apply_payment() path, which only
+     * has a guessed list of possible types to blend). Here the treasurer
+     * picked one specific activity for this one specific row, so there's
+     * no blending or fallback to other types: money explicitly assigned to
+     * "Kamp" never quietly pays off a contribution item instead. Any
+     * remainder that doesn't fit an open item of this type is simply left
+     * unallocated, same as allocate_to_open_items().
+     */
+    private static function allocate_to_open_items_of_type(int $transaction_id, int $member_id, float $amount, string $type): void {
+        $open_items = array_values(array_filter(
+            AVBK_DB::get_open_fee_items_for_member($member_id),
+            fn($item) => $item->type === $type
+        ));
 
         $remaining = round($amount, 2);
         foreach ($open_items as $item) {

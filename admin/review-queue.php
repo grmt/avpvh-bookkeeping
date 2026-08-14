@@ -7,17 +7,16 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 $queue = AVBK_DB::get_review_queue();
 $all_members = AVBK_DB::get_payable_members();
 
-// The Type dropdown is fed by the same admin-editable list as an
-// activity's own type (AV-PvH Leden -> Activiteiten -> Activiteitstypes
-// beheren) — add "Excursie" there and it shows up here with no deploy.
-// Only names with a real matching-priority behind existing open fee items
-// (avb_fee_items.type) become type[] checkboxes; everything else becomes
-// an "overige regel" category. "Overig" is a fixed fallback, not in the
-// table, for the auto-fill-from-bank-description behaviour.
-$fee_type_map = ['Contributie' => 'contribution', 'Kamp' => 'camp', 'Congres' => 'event'];
-$all_activity_type_names = wp_list_pluck(AVPVH_DB::get_activity_types(), 'name');
-$extra_category_names = array_values(array_diff($all_activity_type_names, array_keys($fee_type_map)));
-$extra_category_names[] = 'Overig';
+// Every regel picks its own activiteit — no transactie-brede "Type" meer.
+// The list is the same admin-editable one an activity's own type uses (AV-PvH
+// Leden -> Activiteiten -> Activiteitstypes beheren), so a newly added type
+// shows up here with no deploy. Contributie/Kamp/Congres are the three that
+// match against an existing, already-generated bijdrage-regel
+// ($fee_type_map); every other name (Drank, Eten, Weekend, ..., Overig)
+// creates a brand new, already-paid regel on the spot instead.
+$fee_type_map = AVBK_DB::activity_fee_type_map();
+$all_activity_names = wp_list_pluck(AVPVH_DB::get_activity_types(), 'name');
+$all_activity_names[] = 'Overig'; // fixed fallback (auto-vult de omschrijving met de bank-omschrijving), niet uit de tabel
 
 // The bank description is a flat "Naam: X Omschrijving: Y IBAN: Z ..."
 // string — bold the field labels so it reads as a mini key/value list
@@ -44,10 +43,39 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
     </select>
     <?php
 }
+
+function avbk_activity_select(string $name, array $activity_names, string $selected = ''): void {
+    ?>
+    <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select">
+        <option value="">&mdash; activiteit &mdash;</option>
+        <?php foreach ($activity_names as $activity_name) : ?>
+            <option value="<?php echo esc_attr($activity_name); ?>" <?php selected($selected, $activity_name); ?>>
+                <?php echo esc_html($activity_name); ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <?php
+}
+
+/**
+ * One row's "detail" — the live fragments (age/nights, estimated-amount
+ * warning, edit links) shown next to its amount. Only meaningful when the
+ * row's activity matches an existing fee-item type (Contributie/Kamp/
+ * Congres); a one-off category (Drank, Overig, ...) has nothing to look up.
+ */
+function avbk_row_detail(array $row, array $fee_type_map): ?array {
+    $member_id = (int) ($row['member_id'] ?? 0);
+    $activity = (string) ($row['activity'] ?? '');
+    if (!$member_id || !isset($fee_type_map[$activity])) {
+        return null;
+    }
+    return AVBK_DB::get_member_fee_detail($member_id, [$fee_type_map[$activity]]);
+}
 ?>
 <script type="application/json" id="avbk-review-config"><?php echo wp_json_encode([
-    'ajaxUrl' => admin_url('admin-ajax.php'),
-    'nonce'   => wp_create_nonce('avbk_review_queue'),
+    'ajaxUrl'    => admin_url('admin-ajax.php'),
+    'nonce'      => wp_create_nonce('avbk_review_queue'),
+    'feeTypeMap' => $fee_type_map, // {"Contributie":"contribution","Kamp":"camp","Congres":"event"} — activiteit-naam -> avb_fee_items.type
 ]); ?></script>
 <div class="wrap">
     <h1>Te controleren transacties</h1>
@@ -59,6 +87,10 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
         </div>
     <?php elseif (isset($_GET['confirmed'])) : ?>
         <div class="notice notice-success"><p>Transactie bevestigd.</p></div>
+    <?php elseif (isset($_GET['draft_saved'])) : ?>
+        <div class="notice notice-success"><p>Concept opgeslagen.</p></div>
+    <?php elseif (isset($_GET['draft_cleared'])) : ?>
+        <div class="notice notice-success"><p>Concept gewist.</p></div>
     <?php elseif (isset($_GET['ignored'])) : ?>
         <div class="notice notice-success"><p>Transactie genegeerd.</p></div>
     <?php elseif (isset($_GET['recomputed'])) : ?>
@@ -70,7 +102,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
             <?php wp_nonce_field('avbk_recompute_suggestions'); ?>
             <input type="hidden" name="action" value="avbk_recompute_suggestions">
             <button type="submit" class="button button-small">Suggesties opnieuw berekenen</button>
-            <span class="description">Gebruik dit na een verbetering aan de koppel-logica &mdash; werkt de suggesties hieronder bij zonder het bankbestand opnieuw te hoeven uploaden.</span>
+            <span class="description">Gebruik dit na een verbetering aan de koppel-logica &mdash; werkt de suggesties hieronder bij zonder het bankbestand opnieuw te hoeven uploaden. Een opgeslagen concept blijft ongewijzigd.</span>
         </form>
     <?php else : ?>
         <p>Niets te controleren &mdash; alles is automatisch gekoppeld of er is nog niets geïmporteerd.</p>
@@ -78,28 +110,49 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
 
     <?php foreach ($queue as $tx) :
         $suggested_ids = array_filter(array_map('intval', explode(',', $tx->suggested_member_ids)));
-        $suggested_types = array_values(array_filter(explode(',', $tx->suggested_type)));
+        $suggested_types = array_values(array_filter(explode(',', $tx->suggested_type))); // activiteit-namen, bijv. ['Kamp','Contributie']
+        $draft = AVBK_DB::get_transaction_draft((int) $tx->id);
 
-        // Default each candidate's split to what they actually owe (nights
-        // x day-rate for a camp, their age-bracket rate for contribution)
-        // rather than blindly splitting the payment evenly — only members
-        // with no determinable fee item fall back to an even share of
-        // whatever's left. A description can name both fee types at once
-        // ("KAMP EN CONTRIBUTIE 2026"), so sum across every type it
-        // mentions, not just one. AVBK_DB::get_member_fee_detail() is the
-        // same lookup the AJAX endpoint uses to refresh this when the
-        // treasurer changes the selected member after page load.
-        $known_detail = [];
-        $known_shares = [];
-        foreach ($suggested_ids as $member_id) {
-            $known_detail[$member_id] = AVBK_DB::get_member_fee_detail($member_id, $suggested_types);
-            if ($known_detail[$member_id]['found']) {
-                $known_shares[$member_id] = $known_detail[$member_id]['share'];
+        if ($draft !== null) {
+            // A saved concept is a deliberate choice — never silently
+            // replaced by a fresh suggestion computation.
+            $rows = $draft;
+        } else {
+            // Default each candidate's split to what they actually owe
+            // (nights x day-rate for a camp, hun leeftijdstarief voor
+            // contributie) rather than blindly splitting the payment
+            // evenly. A description can name more than one activiteit at
+            // once ("KAMP EN CONTRIBUTIE 2026") — one row per (lid,
+            // activiteit) match, not one blended amount per lid, so kamp
+            // en contributie voor dezelfde persoon apart blijven staan.
+            $rows = [];
+            $known_amount_sum = 0.0;
+            foreach ($suggested_ids as $member_id) {
+                $member_had_a_row = false;
+                foreach ($suggested_types as $activity_name) {
+                    if (!isset($fee_type_map[$activity_name])) {
+                        continue; // losse kosten (drank/etc.) worden nooit automatisch voorgesteld
+                    }
+                    $detail = AVBK_DB::get_member_fee_detail($member_id, [$fee_type_map[$activity_name]]);
+                    if ($detail['found']) {
+                        $rows[] = ['member_id' => $member_id, 'activity' => $activity_name, 'description' => '', 'amount' => $detail['share']];
+                        $known_amount_sum += $detail['share'];
+                        $member_had_a_row = true;
+                    }
+                }
+                if (!$member_had_a_row) {
+                    $rows[] = ['member_id' => $member_id, 'activity' => '', 'description' => '', 'amount' => null];
+                }
+            }
+            $unknown_indexes = array_keys(array_filter($rows, fn($r) => $r['amount'] === null));
+            if ($unknown_indexes) {
+                $remaining = round((float) $tx->amount - $known_amount_sum, 2);
+                $even_share = round($remaining / count($unknown_indexes), 2);
+                foreach ($unknown_indexes as $i) {
+                    $rows[$i]['amount'] = $even_share;
+                }
             }
         }
-        $unknown_ids = array_values(array_diff($suggested_ids, array_keys($known_shares)));
-        $remaining_for_unknown = round((float) $tx->amount - array_sum($known_shares), 2);
-        $even_share = $unknown_ids ? round($remaining_for_unknown / count($unknown_ids), 2) : 0.0;
         ?>
         <div class="avbk-review-row">
             <div class="avbk-review-row-header">
@@ -107,63 +160,46 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 &mdash; <strong>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></strong>
                 &mdash; <?php echo esc_html($tx->counterparty_name); ?>
                 <?php if ($tx->status === 'unmatched') : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
+                <?php if ($draft !== null) : ?><span class="avbk-badge avbk-badge-draft">concept</span><?php endif; ?>
             </div>
             <p class="description"><?php echo avbk_format_description($tx->description); ?></p>
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>">
-                <?php wp_nonce_field('avbk_confirm_transaction'); ?>
-                <input type="hidden" name="action" value="avbk_confirm_transaction">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($tx->description); ?>">
+                <?php wp_nonce_field('avbk_transaction_row'); ?>
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
-                <?php
-                $checked_type_labels = array_values(array_intersect_key(array_flip($fee_type_map), array_flip($suggested_types)));
-                $initial_type_summary = $checked_type_labels ? implode(', ', $checked_type_labels) : 'geen';
-                ?>
-                <div class="avbk-type-field">
-                    <details class="avbk-type-dropdown">
-                        <summary>Type: <span class="avbk-type-summary"><?php echo esc_html($initial_type_summary); ?></span></summary>
-                        <div class="avbk-type-options">
-                            <?php foreach ($fee_type_map as $label => $value) : ?>
-                                <label>
-                                    <input type="checkbox" class="avbk-type-checkbox" data-kind="type" name="type[]" value="<?php echo esc_attr($value); ?>" <?php checked(in_array($value, $suggested_types, true)); ?>>
-                                    <?php echo esc_html($label); ?>
-                                </label>
-                            <?php endforeach; ?>
-                            <?php foreach ($extra_category_names as $cat) : ?>
-                                <label>
-                                    <input type="checkbox" class="avbk-type-checkbox" data-kind="extra" data-category="<?php echo esc_attr($cat); ?>"<?php echo $cat === 'Overig' ? ' data-description="' . esc_attr($tx->description) . '"' : ''; ?>>
-                                    <?php echo esc_html($cat); ?>
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-                    </details>
-                </div>
-
                 <table class="avbk-review-split">
-                    <?php foreach ($suggested_ids as $member_id) :
-                        $share = $known_shares[$member_id] ?? $even_share;
-                        $d = $known_detail[$member_id];
+                    <thead><tr><th>Lid</th><th>Activiteit</th><th>Bedrag</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($rows as $row) :
+                        $d = avbk_row_detail($row, $fee_type_map);
+                        $is_fee_type_activity = isset($fee_type_map[$row['activity'] ?? '']);
                         ?>
                         <tr>
-                            <td><?php avbk_member_select('member_id[]', $all_members, $member_id); ?></td>
+                            <td><?php avbk_member_select('member_id[]', $all_members, (int) $row['member_id']); ?></td>
+                            <td><?php avbk_activity_select('activity[]', $all_activity_names, (string) $row['activity']); ?></td>
                             <td>
-                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
-                                <span class="avbk-detail-fragments description"><?php echo $d['fragments_html']; ?></span>
-                                <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text']); ?></span>
-                                <a href="<?php echo esc_url($d['nights_edit_url'] ?: '#'); ?>" target="_blank" class="avbk-detail-nights-link description"<?php echo $d['nights_edit_url'] ? '' : ' style="display:none"'; ?>>wijzig overnachtingen</a>
-                                <a href="<?php echo esc_url($d['member_edit_url']); ?>" target="_blank" class="avbk-detail-member-link description">bewerk lid (o.a. scholier/student, geboortedatum)</a>
+                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="<?php echo esc_attr(number_format((float) $row['amount'], 2, ',', '')); ?>" size="6">
+                                <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_fee_type_activity ? ' style="display:none"' : ''; ?>>
+                                <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; ?></span>
+                                <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text'] ?? ''); ?></span>
+                                <a href="<?php echo esc_url(!empty($d['nights_edit_url']) ? $d['nights_edit_url'] : '#'); ?>" target="_blank" class="avbk-detail-nights-link description"<?php echo !empty($d['nights_edit_url']) ? '' : ' style="display:none"'; ?>>wijzig overnachtingen</a>
+                                <a href="<?php echo esc_url($d['member_edit_url'] ?? '#'); ?>" target="_blank" class="avbk-detail-member-link description"<?php echo !empty($d['member_edit_url']) ? '' : ' style="display:none"'; ?>>bewerk lid (o.a. scholier/student, geboortedatum)</a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
+                    </tbody>
                 </table>
-                <p><button type="button" class="button button-small avbk-add-member-row">+ voeg lid toe</button></p>
+                <p><button type="button" class="button button-small avbk-add-row">+ voeg regel toe</button></p>
 
-                <!-- Cloned by review-queue.js when "+ voeg lid toe" is clicked — a blank row to split the payment across more people than the automatic suggestion found. -->
-                <template class="avbk-member-row-template">
+                <!-- Cloned by review-queue.js when "+ voeg regel toe" is clicked. -->
+                <template class="avbk-row-template">
                     <tr>
                         <td><?php avbk_member_select('member_id[]', $all_members); ?></td>
+                        <td><?php avbk_activity_select('activity[]', $all_activity_names); ?></td>
                         <td>
                             &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="" size="6" placeholder="0,00">
+                            <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="">
                             <span class="avbk-detail-fragments description"></span>
                             <span class="avbk-detail-estimated"></span>
                             <a href="#" target="_blank" class="avbk-detail-nights-link description" style="display:none">wijzig overnachtingen</a>
@@ -172,26 +208,23 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                     </tr>
                 </template>
 
-                <div class="avbk-extra-lines"></div>
-                <!-- Cloned by review-queue.js for every "extra" checkbox (Drank/Eten/.../Overig) checked above — one row per losse post, each an already-paid fee item outside contributie/kamp. -->
-                <template class="avbk-extra-line-template">
-                    <div class="avbk-extra-line">
-                        <strong class="avbk-extra-line-label"></strong>
-                        <input type="hidden" name="extra_category[]" class="avbk-extra-line-category-input">
-                        <input type="text" name="extra_description[]" placeholder="Omschrijving (optioneel)" class="avbk-extra-line-description">
-                        &euro; <input type="text" name="extra_amount[]" class="avbk-amount-input" placeholder="0,00" size="6">
-                        <?php avbk_member_select('extra_member_id[]', $all_members); ?>
-                    </div>
-                </template>
-
                 <p class="avbk-review-total">
                     Totaal ingevuld: <span class="avbk-review-total-sum">&euro; 0,00</span>
                     van <span class="avbk-review-total-tx">&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></span>
                     <span class="avbk-review-total-diff"></span>
                 </p>
 
-                <?php submit_button('Bevestigen', 'primary', 'submit', false); ?>
+                <button type="submit" name="action" value="avbk_save_transaction_draft" class="button">Opslaan</button>
+                <button type="submit" name="action" value="avbk_confirm_transaction" class="button button-primary">Bevestigen</button>
             </form>
+            <?php if ($draft !== null) : ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-clear-draft-form">
+                    <?php wp_nonce_field('avbk_transaction_row'); ?>
+                    <input type="hidden" name="action" value="avbk_clear_transaction_draft">
+                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                    <?php submit_button('Concept wissen', 'secondary', 'submit', false); ?>
+                </form>
+            <?php endif; ?>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">
                 <?php wp_nonce_field('avbk_ignore_transaction'); ?>
                 <input type="hidden" name="action" value="avbk_ignore_transaction">

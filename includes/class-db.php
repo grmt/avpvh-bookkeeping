@@ -542,6 +542,7 @@ class AVBK_DB {
     }
 
     public static function find_relevant_open_fee_item(int $member_id, string $type): ?object {
+        global $wpdb;
         $item = null;
         if ($type === 'camp') {
             $camp = self::get_current_camp_activity();
@@ -550,6 +551,16 @@ class AVBK_DB {
             }
         } elseif ($type === 'contribution') {
             $item = self::get_contribution_fee_item($member_id, (int) current_time('Y'));
+        } elseif ($type === 'event') {
+            // Unlike contribution (one per year) or camp (one per member per
+            // activity), an 'event' item (e.g. a congress signup) has no
+            // natural "current" key to look up by — just take the most
+            // recently created one, open or not (still filtered to 'open'
+            // below like the other two branches).
+            $item = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'event' ORDER BY created_at DESC LIMIT 1",
+                $member_id
+            )) ?: null;
         }
         return ($item && $item->status === 'open') ? $item : null;
     }
@@ -704,6 +715,20 @@ class AVBK_DB {
             'amount_due'  => $amount,
         ]);
         return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Which activity-type names (from AVPVH_DB::get_activity_types(), the
+     * same admin-editable list an activity's own type uses) correspond to
+     * an existing, already-generated fee item (avb_fee_items.type) versus
+     * a one-off category (Drank/Eten/Overig/...) that gets a brand new fee
+     * item created on the spot. Shared between the confirm form's per-row
+     * activity dropdown (admin/review-queue.php) and the confirm handler's
+     * branching (AVBK_Import::confirm_transaction()), so they can never
+     * drift apart.
+     */
+    public static function activity_fee_type_map(): array {
+        return ['Contributie' => 'contribution', 'Kamp' => 'camp', 'Congres' => 'event'];
     }
 
     /**

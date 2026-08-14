@@ -49,6 +49,11 @@
     color: #8a6100;
 }
 
+.avbk-badge-draft {
+    background: #d7e8fc;
+    color: #0a4b8a;
+}
+
 .avbk-review-split {
     margin: .5rem 0;
 }
@@ -57,8 +62,17 @@
     padding: .15rem .5rem .15rem 0;
 }
 
+.avbk-review-split .avbk-activity-select {
+    margin-right: .4rem;
+}
+
+.avbk-row-description {
+    margin-right: .4rem;
+}
+
 .avbk-review-form,
-.avbk-review-ignore-form {
+.avbk-review-ignore-form,
+.avbk-review-clear-draft-form {
     display: inline-block;
     vertical-align: top;
     margin-right: 1rem;
@@ -72,50 +86,6 @@
 
 .avbk-detail-estimated:empty {
     display: none;
-}
-
-.avbk-type-field {
-    margin: .5rem 0 .75rem;
-}
-
-.avbk-type-dropdown summary {
-    cursor: pointer;
-    display: inline-block;
-    padding: .3rem .6rem;
-    border: 1px solid #8c8f94;
-    border-radius: 3px;
-    background: #f6f7f7;
-}
-
-.avbk-type-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .25rem .75rem;
-    margin-top: .5rem;
-    padding: .5rem .75rem;
-    border: 1px solid #e2e4e7;
-    border-radius: 3px;
-    background: #fff;
-}
-
-.avbk-extra-lines {
-    margin-top: .5rem;
-}
-
-.avbk-extra-line {
-    border-top: 1px solid #e2e4e7;
-    margin-top: .5rem;
-    padding-top: .5rem;
-}
-
-.avbk-extra-line select,
-.avbk-extra-line input[type="text"] {
-    margin-right: .4rem;
-}
-
-.avbk-extra-line-label {
-    display: inline-block;
-    min-width: 4.5rem;
 }
 
 .avbk-review-total {

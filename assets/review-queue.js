@@ -4,15 +4,27 @@ document.addEventListener('DOMContentLoaded', function () {
     var cfg = JSON.parse(configEl.textContent);
 
     // Every form on this page is a full-page admin-post submit (recompute,
-    // confirm, ignore) — without this, the submit button just sits there
-    // looking clickable for as long as the request takes, inviting a
-    // second, wasted click before the page navigates away.
+    // confirm, opslaan, negeren, concept wissen) — without this, the
+    // clicked button just sits there looking clickable for as long as the
+    // request takes, inviting a second, wasted click before the page
+    // navigates away. e.submitter is whichever button was actually clicked
+    // (this page has two on one form — Opslaan vs. Bevestigen — so the
+    // first-found submit button isn't necessarily the right one).
     document.querySelectorAll('form').forEach(function (form) {
-        form.addEventListener('submit', function () {
-            var btn = form.querySelector('button[type="submit"], input[type="submit"]');
+        form.addEventListener('submit', function (e) {
+            var btn = e.submitter || form.querySelector('button[type="submit"], input[type="submit"]');
             if (!btn || btn.disabled) return;
-            btn.disabled = true;
-            if (btn.tagName === 'BUTTON') btn.textContent = 'Bezig...';
+            // Disabling the clicked button synchronously here can make the
+            // browser drop its name=value pair from the submitted form data
+            // (disabled controls aren't submitted) — and since the action
+            // this page dispatches to comes from *that* button, not a
+            // hidden field, that silently empties $_POST['action'] server-
+            // side. Deferring to the next tick lets the browser finish
+            // reading the form before we disable anything.
+            setTimeout(function () {
+                btn.disabled = true;
+                if (btn.tagName === 'BUTTON') btn.textContent = 'Bezig...';
+            }, 0);
         });
     });
 
@@ -43,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function loadHouseholdSuggestions(form) {
-        var selects = Array.from(form.querySelectorAll('select[name^="member_id"]'));
+        var selects = Array.from(form.querySelectorAll('select[name="member_id[]"]'));
         var first = selects[0];
         if (!first || !first.value) return;
 
@@ -64,14 +76,72 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    // Extracted so it can be attached both to rows rendered by PHP at page
-    // load and to blank rows cloned client-side via "+ voeg lid toe" —
-    // otherwise only the original rows would get live fee-detail lookups.
-    function wireMemberSelect(select, form) {
-        select.addEventListener('change', function () {
-            var row = select.closest('tr');
-            if (!row) return;
+    function parseAmount(value) {
+        var n = parseFloat(String(value).replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+    }
 
+    // Sums every regel-bedrag on this transaction and checks it against the
+    // transaction's own amount — a payment that doesn't add up (a row left
+    // at its old suggested share after the treasurer corrected another, a
+    // typo'd bedrag) would otherwise only surface later as a mysteriously
+    // wrong balance.
+    function updateTotals(form) {
+        var sumEl = form.querySelector('.avbk-review-total-sum');
+        var diffEl = form.querySelector('.avbk-review-total-diff');
+        if (!sumEl || !diffEl) return;
+
+        var total = 0;
+        form.querySelectorAll('input[name="amount[]"]').forEach(function (input) {
+            total += parseAmount(input.value);
+        });
+        total = Math.round(total * 100) / 100;
+        sumEl.textContent = '€ ' + total.toFixed(2).replace('.', ',');
+
+        var txAmount = parseAmount(form.dataset.txAmount);
+        var diff = Math.round((txAmount - total) * 100) / 100;
+        if (Math.abs(diff) < 0.005) {
+            diffEl.textContent = '';
+            diffEl.classList.remove('avbk-diff-mismatch');
+        } else {
+            // Framed from the payment's own perspective, not the
+            // allocation's — "de betaling is te weinig/te veel", not
+            // "toegewezen is te veel/weinig" — since it's the treasurer's
+            // row edits being checked against a fixed, already-known
+            // payment amount, not the other way round.
+            var diffAbs = Math.abs(diff).toFixed(2).replace('.', ',');
+            diffEl.textContent = diff > 0
+                ? '— de betaling is € ' + diffAbs + ' te veel (nog niet alles toegewezen)'
+                : '— de betaling is € ' + diffAbs + ' te weinig (meer toegewezen dan ontvangen)';
+            diffEl.classList.add('avbk-diff-mismatch');
+        }
+    }
+
+    // Wires one regel's lid- and activiteit-dropdowns: toggling the
+    // optional omschrijving field's visibility (only relevant for a losse
+    // kostenpost, not an activiteit that matches an existing bijdrage-
+    // regel), auto-filling "Overig"'s omschrijving from the raw bank-
+    // omschrijving, and — for Contributie/Kamp/Congres — a live AJAX-
+    // lookup of the member's actual open bedrag for that one specific
+    // activiteit. Extracted so it applies both to rows rendered by PHP at
+    // page load and to blank rows cloned client-side via "+ voeg regel toe".
+    function wireRow(row, form) {
+        var memberSelect = row.querySelector('select[name="member_id[]"]');
+        var activitySelect = row.querySelector('select[name="activity[]"]');
+        var descriptionInput = row.querySelector('.avbk-row-description');
+        if (!memberSelect || !activitySelect) return;
+
+        function updateDescriptionVisibility() {
+            var isFeeTypeActivity = Object.prototype.hasOwnProperty.call(cfg.feeTypeMap, activitySelect.value);
+            if (descriptionInput) {
+                descriptionInput.style.display = isFeeTypeActivity ? 'none' : '';
+                if (!isFeeTypeActivity && activitySelect.value === 'Overig' && !descriptionInput.value) {
+                    descriptionInput.value = form.dataset.txDescription || '';
+                }
+            }
+        }
+
+        function lookupDetail() {
             var fragmentsEl = row.querySelector('.avbk-detail-fragments');
             var estimatedEl = row.querySelector('.avbk-detail-estimated');
             var nightsLink = row.querySelector('.avbk-detail-nights-link');
@@ -79,24 +149,21 @@ document.addEventListener('DOMContentLoaded', function () {
             var amountInput = row.querySelector('.avbk-amount-input');
 
             // Clear stale detail immediately — showing the *previous*
-            // person's age/nights against the *newly* selected member
-            // would be actively misleading, even briefly.
+            // person's/activiteit's age/nights would otherwise be actively
+            // misleading, even briefly.
             if (fragmentsEl) fragmentsEl.innerHTML = '';
             if (estimatedEl) estimatedEl.textContent = '';
             if (nightsLink) nightsLink.style.display = 'none';
             if (memberLink) memberLink.style.display = 'none';
 
-            if (!select.value) return;
-
-            var types = Array.from(form.querySelectorAll('input[name="type[]"]:checked')).map(function (cb) {
-                return cb.value;
-            });
+            var feeType = cfg.feeTypeMap[activitySelect.value];
+            if (!memberSelect.value || !feeType) return;
 
             var body = new URLSearchParams();
             body.set('action', 'avbk_member_fee_detail');
             body.set('nonce', cfg.nonce);
-            body.set('member_id', select.value);
-            types.forEach(function (t) { body.append('types[]', t); });
+            body.set('member_id', memberSelect.value);
+            body.append('types[]', feeType);
 
             fetch(cfg.ajaxUrl, {
                 method: 'POST',
@@ -126,127 +193,43 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     updateTotals(form); // amountInput.value was set programmatically, no native 'input' event fires
                 });
-        });
-    }
-
-    // The "Type:" dropdown's summary text (visible while the checkbox list
-    // itself is collapsed) — recomputed from whichever boxes are currently
-    // checked, contributie/kamp and losse-post categories alike.
-    function updateTypeSummary(dropdown) {
-        var summaryEl = dropdown.querySelector('.avbk-type-summary');
-        if (!summaryEl) return;
-        var labels = Array.from(dropdown.querySelectorAll('.avbk-type-checkbox:checked')).map(function (cb) {
-            return cb.closest('label').textContent.trim();
-        });
-        summaryEl.textContent = labels.length ? labels.join(', ') : 'geen';
-    }
-
-    function parseAmount(value) {
-        var n = parseFloat(String(value).replace(',', '.'));
-        return isNaN(n) ? 0 : n;
-    }
-
-    // Sums every member-split and losse-post amount on this transaction and
-    // checks it against the transaction's own amount — a payment that
-    // doesn't add up (a row left at its old suggested share after the
-    // treasurer corrected another, an overige-regel amount typo'd) would
-    // otherwise only surface later as a mysteriously wrong balance.
-    function updateTotals(form) {
-        var sumEl = form.querySelector('.avbk-review-total-sum');
-        var diffEl = form.querySelector('.avbk-review-total-diff');
-        if (!sumEl || !diffEl) return;
-
-        var total = 0;
-        form.querySelectorAll('input[name="amount[]"], input[name="extra_amount[]"]').forEach(function (input) {
-            total += parseAmount(input.value);
-        });
-        total = Math.round(total * 100) / 100;
-        sumEl.textContent = '€ ' + total.toFixed(2).replace('.', ',');
-
-        var txAmount = parseAmount(form.dataset.txAmount);
-        var diff = Math.round((txAmount - total) * 100) / 100;
-        if (Math.abs(diff) < 0.005) {
-            diffEl.textContent = '';
-            diffEl.classList.remove('avbk-diff-mismatch');
-        } else {
-            // Framed from the payment's own perspective, not the
-            // allocation's — "de betaling is te weinig/te veel", not
-            // "toegewezen is te veel/weinig" — since it's the treasurer's
-            // row edits being checked against a fixed, already-known
-            // payment amount, not the other way round.
-            var diffAbs = Math.abs(diff).toFixed(2).replace('.', ',');
-            diffEl.textContent = diff > 0
-                ? '— de betaling is € ' + diffAbs + ' te veel (nog niet alles toegewezen)'
-                : '— de betaling is € ' + diffAbs + ' te weinig (meer toegewezen dan ontvangen)';
-            diffEl.classList.add('avbk-diff-mismatch');
         }
+
+        memberSelect.addEventListener('change', function () {
+            loadHouseholdSuggestions(form);
+            lookupDetail();
+        });
+        activitySelect.addEventListener('change', function () {
+            updateDescriptionVisibility();
+            lookupDetail();
+        });
+        updateDescriptionVisibility();
     }
 
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {
         loadHouseholdSuggestions(form); // rows often already arrive pre-filled with a suggested payer
 
-        var firstSelect = form.querySelector('select[name^="member_id"]');
-        if (firstSelect) {
-            firstSelect.addEventListener('change', function () { loadHouseholdSuggestions(form); });
-        }
-
-        form.querySelectorAll('select[name^="member_id"]').forEach(function (select) {
-            wireMemberSelect(select, form);
+        form.querySelectorAll('.avbk-review-split tr').forEach(function (row) {
+            wireRow(row, form);
         });
 
-        var addRowBtn = form.querySelector('.avbk-add-member-row');
-        var rowTemplate = form.querySelector('.avbk-member-row-template');
+        var addRowBtn = form.querySelector('.avbk-add-row');
+        var rowTemplate = form.querySelector('.avbk-row-template');
         if (addRowBtn && rowTemplate) {
             addRowBtn.addEventListener('click', function () {
                 var table = form.querySelector('.avbk-review-split');
                 var tbody = table.querySelector('tbody') || table;
                 var row = rowTemplate.content.firstElementChild.cloneNode(true);
                 tbody.appendChild(row);
-                var select = row.querySelector('select[name^="member_id"]');
-                if (select) wireMemberSelect(select, form);
+                wireRow(row, form);
                 // The new row is blank, so it's exactly the case
-                // applyHouseholdSuggestions() targets — but nothing calls it
-                // on its own after a row is added (only on page load and on
-                // the first select's change), so a fresh row never got the
-                // household/family optgroup until the treasurer happened to
-                // re-trigger it some other way. Every suggested row was
-                // already pre-filled once the auto-match found every payer,
-                // so this was the *only* time the dropdown had a blank row
-                // to populate at all.
+                // applyHouseholdSuggestions() targets.
                 loadHouseholdSuggestions(form);
             });
         }
 
-        var typeDropdown = form.querySelector('.avbk-type-dropdown');
-        var extraLines = form.querySelector('.avbk-extra-lines');
-        var extraTemplate = form.querySelector('.avbk-extra-line-template');
-        if (typeDropdown) {
-            typeDropdown.querySelectorAll('.avbk-type-checkbox').forEach(function (checkbox) {
-                checkbox.addEventListener('change', function () {
-                    updateTypeSummary(typeDropdown);
-                    if (checkbox.dataset.kind !== 'extra' || !extraLines || !extraTemplate) return;
-
-                    var category = checkbox.dataset.category;
-                    if (checkbox.checked) {
-                        var line = extraTemplate.content.firstElementChild.cloneNode(true);
-                        line.dataset.category = category;
-                        line.querySelector('.avbk-extra-line-label').textContent = category;
-                        line.querySelector('.avbk-extra-line-category-input').value = category;
-                        if (checkbox.dataset.description) {
-                            line.querySelector('.avbk-extra-line-description').value = checkbox.dataset.description;
-                        }
-                        extraLines.appendChild(line);
-                    } else {
-                        var existing = extraLines.querySelector('.avbk-extra-line[data-category="' + category + '"]');
-                        if (existing) existing.remove();
-                    }
-                    updateTotals(form);
-                });
-            });
-        }
-
         form.addEventListener('input', function (e) {
-            if (e.target.matches('input[name="amount[]"], input[name="extra_amount[]"]')) {
+            if (e.target.matches('input[name="amount[]"]')) {
                 updateTotals(form);
             }
         });

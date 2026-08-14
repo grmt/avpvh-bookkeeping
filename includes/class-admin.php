@@ -8,6 +8,8 @@ class AVBK_Admin {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('admin_post_avbk_upload_import',        [$this, 'handle_upload_import']);
         add_action('admin_post_avbk_confirm_transaction',  [$this, 'handle_confirm_transaction']);
+        add_action('admin_post_avbk_save_transaction_draft',  [$this, 'handle_save_transaction_draft']);
+        add_action('admin_post_avbk_clear_transaction_draft', [$this, 'handle_clear_transaction_draft']);
         add_action('admin_post_avbk_ignore_transaction',   [$this, 'handle_ignore_transaction']);
         add_action('admin_post_avbk_save_activity_rate',   [$this, 'handle_save_activity_rate']);
         add_action('admin_post_avbk_delete_activity_rate', [$this, 'handle_delete_activity_rate']);
@@ -103,52 +105,77 @@ class AVBK_Admin {
         exit;
     }
 
+    /**
+     * The confirm form's unified rows — parallel arrays name[]/activity[]/
+     * description[]/amount[], one entry per row, in whatever order they
+     * were posted. No filtering here: handle_save_transaction_draft() wants
+     * the raw, possibly-incomplete state (that's the point of a draft),
+     * while handle_confirm_transaction() filters separately since only it
+     * needs every row to be actually usable.
+     */
+    private function parse_raw_transaction_rows(): array {
+        $member_ids = array_map('intval', (array) ($_POST['member_id'] ?? []));
+        $activities = array_map('sanitize_text_field', wp_unslash((array) ($_POST['activity'] ?? [])));
+        $descriptions = array_map('sanitize_text_field', wp_unslash((array) ($_POST['description'] ?? [])));
+        $amounts_raw = array_map('sanitize_text_field', wp_unslash((array) ($_POST['amount'] ?? [])));
+
+        $rows = [];
+        foreach ($member_ids as $i => $member_id) {
+            $rows[] = [
+                'member_id'   => $member_id,
+                'activity'    => $activities[$i] ?? '',
+                'description' => $descriptions[$i] ?? '',
+                'amount'      => (float) str_replace(',', '.', (string) ($amounts_raw[$i] ?? '')),
+            ];
+        }
+        return $rows;
+    }
+
     public function handle_confirm_transaction(): void {
-        check_admin_referer('avbk_confirm_transaction');
+        check_admin_referer('avbk_transaction_row');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
 
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
-        $type_hints = array_values(array_intersect(
-            array_map('sanitize_key', (array) ($_POST['type'] ?? [])),
-            ['contribution', 'camp']
+        $rows = array_values(array_filter(
+            $this->parse_raw_transaction_rows(),
+            fn($r) => $r['member_id'] > 0 && $r['amount'] > 0 && $r['activity'] !== ''
         ));
-        $type_hints = $type_hints ?: null;
-        $member_ids = array_map('intval', (array) ($_POST['member_id'] ?? []));
-        $amounts = array_map(fn($a) => (float) str_replace(',', '.', (string) $a), (array) ($_POST['amount'] ?? []));
 
-        $member_amounts = [];
-        foreach ($member_ids as $i => $member_id) {
-            if ($member_id > 0 && ($amounts[$i] ?? 0) > 0) {
-                $member_amounts[$member_id] = ($member_amounts[$member_id] ?? 0) + $amounts[$i];
-            }
-        }
-
-        $extra_categories = array_map('sanitize_text_field', wp_unslash((array) ($_POST['extra_category'] ?? [])));
-        $extra_member_ids = array_map('intval', (array) ($_POST['extra_member_id'] ?? []));
-        $extra_descriptions = array_map('sanitize_text_field', wp_unslash((array) ($_POST['extra_description'] ?? [])));
-        $extra_amounts = array_map(fn($a) => (float) str_replace(',', '.', (string) $a), (array) ($_POST['extra_amount'] ?? []));
-
-        $extras = [];
-        foreach ($extra_categories as $i => $category) {
-            if ($category === '') {
-                continue;
-            }
-            $extras[] = [
-                'member_id'   => $extra_member_ids[$i] ?? 0,
-                'category'    => $category,
-                'description' => $extra_descriptions[$i] ?? '',
-                'amount'      => $extra_amounts[$i] ?? 0.0,
-            ];
-        }
-        $extras = $extras ?: null;
-
-        if ($transaction_id && ($member_amounts || $extras)) {
-            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints, $extras);
+        if ($transaction_id && $rows) {
+            AVBK_Import::confirm_transaction($transaction_id, $rows);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirmed' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Saves the treasurer's in-progress row edits without applying them — see AVBK_DB::save_transaction_draft(). */
+    public function handle_save_transaction_draft(): void {
+        check_admin_referer('avbk_transaction_row');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
+        if ($transaction_id) {
+            AVBK_DB::save_transaction_draft($transaction_id, $this->parse_raw_transaction_rows());
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'draft_saved' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Discards a saved draft — back to the automatic suggestion on next render. */
+    public function handle_clear_transaction_draft(): void {
+        check_admin_referer('avbk_transaction_row');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
+        if ($transaction_id) {
+            AVBK_DB::clear_transaction_draft($transaction_id);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'draft_cleared' => '1'], admin_url('admin.php')));
         exit;
     }
 
@@ -252,7 +279,7 @@ class AVBK_Admin {
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $types = array_values(array_intersect(
             array_map('sanitize_key', (array) ($_POST['types'] ?? [])),
-            ['contribution', 'camp']
+            array_values(AVBK_DB::activity_fee_type_map())
         ));
         if (!$member_id) {
             wp_send_json_error('Ontbrekend lid.', 400);
