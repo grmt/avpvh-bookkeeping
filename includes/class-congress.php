@@ -39,7 +39,7 @@ class AVBK_Congress {
     /**
      * "Congres" is just another activity (AV-PvH Leden -> Activiteiten) —
      * the most recent one of that type, same "most recent by year" rule
-     * AVPVH_DB::get_current_camp() already uses for camps, so there's no
+     * AVPVH_DB::get_current_activity() already uses for camps, so there's no
      * separate setting pointing at "the active congress". Null if the
      * treasurer hasn't created one yet.
      */
@@ -48,7 +48,7 @@ class AVBK_Congress {
             AVPVH_DB::get_activity_types(),
             fn($t) => $t->name === 'Congres'
         ));
-        return $congres_type ? AVPVH_DB::get_current_camp((int) $congres_type->id) : null;
+        return $congres_type ? AVPVH_DB::get_current_activity((int) $congres_type->id) : null;
     }
 
     private function render_form(): string {

@@ -6,16 +6,16 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 // Every activity — camps, "Contributie {year}", "Congres {year}", drank-
 // afrekeningen, ... — everything a lid can owe a bijdrage for lives in the
-// same AVPVH_DB::get_camps() list (renamed from a camp-only concept; see
+// same AVPVH_DB::get_activities() list (renamed from a camp-only concept; see
 // AV-PvH Leden -> Activiteiten).
-$activities = AVPVH_DB::get_camps();
+$activities = AVPVH_DB::get_activities();
 $activity_id = (int) ($_GET['activity_id'] ?? 0);
 if (!$activity_id) {
-    $current = AVPVH_DB::get_current_camp();
+    $current = AVPVH_DB::get_current_activity();
     $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
 }
 $rates = $activity_id ? AVBK_DB::get_activity_rates($activity_id) : [];
-$selected_activity = $activity_id ? AVPVH_DB::get_camp($activity_id) : null;
+$selected_activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
 $is_contribution = $selected_activity && $selected_activity->type_name === 'Contributie';
 ?>
 <div class="wrap">

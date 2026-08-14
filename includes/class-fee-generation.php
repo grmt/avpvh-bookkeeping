@@ -9,7 +9,7 @@ defined('ABSPATH') || exit;
  *    the rate table gets corrected mid-year) creates/refreshes this
  *    year's item for every active member.
  *  - camp fee items: created/refreshed live whenever camp participation is
- *    saved (avpvh_camp_participation_saved, fired from avpvh-members'
+ *    saved (avpvh_activity_participation_saved, fired from avpvh-members'
  *    AVPVH_DB::save_participation()), so they track nights/attendance
  *    right up to camp time without any admin action.
  */
@@ -19,7 +19,7 @@ class AVBK_Fee_Generation {
 
     public function __construct() {
         add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
-        add_action('avpvh_camp_participation_saved', [$this, 'on_camp_participation_saved'], 10, 3);
+        add_action('avpvh_activity_participation_saved', [$this, 'on_camp_participation_saved'], 10, 3);
     }
 
     public static function schedule_cron(): void {
@@ -50,7 +50,7 @@ class AVBK_Fee_Generation {
 
     /** The "Contributie {year}" activity (an avm_camps row), or null if it doesn't exist yet — created by the 1.8 migration for years with pre-existing rates, otherwise the treasurer creates it via Activiteiten same as a camp. */
     private static function get_contribution_activity(int $year): ?object {
-        return AVPVH_DB::get_camp_by_name_year("Contributie {$year}", $year);
+        return AVPVH_DB::get_activity_by_name_year("Contributie {$year}", $year);
     }
 
     /**
@@ -134,7 +134,7 @@ class AVBK_Fee_Generation {
      */
     public static function generate_camp_fees(int $camp_id): int {
         $count = 0;
-        foreach (AVPVH_DB::get_participation_for_camp($camp_id) as $participation) {
+        foreach (AVPVH_DB::get_participation_for_activity($camp_id) as $participation) {
             if (!$participation->nights) {
                 continue;
             }
@@ -147,7 +147,7 @@ class AVBK_Fee_Generation {
 
     private static function generate_camp_fee_item(int $member_id, int $camp_id, int $nights): bool {
         $member = AVPVH_DB::get_member($member_id);
-        $camp = AVPVH_DB::get_camp($camp_id);
+        $camp = AVPVH_DB::get_activity($camp_id);
         if (!$member || !$camp) {
             return false;
         }
@@ -200,7 +200,7 @@ class AVBK_Fee_Generation {
             } else {
                 $camp_id = (int) $item->camp_id;
                 if (!array_key_exists($camp_id, $camps)) {
-                    $camps[$camp_id] = AVPVH_DB::get_camp($camp_id);
+                    $camps[$camp_id] = AVPVH_DB::get_activity($camp_id);
                 }
                 $camp = $camps[$camp_id];
                 $participation = AVPVH_DB::get_participation($member_id, $camp_id);

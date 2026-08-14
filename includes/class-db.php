@@ -460,7 +460,7 @@ class AVBK_DB {
         global $wpdb;
         $rated_activity_ids = array_unique(array_map('intval', $wpdb->get_col("SELECT DISTINCT activity_id FROM {$wpdb->prefix}avb_activity_rates")));
         return array_values(array_filter(
-            AVPVH_DB::get_camps(),
+            AVPVH_DB::get_activities(),
             fn($camp) => ($camp->type_name ?? '') === 'Kamp' && !in_array((int) $camp->id, $rated_activity_ids, true)
         ));
     }
@@ -493,7 +493,7 @@ class AVBK_DB {
      * blind even split of the payment amount.
      */
     /**
-     * The most recent actual camp — unlike AVPVH_DB::get_current_camp()
+     * The most recent actual camp — unlike AVPVH_DB::get_current_activity()
      * (unfiltered "most recent activity", which can now just as easily
      * resolve to "Contributie {year}" or "Congres {year}" since those live
      * in the same table), this always means an actual Kamp-type activity.
@@ -505,7 +505,7 @@ class AVBK_DB {
             AVPVH_DB::get_activity_types(),
             fn($t) => $t->name === 'Kamp'
         ));
-        return $kamp_type ? AVPVH_DB::get_current_camp((int) $kamp_type->id) : null;
+        return $kamp_type ? AVPVH_DB::get_current_activity((int) $kamp_type->id) : null;
     }
 
     public static function find_relevant_open_fee_item(int $member_id, string $type): ?object {
