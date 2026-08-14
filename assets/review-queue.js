@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (amountInput && d.found) {
                         amountInput.value = d.share.toFixed(2).replace('.', ',');
                     }
+                    updateTotals(form); // amountInput.value was set programmatically, no native 'input' event fires
                 });
         });
     }
@@ -138,6 +139,42 @@ document.addEventListener('DOMContentLoaded', function () {
             return cb.closest('label').textContent.trim();
         });
         summaryEl.textContent = labels.length ? labels.join(', ') : 'geen';
+    }
+
+    function parseAmount(value) {
+        var n = parseFloat(String(value).replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+    }
+
+    // Sums every member-split and losse-post amount on this transaction and
+    // checks it against the transaction's own amount — a payment that
+    // doesn't add up (a row left at its old suggested share after the
+    // treasurer corrected another, an overige-regel amount typo'd) would
+    // otherwise only surface later as a mysteriously wrong balance.
+    function updateTotals(form) {
+        var sumEl = form.querySelector('.avbk-review-total-sum');
+        var diffEl = form.querySelector('.avbk-review-total-diff');
+        if (!sumEl || !diffEl) return;
+
+        var total = 0;
+        form.querySelectorAll('input[name="amount[]"], input[name="extra_amount[]"]').forEach(function (input) {
+            total += parseAmount(input.value);
+        });
+        total = Math.round(total * 100) / 100;
+        sumEl.textContent = '€ ' + total.toFixed(2).replace('.', ',');
+
+        var txAmount = parseAmount(form.dataset.txAmount);
+        var diff = Math.round((txAmount - total) * 100) / 100;
+        if (Math.abs(diff) < 0.005) {
+            diffEl.textContent = '';
+            diffEl.classList.remove('avbk-diff-mismatch');
+        } else {
+            var diffAbs = Math.abs(diff).toFixed(2).replace('.', ',');
+            diffEl.textContent = diff > 0
+                ? '— nog € ' + diffAbs + ' niet toegewezen'
+                : '— € ' + diffAbs + ' te veel toegewezen';
+            diffEl.classList.add('avbk-diff-mismatch');
+        }
     }
 
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {
@@ -188,8 +225,16 @@ document.addEventListener('DOMContentLoaded', function () {
                         var existing = extraLines.querySelector('.avbk-extra-line[data-category="' + category + '"]');
                         if (existing) existing.remove();
                     }
+                    updateTotals(form);
                 });
             });
         }
+
+        form.addEventListener('input', function (e) {
+            if (e.target.matches('input[name="amount[]"], input[name="extra_amount[]"]')) {
+                updateTotals(form);
+            }
+        });
+        updateTotals(form);
     });
 });

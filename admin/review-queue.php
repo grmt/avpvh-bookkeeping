@@ -98,7 +98,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
             </div>
             <p class="description"><?php echo avbk_format_description($tx->description); ?></p>
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>">
                 <?php wp_nonce_field('avbk_confirm_transaction'); ?>
                 <input type="hidden" name="action" value="avbk_confirm_transaction">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
@@ -172,6 +172,12 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                         <?php avbk_member_select('extra_member_id[]', $all_members); ?>
                     </div>
                 </template>
+
+                <p class="avbk-review-total">
+                    Totaal ingevuld: <span class="avbk-review-total-sum">&euro; 0,00</span>
+                    van <span class="avbk-review-total-tx">&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></span>
+                    <span class="avbk-review-total-diff"></span>
+                </p>
 
                 <?php submit_button('Bevestigen', 'primary', 'submit', false); ?>
             </form>
