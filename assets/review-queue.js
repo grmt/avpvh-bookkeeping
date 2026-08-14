@@ -169,10 +169,15 @@ document.addEventListener('DOMContentLoaded', function () {
             diffEl.textContent = '';
             diffEl.classList.remove('avbk-diff-mismatch');
         } else {
+            // Framed from the payment's own perspective, not the
+            // allocation's — "de betaling is te weinig/te veel", not
+            // "toegewezen is te veel/weinig" — since it's the treasurer's
+            // row edits being checked against a fixed, already-known
+            // payment amount, not the other way round.
             var diffAbs = Math.abs(diff).toFixed(2).replace('.', ',');
             diffEl.textContent = diff > 0
-                ? '— nog € ' + diffAbs + ' niet toegewezen'
-                : '— € ' + diffAbs + ' te veel toegewezen';
+                ? '— de betaling is € ' + diffAbs + ' te veel (nog niet alles toegewezen)'
+                : '— de betaling is € ' + diffAbs + ' te weinig (meer toegewezen dan ontvangen)';
             diffEl.classList.add('avbk-diff-mismatch');
         }
     }
@@ -199,6 +204,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 tbody.appendChild(row);
                 var select = row.querySelector('select[name^="member_id"]');
                 if (select) wireMemberSelect(select, form);
+                // The new row is blank, so it's exactly the case
+                // applyHouseholdSuggestions() targets — but nothing calls it
+                // on its own after a row is added (only on page load and on
+                // the first select's change), so a fresh row never got the
+                // household/family optgroup until the treasurer happened to
+                // re-trigger it some other way. Every suggested row was
+                // already pre-filled once the auto-match found every payer,
+                // so this was the *only* time the dropdown had a blank row
+                // to populate at all.
+                loadHouseholdSuggestions(form);
             });
         }
 

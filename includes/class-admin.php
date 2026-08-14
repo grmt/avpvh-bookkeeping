@@ -281,7 +281,7 @@ class AVBK_Admin {
             wp_send_json_error('Ontbrekend lid.', 400);
         }
         $candidates = array_values(array_filter(
-            AVPVH_DB::get_manageable_members($member_id),
+            AVPVH_DB::get_extended_household($member_id),
             fn($m) => (int) $m->id !== $member_id
         ));
         wp_send_json_success(array_map(fn($m) => [

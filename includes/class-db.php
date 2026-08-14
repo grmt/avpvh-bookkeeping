@@ -101,6 +101,7 @@ class AVBK_DB {
             status ENUM('unmatched','suggested','matched','ignored') NOT NULL DEFAULT 'unmatched',
             suggested_member_ids VARCHAR(100) NOT NULL DEFAULT '',
             suggested_type VARCHAR(20) NOT NULL DEFAULT '',
+            draft_data TEXT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY dedupe_hash (dedupe_hash),
@@ -385,6 +386,18 @@ class AVBK_DB {
                     RENAME INDEX member_type_camp TO member_type_activity");
             }
             update_option('avbk_db_version', '1.9');
+        }
+        if (version_compare($version, '1.10', '<')) {
+            // A treasurer can save an in-progress split without confirming
+            // it yet — the raw posted rows (member/activity/amount), not
+            // processed into fee items/allocations until Bevestigen. One
+            // draft per transaction, so a plain nullable column rather than
+            // a separate table.
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_transactions LIKE 'draft_data'");
+            if (!$column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions ADD COLUMN draft_data TEXT NULL AFTER suggested_type");
+            }
+            update_option('avbk_db_version', '1.10');
         }
     }
 
@@ -967,6 +980,34 @@ class AVBK_DB {
             ['status' => $status, 'suggested_member_ids' => $suggested_member_ids, 'suggested_type' => $suggested_type],
             ['id' => $id]
         );
+        // Deliberately doesn't touch draft_data — a saved draft is the
+        // treasurer's own deliberate in-progress edit, and a recompute of
+        // the *automatic* suggestion (which this row won't even use while
+        // a draft exists — see get_transaction_draft()) must never
+        // silently overwrite it.
+    }
+
+    /** Saves the treasurer's in-progress row edits (member/activity/amount) for transaction $id without touching fee_items/allocations/status — see get_transaction_draft(). */
+    public static function save_transaction_draft(int $id, array $rows): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_transactions", ['draft_data' => wp_json_encode($rows)], ['id' => $id]);
+    }
+
+    /** The treasurer's saved-but-not-yet-confirmed rows for transaction $id, or null if there's no draft — used to rebuild the confirm form instead of the automatic suggestion. */
+    public static function get_transaction_draft(int $id): ?array {
+        global $wpdb;
+        $json = $wpdb->get_var($wpdb->prepare("SELECT draft_data FROM {$wpdb->prefix}avb_transactions WHERE id = %d", $id));
+        if (!$json) {
+            return null;
+        }
+        $rows = json_decode($json, true);
+        return is_array($rows) ? $rows : null;
+    }
+
+    /** Called once a transaction is actually confirmed (or the treasurer explicitly discards the draft) — a confirmed transaction, or one back to showing the automatic suggestion, has no in-progress draft left to keep. */
+    public static function clear_transaction_draft(int $id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_transactions", ['draft_data' => null], ['id' => $id]);
     }
 
     /** Rows still needing the treasurer's attention — everything else applied itself. */
