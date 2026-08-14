@@ -97,6 +97,9 @@ class AVBK_Fee_Popup {
                     <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
                     <p class="avbk-fee-popup-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html($reference); ?></code></p>
                 <?php endif; ?>
+                <p class="avbk-fee-popup-detail-link">
+                    <a href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">Volledig overzicht en details bekijken &rarr;</a>
+                </p>
                 <button id="avbk-fee-dismiss" class="button"><?php esc_html_e('Sluiten', 'avpvh-bookkeeping'); ?></button>
             </div>
         </div>

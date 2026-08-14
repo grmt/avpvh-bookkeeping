@@ -92,7 +92,7 @@ class AVBK_Balance_Shortcode {
 
         ob_start();
         ?>
-        <div class="avbk-balance">
+        <div class="avbk-balance" id="bijdrage">
             <h2>Bijdrage &mdash; <?php echo esc_html(avpvh_format_name($target_member)); ?></h2>
 
             <?php if (!empty($_GET['dispute_sent'])) : ?>
