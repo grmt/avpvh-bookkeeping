@@ -117,35 +117,56 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // A row's activity value is either "a<id>" — a specific, dated
+    // activiteit the treasurer picked, matched unambiguously against that
+    // activiteit's own open bijdrage-regel — or a bare type name (Drank,
+    // Overig, ...) that isn't tied to any dated activiteit and creates a
+    // brand new one-off regel instead. See admin/review-queue.php's
+    // avbk_activity_select() for where these values come from.
+    function matchedActivityId(value) {
+        var m = /^a(\d+)$/.exec(value);
+        return m ? m[1] : null;
+    }
+
     // Wires one regel's lid- and activiteit-dropdowns: toggling the
     // optional omschrijving field's visibility (only relevant for a losse
-    // kostenpost, not an activiteit that matches an existing bijdrage-
-    // regel), auto-filling "Overig"'s omschrijving from the raw bank-
-    // omschrijving, and — for Contributie/Kamp/Congres — a live AJAX-
-    // lookup of the member's actual open bedrag for that one specific
-    // activiteit. Extracted so it applies both to rows rendered by PHP at
-    // page load and to blank rows cloned client-side via "+ voeg regel toe".
+    // kostenpost, not a matched activiteit), auto-filling "Overig"'s
+    // omschrijving from the raw bank-omschrijving, keeping the "bewerk
+    // lid"-link next to the lid-dropdown pointed at whoever is currently
+    // selected, and — for a matched activiteit — a live AJAX-lookup of the
+    // member's actual open bedrag for that one specific activiteit.
+    // Extracted so it applies both to rows rendered by PHP at page load and
+    // to blank rows cloned client-side via "+ voeg regel toe".
     function wireRow(row, form) {
         var memberSelect = row.querySelector('select[name="member_id[]"]');
         var activitySelect = row.querySelector('select[name="activity[]"]');
         var descriptionInput = row.querySelector('.avbk-row-description');
+        var memberLink = row.querySelector('.avbk-detail-member-link');
         if (!memberSelect || !activitySelect) return;
 
         function updateDescriptionVisibility() {
-            var isFeeTypeActivity = Object.prototype.hasOwnProperty.call(cfg.feeTypeMap, activitySelect.value);
+            var isMatchedActivity = !!matchedActivityId(activitySelect.value);
             if (descriptionInput) {
-                descriptionInput.style.display = isFeeTypeActivity ? 'none' : '';
-                if (!isFeeTypeActivity && activitySelect.value === 'Overig' && !descriptionInput.value) {
+                descriptionInput.style.display = isMatchedActivity ? 'none' : '';
+                if (!isMatchedActivity && activitySelect.value === 'Overig' && !descriptionInput.value) {
                     descriptionInput.value = form.dataset.txDescription || '';
                 }
+            }
+        }
+
+        function updateMemberEditLink() {
+            if (!memberLink) return;
+            if (memberSelect.value) {
+                memberLink.href = cfg.memberProfileUrl + '?member_id=' + encodeURIComponent(memberSelect.value);
+                memberLink.style.display = '';
+            } else {
+                memberLink.style.display = 'none';
             }
         }
 
         function lookupDetail() {
             var fragmentsEl = row.querySelector('.avbk-detail-fragments');
             var estimatedEl = row.querySelector('.avbk-detail-estimated');
-            var nightsLink = row.querySelector('.avbk-detail-nights-link');
-            var memberLink = row.querySelector('.avbk-detail-member-link');
             var amountInput = row.querySelector('.avbk-amount-input');
 
             // Clear stale detail immediately — showing the *previous*
@@ -153,17 +174,15 @@ document.addEventListener('DOMContentLoaded', function () {
             // misleading, even briefly.
             if (fragmentsEl) fragmentsEl.innerHTML = '';
             if (estimatedEl) estimatedEl.textContent = '';
-            if (nightsLink) nightsLink.style.display = 'none';
-            if (memberLink) memberLink.style.display = 'none';
 
-            var feeType = cfg.feeTypeMap[activitySelect.value];
-            if (!memberSelect.value || !feeType) return;
+            var activityId = matchedActivityId(activitySelect.value);
+            if (!memberSelect.value || !activityId) return;
 
             var body = new URLSearchParams();
             body.set('action', 'avbk_member_fee_detail');
             body.set('nonce', cfg.nonce);
             body.set('member_id', memberSelect.value);
-            body.append('types[]', feeType);
+            body.set('activity_id', activityId);
 
             fetch(cfg.ajaxUrl, {
                 method: 'POST',
@@ -176,18 +195,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     var d = res.data;
                     if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
                     if (estimatedEl) estimatedEl.textContent = d.estimated_text || '';
-                    if (nightsLink) {
-                        if (d.nights_edit_url) {
-                            nightsLink.href = d.nights_edit_url;
-                            nightsLink.style.display = '';
-                        } else {
-                            nightsLink.style.display = 'none';
-                        }
-                    }
-                    if (memberLink && d.member_edit_url) {
-                        memberLink.href = d.member_edit_url;
-                        memberLink.style.display = '';
-                    }
                     if (amountInput && d.found) {
                         amountInput.value = d.share.toFixed(2).replace('.', ',');
                     }
@@ -197,6 +204,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         memberSelect.addEventListener('change', function () {
             loadHouseholdSuggestions(form);
+            updateMemberEditLink();
             lookupDetail();
         });
         activitySelect.addEventListener('change', function () {
@@ -204,6 +212,7 @@ document.addEventListener('DOMContentLoaded', function () {
             lookupDetail();
         });
         updateDescriptionVisibility();
+        updateMemberEditLink();
     }
 
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {

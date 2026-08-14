@@ -266,10 +266,10 @@ class AVBK_Admin {
 
     /**
      * Backs the review queue's live refresh: when the treasurer changes the
-     * selected member on an already-rendered row (correcting a wrong
-     * suggestion, or filling a blank slot), the amount/age/nights detail
-     * needs to reflect the newly picked person instead of staying frozen on
-     * whoever was originally suggested.
+     * selected member or activity on an already-rendered row (correcting a
+     * wrong suggestion, or filling a blank slot), the amount/age/nights
+     * detail needs to reflect the newly picked person/activity instead of
+     * staying frozen on whoever/whatever was originally suggested.
      */
     public function ajax_member_fee_detail(): void {
         check_ajax_referer('avbk_review_queue', 'nonce');
@@ -277,14 +277,11 @@ class AVBK_Admin {
             wp_send_json_error('Geen toegang.', 403);
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
-        $types = array_values(array_intersect(
-            array_map('sanitize_key', (array) ($_POST['types'] ?? [])),
-            array_values(AVBK_DB::activity_fee_type_map())
-        ));
-        if (!$member_id) {
-            wp_send_json_error('Ontbrekend lid.', 400);
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if (!$member_id || !$activity_id) {
+            wp_send_json_error('Ontbrekende gegevens.', 400);
         }
-        wp_send_json_success(AVBK_DB::get_member_fee_detail($member_id, $types));
+        wp_send_json_success(AVBK_DB::get_member_fee_detail_for_activity($member_id, $activity_id));
     }
 
     /**
@@ -296,7 +293,10 @@ class AVBK_Admin {
      * modeled on) — far more useful to suggest than scrolling the full
      * ~200-member list. Reuses AVPVH_DB::get_manageable_members(), the same
      * self-or-household rule the profile form and balance shortcode already
-     * use elsewhere in this codebase.
+     * use elsewhere in this codebase. The payer themselves is included too —
+     * a single person paying for two different activities in one transfer
+     * (e.g. weekend-inschrijving + drank) needs their own name available
+     * when adding a second row for the same payment, not just relatives.
      */
     public function ajax_household_candidates(): void {
         check_ajax_referer('avbk_review_queue', 'nonce');
@@ -307,10 +307,7 @@ class AVBK_Admin {
         if (!$member_id) {
             wp_send_json_error('Ontbrekend lid.', 400);
         }
-        $candidates = array_values(array_filter(
-            AVPVH_DB::get_extended_household($member_id),
-            fn($m) => (int) $m->id !== $member_id
-        ));
+        $candidates = AVPVH_DB::get_extended_household($member_id);
         wp_send_json_success(array_map(fn($m) => [
             'id'    => (int) $m->id,
             'label' => avpvh_format_name($m, 'list'),

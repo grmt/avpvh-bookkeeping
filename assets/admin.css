@@ -70,6 +70,11 @@
     margin-right: .4rem;
 }
 
+.avbk-detail-member-link {
+    margin-left: .4rem;
+    font-size: .85em;
+}
+
 .avbk-review-form,
 .avbk-review-ignore-form,
 .avbk-review-clear-draft-form {

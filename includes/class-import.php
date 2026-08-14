@@ -179,20 +179,21 @@ class AVBK_Import {
      * one combined amount per member.
      *
      * $rows: array of ['member_id' => int, 'activity' => string,
-     * 'description' => string, 'amount' => float]. 'activity' is one of
-     * AVBK_DB::activity_fee_type_map()'s keys (Contributie/Kamp/Congres —
-     * allocated against that member's existing open fee item of that
-     * type) or any other activity-type name (Drank/Eten/Overig/... — a
-     * brand new, already-paid fee item is created for it on the spot,
-     * same as the old "overige regel"; 'description' is optional free
-     * text folded into that item's own description).
+     * 'description' => string, 'amount' => float]. 'activity' is either
+     * "a<id>" — a specific avm_activities row the treasurer picked from
+     * the review queue's own dropdown, allocated against that member's
+     * matching open fee item (unambiguous even when the member has two
+     * open items of the same type across different years) — or any other
+     * activity-type name (Drank/Eten/Overig/... — a brand new, already-paid
+     * fee item is created for it on the spot, same as the old "overige
+     * regel"; 'description' is optional free text folded into that item's
+     * own description).
      */
     public static function confirm_transaction(int $transaction_id, array $rows): void {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return;
         }
-        $fee_type_map = AVBK_DB::activity_fee_type_map();
         $paid_member_ids = [];
         foreach ($rows as $row) {
             $member_id = (int) ($row['member_id'] ?? 0);
@@ -201,8 +202,8 @@ class AVBK_Import {
             if ($member_id <= 0 || $amount <= 0 || $activity === '') {
                 continue;
             }
-            if (isset($fee_type_map[$activity])) {
-                self::allocate_to_open_items_of_type($transaction_id, $member_id, $amount, $fee_type_map[$activity]);
+            if (preg_match('/^a(\d+)$/', $activity, $m)) {
+                self::allocate_to_open_items_of_activity($transaction_id, $member_id, $amount, (int) $m[1]);
             } else {
                 $description = (string) ($row['description'] ?? '');
                 $fee_item_id = AVBK_DB::create_other_fee_item($member_id, $activity, $description, $amount);
@@ -290,20 +291,22 @@ class AVBK_Import {
     }
 
     /**
-     * Allocates $amount to a member's open fee items of exactly $type,
-     * oldest first — the confirm-form counterpart to allocate_to_open_items()
-     * above (used by the fully-automatic apply_payment() path, which only
-     * has a guessed list of possible types to blend). Here the treasurer
-     * picked one specific activity for this one specific row, so there's
-     * no blending or fallback to other types: money explicitly assigned to
-     * "Kamp" never quietly pays off a contribution item instead. Any
-     * remainder that doesn't fit an open item of this type is simply left
-     * unallocated, same as allocate_to_open_items().
+     * Allocates $amount to a member's open fee item for exactly one
+     * specific activity — the confirm-form counterpart to
+     * allocate_to_open_items() above (used by the fully-automatic
+     * apply_payment() path, which only has a guessed list of possible
+     * types to blend). Here the treasurer picked one specific activity for
+     * this one specific row, so there's no blending or fallback to other
+     * activities/types: money explicitly assigned to "Kamp Goeblange
+     * (2026)" never quietly pays off a different year's camp fee, or a
+     * contribution item, instead. Any remainder that doesn't fit this
+     * activity's own open item is simply left unallocated, same as
+     * allocate_to_open_items().
      */
-    private static function allocate_to_open_items_of_type(int $transaction_id, int $member_id, float $amount, string $type): void {
+    private static function allocate_to_open_items_of_activity(int $transaction_id, int $member_id, float $amount, int $activity_id): void {
         $open_items = array_values(array_filter(
             AVBK_DB::get_open_fee_items_for_member($member_id),
-            fn($item) => $item->type === $type
+            fn($item) => (int) $item->activity_id === $activity_id
         ));
 
         $remaining = round($amount, 2);

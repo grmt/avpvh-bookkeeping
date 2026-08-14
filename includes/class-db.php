@@ -519,128 +519,101 @@ class AVBK_DB {
     }
 
     /**
-     * The member's own open fee item for $type (their most recent camp's
-     * camp fee, or the current year's contribution) — used by the review
-     * queue to default a multi-member split to what each person actually
-     * owes (nights x day-rate, or their age-bracket rate) instead of a
-     * blind even split of the payment amount.
+     * The concrete avm_activities row currently active for a given activity
+     * *type* name (Kamp/Congres/Contributie/...) — "current" meaning most
+     * recent by year. Used only to default the review queue's initial
+     * suggestion to a specific activity when the bank description merely
+     * names a type ("KAMP EN CONTRIBUTIE"); the treasurer's own row picks
+     * the exact activity directly (see get_member_fee_detail_for_activity()),
+     * so this heuristic never runs once a human has made a choice.
      */
-    /**
-     * The most recent actual camp — unlike AVPVH_DB::get_current_activity()
-     * (unfiltered "most recent activity", which can now just as easily
-     * resolve to "Contributie" (year in its own column) or "Congres" (year in its own column) since those live
-     * in the same table), this always means an actual Kamp-type activity.
-     * Needed wherever "the current camp" is a real, load-bearing concept
-     * (matching-priority against open camp fee items here).
-     */
-    private static function get_current_camp_activity(): ?object {
-        $kamp_type = current(array_filter(
+    public static function get_current_activity_for_type_name(string $type_name): ?object {
+        $type = current(array_filter(
             AVPVH_DB::get_activity_types(),
-            fn($t) => $t->name === 'Kamp'
+            fn($t) => $t->name === $type_name
         ));
-        return $kamp_type ? AVPVH_DB::get_current_activity((int) $kamp_type->id) : null;
-    }
-
-    public static function find_relevant_open_fee_item(int $member_id, string $type): ?object {
-        global $wpdb;
-        $item = null;
-        if ($type === 'camp') {
-            $camp = self::get_current_camp_activity();
-            if ($camp) {
-                $item = self::get_camp_fee_item($member_id, (int) $camp->id);
-            }
-        } elseif ($type === 'contribution') {
-            $item = self::get_contribution_fee_item($member_id, (int) current_time('Y'));
-        } elseif ($type === 'event') {
-            // Unlike contribution (one per year) or camp (one per member per
-            // activity), an 'event' item (e.g. a congress signup) has no
-            // natural "current" key to look up by — just take the most
-            // recently created one, open or not (still filtered to 'open'
-            // below like the other two branches).
-            $item = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'event' ORDER BY created_at DESC LIMIT 1",
-                $member_id
-            )) ?: null;
-        }
-        return ($item && $item->status === 'open') ? $item : null;
+        return $type ? AVPVH_DB::get_current_activity((int) $type->id) : null;
     }
 
     /**
-     * Everything the review queue's per-candidate line shows for one member
-     * across the fee types a transaction was tagged with: amount still
-     * open, the age/student or nights/dates fragment, an estimated-amount
-     * warning, and the two "edit" links. Shared between the initial page
-     * render and the AJAX endpoint that refreshes this when the treasurer
-     * swaps the selected member on an already-rendered row — one source of
-     * truth for both so they can never drift out of sync.
+     * Everything the review queue's per-row line shows for one member
+     * against one specific, treasurer-chosen activity: amount still open,
+     * the age/student or nights/dates fragment (with the nights themselves
+     * as the edit link), and an estimated-amount warning. Shared between
+     * the initial page render and the AJAX endpoint that refreshes this
+     * when the treasurer swaps the selected member or activity on an
+     * already-rendered row — one source of truth for both so they can
+     * never drift out of sync. A direct member+activity match (rather than
+     * the old member+type "current item" guess) is unambiguous even when a
+     * member has two open items of the same type across different years.
      */
-    public static function get_member_fee_detail(int $member_id, array $types): array {
+    public static function get_member_fee_detail_for_activity(int $member_id, int $activity_id): array {
+        global $wpdb;
         $member = AVPVH_DB::get_member($member_id);
         $detail = [
             'share' => 0.0,
             'fragments_html' => '',
             'estimated_text' => '',
-            'nights_edit_url' => '',
-            'member_edit_url' => $member ? add_query_arg(['member_id' => $member_id], home_url('/member-profile/')) : '',
             'found' => false,
         ];
-        if (!$member) {
+        if (!$member || !$activity_id) {
             return $detail;
+        }
+        $item = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id = %d AND status = 'open' LIMIT 1",
+            $member_id, $activity_id
+        ));
+        if (!$item) {
+            return $detail;
+        }
+        $detail['found'] = true;
+        $detail['share'] = round((float) $item->amount_due - self::get_fee_item_paid((int) $item->id), 2);
+        if (!empty($item->is_estimated)) {
+            $detail['estimated_text'] = "\u{26A0} " . ($item->estimate_reason ?: 'Geschat bedrag.');
         }
 
         $fragments = [];
-        foreach ($types as $type) {
-            $item = self::find_relevant_open_fee_item($member_id, $type);
-            if (!$item) {
-                continue;
+        if ($item->type === 'contribution') {
+            // Student is a status, not an age bracket — showing an age
+            // next to a student-rate amount would misleadingly imply age
+            // is what set the price.
+            if (!empty($member->is_student)) {
+                $fragments[] = 'scholier/student';
+            } elseif (!empty($member->birth_date)) {
+                $year = (int) ($item->year ?: current_time('Y'));
+                $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
+            } elseif (!empty($member->birth_year)) {
+                $year = (int) ($item->year ?: current_time('Y'));
+                $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_from_year((int) $member->birth_year, "$year-01-01") . ' jaar (bij benadering)';
             }
-            $detail['found'] = true;
-            $detail['share'] += round((float) $item->amount_due - self::get_fee_item_paid((int) $item->id), 2);
-            if (!empty($item->is_estimated)) {
-                $detail['estimated_text'] = "\u{26A0} " . ($item->estimate_reason ?: 'Geschat bedrag.');
-            }
-
-            if ($type === 'contribution') {
-                // Student is a status, not an age bracket — showing an age
-                // next to a student-rate amount would misleadingly imply
-                // age is what set the price.
-                if (!empty($member->is_student)) {
-                    $fragments[] = 'scholier/student';
-                } elseif (!empty($member->birth_date)) {
-                    $year = (int) ($item->year ?: current_time('Y'));
-                    $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_on((string) $member->birth_date, "$year-01-01") . ' jaar';
-                } elseif (!empty($member->birth_year)) {
-                    $year = (int) ($item->year ?: current_time('Y'));
-                    $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_from_year((int) $member->birth_year, "$year-01-01") . ' jaar (bij benadering)';
+        } elseif ($item->type === 'camp') {
+            $participation = AVPVH_DB::get_participation($member_id, $activity_id);
+            if ($participation && $participation->nights) {
+                $nights_parts = [(int) $participation->nights . ' nacht' . ((int) $participation->nights === 1 ? '' : 'en')];
+                // Actual dates present (not just the night count) — same
+                // "non-empty status = present" rule the Kampdeelname list
+                // itself uses for "Dagen aanwezig".
+                $days = AVPVH_DB::get_participation_days((int) $participation->id);
+                $present_dates = array_keys(array_filter($days, fn($status) => $status !== ''));
+                sort($present_dates);
+                if ($present_dates) {
+                    $nights_parts[] = esc_html(wp_date('D d M', strtotime(reset($present_dates))))
+                        . '&ndash;' . esc_html(wp_date('D d M', strtotime(end($present_dates))));
                 }
-            }
-            if ($type === 'camp' && $item->activity_id) {
-                $participation = AVPVH_DB::get_participation($member_id, (int) $item->activity_id);
-                if ($participation && $participation->nights) {
-                    $nights_parts = [(int) $participation->nights . ' nacht' . ((int) $participation->nights === 1 ? '' : 'en')];
-                    // Actual dates present (not just the night count) — same
-                    // "non-empty status = present" rule the Kampdeelname
-                    // list itself uses for "Dagen aanwezig".
-                    $days = AVPVH_DB::get_participation_days((int) $participation->id);
-                    $present_dates = array_keys(array_filter($days, fn($status) => $status !== ''));
-                    sort($present_dates);
-                    if ($present_dates) {
-                        $nights_parts[] = esc_html(wp_date('D d M', strtotime(reset($present_dates))))
-                            . '&ndash;' . esc_html(wp_date('D d M', strtotime(end($present_dates))));
-                    }
-                    $fragments[] = 'inschrijving: ' . implode(', ', $nights_parts);
-                    $detail['nights_edit_url'] = add_query_arg([
-                        'page' => 'avpvh-activity-participation-detail',
-                        'activity_id' => (int) $item->activity_id,
-                        'id' => (int) $participation->id,
-                    ], admin_url('admin.php'));
-                }
+                $nights_edit_url = add_query_arg([
+                    'page' => 'avpvh-activity-participation-detail',
+                    'activity_id' => $activity_id,
+                    'id' => (int) $participation->id,
+                ], admin_url('admin.php'));
+                // The nights/dates themselves are the click target — no
+                // separate "wijzig overnachtingen" link cluttering every
+                // row (there's a one-time hint above the queue instead).
+                $fragments[] = '<a href="' . esc_url($nights_edit_url) . '" target="_blank">inschrijving: ' . implode(', ', $nights_parts) . '</a>';
             }
         }
-        $detail['share'] = round($detail['share'], 2);
-        // Each fragment is already safe (plain text, or the date range
-        // which carries a pre-escaped "&ndash;") — esc_html-ing the joined
-        // result here would double-encode that entity.
+        // Each fragment is already safe (plain text, the pre-escaped
+        // "&ndash;" date range, or the hand-built <a> above) — esc_html-ing
+        // the joined result here would double-encode/strip it.
         $detail['fragments_html'] = implode(' &middot; ', $fragments);
         return $detail;
     }
@@ -722,13 +695,21 @@ class AVBK_DB {
      * same admin-editable list an activity's own type uses) correspond to
      * an existing, already-generated fee item (avb_fee_items.type) versus
      * a one-off category (Drank/Eten/Overig/...) that gets a brand new fee
-     * item created on the spot. Shared between the confirm form's per-row
-     * activity dropdown (admin/review-queue.php) and the confirm handler's
-     * branching (AVBK_Import::confirm_transaction()), so they can never
-     * drift apart.
+     * item created on the spot. The review queue's own rows match a
+     * specific activity directly (see get_member_fee_detail_for_activity())
+     * and no longer need this map for that; it's still used to (a) resolve
+     * an initial suggestion's bare type name ("KAMP EN CONTRIBUTIE") to a
+     * concrete current activity, and (b) AVBK_Import::apply_payment()'s
+     * fully-automatic bank-import path, which only ever has a guessed type
+     * list to prioritize against, never a human-picked activity.
      */
     public static function activity_fee_type_map(): array {
         return ['Contributie' => 'contribution', 'Kamp' => 'camp', 'Congres' => 'event'];
+    }
+
+    /** Front-end profile-edit link for a member — used by the review queue next to the per-row lid-dropdown, independent of which activity (if any) that row matches. */
+    public static function member_edit_url(int $member_id): string {
+        return $member_id ? add_query_arg(['member_id' => $member_id], home_url('/member-profile/')) : '';
     }
 
     /**
