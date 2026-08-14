@@ -103,57 +103,75 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 <input type="hidden" name="action" value="avbk_confirm_transaction">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
-                <label>Type:</label>
-                <label><input type="checkbox" name="type[]" value="contribution" <?php checked(in_array('contribution', $suggested_types, true)); ?>> Contributie</label>
-                <label><input type="checkbox" name="type[]" value="camp" <?php checked(in_array('camp', $suggested_types, true)); ?>> Kamp</label>
+                <?php
+                $type_option_labels = ['contribution' => 'Contributie', 'camp' => 'Kamp'];
+                $checked_type_labels = array_values(array_intersect_key($type_option_labels, array_flip($suggested_types)));
+                $initial_type_summary = $checked_type_labels ? implode(', ', $checked_type_labels) : 'geen';
+                ?>
+                <div class="avbk-type-field">
+                    <details class="avbk-type-dropdown">
+                        <summary>Type: <span class="avbk-type-summary"><?php echo esc_html($initial_type_summary); ?></span></summary>
+                        <div class="avbk-type-options">
+                            <?php foreach ($type_option_labels as $value => $label) : ?>
+                                <label>
+                                    <input type="checkbox" class="avbk-type-checkbox" data-kind="type" name="type[]" value="<?php echo esc_attr($value); ?>" <?php checked(in_array($value, $suggested_types, true)); ?>>
+                                    <?php echo esc_html($label); ?>
+                                </label>
+                            <?php endforeach; ?>
+                            <?php foreach (['Drank', 'Eten', 'Boek', 'T-shirt', 'Congres', 'Overig'] as $cat) : ?>
+                                <label>
+                                    <input type="checkbox" class="avbk-type-checkbox" data-kind="extra" data-category="<?php echo esc_attr($cat); ?>"<?php echo $cat === 'Overig' ? ' data-description="' . esc_attr($tx->description) . '"' : ''; ?>>
+                                    <?php echo esc_html($cat); ?>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </details>
+                </div>
 
                 <table class="avbk-review-split">
-                    <?php
-                    $row_index = 0;
-                    foreach ($suggested_ids as $member_id) :
+                    <?php foreach ($suggested_ids as $member_id) :
                         $share = $known_shares[$member_id] ?? $even_share;
                         $d = $known_detail[$member_id];
                         ?>
                         <tr>
-                            <td><?php avbk_member_select("member_id[$row_index]", $all_members, $member_id); ?></td>
+                            <td><?php avbk_member_select('member_id[]', $all_members, $member_id); ?></td>
                             <td>
-                                &euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" class="avbk-amount-input" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
+                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="<?php echo esc_attr(number_format($share, 2, ',', '')); ?>" size="6">
                                 <span class="avbk-detail-fragments description"><?php echo $d['fragments_html']; ?></span>
                                 <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text']); ?></span>
                                 <a href="<?php echo esc_url($d['nights_edit_url'] ?: '#'); ?>" target="_blank" class="avbk-detail-nights-link description"<?php echo $d['nights_edit_url'] ? '' : ' style="display:none"'; ?>>wijzig overnachtingen</a>
                                 <a href="<?php echo esc_url($d['member_edit_url']); ?>" target="_blank" class="avbk-detail-member-link description">bewerk lid (o.a. scholier/student, geboortedatum)</a>
                             </td>
                         </tr>
-                    <?php $row_index++; endforeach;
-
-                    // A few blank slots to add members the suggestion missed, or to split a payment across more people than guessed — same live-updating markup, just empty until a member is picked.
-                    for ($extra = 0; $extra < 3; $extra++, $row_index++) : ?>
-                        <tr>
-                            <td><?php avbk_member_select("member_id[$row_index]", $all_members); ?></td>
-                            <td>
-                                &euro; <input type="text" name="amount[<?php echo esc_attr($row_index); ?>]" class="avbk-amount-input" value="" size="6" placeholder="0,00">
-                                <span class="avbk-detail-fragments description"></span>
-                                <span class="avbk-detail-estimated"></span>
-                                <a href="#" target="_blank" class="avbk-detail-nights-link description" style="display:none">wijzig overnachtingen</a>
-                                <a href="#" target="_blank" class="avbk-detail-member-link description" style="display:none">bewerk lid (o.a. scholier/student, geboortedatum)</a>
-                            </td>
-                        </tr>
-                    <?php endfor; ?>
+                    <?php endforeach; ?>
                 </table>
+                <p><button type="button" class="button button-small avbk-add-member-row">+ voeg lid toe</button></p>
 
-                <div class="avbk-review-extra">
-                    <label>Overige regel (optioneel):</label>
-                    <select name="extra_category">
-                        <option value="">&mdash; geen &mdash;</option>
-                        <?php foreach (['Drank', 'Eten', 'Boek', 'T-shirt', 'Congres'] as $cat) : ?>
-                            <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html($cat); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input type="text" name="extra_description" placeholder="Omschrijving (optioneel)">
-                    &euro; <input type="text" name="extra_amount" class="avbk-amount-input" placeholder="0,00" size="6">
-                    <?php avbk_member_select('extra_member_id', $all_members); ?>
-                    <p class="description">Voor een losse post buiten contributie/kamp om (drank, eten, boek, t-shirt, congres, ...) &mdash; wordt meteen als betaald geregistreerd voor het gekozen lid.</p>
-                </div>
+                <!-- Cloned by review-queue.js when "+ voeg lid toe" is clicked — a blank row to split the payment across more people than the automatic suggestion found. -->
+                <template class="avbk-member-row-template">
+                    <tr>
+                        <td><?php avbk_member_select('member_id[]', $all_members); ?></td>
+                        <td>
+                            &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="" size="6" placeholder="0,00">
+                            <span class="avbk-detail-fragments description"></span>
+                            <span class="avbk-detail-estimated"></span>
+                            <a href="#" target="_blank" class="avbk-detail-nights-link description" style="display:none">wijzig overnachtingen</a>
+                            <a href="#" target="_blank" class="avbk-detail-member-link description" style="display:none">bewerk lid (o.a. scholier/student, geboortedatum)</a>
+                        </td>
+                    </tr>
+                </template>
+
+                <div class="avbk-extra-lines"></div>
+                <!-- Cloned by review-queue.js for every "extra" checkbox (Drank/Eten/.../Overig) checked above — one row per losse post, each an already-paid fee item outside contributie/kamp. -->
+                <template class="avbk-extra-line-template">
+                    <div class="avbk-extra-line">
+                        <strong class="avbk-extra-line-label"></strong>
+                        <input type="hidden" name="extra_category[]" class="avbk-extra-line-category-input">
+                        <input type="text" name="extra_description[]" placeholder="Omschrijving (optioneel)" class="avbk-extra-line-description">
+                        &euro; <input type="text" name="extra_amount[]" class="avbk-amount-input" placeholder="0,00" size="6">
+                        <?php avbk_member_select('extra_member_id[]', $all_members); ?>
+                    </div>
+                </template>
 
                 <?php submit_button('Bevestigen', 'primary', 'submit', false); ?>
             </form>

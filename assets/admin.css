@@ -74,17 +74,46 @@
     display: none;
 }
 
-.avbk-review-extra {
+.avbk-type-field {
+    margin: .5rem 0 .75rem;
+}
+
+.avbk-type-dropdown summary {
+    cursor: pointer;
+    display: inline-block;
+    padding: .3rem .6rem;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    background: #f6f7f7;
+}
+
+.avbk-type-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .25rem .75rem;
+    margin-top: .5rem;
+    padding: .5rem .75rem;
+    border: 1px solid #e2e4e7;
+    border-radius: 3px;
+    background: #fff;
+}
+
+.avbk-extra-lines {
+    margin-top: .5rem;
+}
+
+.avbk-extra-line {
     border-top: 1px solid #e2e4e7;
-    margin: .75rem 0 .5rem;
+    margin-top: .5rem;
     padding-top: .5rem;
 }
 
-.avbk-review-extra select,
-.avbk-review-extra input[type="text"] {
+.avbk-extra-line select,
+.avbk-extra-line input[type="text"] {
     margin-right: .4rem;
 }
 
-.avbk-review-extra .description {
-    margin: .25rem 0 0;
+.avbk-extra-line-label {
+    display: inline-block;
+    min-width: 4.5rem;
 }

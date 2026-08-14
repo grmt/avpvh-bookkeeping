@@ -161,17 +161,19 @@ class AVBK_Import {
      * (member_id => amount), rather than an even split.
      */
     /**
-     * $extra (optional): a one-off charge outside the recurring
-     * contribution/camp system — drank, eten, boek, t-shirt, congres, or
-     * anything else the treasurer notices on this transaction that isn't
-     * already covered by $member_amounts. Shape:
-     * ['member_id' => int, 'category' => string, 'description' => string, 'amount' => float].
-     * Unlike a contribution/camp item (generated in advance, then matched
-     * to a later payment), this fee item and its payment are created in
-     * the same action — the bank transaction itself is both the charge
-     * and its settlement, so it's created already fully paid.
+     * $extras (optional): one-off charges outside the recurring
+     * contribution/camp system — drank, eten, boek, t-shirt, congres,
+     * overig, or anything else the treasurer notices on this transaction
+     * that isn't already covered by $member_amounts. A transaction can
+     * carry several at once (e.g. drank + t-shirt in one payment). Each
+     * entry: ['member_id' => int, 'category' => string, 'description' =>
+     * string, 'amount' => float]. Unlike a contribution/camp item
+     * (generated in advance, then matched to a later payment), this fee
+     * item and its payment are created in the same action — the bank
+     * transaction itself is both the charge and its settlement, so it's
+     * created already fully paid.
      */
-    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null, ?array $extra = null): void {
+    public static function confirm_transaction(int $transaction_id, array $member_amounts, ?array $type_hints = null, ?array $extras = null): void {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return;
@@ -187,7 +189,10 @@ class AVBK_Import {
             $paid_member_ids[] = $member_id;
         }
 
-        if ($extra && (int) ($extra['member_id'] ?? 0) > 0 && (float) ($extra['amount'] ?? 0) > 0 && ($extra['category'] ?? '') !== '') {
+        foreach ((array) $extras as $extra) {
+            if ((int) ($extra['member_id'] ?? 0) <= 0 || (float) ($extra['amount'] ?? 0) <= 0 || ($extra['category'] ?? '') === '') {
+                continue;
+            }
             $extra_member_id = (int) $extra['member_id'];
             $extra_amount = round((float) $extra['amount'], 2);
             $fee_item_id = AVBK_DB::create_other_fee_item($extra_member_id, $extra['category'], $extra['description'] ?? '', $extra_amount);

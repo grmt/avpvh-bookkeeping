@@ -64,6 +64,82 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    // Extracted so it can be attached both to rows rendered by PHP at page
+    // load and to blank rows cloned client-side via "+ voeg lid toe" —
+    // otherwise only the original rows would get live fee-detail lookups.
+    function wireMemberSelect(select, form) {
+        select.addEventListener('change', function () {
+            var row = select.closest('tr');
+            if (!row) return;
+
+            var fragmentsEl = row.querySelector('.avbk-detail-fragments');
+            var estimatedEl = row.querySelector('.avbk-detail-estimated');
+            var nightsLink = row.querySelector('.avbk-detail-nights-link');
+            var memberLink = row.querySelector('.avbk-detail-member-link');
+            var amountInput = row.querySelector('.avbk-amount-input');
+
+            // Clear stale detail immediately — showing the *previous*
+            // person's age/nights against the *newly* selected member
+            // would be actively misleading, even briefly.
+            if (fragmentsEl) fragmentsEl.innerHTML = '';
+            if (estimatedEl) estimatedEl.textContent = '';
+            if (nightsLink) nightsLink.style.display = 'none';
+            if (memberLink) memberLink.style.display = 'none';
+
+            if (!select.value) return;
+
+            var types = Array.from(form.querySelectorAll('input[name="type[]"]:checked')).map(function (cb) {
+                return cb.value;
+            });
+
+            var body = new URLSearchParams();
+            body.set('action', 'avbk_member_fee_detail');
+            body.set('nonce', cfg.nonce);
+            body.set('member_id', select.value);
+            types.forEach(function (t) { body.append('types[]', t); });
+
+            fetch(cfg.ajaxUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (!res.success) return;
+                    var d = res.data;
+                    if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
+                    if (estimatedEl) estimatedEl.textContent = d.estimated_text || '';
+                    if (nightsLink) {
+                        if (d.nights_edit_url) {
+                            nightsLink.href = d.nights_edit_url;
+                            nightsLink.style.display = '';
+                        } else {
+                            nightsLink.style.display = 'none';
+                        }
+                    }
+                    if (memberLink && d.member_edit_url) {
+                        memberLink.href = d.member_edit_url;
+                        memberLink.style.display = '';
+                    }
+                    if (amountInput && d.found) {
+                        amountInput.value = d.share.toFixed(2).replace('.', ',');
+                    }
+                });
+        });
+    }
+
+    // The "Type:" dropdown's summary text (visible while the checkbox list
+    // itself is collapsed) — recomputed from whichever boxes are currently
+    // checked, contributie/kamp and losse-post categories alike.
+    function updateTypeSummary(dropdown) {
+        var summaryEl = dropdown.querySelector('.avbk-type-summary');
+        if (!summaryEl) return;
+        var labels = Array.from(dropdown.querySelectorAll('.avbk-type-checkbox:checked')).map(function (cb) {
+            return cb.closest('label').textContent.trim();
+        });
+        summaryEl.textContent = labels.length ? labels.join(', ') : 'geen';
+    }
+
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {
         loadHouseholdSuggestions(form); // rows often already arrive pre-filled with a suggested payer
 
@@ -73,64 +149,47 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         form.querySelectorAll('select[name^="member_id"]').forEach(function (select) {
-            select.addEventListener('change', function () {
-                var row = select.closest('tr');
-                if (!row) return;
-
-                var fragmentsEl = row.querySelector('.avbk-detail-fragments');
-                var estimatedEl = row.querySelector('.avbk-detail-estimated');
-                var nightsLink = row.querySelector('.avbk-detail-nights-link');
-                var memberLink = row.querySelector('.avbk-detail-member-link');
-                var amountInput = row.querySelector('.avbk-amount-input');
-
-                // Clear stale detail immediately — showing the *previous*
-                // person's age/nights against the *newly* selected member
-                // would be actively misleading, even briefly.
-                if (fragmentsEl) fragmentsEl.innerHTML = '';
-                if (estimatedEl) estimatedEl.textContent = '';
-                if (nightsLink) nightsLink.style.display = 'none';
-                if (memberLink) memberLink.style.display = 'none';
-
-                if (!select.value) return;
-
-                var types = Array.from(form.querySelectorAll('input[name="type[]"]:checked')).map(function (cb) {
-                    return cb.value;
-                });
-
-                var body = new URLSearchParams();
-                body.set('action', 'avbk_member_fee_detail');
-                body.set('nonce', cfg.nonce);
-                body.set('member_id', select.value);
-                types.forEach(function (t) { body.append('types[]', t); });
-
-                fetch(cfg.ajaxUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: body.toString(),
-                })
-                    .then(function (r) { return r.json(); })
-                    .then(function (res) {
-                        if (!res.success) return;
-                        var d = res.data;
-                        if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
-                        if (estimatedEl) estimatedEl.textContent = d.estimated_text || '';
-                        if (nightsLink) {
-                            if (d.nights_edit_url) {
-                                nightsLink.href = d.nights_edit_url;
-                                nightsLink.style.display = '';
-                            } else {
-                                nightsLink.style.display = 'none';
-                            }
-                        }
-                        if (memberLink && d.member_edit_url) {
-                            memberLink.href = d.member_edit_url;
-                            memberLink.style.display = '';
-                        }
-                        if (amountInput && d.found) {
-                            amountInput.value = d.share.toFixed(2).replace('.', ',');
-                        }
-                    });
-            });
+            wireMemberSelect(select, form);
         });
+
+        var addRowBtn = form.querySelector('.avbk-add-member-row');
+        var rowTemplate = form.querySelector('.avbk-member-row-template');
+        if (addRowBtn && rowTemplate) {
+            addRowBtn.addEventListener('click', function () {
+                var table = form.querySelector('.avbk-review-split');
+                var tbody = table.querySelector('tbody') || table;
+                var row = rowTemplate.content.firstElementChild.cloneNode(true);
+                tbody.appendChild(row);
+                var select = row.querySelector('select[name^="member_id"]');
+                if (select) wireMemberSelect(select, form);
+            });
+        }
+
+        var typeDropdown = form.querySelector('.avbk-type-dropdown');
+        var extraLines = form.querySelector('.avbk-extra-lines');
+        var extraTemplate = form.querySelector('.avbk-extra-line-template');
+        if (typeDropdown) {
+            typeDropdown.querySelectorAll('.avbk-type-checkbox').forEach(function (checkbox) {
+                checkbox.addEventListener('change', function () {
+                    updateTypeSummary(typeDropdown);
+                    if (checkbox.dataset.kind !== 'extra' || !extraLines || !extraTemplate) return;
+
+                    var category = checkbox.dataset.category;
+                    if (checkbox.checked) {
+                        var line = extraTemplate.content.firstElementChild.cloneNode(true);
+                        line.dataset.category = category;
+                        line.querySelector('.avbk-extra-line-label').textContent = category;
+                        line.querySelector('.avbk-extra-line-category-input').value = category;
+                        if (checkbox.dataset.description) {
+                            line.querySelector('.avbk-extra-line-description').value = checkbox.dataset.description;
+                        }
+                        extraLines.appendChild(line);
+                    } else {
+                        var existing = extraLines.querySelector('.avbk-extra-line[data-category="' + category + '"]');
+                        if (existing) existing.remove();
+                    }
+                });
+            });
+        }
     });
 });

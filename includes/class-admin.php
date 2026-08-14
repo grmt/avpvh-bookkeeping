@@ -127,16 +127,27 @@ class AVBK_Admin {
             }
         }
 
-        $extra_category = sanitize_text_field(wp_unslash($_POST['extra_category'] ?? ''));
-        $extra = $extra_category !== '' ? [
-            'member_id'   => (int) ($_POST['extra_member_id'] ?? 0),
-            'category'    => $extra_category,
-            'description' => sanitize_text_field(wp_unslash($_POST['extra_description'] ?? '')),
-            'amount'      => (float) str_replace(',', '.', (string) ($_POST['extra_amount'] ?? '0')),
-        ] : null;
+        $extra_categories = array_map('sanitize_text_field', wp_unslash((array) ($_POST['extra_category'] ?? [])));
+        $extra_member_ids = array_map('intval', (array) ($_POST['extra_member_id'] ?? []));
+        $extra_descriptions = array_map('sanitize_text_field', wp_unslash((array) ($_POST['extra_description'] ?? [])));
+        $extra_amounts = array_map(fn($a) => (float) str_replace(',', '.', (string) $a), (array) ($_POST['extra_amount'] ?? []));
 
-        if ($transaction_id && ($member_amounts || $extra)) {
-            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints, $extra);
+        $extras = [];
+        foreach ($extra_categories as $i => $category) {
+            if ($category === '') {
+                continue;
+            }
+            $extras[] = [
+                'member_id'   => $extra_member_ids[$i] ?? 0,
+                'category'    => $category,
+                'description' => $extra_descriptions[$i] ?? '',
+                'amount'      => $extra_amounts[$i] ?? 0.0,
+            ];
+        }
+        $extras = $extras ?: null;
+
+        if ($transaction_id && ($member_amounts || $extras)) {
+            AVBK_Import::confirm_transaction($transaction_id, $member_amounts, $type_hints, $extras);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirmed' => '1'], admin_url('admin.php')));
