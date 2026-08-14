@@ -4,7 +4,7 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
     wp_die('Geen toegang.');
 }
 
-// Every activity — camps, "Contributie {year}", "Congres {year}", drank-
+// Every activity — camps, "Contributie" (year in its own column), "Congres" (year in its own column), drank-
 // afrekeningen, ... — everything a lid can owe a bijdrage for lives in the
 // same AVPVH_DB::get_activities() list (renamed from a camp-only concept; see
 // AV-PvH Leden -> Activiteiten).
@@ -107,7 +107,7 @@ $is_contribution = $selected_activity && $selected_activity->type_name === 'Cont
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
             <?php wp_nonce_field('avbk_generate_camp_fees_now'); ?>
             <input type="hidden" name="action" value="avbk_generate_camp_fees_now">
-            <input type="hidden" name="camp_id" value="<?php echo esc_attr($activity_id); ?>">
+            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
             <button type="submit" class="button">Bijdragen genereren/bijwerken voor deze activiteit</button>
             <span class="description">Nodig na het instellen/wijzigen van tarieven &mdash; bestaande deelnameregistraties genereren anders pas een bijdrage bij hun eerstvolgende wijziging. (Zonder gekoppelde deelnameregistraties, zoals bij Congres, is dit een no-op &mdash; die bijdragen ontstaan al bij aanmelding.)</span>
         </form>

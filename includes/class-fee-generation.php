@@ -8,8 +8,8 @@ defined('ABSPATH') || exit;
  *    upserting an already-open item is a harmless no-op / self-heals if
  *    the rate table gets corrected mid-year) creates/refreshes this
  *    year's item for every active member.
- *  - camp fee items: created/refreshed live whenever camp participation is
- *    saved (avpvh_activity_participation_saved, fired from avpvh-members'
+ *  - camp fee items: created/refreshed live whenever activity participation
+ *    is saved (avpvh_activity_participation_saved, fired from avpvh-members'
  *    AVPVH_DB::save_participation()), so they track nights/attendance
  *    right up to camp time without any admin action.
  */
@@ -19,7 +19,7 @@ class AVBK_Fee_Generation {
 
     public function __construct() {
         add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
-        add_action('avpvh_activity_participation_saved', [$this, 'on_camp_participation_saved'], 10, 3);
+        add_action('avpvh_activity_participation_saved', [$this, 'on_activity_participation_saved'], 10, 3);
     }
 
     public static function schedule_cron(): void {
@@ -48,9 +48,9 @@ class AVBK_Fee_Generation {
         }
     }
 
-    /** The "Contributie {year}" activity (an avm_camps row), or null if it doesn't exist yet — created by the 1.8 migration for years with pre-existing rates, otherwise the treasurer creates it via Activiteiten same as a camp. */
+    /** The "Contributie" activity for $year (an avm_camps row, name "Contributie" + year=$year — same convention as a camp), or null if it doesn't exist yet. Created by the 1.8 migration for years with pre-existing rates; otherwise the treasurer creates it via Activiteiten same as a camp. */
     private static function get_contribution_activity(int $year): ?object {
-        return AVPVH_DB::get_activity_by_name_year("Contributie {$year}", $year);
+        return AVPVH_DB::get_activity_by_name_year('Contributie', $year);
     }
 
     /**
@@ -116,52 +116,52 @@ class AVBK_Fee_Generation {
         ];
     }
 
-    public function on_camp_participation_saved(int $member_id, int $camp_id, int $participation_id): void {
+    public function on_activity_participation_saved(int $member_id, int $activity_id, int $participation_id): void {
         $participation = AVPVH_DB::get_participation_by_id($participation_id);
         if (!$participation || !$participation->nights) {
             return; // nothing to charge until nights are known
         }
-        self::generate_camp_fee_item($member_id, $camp_id, (int) $participation->nights);
+        self::generate_camp_fee_item($member_id, $activity_id, (int) $participation->nights);
     }
 
     /**
-     * Backfill/refresh every existing participation record for one camp —
-     * needed because the live hook above only fires on a *new* save.
+     * Backfill/refresh every existing participation record for one activity
+     * — needed because the live hook above only fires on a *new* save.
      * Participation entered before this plugin existed (or before a rate
      * was configured) never generated a fee item on its own; this is the
      * one-click catch-up for that. Returns how many fee items were
      * created/updated.
      */
-    public static function generate_camp_fees(int $camp_id): int {
+    public static function generate_camp_fees(int $activity_id): int {
         $count = 0;
-        foreach (AVPVH_DB::get_participation_for_activity($camp_id) as $participation) {
+        foreach (AVPVH_DB::get_participation_for_activity($activity_id) as $participation) {
             if (!$participation->nights) {
                 continue;
             }
-            if (self::generate_camp_fee_item((int) $participation->member_id, $camp_id, (int) $participation->nights)) {
+            if (self::generate_camp_fee_item((int) $participation->member_id, $activity_id, (int) $participation->nights)) {
                 $count++;
             }
         }
         return $count;
     }
 
-    private static function generate_camp_fee_item(int $member_id, int $camp_id, int $nights): bool {
+    private static function generate_camp_fee_item(int $member_id, int $activity_id, int $nights): bool {
         $member = AVPVH_DB::get_member($member_id);
-        $camp = AVPVH_DB::get_activity($camp_id);
-        if (!$member || !$camp) {
+        $activity = AVPVH_DB::get_activity($activity_id);
+        if (!$member || !$activity) {
             return false;
         }
-        // Age at the camp's own start date, not "now" — a member's age
+        // Age at the activity's own start date, not "now" — a member's age
         // bracket for a past or future camp must reflect their age *then*.
-        $reference_date = $camp->start_date ?: current_time('Y-m-d');
-        $computed = self::compute_activity_rate($member, $camp, $nights, $reference_date);
+        $reference_date = $activity->start_date ?: current_time('Y-m-d');
+        $computed = self::compute_activity_rate($member, $activity, $nights, $reference_date);
         if (!$computed) {
             return false; // no bracket covers this age, or no rates configured at all yet
         }
         $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
-        $description = trim('Kamp ' . $camp->name . ' ' . $camp->year) . $label;
+        $description = trim('Kamp ' . $activity->name . ' ' . $activity->year) . $label;
         AVBK_DB::upsert_camp_fee_item(
-            $member_id, $camp_id, $computed['amount'], $description, $computed['is_estimated'], $computed['reason']
+            $member_id, $activity_id, $computed['amount'], $description, $computed['is_estimated'], $computed['reason']
         );
         return true;
     }
@@ -198,14 +198,14 @@ class AVBK_Fee_Generation {
                 $activity = self::get_contribution_activity($year);
                 $computed = $activity ? self::compute_activity_rate($member, $activity, 1, "$year-01-01") : null;
             } else {
-                $camp_id = (int) $item->camp_id;
-                if (!array_key_exists($camp_id, $camps)) {
-                    $camps[$camp_id] = AVPVH_DB::get_activity($camp_id);
+                $activity_id = (int) $item->activity_id;
+                if (!array_key_exists($activity_id, $camps)) {
+                    $camps[$activity_id] = AVPVH_DB::get_activity($activity_id);
                 }
-                $camp = $camps[$camp_id];
-                $participation = AVPVH_DB::get_participation($member_id, $camp_id);
+                $activity = $camps[$activity_id];
+                $participation = AVPVH_DB::get_participation($member_id, $activity_id);
                 $nights = $participation ? (int) $participation->nights : 0;
-                $computed = ($nights && $camp) ? self::compute_activity_rate($member, $camp, $nights, $camp->start_date ?: current_time('Y-m-d')) : null;
+                $computed = ($nights && $activity) ? self::compute_activity_rate($member, $activity, $nights, $activity->start_date ?: current_time('Y-m-d')) : null;
             }
 
             if ($computed && abs($computed['amount'] - (float) $item->amount_due) > 0.005) {

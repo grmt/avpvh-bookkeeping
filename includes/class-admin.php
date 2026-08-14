@@ -220,19 +220,19 @@ class AVBK_Admin {
 
     /**
      * Backfills camp fee items for every existing participation record of
-     * this camp — needed because the live save hook only fires on a *new*
-     * save, so participation entered before a rate existed never generated
-     * one on its own.
+     * this activity — needed because the live save hook only fires on a
+     * *new* save, so participation entered before a rate existed never
+     * generated one on its own.
      */
     public function handle_generate_camp_fees_now(): void {
         check_admin_referer('avbk_generate_camp_fees_now');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
-        $camp_id = (int) ($_POST['camp_id'] ?? 0);
-        $count = $camp_id ? AVBK_Fee_Generation::generate_camp_fees($camp_id) : 0;
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $count = $activity_id ? AVBK_Fee_Generation::generate_camp_fees($activity_id) : 0;
         wp_safe_redirect(add_query_arg([
-            'page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_fees_generated' => $count,
+            'page' => 'avbk-rates', 'activity_id' => $activity_id, 'camp_fees_generated' => $count,
         ], admin_url('admin.php')));
         exit;
     }

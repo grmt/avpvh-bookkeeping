@@ -45,8 +45,8 @@ class AVBK_DB {
         // place, unused, after the 1.8 migration copies their rows here) —
         // "everything you can be asked to contribute for is an activity",
         // so one shared, age-bracketed rate table for all of them.
-        // activity_id is an avm_camps.id (a camp, "Contributie {year}",
-        // "Congres {year}", ...), read via AVPVH_DB, not a real FK.
+        // activity_id is an avm_camps.id (a camp, "Contributie" (year in its own column),
+        // "Congres" (year in its own column), ...), read via AVPVH_DB, not a real FK.
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_activity_rates (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             activity_id INT UNSIGNED NOT NULL,
@@ -64,7 +64,7 @@ class AVBK_DB {
             member_id INT UNSIGNED NOT NULL,
             type ENUM('contribution','camp','event','other') NOT NULL,
             year SMALLINT UNSIGNED NULL,
-            camp_id INT UNSIGNED NULL,
+            activity_id INT UNSIGNED NULL,
             category VARCHAR(50) NOT NULL DEFAULT '',
             description VARCHAR(255) NOT NULL DEFAULT '',
             amount_due DECIMAL(8,2) NOT NULL,
@@ -75,7 +75,7 @@ class AVBK_DB {
             PRIMARY KEY (id),
             KEY member_id (member_id),
             KEY member_type_year (member_id, type, year),
-            KEY member_type_camp (member_id, type, camp_id)
+            KEY member_type_activity (member_id, type, activity_id)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_import_batches (
@@ -341,7 +341,10 @@ class AVBK_DB {
                 $years = $wpdb->get_col("SELECT DISTINCT year FROM {$wpdb->prefix}avb_contribution_rates");
                 foreach ($years as $year) {
                     $year = (int) $year;
-                    $activity_name = "Contributie {$year}";
+                    // Bare "Contributie", not "Contributie" (year in its own column) — year
+                    // lives in its own column, same convention as a camp
+                    // ("Goeblange" + year=2026, not "Goeblange 2026").
+                    $activity_name = 'Contributie';
                     $activity_id = (int) $wpdb->get_var($wpdb->prepare(
                         "SELECT id FROM {$wpdb->prefix}avm_camps WHERE name = %s AND year = %d", $activity_name, $year
                     ));
@@ -365,6 +368,23 @@ class AVBK_DB {
             // (same non-destructive convention as the earlier avm_fees
             // migration) — nothing in the codebase reads them after this.
             update_option('avbk_db_version', '1.8');
+        }
+        if (version_compare($version, '1.9', '<')) {
+            // avb_fee_items.camp_id really means "which avm_activities row"
+            // (a camp, "Contributie" (year in its own column), "Congres" (year in its own column), an event, ...
+            // — see upsert_event_fee_item()), matching avpvh-members' own
+            // avm_camps -> avm_activities rename. Rename only — the fee
+            // type value itself ('camp' in the type ENUM) is unrelated and
+            // stays, since it's a real, distinct fee-category label, not a
+            // naming artifact.
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_fee_items LIKE 'camp_id'");
+            if ($column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items
+                    CHANGE COLUMN camp_id activity_id INT UNSIGNED NULL");
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items
+                    RENAME INDEX member_type_camp TO member_type_activity");
+            }
+            update_option('avbk_db_version', '1.9');
         }
     }
 
@@ -477,11 +497,11 @@ class AVBK_DB {
         )) ?: null;
     }
 
-    public static function get_camp_fee_item(int $member_id, int $camp_id): ?object {
+    public static function get_camp_fee_item(int $member_id, int $activity_id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'camp' AND camp_id = %d",
-            $member_id, $camp_id
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'camp' AND activity_id = %d",
+            $member_id, $activity_id
         )) ?: null;
     }
 
@@ -495,7 +515,7 @@ class AVBK_DB {
     /**
      * The most recent actual camp — unlike AVPVH_DB::get_current_activity()
      * (unfiltered "most recent activity", which can now just as easily
-     * resolve to "Contributie {year}" or "Congres {year}" since those live
+     * resolve to "Contributie" (year in its own column) or "Congres" (year in its own column) since those live
      * in the same table), this always means an actual Kamp-type activity.
      * Needed wherever "the current camp" is a real, load-bearing concept
      * (matching-priority against open camp fee items here).
@@ -570,8 +590,8 @@ class AVBK_DB {
                     $fragments[] = 'leeftijd: ' . AVBK_Fee_Generation::age_from_year((int) $member->birth_year, "$year-01-01") . ' jaar (bij benadering)';
                 }
             }
-            if ($type === 'camp' && $item->camp_id) {
-                $participation = AVPVH_DB::get_participation($member_id, (int) $item->camp_id);
+            if ($type === 'camp' && $item->activity_id) {
+                $participation = AVPVH_DB::get_participation($member_id, (int) $item->activity_id);
                 if ($participation && $participation->nights) {
                     $nights_parts = [(int) $participation->nights . ' nacht' . ((int) $participation->nights === 1 ? '' : 'en')];
                     // Actual dates present (not just the night count) — same
@@ -586,8 +606,8 @@ class AVBK_DB {
                     }
                     $fragments[] = 'inschrijving: ' . implode(', ', $nights_parts);
                     $detail['nights_edit_url'] = add_query_arg([
-                        'page' => 'avpvh-kampdeelname-detail',
-                        'camp_id' => (int) $item->camp_id,
+                        'page' => 'avpvh-activity-participation-detail',
+                        'activity_id' => (int) $item->activity_id,
                         'id' => (int) $participation->id,
                     ], admin_url('admin.php'));
                 }
@@ -628,9 +648,9 @@ class AVBK_DB {
     }
 
     /** Insert or update the member's camp fee item, kept current as attendance/nights change. Returns the fee_item id. */
-    public static function upsert_camp_fee_item(int $member_id, int $camp_id, float $amount, string $description, bool $is_estimated = false, string $estimate_reason = ''): int {
+    public static function upsert_camp_fee_item(int $member_id, int $activity_id, float $amount, string $description, bool $is_estimated = false, string $estimate_reason = ''): int {
         global $wpdb;
-        $existing = self::get_camp_fee_item($member_id, $camp_id);
+        $existing = self::get_camp_fee_item($member_id, $activity_id);
         if ($existing) {
             if ($existing->status === 'open') {
                 $wpdb->update(
@@ -644,7 +664,7 @@ class AVBK_DB {
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'       => $member_id,
             'type'            => 'camp',
-            'camp_id'         => $camp_id,
+            'activity_id'     => $activity_id,
             'description'     => $description,
             'amount_due'      => $amount,
             'is_estimated'    => (int) $is_estimated,
@@ -798,8 +818,8 @@ class AVBK_DB {
      * contribution, which has no natural quantity.
      */
     public static function fee_item_quantity_label(object $item): string {
-        if ($item->type === 'camp' && $item->camp_id) {
-            $participation = AVPVH_DB::get_participation((int) $item->member_id, (int) $item->camp_id);
+        if ($item->type === 'camp' && $item->activity_id) {
+            $participation = AVPVH_DB::get_participation((int) $item->member_id, (int) $item->activity_id);
             if ($participation && $participation->nights) {
                 $n = (int) $participation->nights;
                 return $n . ' nacht' . ($n === 1 ? '' : 'en');
@@ -1105,8 +1125,8 @@ class AVBK_DB {
     }
 
     /** Insert-or-reuse this member's open event fee item for $description (e.g. one row per congress edition, deduped by description so a re-submitted registration is a no-op, not a duplicate charge). Returns the fee_item id. */
-    /** $camp_id (optional): the event's own avm_camps.id (e.g. "Congres 2026") — lets an event fee item be traced back to its activity/rate, same as a camp fee item, without changing the dedupe key (still member+type+description, so a description change intentionally starts a fresh item). */
-    public static function upsert_event_fee_item(int $member_id, string $description, float $amount, int $camp_id = 0): int {
+    /** $activity_id (optional): the event's own avm_activities.id (e.g. "Congres 2026") — lets an event fee item be traced back to its activity/rate, same as a camp fee item, without changing the dedupe key (still member+type+description, so a description change intentionally starts a fresh item). */
+    public static function upsert_event_fee_item(int $member_id, string $description, float $amount, int $activity_id = 0): int {
         global $wpdb;
         $existing = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'event' AND description = %s",
@@ -1118,7 +1138,7 @@ class AVBK_DB {
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'   => $member_id,
             'type'        => 'event',
-            'camp_id'     => $camp_id ?: null,
+            'activity_id' => $activity_id ?: null,
             'description' => $description,
             'amount_due'  => $amount,
         ]);
