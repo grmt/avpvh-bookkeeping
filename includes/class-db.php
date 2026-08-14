@@ -641,6 +641,23 @@ class AVBK_DB {
         return (int) $wpdb->insert_id;
     }
 
+    /**
+     * Members who can plausibly appear as a payer on a bank transaction —
+     * active members plus visitors (bezoekers), who pay one-off camp/event
+     * fees but aren't full members and so are excluded from the yearly
+     * contribution generation. Excludes only 'inactive' (former members).
+     * AVPVH_DB::get_members()'s status filter is a single exact match, not
+     * an IN-list, so this fetches both and merges/re-sorts in PHP.
+     */
+    public static function get_payable_members(): array {
+        $members = array_merge(
+            AVPVH_DB::get_members(['status' => 'active']),
+            AVPVH_DB::get_members(['status' => 'visitor'])
+        );
+        usort($members, fn($a, $b) => strcmp($a->last_name, $b->last_name) ?: strcmp($a->first_name, $b->first_name));
+        return $members;
+    }
+
     /** Every open (non-waived) contribution/camp fee item — AVBK_Fee_Generation::find_stale_fee_items() recomputes each against today's rate table/birth data to catch the "edited after the fee item was generated" class of bug (a birth date fixed, nights corrected — anything other than the one save that already triggers a refresh). */
     public static function get_open_contribution_and_camp_fee_items(): array {
         global $wpdb;

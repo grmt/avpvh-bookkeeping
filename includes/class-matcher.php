@@ -84,7 +84,7 @@ class AVBK_Matcher {
      */
     public static function find_candidates(string $counterparty_name, string $description): array {
         $payer_names = self::split_names(self::strip_via_suffix($counterparty_name));
-        $all_members = AVPVH_DB::get_members(['status' => 'active']);
+        $all_members = AVBK_DB::get_payable_members();
 
         $payer_matches = [];
         foreach ($payer_names as $name) {

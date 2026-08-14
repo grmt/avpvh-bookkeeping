@@ -5,7 +5,7 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 }
 
 $queue = AVBK_DB::get_review_queue();
-$all_members = AVPVH_DB::get_members(['status' => 'active']);
+$all_members = AVBK_DB::get_payable_members();
 
 // The bank description is a flat "Naam: X Omschrijving: Y IBAN: Z ..."
 // string — bold the field labels so it reads as a mini key/value list
