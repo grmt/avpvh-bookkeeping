@@ -4,99 +4,42 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
     wp_die('Geen toegang.');
 }
 
-$year = (int) ($_GET['year'] ?? current_time('Y'));
-$rates = AVBK_DB::get_contribution_rates($year);
-
-$camps = AVPVH_DB::get_camps();
-$camp_id = (int) ($_GET['camp_id'] ?? 0);
-if (!$camp_id) {
-    $current_camp = AVPVH_DB::get_current_camp();
-    $camp_id = $current_camp ? (int) $current_camp->id : ($camps ? (int) $camps[0]->id : 0);
+// Every activity — camps, "Contributie {year}", "Congres {year}", drank-
+// afrekeningen, ... — everything a lid can owe a bijdrage for lives in the
+// same AVPVH_DB::get_camps() list (renamed from a camp-only concept; see
+// AV-PvH Leden -> Activiteiten).
+$activities = AVPVH_DB::get_camps();
+$activity_id = (int) ($_GET['activity_id'] ?? 0);
+if (!$activity_id) {
+    $current = AVPVH_DB::get_current_camp();
+    $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
 }
-$camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
+$rates = $activity_id ? AVBK_DB::get_activity_rates($activity_id) : [];
+$selected_activity = $activity_id ? AVPVH_DB::get_camp($activity_id) : null;
+$is_contribution = $selected_activity && $selected_activity->type_name === 'Contributie';
 ?>
 <div class="wrap">
     <h1>Tarieven &amp; instellingen</h1>
 
-    <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['camp_rate_saved']) || isset($_GET['camp_rate_deleted']) || isset($_GET['settings_saved'])) : ?>
+    <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['settings_saved'])) : ?>
         <div class="notice notice-success"><p>Opgeslagen.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['contribution_fees_generated'])) : ?>
         <div class="notice notice-success"><p>Contributiebijdragen gegenereerd/bijgewerkt voor <?php echo esc_html($_GET['year'] ?? ''); ?>.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['camp_fees_generated'])) : ?>
-        <div class="notice notice-success"><p><?php echo esc_html((int) $_GET['camp_fees_generated']); ?> kampbijdrage(n) gegenereerd/bijgewerkt.</p></div>
+        <div class="notice notice-success"><p><?php echo esc_html((int) $_GET['camp_fees_generated']); ?> bijdrage(n) gegenereerd/bijgewerkt.</p></div>
     <?php endif; ?>
 
-    <h2>Contributietarieven</h2>
-    <p class="description">Leeftijd wordt bepaald op 1 januari van het gekozen jaar. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd.</p>
+    <h2>Activiteittarieven</h2>
+    <p class="description">Leeftijd wordt bepaald op 1 januari van het jaar (contributie) of op de startdatum (kamp/activiteit met datum). Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd.</p>
     <form method="get" style="margin-bottom:1rem">
         <input type="hidden" name="page" value="avbk-rates">
-        <label>Jaar: <input type="number" name="year" value="<?php echo esc_attr($year); ?>" style="width:6em"></label>
-        <?php submit_button('Wisselen', 'secondary', '', false); ?>
-    </form>
-
-    <table class="wp-list-table widefat striped" style="max-width:800px">
-        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Bedrag</th><th></th></tr></thead>
-        <tbody>
-        <?php foreach ($rates as $rate) : ?>
-            <tr>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <?php wp_nonce_field('avbk_save_contribution_rate'); ?>
-                    <input type="hidden" name="action" value="avbk_save_contribution_rate">
-                    <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
-                    <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
-                    <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%"></td>
-                    <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
-                    <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
-                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
-                    <td>&euro; <input type="text" name="amount" value="<?php echo esc_attr(number_format((float) $rate->amount, 2, ',', '')); ?>" style="width:6em"></td>
-                    <td>
-                        <button type="submit" class="button button-small">Opslaan</button>
-                </form>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
-                    <?php wp_nonce_field('avbk_delete_contribution_rate'); ?>
-                    <input type="hidden" name="action" value="avbk_delete_contribution_rate">
-                    <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
-                    <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
-                    <button type="submit" class="button button-small" onclick="return confirm('Tarief verwijderen?');">Verwijderen</button>
-                </form>
-                    </td>
-            </tr>
-        <?php endforeach; ?>
-        <tr>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <?php wp_nonce_field('avbk_save_contribution_rate'); ?>
-                <input type="hidden" name="action" value="avbk_save_contribution_rate">
-                <input type="hidden" name="id" value="0">
-                <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
-                <td><input type="text" name="label" placeholder="bijv. Jeugd" style="width:100%"></td>
-                <td><input type="number" name="min_age" style="width:5em"></td>
-                <td><input type="number" name="max_age" style="width:5em"></td>
-                <td style="text-align:center"><input type="checkbox" name="for_students" value="1"></td>
-                <td>&euro; <input type="text" name="amount" placeholder="0,00" style="width:6em"></td>
-                <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
-            </form>
-        </tr>
-        </tbody>
-    </table>
-    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
-        <?php wp_nonce_field('avbk_generate_contribution_fees_now'); ?>
-        <input type="hidden" name="action" value="avbk_generate_contribution_fees_now">
-        <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
-        <button type="submit" class="button">Contributiebijdragen nu genereren/bijwerken voor <?php echo esc_html($year); ?></button>
-        <span class="description">Draait normaal automatisch elke nacht &mdash; gebruik dit om meteen bij te werken na een tariefwijziging.</span>
-    </form>
-
-    <h2>Kampbijdrage per nacht</h2>
-    <p class="description">Leeftijd wordt bepaald op de startdatum van het kamp. Net als bij contributie: meerdere leeftijdsgroepen per kamp mogelijk, bijv. kinderen 0 t/m 3 gratis, 4 t/m 12 &euro;10/nacht, overige deelnemers &euro;20/nacht. Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;.</p>
-    <form method="get" style="margin-bottom:1rem">
-        <input type="hidden" name="page" value="avbk-rates">
-        <label>Kamp:
-            <select name="camp_id" onchange="this.form.submit()">
-                <?php foreach ($camps as $camp) : ?>
-                    <option value="<?php echo esc_attr($camp->id); ?>" <?php selected($camp_id, (int) $camp->id); ?>>
-                        <?php echo esc_html($camp->name . ' (' . $camp->year . ')'); ?>
+        <label>Activiteit:
+            <select name="activity_id" onchange="this.form.submit()">
+                <?php foreach ($activities as $activity) : ?>
+                    <option value="<?php echo esc_attr($activity->id); ?>" <?php selected($activity_id, (int) $activity->id); ?>>
+                        <?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -104,31 +47,32 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
         <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
     </form>
 
-    <?php if (!$camp_id) : ?>
-        <p>Nog geen kamp aangemaakt in AV-PvH Leden.</p>
+    <?php if (!$activity_id) : ?>
+        <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
     <?php else : ?>
-    <table class="wp-list-table widefat striped" style="max-width:700px">
-        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Tarief per nacht</th><th></th></tr></thead>
+    <table class="wp-list-table widefat striped" style="max-width:800px">
+        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Tarief</th><th></th></tr></thead>
         <tbody>
-        <?php foreach ($camp_rates as $rate) : ?>
+        <?php foreach ($rates as $rate) : ?>
             <tr>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <?php wp_nonce_field('avbk_save_camp_rate'); ?>
-                    <input type="hidden" name="action" value="avbk_save_camp_rate">
+                    <?php wp_nonce_field('avbk_save_activity_rate'); ?>
+                    <input type="hidden" name="action" value="avbk_save_activity_rate">
                     <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
-                    <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+                    <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
                     <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%"></td>
                     <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
                     <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
-                    <td>&euro; <input type="text" name="day_rate" value="<?php echo esc_attr(number_format((float) $rate->day_rate, 2, ',', '')); ?>" style="width:6em"></td>
+                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
+                    <td>&euro; <input type="text" name="rate" value="<?php echo esc_attr(number_format((float) $rate->rate, 2, ',', '')); ?>" style="width:6em"></td>
                     <td>
                         <button type="submit" class="button button-small">Opslaan</button>
                 </form>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
-                    <?php wp_nonce_field('avbk_delete_camp_rate'); ?>
-                    <input type="hidden" name="action" value="avbk_delete_camp_rate">
+                    <?php wp_nonce_field('avbk_delete_activity_rate'); ?>
+                    <input type="hidden" name="action" value="avbk_delete_activity_rate">
                     <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
-                    <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
+                    <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
                     <button type="submit" class="button button-small" onclick="return confirm('Tarief verwijderen?');">Verwijderen</button>
                 </form>
                     </td>
@@ -136,26 +80,38 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
         <?php endforeach; ?>
         <tr>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <?php wp_nonce_field('avbk_save_camp_rate'); ?>
-                <input type="hidden" name="action" value="avbk_save_camp_rate">
+                <?php wp_nonce_field('avbk_save_activity_rate'); ?>
+                <input type="hidden" name="action" value="avbk_save_activity_rate">
                 <input type="hidden" name="id" value="0">
-                <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
-                <td><input type="text" name="label" placeholder="bijv. Kinderen 4-12" style="width:100%"></td>
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <td><input type="text" name="label" placeholder="bijv. Volwassenen" style="width:100%"></td>
                 <td><input type="number" name="min_age" style="width:5em"></td>
                 <td><input type="number" name="max_age" style="width:5em"></td>
-                <td>&euro; <input type="text" name="day_rate" placeholder="0,00" style="width:6em"></td>
+                <td style="text-align:center"><input type="checkbox" name="for_students" value="1"></td>
+                <td>&euro; <input type="text" name="rate" placeholder="0,00" style="width:6em"></td>
                 <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
             </form>
         </tr>
         </tbody>
     </table>
-    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
-        <?php wp_nonce_field('avbk_generate_camp_fees_now'); ?>
-        <input type="hidden" name="action" value="avbk_generate_camp_fees_now">
-        <input type="hidden" name="camp_id" value="<?php echo esc_attr($camp_id); ?>">
-        <button type="submit" class="button">Kampbijdragen genereren/bijwerken voor dit kamp</button>
-        <span class="description">Nodig na het instellen/wijzigen van tarieven &mdash; bestaande deelnameregistraties genereren anders pas een bijdrage bij hun eerstvolgende wijziging.</span>
-    </form>
+
+    <?php if ($is_contribution) : ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
+            <?php wp_nonce_field('avbk_generate_contribution_fees_now'); ?>
+            <input type="hidden" name="action" value="avbk_generate_contribution_fees_now">
+            <input type="hidden" name="year" value="<?php echo esc_attr($selected_activity->year); ?>">
+            <button type="submit" class="button">Contributiebijdragen nu genereren/bijwerken voor <?php echo esc_html($selected_activity->year); ?></button>
+            <span class="description">Draait normaal automatisch elke nacht &mdash; gebruik dit om meteen bij te werken na een tariefwijziging.</span>
+        </form>
+    <?php else : ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
+            <?php wp_nonce_field('avbk_generate_camp_fees_now'); ?>
+            <input type="hidden" name="action" value="avbk_generate_camp_fees_now">
+            <input type="hidden" name="camp_id" value="<?php echo esc_attr($activity_id); ?>">
+            <button type="submit" class="button">Bijdragen genereren/bijwerken voor deze activiteit</button>
+            <span class="description">Nodig na het instellen/wijzigen van tarieven &mdash; bestaande deelnameregistraties genereren anders pas een bijdrage bij hun eerstvolgende wijziging. (Zonder gekoppelde deelnameregistraties, zoals bij Congres, is dit een no-op &mdash; die bijdragen ontstaan al bij aanmelding.)</span>
+        </form>
+    <?php endif; ?>
     <?php endif; ?>
 
     <h2>Instellingen</h2>
@@ -183,20 +139,6 @@ $camp_rates = $camp_id ? AVBK_DB::get_camp_rates_for_camp($camp_id) : [];
                 <td>
                     <input type="email" id="penningmeester_email" name="penningmeester_email" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>">
                     <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="congress_event_label">Congres/reünie &mdash; omschrijving</label></th>
-                <td>
-                    <input type="text" id="congress_event_label" name="congress_event_label" class="regular-text" value="<?php echo esc_attr(get_option('avbk_congress_event_label', 'Congres/Reünie 10 oktober 2026')); ?>">
-                    <p class="description">Titel op de aanmeldpagina (<code>[avpvh_bk_congress]</code>) en op de bijdrage-regel die bij aanmelding wordt aangemaakt.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="congress_fee_amount">Congres/reünie &mdash; deelnamekosten</label></th>
-                <td>
-                    &euro; <input type="text" id="congress_fee_amount" name="congress_fee_amount" value="<?php echo esc_attr(number_format((float) get_option('avbk_congress_fee_amount', 0), 2, ',', '')); ?>" style="width:6em">
-                    <p class="description">Bedrag per aanmelding. Op 0 laten schakelt het aanmaken van een bijdrage-regel (en dus de QR-betaling) uit &mdash; de aanmelding zelf blijft dan wel werken.</p>
                 </td>
             </tr>
         </table>

@@ -31,51 +31,66 @@ class AVBK_Fee_Generation {
     /** Creates/refreshes every active member's contribution fee item for $year (defaults to the current year). */
     public static function generate_contribution_fees(?int $year = null): void {
         $year = $year ?? (int) current_time('Y');
-        if (!AVBK_DB::get_contribution_rates($year)) {
-            return; // no rates configured yet for this year — nothing to generate
+        $activity = self::get_contribution_activity($year);
+        if (!$activity || !AVBK_DB::get_activity_rates((int) $activity->id)) {
+            return; // no "Contributie {year}" activity or no rates configured yet — nothing to generate
         }
 
         foreach (AVPVH_DB::get_members(['status' => 'active']) as $member) {
-            $computed = self::compute_contribution_rate($member, $year);
+            $computed = self::compute_activity_rate($member, $activity, 1, "$year-01-01");
             if (!$computed) {
                 continue; // no bracket covers this age, or no rates configured at all yet
             }
+            $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
             AVBK_DB::upsert_contribution_fee_item(
-                (int) $member->id, $year, $computed['amount'], $computed['description'], $computed['is_estimated'], $computed['reason']
+                (int) $member->id, $year, $computed['amount'], "Contributie {$year}{$label}", $computed['is_estimated'], $computed['reason']
             );
         }
     }
 
+    /** The "Contributie {year}" activity (an avm_camps row), or null if it doesn't exist yet — created by the 1.8 migration for years with pre-existing rates, otherwise the treasurer creates it via Activiteiten same as a camp. */
+    private static function get_contribution_activity(int $year): ?object {
+        return AVPVH_DB::get_camp_by_name_year("Contributie {$year}", $year);
+    }
+
     /**
-     * Pure calculation, no writes — what $member's contribution for $year
-     * should be based on today's inputs (status, birth date/year, rate
-     * table). Shared by generate_contribution_fees() (which writes the
-     * result) and find_stale_fee_items() (which only compares it against
-     * what's already stored), so the two can never drift apart. Null when
-     * no rate bracket/table covers this member at all.
+     * Pure calculation, no writes — what $member owes for $activity (a
+     * camp, "Contributie {year}", or any other activity) based on today's
+     * inputs (status, birth date/year, rate table) and $quantity (nights
+     * for a camp, 1 for anything else). Shared by generate_contribution_fees()/
+     * generate_camp_fee_item() (which write the result), find_stale_fee_items()
+     * (which only compares it against what's already stored), and
+     * AVBK_Congress::handle_register() (a congress signup is just another
+     * activity), so none of them can ever drift apart. Public for that
+     * last reason. Null when no rate
+     * bracket/table covers this member at all. $reference_date is what the
+     * member's age is evaluated at (a camp's own start date, or 1 January
+     * of a contribution year) — not "now", so past/future years and camps
+     * still compute correctly.
      */
-    private static function compute_contribution_rate(object $member, int $year): ?array {
+    public static function compute_activity_rate(object $member, object $activity, int $quantity, string $reference_date): ?array {
         $is_estimated = false;
         $reason = '';
         $rate = null;
+        $activity_id = (int) $activity->id;
 
         // Student is a status flag, not an age bracket (a 22-year-old
         // can be either) — it wins over age when set and a student
         // rate is actually configured.
         if (!empty($member->is_student)) {
-            $rate = AVBK_DB::get_student_contribution_rate($year);
+            $rate = AVBK_DB::get_student_activity_rate($activity_id);
         }
         if (!$rate) {
             if (!empty($member->birth_date)) {
-                $age = self::age_on((string) $member->birth_date, "$year-01-01");
-                $rate = AVBK_DB::get_rate_for_age($year, $age);
+                $age = self::age_on((string) $member->birth_date, $reference_date);
+                $rate = AVBK_DB::get_rate_for_age($activity_id, $age);
             } elseif (!empty($member->birth_year)) {
                 // Only the birth *year* is known — a real, if
                 // imprecise, age beats the no-date-at-all fallback
                 // below (a known 11-year-old shouldn't get bumped to
                 // the adult rate just because the exact day is lost).
-                $age = self::age_from_year((int) $member->birth_year, "$year-01-01");
-                $rate = AVBK_DB::get_rate_for_age($year, $age);
+                $age = self::age_from_year((int) $member->birth_year, $reference_date);
+                $rate = AVBK_DB::get_rate_for_age($activity_id, $age);
                 if ($rate) {
                     $is_estimated = true;
                     $reason = "Alleen geboortejaar {$member->birth_year} bekend — leeftijd bij benadering ({$age} jaar).";
@@ -85,7 +100,7 @@ class AVBK_Fee_Generation {
                 // than silently skipping the member entirely; flag it
                 // so the treasurer can verify/correct instead of the
                 // fee item just never existing.
-                $rate = AVBK_DB::get_adult_contribution_rate($year);
+                $rate = AVBK_DB::get_adult_activity_rate($activity_id);
                 $is_estimated = true;
                 $reason = 'Leeftijd niet bekend — volwassen tarief aangenomen.';
             }
@@ -93,10 +108,9 @@ class AVBK_Fee_Generation {
         if (!$rate) {
             return null;
         }
-        $label = $rate->label !== '' ? " ({$rate->label})" : '';
         return [
-            'amount'       => (float) $rate->amount,
-            'description'  => "Contributie {$year}{$label}",
+            'amount'       => round((float) $rate->rate * $quantity, 2),
+            'rate'         => $rate,
             'is_estimated' => $is_estimated,
             'reason'       => $reason,
         ];
@@ -133,63 +147,23 @@ class AVBK_Fee_Generation {
 
     private static function generate_camp_fee_item(int $member_id, int $camp_id, int $nights): bool {
         $member = AVPVH_DB::get_member($member_id);
-        if (!$member) {
+        $camp = AVPVH_DB::get_camp($camp_id);
+        if (!$member || !$camp) {
             return false;
         }
-        $camp = AVPVH_DB::get_camp($camp_id);
-        $computed = self::compute_camp_rate($member, $camp, $camp_id, $nights);
+        // Age at the camp's own start date, not "now" — a member's age
+        // bracket for a past or future camp must reflect their age *then*.
+        $reference_date = $camp->start_date ?: current_time('Y-m-d');
+        $computed = self::compute_activity_rate($member, $camp, $nights, $reference_date);
         if (!$computed) {
             return false; // no bracket covers this age, or no rates configured at all yet
         }
+        $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
+        $description = trim('Kamp ' . $camp->name . ' ' . $camp->year) . $label;
         AVBK_DB::upsert_camp_fee_item(
-            $member_id, $camp_id, $computed['amount'], $computed['description'], $computed['is_estimated'], $computed['reason']
+            $member_id, $camp_id, $computed['amount'], $description, $computed['is_estimated'], $computed['reason']
         );
         return true;
-    }
-
-    /**
-     * Pure calculation, no writes — see compute_contribution_rate()'s
-     * docblock for why this split exists. Null when no bracket covers this
-     * age, or no rate table exists at all for this camp yet.
-     */
-    private static function compute_camp_rate(object $member, ?object $camp, int $camp_id, int $nights): ?array {
-        $is_estimated = false;
-        $reason = '';
-        // Age at the camp's own start date, not "now" — a member's age
-        // bracket for a past or future camp must reflect their age *then*.
-        $reference_date = ($camp && $camp->start_date) ? $camp->start_date : current_time('Y-m-d');
-        if (!empty($member->birth_date)) {
-            $age = self::age_on((string) $member->birth_date, $reference_date);
-            $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
-        } elseif (!empty($member->birth_year)) {
-            // Only the birth *year* is known — a real, if imprecise, age
-            // beats the no-date-at-all fallback below.
-            $age = self::age_from_year((int) $member->birth_year, $reference_date);
-            $rate = AVBK_DB::get_camp_rate_for_age($camp_id, $age);
-            if ($rate) {
-                $is_estimated = true;
-                $reason = "Alleen geboortejaar {$member->birth_year} bekend — leeftijd bij benadering ({$age} jaar).";
-            }
-        } else {
-            // No birth date on file at all — assume adult rather than
-            // silently skipping the member entirely; flag it so the
-            // treasurer can verify/correct instead of the fee item just
-            // never existing.
-            $rate = AVBK_DB::get_adult_camp_rate($camp_id);
-            $is_estimated = true;
-            $reason = 'Leeftijd niet bekend — volwassen tarief aangenomen.';
-        }
-        if (!$rate) {
-            return null;
-        }
-        $amount = round((float) $rate->day_rate * $nights, 2);
-        $label = $rate->label !== '' ? " ({$rate->label})" : '';
-        return [
-            'amount'       => $amount,
-            'description'  => trim('Kamp ' . ($camp->name ?? '') . ' ' . ($camp->year ?? '')) . $label,
-            'is_estimated' => $is_estimated,
-            'reason'       => $reason,
-        ];
     }
 
     /**
@@ -220,15 +194,18 @@ class AVBK_Fee_Generation {
             }
 
             if ($item->type === 'contribution') {
-                $computed = self::compute_contribution_rate($member, (int) $item->year);
+                $year = (int) $item->year;
+                $activity = self::get_contribution_activity($year);
+                $computed = $activity ? self::compute_activity_rate($member, $activity, 1, "$year-01-01") : null;
             } else {
                 $camp_id = (int) $item->camp_id;
                 if (!array_key_exists($camp_id, $camps)) {
                     $camps[$camp_id] = AVPVH_DB::get_camp($camp_id);
                 }
+                $camp = $camps[$camp_id];
                 $participation = AVPVH_DB::get_participation($member_id, $camp_id);
                 $nights = $participation ? (int) $participation->nights : 0;
-                $computed = $nights ? self::compute_camp_rate($member, $camps[$camp_id], $camp_id, $nights) : null;
+                $computed = ($nights && $camp) ? self::compute_activity_rate($member, $camp, $nights, $camp->start_date ?: current_time('Y-m-d')) : null;
             }
 
             if ($computed && abs($computed['amount'] - (float) $item->amount_due) > 0.005) {

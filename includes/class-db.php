@@ -41,6 +41,24 @@ class AVBK_DB {
             KEY camp_id (camp_id)
         ) $charset;");
 
+        // Replaces avb_contribution_rates + avb_camp_rates (both left in
+        // place, unused, after the 1.8 migration copies their rows here) —
+        // "everything you can be asked to contribute for is an activity",
+        // so one shared, age-bracketed rate table for all of them.
+        // activity_id is an avm_camps.id (a camp, "Contributie {year}",
+        // "Congres {year}", ...), read via AVPVH_DB, not a real FK.
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_activity_rates (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            activity_id INT UNSIGNED NOT NULL,
+            min_age TINYINT UNSIGNED NULL,
+            max_age TINYINT UNSIGNED NULL,
+            for_students TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            label VARCHAR(50) NOT NULL DEFAULT '',
+            rate DECIMAL(8,2) NOT NULL,
+            PRIMARY KEY (id),
+            KEY activity_id (activity_id)
+        ) $charset;");
+
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_fee_items (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NOT NULL,
@@ -286,167 +304,165 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.7');
         }
+        if (version_compare($version, '1.8', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_activity_rates (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                activity_id INT UNSIGNED NOT NULL,
+                min_age TINYINT UNSIGNED NULL,
+                max_age TINYINT UNSIGNED NULL,
+                for_students TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                label VARCHAR(50) NOT NULL DEFAULT '',
+                rate DECIMAL(8,2) NOT NULL,
+                PRIMARY KEY (id),
+                KEY activity_id (activity_id)
+            ) {$wpdb->get_charset_collate()};");
+
+            // Only copy once — re-running this migration block (e.g. after
+            // a version_compare edge case) must not duplicate rows.
+            $already_migrated = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}avb_activity_rates");
+            if ($already_migrated === 0) {
+                foreach ($wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_camp_rates") as $r) {
+                    $wpdb->insert("{$wpdb->prefix}avb_activity_rates", [
+                        'activity_id' => $r->camp_id, 'min_age' => $r->min_age, 'max_age' => $r->max_age,
+                        'for_students' => 0, 'label' => $r->label, 'rate' => $r->day_rate,
+                    ]);
+                }
+
+                $contributie_type_id = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM {$wpdb->prefix}avm_activity_types WHERE name = %s", 'Contributie'
+                ));
+                if (!$contributie_type_id) {
+                    $max_sort = (int) $wpdb->get_var("SELECT COALESCE(MAX(sort_order), 0) FROM {$wpdb->prefix}avm_activity_types");
+                    $wpdb->insert("{$wpdb->prefix}avm_activity_types", ['name' => 'Contributie', 'sort_order' => $max_sort + 1]);
+                    $contributie_type_id = (int) $wpdb->insert_id;
+                }
+
+                $years = $wpdb->get_col("SELECT DISTINCT year FROM {$wpdb->prefix}avb_contribution_rates");
+                foreach ($years as $year) {
+                    $year = (int) $year;
+                    $activity_name = "Contributie {$year}";
+                    $activity_id = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT id FROM {$wpdb->prefix}avm_camps WHERE name = %s AND year = %d", $activity_name, $year
+                    ));
+                    if (!$activity_id) {
+                        $wpdb->insert("{$wpdb->prefix}avm_camps", [
+                            'name' => $activity_name, 'year' => $year, 'type_id' => $contributie_type_id,
+                        ]);
+                        $activity_id = (int) $wpdb->insert_id;
+                    }
+                    foreach ($wpdb->get_results($wpdb->prepare(
+                        "SELECT * FROM {$wpdb->prefix}avb_contribution_rates WHERE year = %d", $year
+                    )) as $r) {
+                        $wpdb->insert("{$wpdb->prefix}avb_activity_rates", [
+                            'activity_id' => $activity_id, 'min_age' => $r->min_age, 'max_age' => $r->max_age,
+                            'for_students' => $r->for_students, 'label' => $r->label, 'rate' => $r->amount,
+                        ]);
+                    }
+                }
+            }
+            // avb_camp_rates / avb_contribution_rates stay in place, unused
+            // (same non-destructive convention as the earlier avm_fees
+            // migration) — nothing in the codebase reads them after this.
+            update_option('avbk_db_version', '1.8');
+        }
     }
 
     // -------------------------------------------------------------------
     // Contribution rates
     // -------------------------------------------------------------------
 
-    public static function get_contribution_rates(int $year): array {
+    /** All age-bracket rate rows for one activity, e.g. kids 0-3 free / 4-12 €10 / 13+ €20 — a camp (per night), contribution (per year), or any other activity. */
+    public static function get_activity_rates(int $activity_id): array {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates WHERE year = %d ORDER BY min_age ASC",
-            $year
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates WHERE activity_id = %d ORDER BY min_age ASC",
+            $activity_id
         )) ?: [];
     }
 
-    /** The student rate for $year, if one is configured — checked before age, since student is a status flag, not an age bracket. */
-    public static function get_student_contribution_rate(int $year): ?object {
+    /** The student rate for this activity, if one is configured — checked before age, since student is a status flag, not an age bracket. */
+    public static function get_student_activity_rate(int $activity_id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates WHERE year = %d AND for_students = 1 LIMIT 1",
-            $year
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates WHERE activity_id = %d AND for_students = 1 LIMIT 1",
+            $activity_id
         )) ?: null;
     }
 
     /**
-     * The rate row covering $age in $year, or null if none configured.
-     * Excludes for_students rows — those only ever apply via the
-     * is_student flag (get_student_contribution_rate), never by
+     * The rate row covering $age for this activity, or null if none
+     * configured. Excludes for_students rows — those only ever apply via
+     * the is_student flag (get_student_activity_rate), never by
      * coincidentally matching someone's age.
      */
-    public static function get_rate_for_age(int $year, int $age): ?object {
+    public static function get_rate_for_age(int $activity_id, int $age): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
-             WHERE year = %d AND for_students = 0
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates
+             WHERE activity_id = %d AND for_students = 0
                AND (min_age IS NULL OR min_age <= %d)
                AND (max_age IS NULL OR max_age >= %d)
              ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
              LIMIT 1",
-            $year, $age, $age
+            $activity_id, $age, $age
         )) ?: null;
     }
 
     /**
-     * The "adult" bracket for $year — used when a member's birth date is
-     * unknown so a fee item still generates (assumed adult, flagged as
-     * estimated) rather than being silently skipped. Only ever a genuinely
-     * open-ended bracket (max_age IS NULL) — the real "everyone else"
-     * catch-all. Deliberately does NOT fall back to "whichever bracket has
-     * the highest min_age" when no open-ended one exists: with only a
-     * capped child bracket configured so far (e.g. "Kinderen 4-15"), that
-     * would pick the child rate and mislabel it as an assumed-adult
-     * amount — worse than just not generating a fee item yet. Excludes
-     * for_students rows, same reason as get_rate_for_age().
+     * The "adult" bracket for this activity — used when a member's birth
+     * date is unknown so a fee item still generates (assumed adult,
+     * flagged as estimated) rather than being silently skipped. Only ever
+     * a genuinely open-ended bracket (max_age IS NULL) — the real
+     * "everyone else" catch-all. Deliberately does NOT fall back to
+     * "whichever bracket has the highest min_age" when no open-ended one
+     * exists: with only a capped child bracket configured so far (e.g.
+     * "Kinderen 4-15"), that would pick the child rate and mislabel it as
+     * an assumed-adult amount — worse than just not generating a fee item
+     * yet. Excludes for_students rows, same reason as get_rate_for_age().
      */
-    public static function get_adult_contribution_rate(int $year): ?object {
+    public static function get_adult_activity_rate(int $activity_id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_contribution_rates
-             WHERE year = %d AND for_students = 0 AND max_age IS NULL
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates
+             WHERE activity_id = %d AND for_students = 0 AND max_age IS NULL
              ORDER BY min_age DESC
              LIMIT 1",
-            $year
+            $activity_id
         )) ?: null;
     }
 
-    public static function save_contribution_rate(int $id, int $year, ?int $min_age, ?int $max_age, string $label, float $amount, bool $for_students = false): int {
+    public static function save_activity_rate(int $id, int $activity_id, ?int $min_age, ?int $max_age, string $label, float $rate, bool $for_students = false): int {
         global $wpdb;
         $data = [
-            'year'         => $year,
+            'activity_id'  => $activity_id,
             'min_age'      => $min_age,
             'max_age'      => $max_age,
             'for_students' => (int) $for_students,
             'label'        => $label,
-            'amount'       => $amount,
+            'rate'         => $rate,
         ];
         if ($id > 0) {
-            $wpdb->update("{$wpdb->prefix}avb_contribution_rates", $data, ['id' => $id]);
+            $wpdb->update("{$wpdb->prefix}avb_activity_rates", $data, ['id' => $id]);
             return $id;
         }
-        $wpdb->insert("{$wpdb->prefix}avb_contribution_rates", $data);
+        $wpdb->insert("{$wpdb->prefix}avb_activity_rates", $data);
         return (int) $wpdb->insert_id;
     }
 
-    public static function delete_contribution_rate(int $id): void {
+    public static function delete_activity_rate(int $id): void {
         global $wpdb;
-        $wpdb->delete("{$wpdb->prefix}avb_contribution_rates", ['id' => $id]);
+        $wpdb->delete("{$wpdb->prefix}avb_activity_rates", ['id' => $id]);
     }
 
-    // -------------------------------------------------------------------
-    // Camp rates
-    // -------------------------------------------------------------------
-
-    /** All age-bracket rate rows for one camp, e.g. kids 0-3 free / 4-12 €10/night / 13+ €20/night. */
-    public static function get_camp_rates_for_camp(int $camp_id): array {
-        global $wpdb;
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_camp_rates WHERE camp_id = %d ORDER BY min_age ASC",
-            $camp_id
-        )) ?: [];
-    }
-
-    /** The rate row covering $age for this camp, or null if no bracket matches. */
-    public static function get_camp_rate_for_age(int $camp_id, int $age): ?object {
-        global $wpdb;
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_camp_rates
-             WHERE camp_id = %d
-               AND (min_age IS NULL OR min_age <= %d)
-               AND (max_age IS NULL OR max_age >= %d)
-             ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
-             LIMIT 1",
-            $camp_id, $age, $age
-        )) ?: null;
-    }
-
-    /** The "adult" bracket for this camp — same fallback rule (and same reasoning) as get_adult_contribution_rate(). */
-    public static function get_adult_camp_rate(int $camp_id): ?object {
-        global $wpdb;
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_camp_rates
-             WHERE camp_id = %d AND max_age IS NULL
-             ORDER BY min_age DESC
-             LIMIT 1",
-            $camp_id
-        )) ?: null;
-    }
-
-    public static function get_camp_rates(): array {
-        global $wpdb;
-        return $wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_camp_rates") ?: [];
-    }
-
-    /** Camps (from avpvh-members) with no rate brackets configured yet — camp fee items can't generate for these. */
+    /** Camps (from avpvh-members, type "Kamp" only — contribution/other activities auto-generate differently and aren't flagged here) with no rate brackets configured yet — camp fee items can't generate for these. */
     public static function get_camps_without_rate(): array {
-        $rated_camp_ids = array_unique(array_map('intval', wp_list_pluck(self::get_camp_rates(), 'camp_id')));
+        global $wpdb;
+        $rated_activity_ids = array_unique(array_map('intval', $wpdb->get_col("SELECT DISTINCT activity_id FROM {$wpdb->prefix}avb_activity_rates")));
         return array_values(array_filter(
             AVPVH_DB::get_camps(),
-            fn($camp) => !in_array((int) $camp->id, $rated_camp_ids, true)
+            fn($camp) => ($camp->type_name ?? '') === 'Kamp' && !in_array((int) $camp->id, $rated_activity_ids, true)
         ));
-    }
-
-    public static function save_camp_rate(int $id, int $camp_id, ?int $min_age, ?int $max_age, string $label, float $day_rate): int {
-        global $wpdb;
-        $data = [
-            'camp_id'  => $camp_id,
-            'min_age'  => $min_age,
-            'max_age'  => $max_age,
-            'label'    => $label,
-            'day_rate' => $day_rate,
-        ];
-        if ($id > 0) {
-            $wpdb->update("{$wpdb->prefix}avb_camp_rates", $data, ['id' => $id]);
-            return $id;
-        }
-        $wpdb->insert("{$wpdb->prefix}avb_camp_rates", $data);
-        return (int) $wpdb->insert_id;
-    }
-
-    public static function delete_camp_rate(int $id): void {
-        global $wpdb;
-        $wpdb->delete("{$wpdb->prefix}avb_camp_rates", ['id' => $id]);
     }
 
     // -------------------------------------------------------------------
@@ -476,10 +492,26 @@ class AVBK_DB {
      * owes (nights x day-rate, or their age-bracket rate) instead of a
      * blind even split of the payment amount.
      */
+    /**
+     * The most recent actual camp — unlike AVPVH_DB::get_current_camp()
+     * (unfiltered "most recent activity", which can now just as easily
+     * resolve to "Contributie {year}" or "Congres {year}" since those live
+     * in the same table), this always means an actual Kamp-type activity.
+     * Needed wherever "the current camp" is a real, load-bearing concept
+     * (matching-priority against open camp fee items here).
+     */
+    private static function get_current_camp_activity(): ?object {
+        $kamp_type = current(array_filter(
+            AVPVH_DB::get_activity_types(),
+            fn($t) => $t->name === 'Kamp'
+        ));
+        return $kamp_type ? AVPVH_DB::get_current_camp((int) $kamp_type->id) : null;
+    }
+
     public static function find_relevant_open_fee_item(int $member_id, string $type): ?object {
         $item = null;
         if ($type === 'camp') {
-            $camp = AVPVH_DB::get_current_camp();
+            $camp = self::get_current_camp_activity();
             if ($camp) {
                 $item = self::get_camp_fee_item($member_id, (int) $camp->id);
             }
@@ -1073,7 +1105,8 @@ class AVBK_DB {
     }
 
     /** Insert-or-reuse this member's open event fee item for $description (e.g. one row per congress edition, deduped by description so a re-submitted registration is a no-op, not a duplicate charge). Returns the fee_item id. */
-    public static function upsert_event_fee_item(int $member_id, string $description, float $amount): int {
+    /** $camp_id (optional): the event's own avm_camps.id (e.g. "Congres 2026") — lets an event fee item be traced back to its activity/rate, same as a camp fee item, without changing the dedupe key (still member+type+description, so a description change intentionally starts a fresh item). */
+    public static function upsert_event_fee_item(int $member_id, string $description, float $amount, int $camp_id = 0): int {
         global $wpdb;
         $existing = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND type = 'event' AND description = %s",
@@ -1085,6 +1118,7 @@ class AVBK_DB {
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'   => $member_id,
             'type'        => 'event',
+            'camp_id'     => $camp_id ?: null,
             'description' => $description,
             'amount_due'  => $amount,
         ]);

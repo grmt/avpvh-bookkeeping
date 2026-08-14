@@ -9,10 +9,8 @@ class AVBK_Admin {
         add_action('admin_post_avbk_upload_import',        [$this, 'handle_upload_import']);
         add_action('admin_post_avbk_confirm_transaction',  [$this, 'handle_confirm_transaction']);
         add_action('admin_post_avbk_ignore_transaction',   [$this, 'handle_ignore_transaction']);
-        add_action('admin_post_avbk_save_contribution_rate',   [$this, 'handle_save_contribution_rate']);
-        add_action('admin_post_avbk_delete_contribution_rate', [$this, 'handle_delete_contribution_rate']);
-        add_action('admin_post_avbk_save_camp_rate',       [$this, 'handle_save_camp_rate']);
-        add_action('admin_post_avbk_delete_camp_rate',     [$this, 'handle_delete_camp_rate']);
+        add_action('admin_post_avbk_save_activity_rate',   [$this, 'handle_save_activity_rate']);
+        add_action('admin_post_avbk_delete_activity_rate', [$this, 'handle_delete_activity_rate']);
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
         add_action('admin_post_avbk_generate_contribution_fees_now', [$this, 'handle_generate_contribution_fees_now']);
@@ -167,73 +165,40 @@ class AVBK_Admin {
         exit;
     }
 
-    public function handle_save_contribution_rate(): void {
-        check_admin_referer('avbk_save_contribution_rate');
+    public function handle_save_activity_rate(): void {
+        check_admin_referer('avbk_save_activity_rate');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
 
         $id = (int) ($_POST['id'] ?? 0);
-        $year = (int) ($_POST['year'] ?? 0);
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
         $min_age = $_POST['min_age'] !== '' ? (int) $_POST['min_age'] : null;
         $max_age = $_POST['max_age'] !== '' ? (int) $_POST['max_age'] : null;
         $for_students = !empty($_POST['for_students']);
         $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
-        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
+        // 0 is a legitimate rate (e.g. kids 0-3 free), so only activity_id gates this — not rate > 0.
+        $rate = (float) str_replace(',', '.', (string) ($_POST['rate'] ?? ''));
 
-        if ($year && $amount > 0) {
-            AVBK_DB::save_contribution_rate($id, $year, $min_age, $max_age, $label, $amount, $for_students);
+        if ($activity_id) {
+            AVBK_DB::save_activity_rate($id, $activity_id, $min_age, $max_age, $label, $rate, $for_students);
         }
 
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'rate_saved' => '1', 'year' => $year], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'activity_id' => $activity_id, 'rate_saved' => '1'], admin_url('admin.php')));
         exit;
     }
 
-    public function handle_delete_contribution_rate(): void {
-        check_admin_referer('avbk_delete_contribution_rate');
+    public function handle_delete_activity_rate(): void {
+        check_admin_referer('avbk_delete_activity_rate');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
         $id = (int) ($_POST['id'] ?? 0);
-        $year = (int) ($_POST['year'] ?? 0);
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
         if ($id) {
-            AVBK_DB::delete_contribution_rate($id);
+            AVBK_DB::delete_activity_rate($id);
         }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'rate_deleted' => '1', 'year' => $year], admin_url('admin.php')));
-        exit;
-    }
-
-    public function handle_save_camp_rate(): void {
-        check_admin_referer('avbk_save_camp_rate');
-        if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
-        }
-        $id = (int) ($_POST['id'] ?? 0);
-        $camp_id = (int) ($_POST['camp_id'] ?? 0);
-        $min_age = $_POST['min_age'] !== '' ? (int) $_POST['min_age'] : null;
-        $max_age = $_POST['max_age'] !== '' ? (int) $_POST['max_age'] : null;
-        $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
-        // 0 is a legitimate rate (e.g. kids 0-3 free), so only camp_id gates this — not day_rate > 0.
-        $day_rate = (float) str_replace(',', '.', (string) ($_POST['day_rate'] ?? ''));
-
-        if ($camp_id) {
-            AVBK_DB::save_camp_rate($id, $camp_id, $min_age, $max_age, $label, $day_rate);
-        }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_rate_saved' => '1'], admin_url('admin.php')));
-        exit;
-    }
-
-    public function handle_delete_camp_rate(): void {
-        check_admin_referer('avbk_delete_camp_rate');
-        if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
-        }
-        $id = (int) ($_POST['id'] ?? 0);
-        $camp_id = (int) ($_POST['camp_id'] ?? 0);
-        if ($id) {
-            AVBK_DB::delete_camp_rate($id);
-        }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'camp_id' => $camp_id, 'camp_rate_deleted' => '1'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'activity_id' => $activity_id, 'rate_deleted' => '1'], admin_url('admin.php')));
         exit;
     }
 
@@ -371,8 +336,6 @@ class AVBK_Admin {
         update_option('avbk_club_name', sanitize_text_field(wp_unslash($_POST['club_name'] ?? '')));
         update_option('avbk_reference_prefix', sanitize_text_field(wp_unslash($_POST['reference_prefix'] ?? 'PVH')));
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
-        update_option('avbk_congress_event_label', sanitize_text_field(wp_unslash($_POST['congress_event_label'] ?? '')) ?: 'Congres/Reünie 10 oktober 2026');
-        update_option('avbk_congress_fee_amount', (float) str_replace(',', '.', (string) ($_POST['congress_fee_amount'] ?? '0')));
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }

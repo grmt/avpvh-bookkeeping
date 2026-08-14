@@ -7,6 +7,18 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 $queue = AVBK_DB::get_review_queue();
 $all_members = AVBK_DB::get_payable_members();
 
+// The Type dropdown is fed by the same admin-editable list as an
+// activity's own type (AV-PvH Leden -> Activiteiten -> Activiteitstypes
+// beheren) — add "Excursie" there and it shows up here with no deploy.
+// Only names with a real matching-priority behind existing open fee items
+// (avb_fee_items.type) become type[] checkboxes; everything else becomes
+// an "overige regel" category. "Overig" is a fixed fallback, not in the
+// table, for the auto-fill-from-bank-description behaviour.
+$fee_type_map = ['Contributie' => 'contribution', 'Kamp' => 'camp', 'Congres' => 'event'];
+$all_activity_type_names = wp_list_pluck(AVPVH_DB::get_activity_types(), 'name');
+$extra_category_names = array_values(array_diff($all_activity_type_names, array_keys($fee_type_map)));
+$extra_category_names[] = 'Overig';
+
 // The bank description is a flat "Naam: X Omschrijving: Y IBAN: Z ..."
 // string — bold the field labels so it reads as a mini key/value list
 // instead of a wall of text. Escape first, then bold the (already-safe,
@@ -104,21 +116,20 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
                 <?php
-                $type_option_labels = ['contribution' => 'Contributie', 'camp' => 'Kamp'];
-                $checked_type_labels = array_values(array_intersect_key($type_option_labels, array_flip($suggested_types)));
+                $checked_type_labels = array_values(array_intersect_key(array_flip($fee_type_map), array_flip($suggested_types)));
                 $initial_type_summary = $checked_type_labels ? implode(', ', $checked_type_labels) : 'geen';
                 ?>
                 <div class="avbk-type-field">
                     <details class="avbk-type-dropdown">
                         <summary>Type: <span class="avbk-type-summary"><?php echo esc_html($initial_type_summary); ?></span></summary>
                         <div class="avbk-type-options">
-                            <?php foreach ($type_option_labels as $value => $label) : ?>
+                            <?php foreach ($fee_type_map as $label => $value) : ?>
                                 <label>
                                     <input type="checkbox" class="avbk-type-checkbox" data-kind="type" name="type[]" value="<?php echo esc_attr($value); ?>" <?php checked(in_array($value, $suggested_types, true)); ?>>
                                     <?php echo esc_html($label); ?>
                                 </label>
                             <?php endforeach; ?>
-                            <?php foreach (['Drank', 'Eten', 'Boek', 'T-shirt', 'Congres', 'Overig'] as $cat) : ?>
+                            <?php foreach ($extra_category_names as $cat) : ?>
                                 <label>
                                     <input type="checkbox" class="avbk-type-checkbox" data-kind="extra" data-category="<?php echo esc_attr($cat); ?>"<?php echo $cat === 'Overig' ? ' data-description="' . esc_attr($tx->description) . '"' : ''; ?>>
                                     <?php echo esc_html($cat); ?>

@@ -36,8 +36,24 @@ class AVBK_Congress {
         return $this->render_form();
     }
 
+    /**
+     * "Congres" is just another activity (AV-PvH Leden -> Activiteiten) —
+     * the most recent one of that type, same "most recent by year" rule
+     * AVPVH_DB::get_current_camp() already uses for camps, so there's no
+     * separate setting pointing at "the active congress". Null if the
+     * treasurer hasn't created one yet.
+     */
+    private function get_current_congress_activity(): ?object {
+        $congres_type = current(array_filter(
+            AVPVH_DB::get_activity_types(),
+            fn($t) => $t->name === 'Congres'
+        ));
+        return $congres_type ? AVPVH_DB::get_current_camp((int) $congres_type->id) : null;
+    }
+
     private function render_form(): string {
-        $label = get_option('avbk_congress_event_label', 'Congres/Reünie 10 oktober 2026');
+        $activity = $this->get_current_congress_activity();
+        $label = $activity ? $activity->name : 'Congres/Reünie';
         ob_start();
         ?>
         <div class="avbk-congress">
@@ -157,10 +173,17 @@ class AVBK_Congress {
 
         $fee_item_id = 0;
         if ($member_id) {
-            $label = get_option('avbk_congress_event_label', 'Congres/Reünie 10 oktober 2026');
-            $amount = (float) str_replace(',', '.', (string) get_option('avbk_congress_fee_amount', '0'));
-            if ($amount > 0) {
-                $fee_item_id = AVBK_DB::upsert_event_fee_item($member_id, $label, $amount);
+            $activity = $this->get_current_congress_activity();
+            $member = AVPVH_DB::get_member($member_id);
+            if ($activity && $member) {
+                $reference_date = $activity->start_date ?: current_time('Y-m-d');
+                $computed = AVBK_Fee_Generation::compute_activity_rate($member, $activity, 1, $reference_date);
+                if ($computed && $computed['amount'] > 0) {
+                    $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
+                    $fee_item_id = AVBK_DB::upsert_event_fee_item(
+                        $member_id, $activity->name . $label, $computed['amount'], (int) $activity->id
+                    );
+                }
             }
         }
 
