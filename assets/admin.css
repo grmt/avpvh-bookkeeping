@@ -75,6 +75,18 @@
     font-size: .85em;
 }
 
+.avbk-remove-row {
+    color: #b32d2e;
+    font-size: 1.1em;
+    line-height: 1;
+    text-decoration: none;
+    padding: 0 .3rem;
+}
+
+.avbk-remove-row:hover {
+    color: #7e1f1f;
+}
+
 .avbk-review-form,
 .avbk-review-ignore-form,
 .avbk-review-clear-draft-form {

@@ -195,8 +195,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     var d = res.data;
                     if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
                     if (estimatedEl) estimatedEl.textContent = d.estimated_text || '';
-                    if (amountInput && d.found) {
-                        amountInput.value = d.share.toFixed(2).replace('.', ',');
+                    if (amountInput) {
+                        amountInput.dataset.known = d.found ? '1' : '0';
+                        if (d.found) {
+                            amountInput.value = d.share.toFixed(2).replace('.', ',');
+                        }
                     }
                     updateTotals(form); // amountInput.value was set programmatically, no native 'input' event fires
                 });
@@ -215,11 +218,56 @@ document.addEventListener('DOMContentLoaded', function () {
         updateMemberEditLink();
     }
 
+    // A guessed/spurious regel (e.g. "Weekend" matched from the bank
+    // omschrijving alongside "Drank", but with no dated activiteit to back
+    // it up) shouldn't just vanish when removed — its bedrag was part of
+    // the transaction's own total, so it gets divided over the remaining
+    // regels instead of leaving a gap the treasurer has to re-type by hand.
+    // The redistribution starts fresh from the transaction's own amount
+    // (not from whatever the removed regel happened to hold) minus every
+    // *known* regel — one with a real matched bijdrage-regel behind it,
+    // amountInput.dataset.known === '1' (set server-side on render and
+    // client-side by lookupDetail()) — so an already-correct matched
+    // bedrag is never nudged by a later, unrelated removal; only the
+    // still-guessed regels absorb the remainder.
+    function wireRemoveButton(row, form) {
+        var removeBtn = row.querySelector('.avbk-remove-row');
+        if (!removeBtn) return;
+        removeBtn.addEventListener('click', function () {
+            var table = form.querySelector('.avbk-review-split');
+            row.remove();
+
+            var remainingInputs = Array.from(table.querySelectorAll('input[name="amount[]"]'));
+            var knownSum = 0;
+            var unknownInputs = [];
+            remainingInputs.forEach(function (input) {
+                if (input.dataset.known === '1') {
+                    knownSum += parseAmount(input.value);
+                } else {
+                    unknownInputs.push(input);
+                }
+            });
+            if (unknownInputs.length) {
+                var remaining = Math.round((parseAmount(form.dataset.txAmount) - knownSum) * 100) / 100;
+                var share = Math.round((remaining / unknownInputs.length) * 100) / 100;
+                var distributed = 0;
+                unknownInputs.forEach(function (input, idx) {
+                    var isLast = idx === unknownInputs.length - 1;
+                    var value = isLast ? Math.round((remaining - distributed) * 100) / 100 : share;
+                    distributed += value;
+                    input.value = value.toFixed(2).replace('.', ',');
+                });
+            }
+            updateTotals(form);
+        });
+    }
+
     document.querySelectorAll('.avbk-review-form').forEach(function (form) {
         loadHouseholdSuggestions(form); // rows often already arrive pre-filled with a suggested payer
 
         form.querySelectorAll('.avbk-review-split tr').forEach(function (row) {
             wireRow(row, form);
+            wireRemoveButton(row, form);
         });
 
         var addRowBtn = form.querySelector('.avbk-add-row');
@@ -231,6 +279,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 var row = rowTemplate.content.firstElementChild.cloneNode(true);
                 tbody.appendChild(row);
                 wireRow(row, form);
+                wireRemoveButton(row, form);
                 // The new row is blank, so it's exactly the case
                 // applyHouseholdSuggestions() targets.
                 loadHouseholdSuggestions(form);

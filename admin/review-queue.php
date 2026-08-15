@@ -163,24 +163,30 @@ function avbk_row_detail(array $row): ?array {
             // bare type name ("Kamp") is resolved to that type's current
             // (most recent) concrete activiteit — the same guess the old
             // type-only matching made, just expressed as a specific
-            // activiteit now instead of a type.
+            // activiteit now instead of a type. A losse kostenpost-naam
+            // (Drank/Eten/...) heeft geen bijdrage-regel om tegen te
+            // matchen, dus het bedrag blijft een gok (evenredig deel van
+            // het restbedrag) — maar de activiteit zelf hoeft niet leeg te
+            // blijven staan als de omschrijving 'm al met naam noemt.
             $rows = [];
             $known_amount_sum = 0.0;
             foreach ($suggested_ids as $member_id) {
                 $member_had_a_row = false;
                 foreach ($suggested_types as $activity_name) {
-                    if (!isset($fee_type_map[$activity_name])) {
-                        continue; // losse kosten (drank/etc.) worden nooit automatisch voorgesteld
-                    }
-                    $activity_obj = AVBK_DB::get_current_activity_for_type_name($activity_name);
-                    if (!$activity_obj) {
-                        continue;
-                    }
-                    $activity_value = 'a' . $activity_obj->id;
-                    $detail = AVBK_DB::get_member_fee_detail_for_activity($member_id, (int) $activity_obj->id);
-                    if ($detail['found']) {
-                        $rows[] = ['member_id' => $member_id, 'activity' => $activity_value, 'description' => '', 'amount' => $detail['share']];
-                        $known_amount_sum += $detail['share'];
+                    if (isset($fee_type_map[$activity_name])) {
+                        $activity_obj = AVBK_DB::get_current_activity_for_type_name($activity_name);
+                        if (!$activity_obj) {
+                            continue;
+                        }
+                        $activity_value = 'a' . $activity_obj->id;
+                        $detail = AVBK_DB::get_member_fee_detail_for_activity($member_id, (int) $activity_obj->id);
+                        if ($detail['found']) {
+                            $rows[] = ['member_id' => $member_id, 'activity' => $activity_value, 'description' => '', 'amount' => $detail['share']];
+                            $known_amount_sum += $detail['share'];
+                            $member_had_a_row = true;
+                        }
+                    } else {
+                        $rows[] = ['member_id' => $member_id, 'activity' => $activity_name, 'description' => '', 'amount' => null];
                         $member_had_a_row = true;
                     }
                 }
@@ -213,7 +219,7 @@ function avbk_row_detail(array $row): ?array {
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
                 <table class="avbk-review-split">
-                    <thead><tr><th>Lid</th><th>Activiteit</th><th>Bedrag</th></tr></thead>
+                    <thead><tr><th>Lid</th><th>Activiteit</th><th>Bedrag</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) :
                         $d = avbk_row_detail($row);
@@ -223,11 +229,12 @@ function avbk_row_detail(array $row): ?array {
                             <td><?php avbk_member_select('member_id[]', $all_members, (int) $row['member_id']); ?></td>
                             <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names, (string) $row['activity']); ?></td>
                             <td>
-                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="<?php echo esc_attr(number_format((float) $row['amount'], 2, ',', '')); ?>" size="6">
+                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="<?php echo !empty($d['found']) ? '1' : '0'; ?>" value="<?php echo esc_attr(number_format((float) $row['amount'], 2, ',', '')); ?>" size="6">
                                 <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_matched_activity ? ' style="display:none"' : ''; ?>>
                                 <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; ?></span>
                                 <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text'] ?? ''); ?></span>
                             </td>
+                            <td><button type="button" class="button-link avbk-remove-row" title="Verwijder regel &mdash; het bedrag wordt herverdeeld over de overige regels">&times;</button></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
@@ -240,11 +247,12 @@ function avbk_row_detail(array $row): ?array {
                         <td><?php avbk_member_select('member_id[]', $all_members); ?></td>
                         <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names); ?></td>
                         <td>
-                            &euro; <input type="text" name="amount[]" class="avbk-amount-input" value="" size="6" placeholder="0,00">
+                            &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="0" value="" size="6" placeholder="0,00">
                             <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="">
                             <span class="avbk-detail-fragments description"></span>
                             <span class="avbk-detail-estimated"></span>
                         </td>
+                        <td><button type="button" class="button-link avbk-remove-row" title="Verwijder regel &mdash; het bedrag wordt herverdeeld over de overige regels">&times;</button></td>
                     </tr>
                 </template>
 
