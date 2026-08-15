@@ -124,8 +124,8 @@ class AVBK_DB {
 
         // An IBAN is not 1:1 with a member — bank accounts are held in a
         // name, and one member can have several accounts, but a joint
-        // account (a real example: "H. Post e/o M.C. Hendriks") also
-        // genuinely belongs to more than one member at once. So this is a
+        // account (e.g. "H. Jansen e/o M.C. Bakker") also genuinely
+        // belongs to more than one member at once. So this is a
         // plain many-to-many table: unique per (iban, member_id) pair, not
         // per iban.
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_known_ibans (

@@ -180,11 +180,11 @@ class AVBK_Matcher {
     /**
      * Splits on the connectors seen in real payer/beneficiary text: comma,
      * " - ", " en ", "e/o" (en/of). The hyphen separator requires actual
-     * surrounding whitespace ("van Groen W. - van Mulder L.") — a bare hyphen
-     * with no spaces is a compound surname, not a joiner (a real example:
-     * "J F M Aziz-Dekker" is one person, not "Aziz" and "Dekker"; a bare
-     * "-" split wrongly cut it into two names and one half then happened to
-     * exact-match an unrelated member named "Aziz").
+     * surrounding whitespace ("Jansen W. - Bakker L.") — a bare hyphen
+     * with no spaces is a compound surname, not a joiner (seen in practice:
+     * "J F M Jansen-Bakker" is one person, not "Jansen" and "Bakker"; a
+     * bare "-" split wrongly cut it into two names and one half then
+     * happened to exact-match an unrelated member with that surname).
      */
     private static function split_names(string $text): array {
         $parts = preg_split('/\s*[,;]\s*|\bes?\/o\b|\ben\b|\s+-\s+/iu', $text);
@@ -295,7 +295,7 @@ class AVBK_Matcher {
      * character similarity as a floor for close-but-not-token-exact cases.
      *
      * Deliberately exact-match only, no prefix matching: a prefix rule
-     * ("Aziz" is a text-prefix of "Aziz-Dekker") wrongly treated two
+     * ("Jansen" is a text-prefix of "Jansen-Bakker") wrongly treated two
      * different members' surnames as a match just because one is a
      * hyphenated compound sharing a root with the other's plain surname —
      * exact-token-or-character-similarity-floor is a safer combination.
