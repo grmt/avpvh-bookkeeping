@@ -7,11 +7,14 @@ defined('ABSPATH') || exit;
  * shortcode's class has no hook to inject into, so this is its own
  * separate shortcode rather than a patch to class-member-profile-form.php).
  *
- * Access mirrors the profile page: a viewer sees their own data, or a
- * household/family member's (AVPVH_DB::get_manageable_members — the same
- * self-or-household rule the profile form itself uses), or — via
- * ?member_id= — any member if they're bestuur (penningmeester included,
- * since AVPVH_Roles folds officer roles into bestuur) or a real WP admin.
+ * Access mirrors the profile page plus one step further: a viewer sees
+ * their own data, or a household/family member's or that household's own
+ * partners' (AVPVH_DB::get_extended_household() — one hop wider than the
+ * profile form's own get_manageable_members(), e.g. a housemate's
+ * boyfriend/girlfriend who isn't blood family and may not even be a full
+ * member), or — via ?member_id= — any member if they're bestuur
+ * (penningmeester included, since AVPVH_Roles folds officer roles into
+ * bestuur) or a real WP admin.
  */
 class AVBK_Balance_Shortcode {
 
@@ -37,7 +40,7 @@ class AVBK_Balance_Shortcode {
 
         if ($requested_id && $requested_id !== $target_id) {
             $can_view_any = current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('bestuur');
-            $allowed_ids = wp_list_pluck(AVPVH_DB::get_manageable_members((int) $own_member->id), 'id');
+            $allowed_ids = wp_list_pluck(AVPVH_DB::get_extended_household((int) $own_member->id), 'id');
             if ($can_view_any || in_array($requested_id, array_map('intval', $allowed_ids), true)) {
                 $target_id = $requested_id;
             }
@@ -59,7 +62,7 @@ class AVBK_Balance_Shortcode {
         // someone else's page via ?member_id=, and it's that person's
         // household that makes sense to combine with.
         $household = array_values(array_filter(
-            AVPVH_DB::get_manageable_members($target_id),
+            AVPVH_DB::get_extended_household($target_id),
             fn($m) => (int) $m->id !== $target_id
         ));
         $requested_also = array_map('intval', (array) ($_GET['also'] ?? []));
@@ -101,7 +104,7 @@ class AVBK_Balance_Shortcode {
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
 
             <?php if ($household) : ?>
-                <form method="get" class="avbk-balance-also-form">
+                <form method="get" class="avbk-balance-also-form" action="#bijdrage">
                     <?php if ($requested_id) : ?><input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>"><?php endif; ?>
                     <fieldset>
                         <legend>Betaal ook voor:</legend>
@@ -224,7 +227,7 @@ class AVBK_Balance_Shortcode {
         // Only allow disputing a balance the viewer was actually allowed to
         // see in the first place — same rule render() itself uses.
         $can_view_any = current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('bestuur');
-        $allowed_ids = wp_list_pluck(AVPVH_DB::get_manageable_members((int) $own_member->id), 'id');
+        $allowed_ids = wp_list_pluck(AVPVH_DB::get_extended_household((int) $own_member->id), 'id');
         if ($member_id !== (int) $own_member->id && !$can_view_any && !in_array($member_id, array_map('intval', $allowed_ids), true)) {
             wp_die('Geen toegang.', 'Fout', ['response' => 403]);
         }
