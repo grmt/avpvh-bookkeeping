@@ -218,15 +218,15 @@ class AVBK_Import {
         // remembered owners is only ever surfaced as candidates to confirm
         // (see find_candidates_for_row()), never auto-applied — so this
         // never causes a silent misallocation, only a better default
-        // suggestion the next time this account pays (e.g. the whole Hoek
-        // family sharing one account).
+        // suggestion the next time this account pays (e.g. a whole family
+        // sharing one account).
         if ($tx->counterparty_iban !== '') {
             foreach ($paid_member_ids as $member_id) {
                 AVBK_DB::remember_iban($member_id, $tx->counterparty_iban);
             }
         }
         // Initials backfill stays single-payer-only: it parses one name
-        // string ("S J M Kramer") into initials for one specific member,
+        // string ("S J M Jansen") into initials for one specific member,
         // and a split transaction gives no way to know which part of that
         // name belongs to which of several payers.
         if (count($paid_member_ids) === 1) {
@@ -238,7 +238,7 @@ class AVBK_Import {
 
     /**
      * Recognizes "<initials> <surname>" in a bank transaction's own payer
-     * name (e.g. "S J M Kramer") and, only when the member doesn't already
+     * name (e.g. "S J M Jansen") and, only when the member doesn't already
      * have initials on file, saves it — never overwrites a value someone
      * already entered, since that may have been sourced from an actual
      * passport rather than guessed from one bank transaction.
@@ -297,7 +297,7 @@ class AVBK_Import {
      * apply_payment() path, which only has a guessed list of possible
      * types to blend). Here the treasurer picked one specific activity for
      * this one specific row, so there's no blending or fallback to other
-     * activities/types: money explicitly assigned to "Kamp Goeblange
+     * activities/types: money explicitly assigned to "Kamp Zonneveld
      * (2026)" never quietly pays off a different year's camp fee, or a
      * contribution item, instead. Any remainder that doesn't fit this
      * activity's own open item is simply left unallocated, same as

@@ -71,7 +71,7 @@ class AVBK_QR {
      * with it means it survives even if a banking app's payment screen
      * truncates a long description — followed by a human summary of what's
      * actually being paid for (open items only — "PVH-91: Contributie
-     * 2026, Kamp Goeblange 2026 (6 nachten)"). Truncates the summary half,
+     * 2026, Kamp Zonneveld 2026 (6 nachten)"). Truncates the summary half,
      * never the reference half — that's what
      * AVBK_Matcher::match_reference_code() depends on for future
      * auto-matching, and EPC caps this whole field at 140 characters

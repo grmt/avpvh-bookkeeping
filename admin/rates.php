@@ -121,7 +121,7 @@ $is_contribution = $selected_activity && $selected_activity->type_name === 'Cont
         <table class="form-table" style="max-width:600px">
             <tr>
                 <th><label for="club_iban">IBAN vereniging</label></th>
-                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', 'NL35INGB0674059859')); ?>"></td>
+                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', '')); ?>"></td>
             </tr>
             <tr>
                 <th><label for="club_name">Naam op rekening</label></th>

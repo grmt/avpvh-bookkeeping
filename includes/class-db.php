@@ -344,7 +344,7 @@ class AVBK_DB {
                     $year = (int) $year;
                     // Bare "Contributie", not "Contributie" (year in its own column) — year
                     // lives in its own column, same convention as a camp
-                    // ("Goeblange" + year=2026, not "Goeblange 2026").
+                    // ("Zonneveld" + year=2026, not "Zonneveld 2026").
                     $activity_name = 'Contributie';
                     $activity_id = (int) $wpdb->get_var($wpdb->prepare(
                         "SELECT id FROM {$wpdb->prefix}avm_camps WHERE name = %s AND year = %d", $activity_name, $year

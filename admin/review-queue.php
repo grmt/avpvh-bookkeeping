@@ -12,7 +12,7 @@ $all_members = AVBK_DB::get_payable_members();
 // against an existing, already-generated bijdrage-regel — but "Kamp" alone
 // is ambiguous once there's more than one kamp in the list (this year's,
 // last year's, ...), so the dropdown offers the concrete, dated activiteit
-// ("Kamp Goeblange (2026)") instead of the bare type; picking one matches
+// ("Kamp Zonneveld (2026)") instead of the bare type; picking one matches
 // unambiguously via that activiteit's own id. Recent = the past two years,
 // since older activiteiten are already settled and just clutter the list.
 // Every other type name (Drank, Eten, Weekend, ..., Overig) isn't tied to

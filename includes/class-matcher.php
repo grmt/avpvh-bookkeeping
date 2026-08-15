@@ -149,7 +149,7 @@ class AVBK_Matcher {
 
         // Nothing named explicitly (or none of those names matched) —
         // fall back to whoever we matched as the payer(s) themselves,
-        // the self-payment case ("Hr S J M Kramer" / "contributie 2026").
+        // the self-payment case ("Hr S J M Jansen" / "contributie 2026").
         if (!$found) {
             $found = $payer_matches;
         }
@@ -191,7 +191,7 @@ class AVBK_Matcher {
         return array_values(array_filter(array_map('trim', $parts), fn($p) => mb_strlen($p) >= 2));
     }
 
-    /** "S.J.M." -> "S J M" — one token per letter, so it lines up with how normalize() tokenizes bank text like "S J M Kramer" (each initial its own space-separated token). */
+    /** "S.J.M." -> "S J M" — one token per letter, so it lines up with how normalize() tokenizes bank text like "S J M Jansen" (each initial its own space-separated token). */
     private static function spaced_initials(string $initials): string {
         $letters = preg_replace('/[^A-Za-z]/', '', $initials);
         return implode(' ', str_split($letters));
@@ -199,10 +199,10 @@ class AVBK_Matcher {
 
     /**
      * If $counterparty_name is shaped like "<initials> <surname>" (with or
-     * without honorific/periods — "S J M Kramer", "Hr P M H Smits",
+     * without honorific/periods — "S J M Jansen", "Hr P M H Bakker",
      * "M.C. Hendriks") AND the surname matches $last_name, returns the
      * canonical "S.J.M." initials string. Returns null for anything else —
-     * including a spelled-out first name ("Simon Kramer") — so this only
+     * including a spelled-out first name ("Simon Jansen") — so this only
      * ever captures genuine initials, never misfiles a full given name.
      */
     public static function extract_initials(string $counterparty_name, string $last_name): ?string {
@@ -266,7 +266,7 @@ class AVBK_Matcher {
             $score = self::name_score($needle, $needle_tokens, $full);
 
             // Bank account holders are routinely printed as initials +
-            // surname ("S J M Kramer", "P M H Smits") rather than a full
+            // surname ("S J M Jansen", "P M H Bakker") rather than a full
             // first name — score against that form too, taking whichever
             // is higher, since a member's own `first_name` alone would
             // never token-match multi-letter bank initials.
