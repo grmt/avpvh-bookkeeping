@@ -179,15 +179,18 @@ class AVBK_Matcher {
 
     /**
      * Splits on the connectors seen in real payer/beneficiary text: comma,
-     * " - ", " en ", "e/o" (en/of). The hyphen separator requires actual
-     * surrounding whitespace ("Jansen W. - Bakker L.") — a bare hyphen
-     * with no spaces is a compound surname, not a joiner (seen in practice:
-     * "J F M Jansen-Bakker" is one person, not "Jansen" and "Bakker"; a
-     * bare "-" split wrongly cut it into two names and one half then
-     * happened to exact-match an unrelated member with that surname).
+     * " - ", " en ", "+", "e/o" (en/of) — and its slash-less bank-export
+     * spelling "eo" ("N. Jansen eo C.J.M. Bakker"), which used to slip
+     * through unsplit since the pattern required a literal "/". The hyphen
+     * separator requires actual surrounding whitespace ("Jansen W. -
+     * Bakker L.") — a bare hyphen with no spaces is a compound surname,
+     * not a joiner (seen in practice: "J F M Jansen-Bakker" is one person,
+     * not "Jansen" and "Bakker"; a bare "-" split wrongly cut it into two
+     * names and one half then happened to exact-match an unrelated member
+     * with that surname).
      */
     private static function split_names(string $text): array {
-        $parts = preg_split('/\s*[,;]\s*|\bes?\/o\b|\ben\b|\s+-\s+/iu', $text);
+        $parts = preg_split('/\s*[,;]\s*|\bes?\/?o\b|\ben\b|\s*\+\s*|\s+-\s+/iu', $text);
         return array_values(array_filter(array_map('trim', $parts), fn($p) => mb_strlen($p) >= 2));
     }
 

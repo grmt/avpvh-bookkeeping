@@ -37,6 +37,13 @@ class AVBK_Fee_Generation {
         }
 
         foreach (AVPVH_DB::get_members(['status' => 'active']) as $member) {
+            // Ere-lid (or any future flag with affects_fees=1 — see
+            // AVPVH_DB's "Member flags" section) never gets a contribution
+            // item generated at all, rather than one that has to be
+            // manually waived every year.
+            if (AVPVH_DB::member_is_fee_exempt((int) $member->id)) {
+                continue;
+            }
             $computed = self::compute_activity_rate($member, $activity, 1, "$year-01-01");
             if (!$computed) {
                 continue; // no bracket covers this age, or no rates configured at all yet
