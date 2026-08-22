@@ -70,6 +70,16 @@ jobs:
         run: |
           composer install -n --prefer-dist --no-dev
 
+      # plugin-check-action always (re)writes its own .wp-env.json in the
+      # workspace root right before starting wp-env, so a .wp-env.json
+      # committed inside avpvh-bookkeeping/ itself is never actually read.
+      # wp-env's own override mechanism is the supported way to layer
+      # extra config onto a file you don't control: a .wp-env.override.json
+      # next to it gets merged in automatically.
+      - name: "Add avpvh-members as an extra wp-env plugin"
+        run: |
+          echo '{ "plugins": ["./avpvh-members"] }' > .wp-env.override.json
+
       - name: "Run plugin check"
         uses: wordpress/plugin-check-action@v1
         with:
