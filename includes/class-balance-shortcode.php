@@ -22,6 +22,7 @@ class AVBK_Balance_Shortcode {
         add_shortcode('avpvh_bk_balance', [$this, 'render']);
         add_action('wp_enqueue_scripts', function () {
             wp_enqueue_style('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.css', [], avbk_asset_version('assets/balance.css'));
+            wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', [], avbk_asset_version('assets/balance.js'), true);
         });
         add_action('admin_post_avbk_submit_dispute', [$this, 'handle_dispute']);
     }
@@ -110,20 +111,31 @@ class AVBK_Balance_Shortcode {
                         <legend>Betaal ook voor:</legend>
                         <?php foreach ($household as $hm) : ?>
                             <label>
-                                <input type="checkbox" name="also[]" value="<?php echo esc_attr($hm->id); ?>" <?php checked(in_array((int) $hm->id, $also_ids, true)); ?>>
+                                <input type="checkbox" name="also[]" value="<?php echo esc_attr($hm->id); ?>" <?php checked(in_array((int) $hm->id, $also_ids, true)); ?> onchange="this.form.requestSubmit()">
                                 <?php echo esc_html(avpvh_format_name($hm)); ?>
                             </label>
                         <?php endforeach; ?>
-                        <button type="submit" class="button button-small">Toepassen</button>
+                        <noscript><button type="submit" class="button button-small">Toepassen</button></noscript>
                     </fieldset>
                 </form>
             <?php endif; ?>
 
-            <table class="avbk-balance-table">
+            <div class="avbk-balance-table-tools">
+                <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
+                <div class="avbk-col-toggle-panel" hidden></div>
+            </div>
+            <div class="avbk-balance-table-wrap">
+            <table class="avbk-balance-table" id="avbk-balance-table">
                 <thead>
-                    <tr>
-                        <?php if ($show_member_column) : ?><th>Lid</th><?php endif; ?>
-                        <th>Omschrijving</th><th>Tarief</th><th>Aantal</th><th>Bedrag</th><th>Betaald</th><th>Openstaand</th><th>Status</th>
+                    <tr class="avbk-balance-header-row">
+                        <?php if ($show_member_column) : ?><th data-col="lid" data-filter="select">Lid</th><?php endif; ?>
+                        <th data-col="omschrijving">Omschrijving</th>
+                        <th data-col="tarief" class="avbk-col-optional">Tarief</th>
+                        <th data-col="aantal" class="avbk-col-optional">Aantal</th>
+                        <th data-col="bedrag" data-type="number">Bedrag</th>
+                        <th data-col="betaald" data-type="number" class="avbk-col-optional">Betaald</th>
+                        <th data-col="openstaand" data-type="number">Openstaand</th>
+                        <th data-col="status" data-filter="select">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -133,35 +145,55 @@ class AVBK_Balance_Shortcode {
                     $status = $item->status === 'waived'
                         ? 'Kwijtgescholden'
                         : ($item->remaining <= 0.005 ? 'Betaald' : 'Open');
+                    $status_class = $item->status === 'waived'
+                        ? 'avbk-status-waived'
+                        : ($item->remaining <= 0.005 ? 'avbk-status-paid' : 'avbk-status-open');
                     $parts = AVBK_DB::split_fee_description((string) $item->description);
                     $qty = AVBK_DB::fee_item_quantity_label($item);
                     ?>
-                    <tr>
+                    <tr class="<?php echo esc_attr($status_class); ?>">
                         <?php if ($show_member_column) : ?>
-                            <td><?php echo esc_html(avpvh_format_name($combined_members[(int) $item->member_id] ?? $target_member)); ?></td>
+                            <td class="avbk-cell-wrap-words"><?php echo esc_html(avpvh_format_name($combined_members[(int) $item->member_id] ?? $target_member)); ?></td>
                         <?php endif; ?>
-                        <td>
+                        <td class="avbk-col-description">
                             <?php echo esc_html($parts['base']); ?>
                             <?php if (!empty($item->is_estimated)) : ?>
-                                <br><span style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
+                                <span class="avbk-estimate-flag" tabindex="0" role="button" aria-label="Toelichting op geschat bedrag">
+                                    &#9888;
+                                    <span class="avbk-estimate-tooltip" role="tooltip"><?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
+                                </span>
                             <?php endif; ?>
                         </td>
                         <td><?php echo $parts['label'] !== '' ? esc_html($parts['label']) : '&mdash;'; ?></td>
                         <td><?php echo $qty !== '' ? esc_html($qty) : '&mdash;'; ?></td>
-                        <td>&euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?></td>
-                        <td>&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
-                        <td>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></td>
-                        <td><?php echo esc_html($status); ?></td>
+                        <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?></td>
+                        <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
+                        <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></td>
+                        <td><span class="avbk-status-badge"><?php echo esc_html($status); ?></span></td>
                     </tr>
                 <?php endforeach; endif; ?>
                 </tbody>
                 <tfoot>
+                    <?php
+                    // One <th> per logical column (no colspan) so this row
+                    // lines up correctly with thead/tbody regardless of
+                    // which columns the visitor has hidden — colspan cells
+                    // don't collapse cleanly across columns hidden via
+                    // display:none and end up drifting out of alignment.
+                    ?>
                     <tr>
-                        <th colspan="<?php echo $show_member_column ? 6 : 5; ?>">Totaal openstaand</th>
-                        <th colspan="2">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></th>
+                        <?php if ($show_member_column) : ?><th>Totaal</th><?php else : ?><th class="avbk-col-description">Totaal</th><?php endif; ?>
+                        <?php if ($show_member_column) : ?><th class="avbk-col-description"></th><?php endif; ?>
+                        <th class="avbk-col-optional"></th>
+                        <th class="avbk-col-optional"></th>
+                        <th></th>
+                        <th class="avbk-col-optional"></th>
+                        <th class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></th>
+                        <th></th>
                     </tr>
                 </tfoot>
             </table>
+            </div>
             <?php if ($balance['balance'] > 0.005) :
                 if ($show_member_column) {
                     $entries = [];
