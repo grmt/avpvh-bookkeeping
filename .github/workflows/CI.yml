@@ -75,10 +75,13 @@ jobs:
       # committed inside avpvh-bookkeeping/ itself is never actually read.
       # wp-env's own override mechanism is the supported way to layer
       # extra config onto a file you don't control: a .wp-env.override.json
-      # next to it gets merged in automatically.
+      # next to it gets merged in automatically. testsEnvironment:false
+      # also skips building the unused tests-cli/tests-wordpress images
+      # (wp-env builds both by default) — Plugin Check never touches them,
+      # and that build has its own flaky third-party composer download.
       - name: "Add avpvh-members as an extra wp-env plugin"
         run: |
-          echo '{ "plugins": ["./avpvh-members"] }' > .wp-env.override.json
+          echo '{ "plugins": ["./avpvh-members"], "testsEnvironment": false }' > .wp-env.override.json
 
       - name: "Run plugin check"
         uses: wordpress/plugin-check-action@v1
