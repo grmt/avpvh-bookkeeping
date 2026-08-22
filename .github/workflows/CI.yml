@@ -1,0 +1,69 @@
+name: "CI"
+on:
+  push:
+    branches: "*"
+  pull_request:
+env:
+  php-version: 8.2
+  cache-version: 1
+jobs:
+  lint:
+    name: "PHP Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      - name: "Setup PHP"
+        uses: shivammathur/setup-php@2.37.2
+        with:
+          php-version: ${{ env.php-version }}
+          coverage: none
+
+      - name: "Cache Composer dependencies"
+        uses: actions/cache@v6
+        with:
+          path: "~/.composer/cache"
+          key: composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-${{ hashFiles('composer.json') }}
+            composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-
+
+      - name: "Install Composer dependencies"
+        run: |
+          composer install -n --prefer-dist
+
+      - name: "PHP syntax check"
+        run: |
+          find . -path ./vendor -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l
+
+  plugin-check:
+    name: "WordPress Plugin Check"
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      - name: "Setup PHP"
+        uses: shivammathur/setup-php@2.37.2
+        with:
+          php-version: ${{ env.php-version }}
+          coverage: none
+
+      - name: "Install Composer dependencies"
+        run: |
+          composer install -n --prefer-dist --no-dev
+
+      - name: "Run plugin check"
+        uses: wordpress/plugin-check-action@v1
+        with:
+          exclude-directories: |
+            .claude
+          # Report-only for now, same as avpvh-members — this plugin
+          # predates Plugin Check and hasn't been triaged against it yet.
+          # Findings still show in the run log and the uploaded
+          # plugin-check-results artifact; this just stops CI going red
+          # over a pre-existing backlog nobody's looked at.
+          ignore-warnings: true
+          ignore-errors: true
