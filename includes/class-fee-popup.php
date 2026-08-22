@@ -98,7 +98,7 @@ class AVBK_Fee_Popup {
                     <p class="avbk-fee-popup-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html($reference); ?></code></p>
                 <?php endif; ?>
                 <p class="avbk-fee-popup-detail-link">
-                    <a href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">Volledig overzicht en details bekijken &rarr;</a>
+                    <a id="avbk-fee-detail-link" href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">Volledig overzicht en details bekijken &rarr;</a>
                 </p>
                 <button id="avbk-fee-dismiss" class="button"><?php esc_html_e('Sluiten', 'avpvh-bookkeeping'); ?></button>
             </div>
