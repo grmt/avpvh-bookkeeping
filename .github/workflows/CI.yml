@@ -42,8 +42,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     steps:
-      - name: "Checkout"
+      - name: "Checkout avpvh-bookkeeping"
         uses: actions/checkout@v7
+        with:
+          path: avpvh-bookkeeping
+
+      # Bookkeeping refuses to activate without avpvh-members' AVPVH_DB/
+      # AVPVH_Roles (every lookup goes through those) — check it out as a
+      # sibling so .wp-env.json (committed in this repo) can hand it to
+      # wp-env as a second plugin to install and activate alongside this
+      # one. It's public, so no token/auth needed.
+      - name: "Checkout avpvh-members"
+        uses: actions/checkout@v7
+        with:
+          repository: grmt/avpvh-members
+          ref: main
+          path: avpvh-members
 
       - name: "Setup PHP"
         uses: shivammathur/setup-php@2.37.2
@@ -52,12 +66,14 @@ jobs:
           coverage: none
 
       - name: "Install Composer dependencies"
+        working-directory: avpvh-bookkeeping
         run: |
           composer install -n --prefer-dist --no-dev
 
       - name: "Run plugin check"
         uses: wordpress/plugin-check-action@v1
         with:
+          build-dir: avpvh-bookkeeping
           exclude-directories: |
             .claude
           # Report-only for now, same as avpvh-members — this plugin

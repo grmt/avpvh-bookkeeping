@@ -1,0 +1,7 @@
+{
+    "//": "For CI's Plugin Check job (and local `wp-env start`): bookkeeping can't activate without avpvh-members' AVPVH_DB/AVPVH_Roles, so pull it in as a sibling checkout at ../avpvh-members and let wp-env activate it too.",
+    "plugins": ["../avpvh-members"],
+    "mappings": {
+        "wp-content/plugins/avpvh-bookkeeping": "."
+    }
+}
