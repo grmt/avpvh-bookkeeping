@@ -1,7 +1,10 @@
 name: "CI"
 on:
   push:
-    branches: "*"
+    # "*" only matches single-segment branch names (no "/") — "**" is
+    # needed to also cover "fix/..."-style branches (see avpvh-members'
+    # same workflow, which hit this).
+    branches: "**"
   pull_request:
 env:
   php-version: 8.2
@@ -49,9 +52,9 @@ jobs:
 
       # Bookkeeping refuses to activate without avpvh-members' AVPVH_DB/
       # AVPVH_Roles (every lookup goes through those) — check it out as a
-      # sibling so .wp-env.json (committed in this repo) can hand it to
-      # wp-env as a second plugin to install and activate alongside this
-      # one. It's public, so no token/auth needed.
+      # sibling so the .wp-env.override.json below can hand it to wp-env
+      # as a second plugin to install and activate alongside this one.
+      # It's public, so no token/auth needed.
       - name: "Checkout avpvh-members"
         uses: actions/checkout@v7
         with:
@@ -83,16 +86,27 @@ jobs:
         run: |
           echo '{ "plugins": ["./avpvh-members"], "testsEnvironment": false }' > .wp-env.override.json
 
+      # Report-only for now, same as avpvh-members — this plugin predates
+      # Plugin Check and hasn't been triaged against it yet.
+      # continue-on-error (not ignore-warnings/ignore-errors) — those get
+      # passed straight to the underlying `wp plugin check` CLI and stop
+      # it from evaluating warnings/errors at all, which silently
+      # suppresses every finding rather than just the pass/fail call (see
+      # avpvh-members' same workflow, which hit this first).
       - name: "Run plugin check"
+        continue-on-error: true
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: avpvh-bookkeeping
           exclude-directories: |
             .claude
-          # Report-only for now, same as avpvh-members — this plugin
-          # predates Plugin Check and hasn't been triaged against it yet.
-          # Findings still show in the run log and the uploaded
-          # plugin-check-results artifact; this just stops CI going red
-          # over a pre-existing backlog nobody's looked at.
-          ignore-warnings: true
-          ignore-errors: true
+          # direct_db_queries: this plugin's whole DB layer is custom
+          # $wpdb queries (see class-db.php) — an architectural choice,
+          # not a gap, same reasoning as avpvh-members.
+          # plugin_readme / trademarks: wordpress.org-submission checks
+          # that don't apply — this is a private single-site plugin,
+          # tightly coupled to avpvh-members, never meant for WP.org.
+          exclude-checks: |
+            direct_db_queries
+            plugin_readme
+            trademarks
