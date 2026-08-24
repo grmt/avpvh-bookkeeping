@@ -1034,12 +1034,16 @@ class AVBK_DB {
             $where .= ' AND import_batch_id = %d';
             $params[] = (int) $args['batch_id'];
         }
+        // $where is only ever the literal '1=1' or '1=1 AND import_batch_id
+        // = %d', never raw input — prepare() below runs whenever $params
+        // (the actual values) is non-empty. Calling prepare() unconditionally
+        // would trip WP's "no placeholders" doing_it_wrong notice on the
+        // empty-$args path, so PHPCS can't see this is already safe.
         $sql = "SELECT * FROM {$wpdb->prefix}avb_transactions WHERE $where ORDER BY transaction_date DESC, id DESC";
         if ($params) {
-            $sql = $wpdb->prepare($sql, $params);
+            $sql = $wpdb->prepare($sql, $params); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
         }
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $where is only ever the literal '1=1' or '1=1 AND import_batch_id = %d', never raw input; prepare() runs above whenever $params (the actual values) is non-empty. Calling prepare() unconditionally would trip WP's "no placeholders" doing_it_wrong notice on the empty-$args path.
-        return $wpdb->get_results($sql) ?: [];
+        return $wpdb->get_results($sql) ?: []; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
     }
 
     // -------------------------------------------------------------------
