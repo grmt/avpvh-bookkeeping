@@ -121,7 +121,7 @@ class AVBK_Congress {
             <?php if ($fee_item) : ?>
                 <p><?php echo esc_html($fee_item->description); ?>: &euro; <?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></p>
                 <?php if ($qr) : ?>
-                    <div class="avbk-congress-qr"><?php echo $qr; ?></div>
+                    <div class="avbk-congress-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-congress-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
                     <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::reference_code((int) $reg->member_id) . ': ' . $fee_item->description); ?></code></p>
                 <?php elseif ($remaining > 0.005) : ?>

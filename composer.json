@@ -2,7 +2,7 @@
     "name": "avpvh/bookkeeping",
     "description": "Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne",
     "type": "wordpress-plugin",
-    "license": "MIT",
+    "license": "GPL-2.0-or-later",
     "require": {
         "php": "^8.2",
         "chillerlan/php-qrcode": "^5.0"

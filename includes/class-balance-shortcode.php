@@ -211,7 +211,7 @@ class AVBK_Balance_Shortcode {
                 }
                 ?>
                 <?php if ($qr) : ?>
-                    <div class="avbk-balance-qr"><?php echo $qr; ?></div>
+                    <div class="avbk-balance-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
                     <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html($reference_text); ?></code></p>
                 <?php endif; ?>

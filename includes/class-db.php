@@ -1038,6 +1038,7 @@ class AVBK_DB {
         if ($params) {
             $sql = $wpdb->prepare($sql, $params);
         }
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $where is only ever the literal '1=1' or '1=1 AND import_batch_id = %d', never raw input; prepare() runs above whenever $params (the actual values) is non-empty. Calling prepare() unconditionally would trip WP's "no placeholders" doing_it_wrong notice on the empty-$args path.
         return $wpdb->get_results($sql) ?: [];
     }
 

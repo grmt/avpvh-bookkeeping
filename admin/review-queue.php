@@ -212,7 +212,7 @@ function avbk_row_detail(array $row): ?array {
                 <?php if ($tx->status === 'unmatched') : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
                 <?php if ($draft !== null) : ?><span class="avbk-badge avbk-badge-draft">concept</span><?php endif; ?>
             </div>
-            <p class="description"><?php echo avbk_format_description($tx->description); ?></p>
+            <p class="description"><?php echo avbk_format_description($tx->description); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- avbk_format_description() esc_html()'s the raw text first (see its own docblock above), then only wraps already-safe hardcoded labels in <strong>. ?></p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($tx->description); ?>">
                 <?php wp_nonce_field('avbk_transaction_row'); ?>
@@ -231,7 +231,7 @@ function avbk_row_detail(array $row): ?array {
                             <td>
                                 &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="<?php echo !empty($d['found']) ? '1' : '0'; ?>" value="<?php echo esc_attr(number_format((float) $row['amount'], 2, ',', '')); ?>" size="6">
                                 <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_matched_activity ? ' style="display:none"' : ''; ?>>
-                                <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; ?></span>
+                                <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built entirely from esc_html()'d/esc_url()'d fragments in AVBK_DB::get_member_fee_detail() (see that method's own comment), never raw input. ?></span>
                                 <span class="avbk-detail-estimated"><?php echo esc_html($d['estimated_text'] ?? ''); ?></span>
                             </td>
                             <td><button type="button" class="button-link avbk-remove-row" title="Verwijder regel &mdash; het bedrag wordt herverdeeld over de overige regels">&times;</button></td>

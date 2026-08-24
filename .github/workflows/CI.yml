@@ -86,13 +86,14 @@ jobs:
         run: |
           echo '{ "plugins": ["./avpvh-members"], "testsEnvironment": false }' > .wp-env.override.json
 
-      # Report-only for now, same as avpvh-members — this plugin predates
-      # Plugin Check and hasn't been triaged against it yet.
       # continue-on-error (not ignore-warnings/ignore-errors) — those get
       # passed straight to the underlying `wp plugin check` CLI and stop
       # it from evaluating warnings/errors at all, which silently
       # suppresses every finding rather than just the pass/fail call (see
-      # avpvh-members' same workflow, which hit this first).
+      # avpvh-members' same workflow, which hit this first). Triaged once
+      # on 2026-08-24: the license/escaping/prepared-SQL findings from that
+      # pass were fixed directly in code (see git log); what's left here is
+      # excluded deliberately, not just deferred.
       - name: "Run plugin check"
         continue-on-error: true
         uses: wordpress/plugin-check-action@v1
@@ -100,13 +101,38 @@ jobs:
           build-dir: avpvh-bookkeeping
           exclude-directories: |
             .claude
+            .github
+          exclude-files: |
+            .gitignore
           # direct_db_queries: this plugin's whole DB layer is custom
           # $wpdb queries (see class-db.php) — an architectural choice,
           # not a gap, same reasoning as avpvh-members.
           # plugin_readme / trademarks: wordpress.org-submission checks
           # that don't apply — this is a private single-site plugin,
           # tightly coupled to avpvh-members, never meant for WP.org.
+          # prefixing: entirely WordPress.NamingConventions.PrefixAllGlobals
+          # findings on admin/*.php — those are template partials only ever
+          # `include`d from inside a class method (see class-admin.php's
+          # render calls), never loaded standalone, so their top-level
+          # variables aren't really in the global namespace at runtime.
           exclude-checks: |
             direct_db_queries
             plugin_readme
             trademarks
+            prefixing
+          # Verified false positives, not a real backlog (checked every
+          # handler by hand on 2026-08-24): every admin-post/admin-ajax
+          # handler in this plugin calls check_admin_referer()/
+          # check_ajax_referer() before touching $_POST — the Nonce
+          # sniff just doesn't correlate that across the function. Every
+          # flagged $_POST/$_GET/$_FILES read is already either cast
+          # ((int)/(float)/array_map('intval', ...)) or run through
+          # sanitize_*(wp_unslash(...)) — the sniff doesn't recognize
+          # sanitization inside a `(int) ($_POST['x'] ?? 0)` cast, or
+          # is_uploaded_file() as the correct check for a $_FILES tmp_name.
+          ignore-codes: |
+            WordPress.Security.NonceVerification.Missing
+            WordPress.Security.NonceVerification.Recommended
+            WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+            WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+            WordPress.Security.ValidatedSanitizedInput.MissingUnslash

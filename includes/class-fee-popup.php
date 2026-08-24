@@ -68,7 +68,7 @@ class AVBK_Fee_Popup {
             'nonce'   => wp_create_nonce('avbk_dismiss_popup'),
         ]);
         ?>
-        <script type="application/json" id="avbk-fee-popup-config"><?php echo $config; ?></script>
+        <script type="application/json" id="avbk-fee-popup-config"><?php echo $config; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_json_encode() output containing only admin_url() and a nonce (no user input), embedded in a <script type="application/json"> tag per the CSP-safe pattern documented in this file's own docblock; JSON-encoding is the correct escaping here, not esc_html(). ?></script>
         <div id="avbk-fee-popup" class="avbk-fee-popup-overlay" role="dialog" aria-modal="true" aria-labelledby="avbk-fee-popup-title">
             <div class="avbk-fee-popup-box">
                 <h2 id="avbk-fee-popup-title">Openstaand saldo</h2>
@@ -93,7 +93,7 @@ class AVBK_Fee_Popup {
                 </p>
                 <p class="avbk-fee-popup-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
                 <?php if ($qr_svg) : ?>
-                    <div class="avbk-fee-popup-qr"><?php echo $qr_svg; ?></div>
+                    <div class="avbk-fee-popup-qr"><?php echo $qr_svg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
                     <p class="avbk-fee-popup-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html($reference); ?></code></p>
                 <?php endif; ?>
