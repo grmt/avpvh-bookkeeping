@@ -76,14 +76,17 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-import.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-generation.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-qr.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-ocr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-popup.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-balance-shortcode.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
     new AVBK_Fee_Generation();
     new AVBK_Fee_Popup();
     new AVBK_Balance_Shortcode();
+    new AVBK_Reimbursements();
     new AVBK_Congress();
     new AVBK_Admin();
 });

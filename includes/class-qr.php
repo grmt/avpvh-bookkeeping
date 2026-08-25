@@ -29,6 +29,17 @@ class AVBK_QR {
     public static function epc_payload(float $amount, string $remittance): ?string {
         $iban = trim((string) get_option('avbk_club_iban', ''));
         $name = trim((string) get_option('avbk_club_name', ''));
+        return self::epc_payload_to($iban, $name, $amount, $remittance);
+    }
+
+    /**
+     * Same EPC069-12 payload, but to an arbitrary beneficiary — used for
+     * reimbursements (see AVBK_Reimbursements), where the penningmeester
+     * pays a member back rather than the other way round.
+     */
+    public static function epc_payload_to(string $iban, string $name, float $amount, string $remittance): ?string {
+        $iban = trim($iban);
+        $name = trim($name);
         if ($iban === '' || $name === '' || $amount <= 0) {
             return null;
         }
@@ -170,6 +181,12 @@ class AVBK_QR {
         }
         $remittance = $entries ? self::remittance_for_combined($entries, $reference_member_id) : self::reference_code($reference_member_id);
         $payload = self::epc_payload($balance, $remittance);
+        return $payload ? self::svg($payload) : null;
+    }
+
+    /** QR for the penningmeester to pay a member back for a receipt — beneficiary is the member's own IBAN, not the club's. Null if there's no IBAN on file or settings are incomplete. */
+    public static function for_reimbursement(string $iban, string $member_name, float $amount, string $description): ?string {
+        $payload = self::epc_payload_to($iban, $member_name, $amount, mb_substr($description, 0, 140));
         return $payload ? self::svg($payload) : null;
     }
 }

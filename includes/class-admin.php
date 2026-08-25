@@ -49,6 +49,10 @@ class AVBK_Admin {
         $disputes_label = 'Bezwaren' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bezwaren', $disputes_label, 'read', 'avbk-disputes', [$this, 'render_disputes']);
 
+        $pending_reimbursements = AVBK_DB::count_pending_reimbursements();
+        $reimbursements_label = 'Declaraties' . ($pending_reimbursements ? " <span class=\"awaiting-mod count-{$pending_reimbursements}\"><span class=\"pending-count\">{$pending_reimbursements}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Declaraties', $reimbursements_label, 'read', 'avbk-reimbursements', [$this, 'render_reimbursements']);
+
         $congress_attention = AVBK_DB::count_congress_needs_attention();
         $congress_label = 'Congres/Reünie' . ($congress_attention ? " <span class=\"awaiting-mod count-{$congress_attention}\"><span class=\"pending-count\">{$congress_attention}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Congres/Reünie', $congress_label, 'read', 'avbk-congress', [$this, 'render_congress']);
@@ -66,6 +70,7 @@ class AVBK_Admin {
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
     public function render_disputes(): void { require AVBK_PLUGIN_DIR . 'admin/disputes.php'; }
+    public function render_reimbursements(): void { require AVBK_PLUGIN_DIR . 'admin/reimbursements.php'; }
     public function render_congress(): void { require AVBK_PLUGIN_DIR . 'admin/congress.php'; }
     public function render_import(): void { require AVBK_PLUGIN_DIR . 'admin/import.php'; }
     public function render_review(): void { require AVBK_PLUGIN_DIR . 'admin/review-queue.php'; }

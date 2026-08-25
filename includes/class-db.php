@@ -399,6 +399,32 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.10');
         }
+        if (version_compare($version, '1.11', '<')) {
+            // Receipt reimbursements — the club owes the member here, so
+            // the QR at pay-time targets the member's own IBAN, not the
+            // club's (see AVBK_QR::for_reimbursement()). receipt_path is a
+            // random filename under a non-public directory (see
+            // AVBK_Reimbursements), never a public uploads:// URL.
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_reimbursements (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                member_id INT UNSIGNED NOT NULL,
+                activity_id INT UNSIGNED NULL,
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                amount DECIMAL(8,2) NOT NULL,
+                ocr_amount DECIMAL(8,2) NULL,
+                receipt_path VARCHAR(255) NOT NULL DEFAULT '',
+                iban VARCHAR(34) NOT NULL DEFAULT '',
+                status ENUM('pending','paid','rejected') NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                paid_at TIMESTAMP NULL,
+                paid_by BIGINT UNSIGNED NULL,
+                PRIMARY KEY (id),
+                KEY member_id (member_id),
+                KEY status (status)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.11');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -935,6 +961,71 @@ class AVBK_DB {
     }
 
     // -------------------------------------------------------------------
+    // Reimbursements — a member submits a receipt photo + amount, asking
+    // the penningmeester to pay them back (see AVBK_Reimbursements). The
+    // club owes the member here, the reverse of every other flow in this
+    // plugin — AVBK_QR::for_reimbursement() targets the member's own IBAN.
+    // -------------------------------------------------------------------
+
+    public static function create_reimbursement(array $data): int {
+        global $wpdb;
+        $wpdb->insert("{$wpdb->prefix}avb_reimbursements", [
+            'member_id'    => (int) $data['member_id'],
+            'activity_id'  => $data['activity_id'] ?: null,
+            'description'  => (string) $data['description'],
+            'amount'       => (float) $data['amount'],
+            'ocr_amount'   => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
+            'receipt_path' => (string) $data['receipt_path'],
+            'iban'         => strtoupper(str_replace(' ', '', (string) $data['iban'])),
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function get_reimbursement(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE id = %d", $id
+        )) ?: null;
+    }
+
+    public static function get_reimbursements(string $status = 'pending'): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE status = %s ORDER BY created_at ASC",
+            $status
+        )) ?: [];
+    }
+
+    public static function get_reimbursements_for_member(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d ORDER BY created_at DESC",
+            $member_id
+        )) ?: [];
+    }
+
+    public static function count_pending_reimbursements(): int {
+        global $wpdb;
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_reimbursements WHERE status = 'pending'"
+        );
+    }
+
+    public static function mark_reimbursement_paid(int $id, int $paid_by): void {
+        global $wpdb;
+        $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            ['status' => 'paid', 'paid_at' => current_time('mysql'), 'paid_by' => $paid_by],
+            ['id' => $id]
+        );
+    }
+
+    public static function reject_reimbursement(int $id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'rejected'], ['id' => $id]);
+    }
+
+    // -------------------------------------------------------------------
     // Transactions
     // -------------------------------------------------------------------
 
@@ -1108,6 +1199,15 @@ class AVBK_DB {
     public static function find_member_id_by_iban(string $iban): ?int {
         $member_ids = self::get_member_ids_by_iban($iban);
         return count($member_ids) === 1 ? $member_ids[0] : null;
+    }
+
+    /** The reverse lookup — every IBAN seen for this member, most recently learned first. Used to suggest where to pay a reimbursement (see AVBK_Reimbursements). */
+    public static function get_known_ibans_for_member(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_col($wpdb->prepare(
+            "SELECT iban FROM {$wpdb->prefix}avb_known_ibans WHERE member_id = %d ORDER BY created_at DESC",
+            $member_id
+        ));
     }
 
     // -------------------------------------------------------------------

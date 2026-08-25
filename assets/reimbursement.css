@@ -1,0 +1,70 @@
+.avbk-reimbursement {
+    max-width: 700px;
+    margin: 1.5rem auto;
+}
+
+.avbk-reimbursement label {
+    font-weight: 600;
+}
+
+.avbk-reimbursement input[type="text"],
+.avbk-reimbursement select {
+    width: 100%;
+    max-width: 400px;
+    box-sizing: border-box;
+    padding: .4rem .5rem;
+}
+
+.avbk-reimbursement-ocr-status {
+    font-size: .9em;
+    color: #555;
+    font-style: italic;
+}
+
+.avbk-reimbursement-notice {
+    background: #d7f2d7;
+    border-left: 4px solid #46b450;
+    padding: .75rem 1rem;
+}
+
+.avbk-reimbursement-notice-error {
+    background: #fbe3e0;
+    border-left-color: #b32d2e;
+}
+
+.avbk-reimbursement-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.avbk-reimbursement-table th,
+.avbk-reimbursement-table td {
+    padding: .4rem .5rem;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+}
+
+.avbk-status-badge {
+    display: inline-block;
+    padding: .15rem .55rem;
+    border-radius: 3px;
+    font-size: .85em;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.avbk-status-paid {
+    background: #d7f2d7;
+    color: #2a6b2a;
+}
+
+.avbk-status-pending {
+    background: #fff3cd;
+    color: #8a6d1a;
+}
+
+.avbk-status-rejected {
+    background: #eee;
+    color: #666;
+}
