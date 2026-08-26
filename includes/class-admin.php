@@ -66,6 +66,9 @@ class AVBK_Admin {
         if (str_contains($hook, 'avbk-review')) {
             wp_enqueue_script('avbk-review-queue', AVBK_PLUGIN_URL . 'assets/review-queue.js', [], avbk_asset_version('assets/review-queue.js'), true);
         }
+        if (str_contains($hook, 'avbk-reimbursements')) {
+            wp_enqueue_script('avbk-reimbursement-admin', AVBK_PLUGIN_URL . 'assets/reimbursement-admin.js', [], avbk_asset_version('assets/reimbursement-admin.js'), true);
+        }
     }
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }

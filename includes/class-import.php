@@ -162,7 +162,7 @@ class AVBK_Import {
         }
         if ($n === 1) {
             if ($iban !== '') {
-                AVBK_DB::remember_iban($member_ids[0], $iban);
+                AVBK_DB::remember_iban($member_ids[0], $iban, $counterparty_name);
             }
             self::maybe_backfill_initials($member_ids[0], $counterparty_name);
         }
@@ -222,7 +222,7 @@ class AVBK_Import {
         // sharing one account).
         if ($tx->counterparty_iban !== '') {
             foreach ($paid_member_ids as $member_id) {
-                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban);
+                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban, $tx->counterparty_name);
             }
         }
         // Initials backfill stays single-payer-only: it parses one name

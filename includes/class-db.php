@@ -425,6 +425,82 @@ class AVBK_DB {
             ) {$wpdb->get_charset_collate()};");
             update_option('avbk_db_version', '1.11');
         }
+        if (version_compare($version, '1.12', '<')) {
+            // The bank's "tenaamstelling" for an IBAN (or, for a member-
+            // submitted reimbursement IBAN, the member's own name) —
+            // without it, two known IBANs for the same member are
+            // indistinguishable in the UI (e.g. a household's shared
+            // account vs. someone's personal one).
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_known_ibans LIKE 'account_name'");
+            if (!$column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_known_ibans ADD COLUMN account_name VARCHAR(255) NOT NULL DEFAULT ''");
+            }
+            update_option('avbk_db_version', '1.12');
+        }
+        if (version_compare($version, '1.13', '<')) {
+            // Duplicate-receipt detection (see find_duplicate_receipt()):
+            // receipt_hash catches the exact same photo re-uploaded,
+            // ocr_date/ocr_store catch a re-photographed copy of the same
+            // paper receipt (different bytes, same purchase).
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursements LIKE 'receipt_hash'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursements ADD COLUMN receipt_hash CHAR(64) NOT NULL DEFAULT ''");
+            }
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursements LIKE 'ocr_date'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursements ADD COLUMN ocr_date DATE NULL");
+            }
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursements LIKE 'ocr_store'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursements ADD COLUMN ocr_store VARCHAR(255) NOT NULL DEFAULT ''");
+            }
+            if (!$wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}avb_reimbursements WHERE Key_name = 'receipt_hash'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursements ADD KEY receipt_hash (receipt_hash)");
+            }
+            update_option('avbk_db_version', '1.13');
+        }
+        if (version_compare($version, '1.14', '<')) {
+            // A declarant withdrawing their own accidental/duplicate
+            // submission is a different fact than the penningmeester
+            // rejecting it — keep it out of 'rejected' so the history
+            // still shows who actually made that call.
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursements
+                MODIFY COLUMN status ENUM('pending','paid','rejected','withdrawn') NOT NULL DEFAULT 'pending'");
+            update_option('avbk_db_version', '1.14');
+        }
+        if (version_compare($version, '1.15', '<')) {
+            // Multiple receipt photos per declaration (e.g. one trip, three
+            // shops) — a child table rather than widening avb_reimbursements
+            // further. Old single-receipt declarations keep their photo on
+            // the parent row's own receipt_path/receipt_hash/ocr_* columns
+            // (left as-is, never backfilled into this table) — see
+            // AVBK_DB::get_reimbursement_receipts()'s fallback for why that
+            // needs no migration of its own.
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_reimbursement_receipts (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                reimbursement_id INT UNSIGNED NOT NULL,
+                receipt_path VARCHAR(255) NOT NULL DEFAULT '',
+                receipt_hash CHAR(64) NOT NULL DEFAULT '',
+                ocr_amount DECIMAL(8,2) NULL,
+                ocr_date DATE NULL,
+                ocr_store VARCHAR(255) NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY reimbursement_id (reimbursement_id),
+                KEY receipt_hash (receipt_hash)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.15');
+        }
+        if (version_compare($version, '1.16', '<')) {
+            // A declaration is one activity but can bundle several
+            // purchases — each needs its own free-text description (member-
+            // editable, pre-filled with OCR's store+date guess), so this
+            // lives per receipt rather than once on the parent row. The
+            // parent's own description column stays as a joined summary for
+            // list views (see AVBK_Reimbursements::handle_submit()).
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'description'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN description VARCHAR(255) NOT NULL DEFAULT '' AFTER receipt_hash");
+            }
+            update_option('avbk_db_version', '1.16');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -967,18 +1043,163 @@ class AVBK_DB {
     // plugin — AVBK_QR::for_reimbursement() targets the member's own IBAN.
     // -------------------------------------------------------------------
 
+    /** Creates the parent row only — the caller adds one or more receipts via add_reimbursement_receipt(). */
     public static function create_reimbursement(array $data): int {
         global $wpdb;
         $wpdb->insert("{$wpdb->prefix}avb_reimbursements", [
-            'member_id'    => (int) $data['member_id'],
-            'activity_id'  => $data['activity_id'] ?: null,
-            'description'  => (string) $data['description'],
-            'amount'       => (float) $data['amount'],
-            'ocr_amount'   => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
-            'receipt_path' => (string) $data['receipt_path'],
-            'iban'         => strtoupper(str_replace(' ', '', (string) $data['iban'])),
+            'member_id'   => (int) $data['member_id'],
+            'activity_id' => $data['activity_id'] ?: null,
+            'description' => (string) $data['description'],
+            'amount'      => (float) $data['amount'],
+            'ocr_amount'  => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
+            'iban'        => strtoupper(str_replace(' ', '', (string) $data['iban'])),
         ]);
         return (int) $wpdb->insert_id;
+    }
+
+    public static function add_reimbursement_receipt(int $reimbursement_id, array $data): int {
+        global $wpdb;
+        $wpdb->insert("{$wpdb->prefix}avb_reimbursement_receipts", [
+            'reimbursement_id' => $reimbursement_id,
+            'receipt_path'     => (string) $data['receipt_path'],
+            'receipt_hash'     => (string) ($data['receipt_hash'] ?? ''),
+            'description'      => (string) ($data['description'] ?? ''),
+            'ocr_amount'       => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
+            'ocr_date'         => $data['ocr_date'] ?: null,
+            'ocr_store'        => (string) ($data['ocr_store'] ?? ''),
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * @return object[] One entry per attached receipt photo, each with
+     * ->id, ->receipt_path, ->receipt_hash, ->description, ->ocr_amount,
+     * ->ocr_date, ->ocr_store. Declarations from before multi-receipt
+     * support kept their one photo directly on the avb_reimbursements row
+     * instead of this child table — synthesized here (id 0, description
+     * taken from the parent's own field) so callers never need to special-
+     * case old data.
+     */
+    public static function get_reimbursement_receipts(int $reimbursement_id): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursement_receipts WHERE reimbursement_id = %d ORDER BY id ASC",
+            $reimbursement_id
+        ));
+        if ($rows) {
+            return $rows;
+        }
+        $r = self::get_reimbursement($reimbursement_id);
+        if ($r && $r->receipt_path) {
+            return [(object) [
+                'id'               => 0,
+                'reimbursement_id' => $reimbursement_id,
+                'receipt_path'     => $r->receipt_path,
+                'receipt_hash'     => $r->receipt_hash,
+                'description'      => $r->description,
+                'ocr_amount'       => $r->ocr_amount,
+                'ocr_date'         => $r->ocr_date,
+                'ocr_store'        => $r->ocr_store,
+            ]];
+        }
+        return [];
+    }
+
+    public static function delete_reimbursement_receipt(int $id): void {
+        global $wpdb;
+        $wpdb->delete("{$wpdb->prefix}avb_reimbursement_receipts", ['id' => $id]);
+    }
+
+    /**
+     * Updates one receipt's own free-text description (the member's/
+     * penningmeester's editable note — pre-filled at submit time with
+     * OCR's store+date guess, see AVBK_Reimbursements). $receipt_id of 0
+     * means a legacy pre-multi-receipt declaration (see
+     * get_reimbursement_receipts()'s synthesized entry) — its description
+     * lives directly on the parent row, so this also refreshes the
+     * parent's own joined-summary description (see
+     * refresh_reimbursement_description_summary()) for a child-table row.
+     */
+    public static function update_reimbursement_receipt_description(int $reimbursement_id, int $receipt_id, string $description): void {
+        global $wpdb;
+        if ($receipt_id > 0) {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", ['description' => $description], ['id' => $receipt_id]);
+            self::refresh_reimbursement_description_summary($reimbursement_id);
+        } else {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['description' => $description], ['id' => $reimbursement_id]);
+        }
+    }
+
+    /** Keeps the parent row's own description a joined summary of its receipts' descriptions — purely for list views that show one declaration per line (member's "Eerdere declaraties", admin's "Afgehandeld"), never shown once you're looking at the receipts themselves. */
+    public static function refresh_reimbursement_description_summary(int $reimbursement_id): void {
+        global $wpdb;
+        $descriptions = array_filter(wp_list_pluck(self::get_reimbursement_receipts($reimbursement_id), 'description'));
+        $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            ['description' => implode('; ', $descriptions)],
+            ['id' => $reimbursement_id]
+        );
+    }
+
+    /**
+     * A duplicate is either the exact same photo re-uploaded (receipt_hash
+     * match — robust, not user-editable) or a re-photographed copy of the
+     * same paper receipt: identical OCR-guessed date and OCR-guessed store
+     * for the same member (dropping the amount from this comparison, since
+     * with multiple receipts per declaration a receipt's own amount isn't
+     * tracked separately from the declaration's total). Scoped to one
+     * member — two housemates each legitimately declaring their own copy
+     * of a shared purchase is out of scope here.
+     *
+     * Excludes 'withdrawn' declarations — the declarant pulling one back
+     * themselves (e.g. an accidental duplicate) means it was never really
+     * declared, so its receipt shouldn't keep blocking a genuine future
+     * declaration of that same purchase. A 'rejected' one stays blocking:
+     * the penningmeester actually looked at it and said no, so it can be
+     * fixed and resubmitted, but not just re-uploaded unchanged.
+     */
+    public static function find_duplicate_receipt(int $member_id, string $receipt_hash, ?string $ocr_date, ?string $ocr_store): ?object {
+        global $wpdb;
+        if ($receipt_hash !== '') {
+            $by_hash = $wpdb->get_row($wpdb->prepare(
+                "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
+                 JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
+                 WHERE r.member_id = %d AND rr.receipt_hash = %s AND r.status != 'withdrawn' LIMIT 1",
+                $member_id, $receipt_hash
+            ));
+            if ($by_hash) {
+                return $by_hash;
+            }
+            // Legacy single-receipt declarations never got a child-table
+            // row (see get_reimbursement_receipts()) — check the parent's
+            // own columns too so those aren't a blind spot.
+            $by_hash_legacy = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND receipt_hash = %s AND status != 'withdrawn' LIMIT 1",
+                $member_id, $receipt_hash
+            ));
+            if ($by_hash_legacy) {
+                return $by_hash_legacy;
+            }
+        }
+        if ($ocr_date === null || $ocr_store === null || $ocr_store === '') {
+            return null;
+        }
+        $by_fields = $wpdb->get_row($wpdb->prepare(
+            "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
+             JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
+             WHERE r.member_id = %d AND rr.ocr_date = %s AND LOWER(TRIM(rr.ocr_store)) = LOWER(TRIM(%s)) AND r.status != 'withdrawn'
+             LIMIT 1",
+            $member_id, $ocr_date, $ocr_store
+        ));
+        if ($by_fields) {
+            return $by_fields;
+        }
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements
+             WHERE member_id = %d AND ocr_date = %s AND LOWER(TRIM(ocr_store)) = LOWER(TRIM(%s)) AND status != 'withdrawn'
+             LIMIT 1",
+            $member_id, $ocr_date, $ocr_store
+        )) ?: null;
     }
 
     public static function get_reimbursement(int $id): ?object {
@@ -1023,6 +1244,53 @@ class AVBK_DB {
     public static function reject_reimbursement(int $id): void {
         global $wpdb;
         $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'rejected'], ['id' => $id]);
+    }
+
+    /** Penningmeester corrections before paying out — e.g. the member picked the wrong known IBAN. Never touches status/paid fields. */
+    /** Description isn't set here — it's a per-receipt field, see update_reimbursement_receipt_description(); the parent's own description column is just a joined summary refreshed from those. */
+    public static function update_reimbursement(int $id, array $data): void {
+        global $wpdb;
+        $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            [
+                'activity_id' => $data['activity_id'] ?: null,
+                'amount'      => $data['amount'],
+                'iban'        => $data['iban'],
+            ],
+            ['id' => $id]
+        );
+    }
+
+    /**
+     * The declarant correcting their own submission — a description typo,
+     * a wrong IBAN, or (per the ownership+status guard baked into the
+     * WHERE clause) fixing an accidental duplicate submission, but only
+     * ever while it's still 'pending': once the penningmeester has paid or
+     * rejected it, the record should reflect what was actually decided.
+     */
+    public static function member_update_reimbursement(int $id, int $member_id, array $data): bool {
+        global $wpdb;
+        $updated = $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            [
+                'activity_id' => $data['activity_id'] ?: null,
+                'amount'      => $data['amount'],
+                'iban'        => $data['iban'],
+            ],
+            ['id' => $id, 'member_id' => $member_id, 'status' => 'pending']
+        );
+        return (bool) $updated;
+    }
+
+    /** The declarant withdrawing their own still-pending submission — e.g. an accidental duplicate. Same ownership+status guard as member_update_reimbursement(). */
+    public static function withdraw_reimbursement(int $id, int $member_id): bool {
+        global $wpdb;
+        $updated = $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            ['status' => 'withdrawn'],
+            ['id' => $id, 'member_id' => $member_id, 'status' => 'pending']
+        );
+        return (bool) $updated;
     }
 
     // -------------------------------------------------------------------
@@ -1117,6 +1385,31 @@ class AVBK_DB {
         ) ?: [];
     }
 
+    /**
+     * @param int[] $member_ids
+     * @return array<int,string> member_id => most recent transaction_date they were paid against, keyed only for members with at least one payment.
+     */
+    public static function get_last_payment_dates(array $member_ids): array {
+        global $wpdb;
+        if (!$member_ids) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($member_ids), '%d'));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.member_id, MAX(t.transaction_date) AS last_payment
+             FROM {$wpdb->prefix}avb_transaction_allocations a
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = a.transaction_id
+             WHERE a.member_id IN ($placeholders)
+             GROUP BY a.member_id",
+            $member_ids
+        ));
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int) $row->member_id] = $row->last_payment;
+        }
+        return $result;
+    }
+
     public static function get_transactions(array $args = []): array {
         global $wpdb;
         $where = '1=1';
@@ -1167,20 +1460,37 @@ class AVBK_DB {
     // -------------------------------------------------------------------
 
     /** Adds this (iban, member) pairing if it's new — never removes any other member already linked to the same IBAN (joint accounts genuinely belong to more than one person). */
-    public static function remember_iban(int $member_id, string $iban): void {
+    public static function remember_iban(int $member_id, string $iban, string $account_name = ''): void {
         global $wpdb;
         $iban = strtoupper(str_replace(' ', '', $iban));
         if ($iban === '') {
             return;
         }
-        $exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s AND member_id = %d",
-            $iban, $member_id
+        // ON DUPLICATE KEY UPDATE only fills in account_name if it was
+        // still empty — a payment's counterparty_name is the bank's own
+        // "tenaamstelling" and should win over a blank, but never overwrite
+        // a name we already have from an earlier, possibly more complete,
+        // sighting of the same (iban, member) pair.
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->prefix}avb_known_ibans (member_id, iban, account_name) VALUES (%d, %s, %s)
+             ON DUPLICATE KEY UPDATE account_name = IF(account_name = '', VALUES(account_name), account_name)",
+            $member_id, $iban, $account_name
         ));
-        if ($exists) {
-            return;
-        }
-        $wpdb->insert("{$wpdb->prefix}avb_known_ibans", ['member_id' => $member_id, 'iban' => $iban]);
+    }
+
+    /**
+     * Every distinct IBAN known system-wide, regardless of member — lets
+     * the penningmeester search/pick an account outside the declarant's
+     * own household (e.g. paying out to someone else entirely) when
+     * correcting a reimbursement, rather than being limited to
+     * get_known_ibans_for_member()'s narrower household scope.
+     * @return object[] Each with ->iban and ->account_name.
+     */
+    public static function get_all_known_ibans(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT iban, MAX(account_name) AS account_name FROM {$wpdb->prefix}avb_known_ibans GROUP BY iban ORDER BY account_name, iban"
+        );
     }
 
     /** Every member known to be associated with this IBAN — could be more than one (joint account). */
@@ -1201,12 +1511,52 @@ class AVBK_DB {
         return count($member_ids) === 1 ? $member_ids[0] : null;
     }
 
-    /** The reverse lookup — every IBAN seen for this member, most recently learned first. Used to suggest where to pay a reimbursement (see AVBK_Reimbursements). */
+    /**
+     * The reverse lookup — every IBAN seen for this member, their literal
+     * housemates (same address — a shared account is often registered to
+     * just one of them) and housemates' partners, most recently learned
+     * first, deduped by IBAN. Used to suggest where to pay a reimbursement
+     * (see AVBK_Reimbursements).
+     *
+     * Deliberately narrower than get_manageable_members(), which is
+     * "family OR same address" (edit permissions) and would also pull in
+     * grown-up children who've moved out — see
+     * class-member-profile-form.php's own housemates/family_elsewhere
+     * split for the same distinction, replicated here.
+     * @return object[] Each with ->iban and ->account_name.
+     */
     public static function get_known_ibans_for_member(int $member_id): array {
         global $wpdb;
-        return $wpdb->get_col($wpdb->prepare(
-            "SELECT iban FROM {$wpdb->prefix}avb_known_ibans WHERE member_id = %d ORDER BY created_at DESC",
-            $member_id
+        $household_ids = [$member_id];
+        foreach (AVPVH_DB::get_manageable_members($member_id) as $hg) {
+            if ((int) $hg->id !== $member_id && AVPVH_DB::has_same_address($member_id, (int) $hg->id)) {
+                $household_ids[] = (int) $hg->id;
+            }
+        }
+        $today = current_time('Y-m-d');
+        foreach ($household_ids as $housemate_id) {
+            foreach (AVPVH_DB::get_relationships($housemate_id) as $rel) {
+                if ($rel->category !== 'partner') {
+                    continue;
+                }
+                if ($rel->valid_from && $rel->valid_from > $today) {
+                    continue;
+                }
+                if ($rel->valid_until && $rel->valid_until < $today) {
+                    continue;
+                }
+                if (!in_array((int) $rel->other_id, $household_ids, true)) {
+                    $household_ids[] = (int) $rel->other_id;
+                }
+            }
+        }
+
+        $placeholders = implode(',', array_fill(0, count($household_ids), '%d'));
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
+             FROM {$wpdb->prefix}avb_known_ibans WHERE member_id IN ($placeholders)
+             GROUP BY iban ORDER BY created_at DESC",
+            $household_ids
         ));
     }
 

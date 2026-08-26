@@ -199,6 +199,10 @@
     text-align: left;
 }
 
+.avbk-balance-declare-link {
+    margin-top: 1rem;
+}
+
 .avbk-estimate-flag {
     position: relative;
     display: inline-block;

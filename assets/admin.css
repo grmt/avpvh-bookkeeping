@@ -127,3 +127,95 @@
     width: 100%;
     height: auto;
 }
+
+.avbk-receipt-thumb {
+    display: block;
+    max-width: 140px;
+    max-height: 140px;
+    object-fit: cover;
+    cursor: zoom-in;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    margin-bottom: .3rem;
+}
+
+.avbk-receipt-item {
+    display: inline-block;
+    vertical-align: top;
+    margin: 0 1.5rem 1rem 0;
+    max-width: 160px;
+}
+
+.avbk-receipt-edit-form {
+    margin-top: .4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+.avbk-receipt-edit-form input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: .85em;
+    padding: .2rem .3rem;
+}
+
+.avbk-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .85);
+    z-index: 100000;
+    overflow: auto;
+    text-align: center;
+    padding: 4vh 2vw;
+    box-sizing: border-box;
+}
+
+.avbk-lightbox[hidden] {
+    display: none;
+}
+
+.avbk-lightbox-close {
+    position: fixed;
+    top: 1rem;
+    right: 1.5rem;
+    color: #fff;
+    font-size: 2rem;
+    line-height: 1;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.avbk-lightbox-img {
+    max-width: 92vw;
+    max-height: 88vh;
+    cursor: zoom-in;
+    box-shadow: 0 0 30px rgba(0, 0, 0, .6);
+}
+
+.avbk-lightbox-img.avbk-zoomed {
+    max-width: none;
+    max-height: none;
+    cursor: zoom-out;
+}
+
+.avbk-reimbursement-edit {
+    margin: .75rem 0;
+    max-width: 400px;
+}
+
+.avbk-reimbursement-edit summary {
+    cursor: pointer;
+    color: #2271b1;
+}
+
+.avbk-reimbursement-edit select,
+.avbk-reimbursement-edit input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.avbk-reimbursement-edit input[hidden] + .description {
+    display: none;
+}

@@ -24,6 +24,7 @@ foreach ($members as $m) {
 // member with neither falls back to the "assume adult" estimate this
 // warning is really about.
 $members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date) && empty($m->birth_year)));
+$last_payment_dates = AVBK_DB::get_last_payment_dates(wp_list_pluck($members_without_birth_date, 'id'));
 $stale_fee_items = AVBK_Fee_Generation::find_stale_fee_items();
 ?>
 <div class="wrap">
@@ -54,12 +55,23 @@ $stale_fee_items = AVBK_Fee_Generation::find_stale_fee_items();
 
     <?php if ($members_without_birth_date) : ?>
         <div class="notice notice-warning">
-            <p><?php echo esc_html(count($members_without_birth_date)); ?> lid/leden zonder geboortedatum &mdash; hun contributie/kampbijdrage wordt gegenereerd met het volwassen tarief als aanname (gemarkeerd in rood bij hun bijdrage). Voeg de geboortedatum toe en genereer opnieuw om dit te corrigeren:</p>
-            <ul style="margin-left:1.5em;list-style:disc">
-                <?php foreach ($members_without_birth_date as $m) : ?>
-                    <li><a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $m->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></a></li>
-                <?php endforeach; ?>
-            </ul>
+            <details>
+                <summary><?php echo esc_html(count($members_without_birth_date)); ?> <?php echo count($members_without_birth_date) === 1 ? 'lid' : 'leden'; ?> zonder geboortedatum &mdash; hun contributie/kampbijdrage wordt gegenereerd met het volwassen tarief als aanname (gemarkeerd in rood bij hun bijdrage). Voeg de geboortedatum toe en genereer opnieuw om dit te corrigeren.</summary>
+                <table class="wp-list-table widefat striped" style="margin-top:.75rem;max-width:700px">
+                    <thead><tr><th>Naam</th><th>E-mail</th><th>Laatste betaling</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($members_without_birth_date as $m) :
+                        $last_payment = $last_payment_dates[(int) $m->id] ?? null;
+                        ?>
+                        <tr>
+                            <td><a href="<?php echo esc_url(admin_url('admin.php?page=avpvh-member-detail&id=' . $m->id)); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></a></td>
+                            <td><?php echo $m->email ? esc_html($m->email) : '&mdash;'; ?></td>
+                            <td><?php echo $last_payment ? esc_html(wp_date('d-m-Y', strtotime($last_payment))) : '&mdash;'; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </details>
         </div>
     <?php endif; ?>
 

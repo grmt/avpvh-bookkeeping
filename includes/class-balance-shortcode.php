@@ -229,6 +229,8 @@ class AVBK_Balance_Shortcode {
                     <button type="submit" class="button">Versturen</button>
                 </form>
             </details>
+
+            <p class="avbk-balance-declare-link"><a href="<?php echo esc_url(home_url('/leden/beheer/declareren/')); ?>">Bonnetje declareren &rarr;</a></p>
         </div>
         <?php
         return ob_get_clean();
