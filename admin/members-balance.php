@@ -8,6 +8,8 @@ $detail_member_id = (int) ($_GET['member_id'] ?? 0);
 $members = AVPVH_DB::get_members(['status' => 'active']);
 $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
 $show_all_years = !empty($_GET['show_all_years']);
+$per_year = !empty($_GET['per_year']);
+$current_book_year = (int) current_time('Y');
 ?>
 <div class="wrap">
     <h1>Ledenoverzicht</h1>
@@ -23,7 +25,16 @@ $show_all_years = !empty($_GET['show_all_years']);
     <?php if ($detail_member_id) :
         $member = AVPVH_DB::get_member($detail_member_id);
         if ($member) :
-            $balance = AVBK_DB::get_member_balance_excluding_closed($detail_member_id, $show_all_years); ?>
+            $by_year = AVBK_DB::get_member_balance_by_year($detail_member_id, $show_all_years);
+            // Default view: this book year only. A not-yet-closed previous
+            // year's items only appear once "per boekjaar" is switched on —
+            // an already-closed year stays hidden either way (that's the
+            // separate "toon oudere jaren" toggle above).
+            $shown_items = $per_year
+                ? $by_year['items']
+                : array_values(array_filter($by_year['items'], fn($item) => AVBK_DB::fee_item_book_year($item) === $current_book_year));
+            $shown_total = $per_year ? $by_year['total'] : $by_year['current'];
+            ?>
             <h2><?php echo esc_html(avpvh_format_name($member)); ?></h2>
             <p>
                 <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>">&larr; Terug naar ledenoverzicht</a>
@@ -41,6 +52,15 @@ $show_all_years = !empty($_GET['show_all_years']);
                     <?php endif; ?>
                 </p>
             <?php endif; ?>
+            <p class="description">
+                <?php if ($per_year) : ?>
+                    Toont <?php echo esc_html($current_book_year); ?> en het (nog niet afgesloten) vorige boekjaar apart.
+                    <a href="<?php echo esc_url(remove_query_arg('per_year')); ?>">Verberg per boekjaar</a>.
+                <?php else : ?>
+                    Toont alleen boekjaar <?php echo esc_html($current_book_year); ?>.
+                    <a href="<?php echo esc_url(add_query_arg('per_year', '1')); ?>">Toon per boekjaar</a>.
+                <?php endif; ?>
+            </p>
             <?php $student_years = AVBK_DB::get_member_student_years($detail_member_id); ?>
             <?php if (isset($_GET['student_year_saved'])) : ?><div class="notice notice-success inline"><p>Studentstatus op 1 januari opgeslagen. Genereer de betreffende bijdrage opnieuw om het bedrag bij te werken.</p></div><?php endif; ?>
             <details style="margin:1rem 0"<?php echo isset($_GET['student_year_saved']) ? ' open' : ''; ?>>
@@ -70,9 +90,9 @@ $show_all_years = !empty($_GET['show_all_years']);
             <table class="wp-list-table widefat striped">
                 <thead><tr><th>Kies</th><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Betaling(en)</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                <?php if (!$balance['items']) : ?>
+                <?php if (!$shown_items) : ?>
                     <tr><td colspan="8">Nog geen bijdragen geregistreerd.</td></tr>
-                <?php else : foreach ($balance['items'] as $item) :
+                <?php else : foreach ($shown_items as $item) :
                     $payments = AVBK_DB::get_payments_for_fee_item((int) $item->id);
                     ?>
                     <tr>
@@ -126,10 +146,19 @@ $show_all_years = !empty($_GET['show_all_years']);
                 <?php endforeach; endif; ?>
                 </tbody>
                 <tfoot>
-                    <tr><th colspan="5">Totaal openstaand</th><th colspan="3">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></th></tr>
+                    <?php if ($per_year) : ?>
+                        <tr>
+                            <th colspan="5">Totaal openstaand</th>
+                            <th>Huidig: &euro; <?php echo esc_html(number_format($by_year['current'], 2, ',', '.')); ?></th>
+                            <th>Vorig: &euro; <?php echo esc_html(number_format($by_year['other'], 2, ',', '.')); ?></th>
+                            <th>Totaal: &euro; <?php echo esc_html(number_format($by_year['total'], 2, ',', '.')); ?></th>
+                        </tr>
+                    <?php else : ?>
+                        <tr><th colspan="5">Totaal openstaand</th><th colspan="3">&euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th></tr>
+                    <?php endif; ?>
                 </tfoot>
             </table>
-            <?php if ($balance['balance'] > 0.005) :
+            <?php if ($shown_total > 0.005) :
                 $household_ids = array_values(array_filter(array_map(
                     fn($household_member) => (int) $household_member->id,
                     AVPVH_DB::get_extended_household($detail_member_id)
@@ -165,31 +194,62 @@ $show_all_years = !empty($_GET['show_all_years']);
                 <?php endif; ?>
             </p>
         <?php endif; ?>
+        <p class="description">
+            <?php if ($per_year) : ?>
+                Toont <?php echo esc_html($current_book_year); ?> en het (nog niet afgesloten) vorige boekjaar apart.
+                <a href="<?php echo esc_url(remove_query_arg('per_year')); ?>">Verberg per boekjaar</a>.
+            <?php else : ?>
+                Toont alleen boekjaar <?php echo esc_html($current_book_year); ?>.
+                <a href="<?php echo esc_url(add_query_arg('per_year', '1')); ?>">Toon per boekjaar</a>.
+            <?php endif; ?>
+        </p>
         <div class="avbk-balance-table-tools">
             <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
             <div class="avbk-col-toggle-panel" hidden></div>
         </div>
         <div class="avbk-balance-table-wrap">
         <table id="avbk-balance-table" data-storage-key="avbk_members_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
-            <thead><tr class="avbk-balance-header-row"><th data-col="naam">Naam</th><th data-col="saldo" data-type="number">Openstaand saldo</th><th data-col="status" data-filter="select">Status</th><th></th></tr></thead>
+            <thead><tr class="avbk-balance-header-row">
+                <th data-col="naam">Naam</th>
+                <?php if ($per_year) : ?>
+                    <th data-col="huidig" data-type="number">Huidig boekjaar</th>
+                    <th data-col="vorig" data-type="number">Vorig boekjaar</th>
+                    <th data-col="totaal" data-type="number">Totaal</th>
+                <?php else : ?>
+                    <th data-col="saldo" data-type="number">Openstaand saldo</th>
+                <?php endif; ?>
+                <th data-col="status" data-filter="select">Status</th><th></th>
+            </tr></thead>
             <tbody>
             <?php foreach ($members as $m) :
-                $balance = AVBK_DB::get_member_balance_excluding_closed((int) $m->id, $show_all_years);
-                $has_estimate_warning = (bool) array_filter($balance['items'], fn($i) =>
+                $by_year = AVBK_DB::get_member_balance_by_year((int) $m->id, $show_all_years);
+                $has_estimate_warning = (bool) array_filter($by_year['items'], fn($i) =>
                     !empty($i->is_estimated)
                     && $i->status === 'open'
                     && !str_starts_with((string) $i->estimate_reason, 'Alleen geboortejaar ')
                 );
-                $balance_status = $balance['balance'] > 0.005 ? 'Openstaand' : 'Betaald';
+                $shown_balance = $per_year ? $by_year['total'] : $by_year['current'];
+                $balance_status = $shown_balance > 0.005 ? 'Openstaand' : 'Betaald';
                 ?>
                 <tr>
                     <td><?php echo esc_html(avpvh_format_name($m, 'list')); ?></td>
-                    <td<?php echo $balance['balance'] > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>
-                        &euro; <?php echo esc_html(number_format($balance['balance'], 2, ',', '.')); ?>
-                        <?php if ($has_estimate_warning) : ?>
-                            <span style="color:#b32d2e" title="Bevat een geschat bedrag (geen geboortedatum bekend)">&#9888;</span>
-                        <?php endif; ?>
-                    </td>
+                    <?php if ($per_year) : ?>
+                        <td<?php echo $by_year['current'] > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>&euro; <?php echo esc_html(number_format($by_year['current'], 2, ',', '.')); ?></td>
+                        <td<?php echo $by_year['other'] > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>&euro; <?php echo esc_html(number_format($by_year['other'], 2, ',', '.')); ?></td>
+                        <td<?php echo $by_year['total'] > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>
+                            &euro; <?php echo esc_html(number_format($by_year['total'], 2, ',', '.')); ?>
+                            <?php if ($has_estimate_warning) : ?>
+                                <span style="color:#b32d2e" title="Bevat een geschat bedrag (geen geboortedatum bekend)">&#9888;</span>
+                            <?php endif; ?>
+                        </td>
+                    <?php else : ?>
+                        <td<?php echo $shown_balance > 0.005 ? ' style="color:#b8600a;font-weight:bold"' : ''; ?>>
+                            &euro; <?php echo esc_html(number_format($shown_balance, 2, ',', '.')); ?>
+                            <?php if ($has_estimate_warning) : ?>
+                                <span style="color:#b32d2e" title="Bevat een geschat bedrag (geen geboortedatum bekend)">&#9888;</span>
+                            <?php endif; ?>
+                        </td>
+                    <?php endif; ?>
                     <td><?php echo esc_html($balance_status); ?></td>
                     <td><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id)); ?>">Details</a></td>
                 </tr>

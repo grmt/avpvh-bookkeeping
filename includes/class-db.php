@@ -1519,6 +1519,41 @@ class AVBK_DB {
     }
 
     /**
+     * get_member_balance_excluding_closed() bucketed into the current
+     * book year vs everything else it still returned — in practice a
+     * not-yet-closed previous year, since a genuinely closed year is by
+     * definition fully settled and never contributes a nonzero remaining
+     * here (see fee_item_book_year()/avbk_closed_through_year). Backs
+     * both the Ledenoverzicht list's optional per-year columns and each
+     * member's detail-page breakdown; 'items' is the same filtered list
+     * get_member_balance_excluding_closed() would return, so callers can
+     * further split it into "this year only" for the default (non-toggled)
+     * view without a second query.
+     */
+    public static function get_member_balance_by_year(int $member_id, bool $include_closed = false): array {
+        $balance = self::get_member_balance_excluding_closed($member_id, $include_closed);
+        $current_year = (int) current_time('Y');
+        $current = 0.0;
+        $other = 0.0;
+        foreach ($balance['items'] as $item) {
+            if ($item->status === 'waived') {
+                continue;
+            }
+            if (self::fee_item_book_year($item) === $current_year) {
+                $current += (float) $item->remaining;
+            } else {
+                $other += (float) $item->remaining;
+            }
+        }
+        return [
+            'items'   => $balance['items'],
+            'current' => round($current, 2),
+            'other'   => round($other, 2),
+            'total'   => round($current + $other, 2),
+        ];
+    }
+
+    /**
      * A fee item's description is generated as "{base} ({rate label})" —
      * see AVBK_Fee_Generation — with no separate column for the label, so
      * this splits it back apart for display (a "Tarief" column, distinct
