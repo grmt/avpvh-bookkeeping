@@ -17,6 +17,9 @@ if (!$activity_id) {
 $rates = $activity_id ? AVBK_DB::get_activity_rates($activity_id) : [];
 $selected_activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
 $is_contribution = $selected_activity && $selected_activity->type_name === 'Contributie';
+$rate_copy_sources = array_values(array_filter($activities, static function ($activity) use ($activity_id) {
+    return (int) $activity->id !== $activity_id && (bool) AVBK_DB::get_activity_rates((int) $activity->id);
+}));
 ?>
 <div class="wrap">
     <h1>Tarieven &amp; instellingen</h1>
@@ -29,6 +32,17 @@ $is_contribution = $selected_activity && $selected_activity->type_name === 'Cont
     <?php endif; ?>
     <?php if (isset($_GET['camp_fees_generated'])) : ?>
         <div class="notice notice-success"><p><?php echo esc_html((int) $_GET['camp_fees_generated']); ?> bijdrage(n) gegenereerd/bijgewerkt.</p></div>
+    <?php endif; ?>
+    <?php if (isset($_GET['rates_copy'])) : ?>
+        <?php if ($_GET['rates_copy'] === 'copied') : ?>
+            <div class="notice notice-success"><p>Activiteittarieven overgenomen. Controleer ze hieronder en genereer daarna de bijdragen.</p></div>
+        <?php elseif ($_GET['rates_copy'] === 'target_has_rates') : ?>
+            <div class="notice notice-error"><p>Niet overgenomen: deze activiteit heeft al tarieven. Verwijder die eerst als je ze volledig wilt vervangen.</p></div>
+        <?php elseif ($_GET['rates_copy'] === 'source_empty') : ?>
+            <div class="notice notice-error"><p>Niet overgenomen: de gekozen bronactiviteit heeft geen tarieven.</p></div>
+        <?php else : ?>
+            <div class="notice notice-error"><p>De tarieven konden niet worden overgenomen.</p></div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <h2>Activiteittarieven</h2>
@@ -50,6 +64,25 @@ $is_contribution = $selected_activity && $selected_activity->type_name === 'Cont
     <?php if (!$activity_id) : ?>
         <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
     <?php else : ?>
+    <?php if ($rate_copy_sources) : ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0 0 1rem;padding:.75rem 1rem;background:#fff;border-left:4px solid #72aee6;max-width:768px">
+            <?php wp_nonce_field('avbk_copy_activity_rates'); ?>
+            <input type="hidden" name="action" value="avbk_copy_activity_rates">
+            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+            <label><strong>Tarieven overnemen van:</strong>
+                <select name="source_activity_id" required>
+                    <option value="">&mdash; kies eerdere activiteit &mdash;</option>
+                    <?php foreach ($rate_copy_sources as $source_activity) : ?>
+                        <option value="<?php echo esc_attr($source_activity->id); ?>">
+                            <?php echo esc_html($source_activity->name . ' (' . $source_activity->year . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <button type="submit" class="button" onclick="return confirm('Alle tarieven van de gekozen activiteit overnemen?');">Tarieven overnemen</button>
+            <p class="description">Dit kan alleen zolang de huidige activiteit nog geen tarieven heeft. Labels, leeftijdsgrenzen, studentstatus en bedragen worden gekopieerd.</p>
+        </form>
+    <?php endif; ?>
     <table class="wp-list-table widefat striped" style="max-width:800px">
         <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Tarief</th><th></th></tr></thead>
         <tbody>
@@ -139,6 +172,21 @@ $is_contribution = $selected_activity && $selected_activity->type_name === 'Cont
                 <td>
                     <input type="email" id="penningmeester_email" name="penningmeester_email" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>">
                     <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="penningmeester_name">Naam penningmeester</label></th>
+                <td>
+                    <input type="text" id="penningmeester_name" name="penningmeester_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_name', 'de penningmeester')); ?>">
+                    <p class="description">Ondertekening van een "Vraag om betaling"-e-mail, bijv. "Nina".</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="payment_email_login_help">Inloguitleg in betaalmail</label></th>
+                <td>
+                    <label><input type="checkbox" id="payment_email_login_help" name="payment_email_login_help" value="1" <?php checked((bool) get_option('avbk_payment_email_login_help', 1)); ?>> Voeg uitleg over wachtwoord, Google en Microsoft toe</label>
+                    <textarea name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)); ?></textarea>
+                    <p class="description">Gebruik <code>[wachtwoord-link]</code> voor de klikbare link “hier” naar het scherm om in te loggen of een wachtwoord in te stellen. De QR-code en profiel-link blijven altijd in de betaalmail staan.</p>
                 </td>
             </tr>
         </table>

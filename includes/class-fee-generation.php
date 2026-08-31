@@ -20,6 +20,13 @@ class AVBK_Fee_Generation {
     public function __construct() {
         add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
         add_action('avpvh_activity_participation_saved', [$this, 'on_activity_participation_saved'], 10, 3);
+
+        // avpvh-members saves profile edits through this AJAX action but
+        // currently emits no domain hook after update_member_with_audit().
+        // Register a shutdown refresh before its priority-10 handler runs:
+        // wp_send_json_*() ends the request, but shutdown callbacks still
+        // run after the member row has been committed.
+        add_action('wp_ajax_avpvh_save_member_profile', [$this, 'schedule_member_contribution_refresh'], 1);
     }
 
     public static function schedule_cron(): void {
@@ -37,21 +44,62 @@ class AVBK_Fee_Generation {
         }
 
         foreach (AVPVH_DB::get_members(['status' => 'active']) as $member) {
-            // Ere-lid (or any future flag with affects_fees=1 — see
-            // AVPVH_DB's "Member flags" section) never gets a contribution
-            // item generated at all, rather than one that has to be
-            // manually waived every year.
-            if (AVPVH_DB::member_is_fee_exempt((int) $member->id)) {
-                continue;
-            }
-            $computed = self::compute_activity_rate($member, $activity, 1, "$year-01-01");
-            if (!$computed) {
-                continue; // no bracket covers this age, or no rates configured at all yet
-            }
-            $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
-            AVBK_DB::upsert_contribution_fee_item(
-                (int) $member->id, $year, $computed['amount'], "Contributie {$year}{$label}", $computed['is_estimated'], $computed['reason']
-            );
+            self::generate_contribution_fee_item((int) $member->id, $year, $activity);
+        }
+    }
+
+    /** Recomputes one member immediately after a profile edit. */
+    public static function generate_contribution_fee_for_member(int $member_id, ?int $year = null): bool {
+        $year = $year ?? (int) current_time('Y');
+        $activity = self::get_contribution_activity($year);
+        if (!$activity || !AVBK_DB::get_activity_rates((int) $activity->id)) {
+            return false;
+        }
+        return self::generate_contribution_fee_item($member_id, $year, $activity);
+    }
+
+    private static function generate_contribution_fee_item(int $member_id, int $year, object $activity): bool {
+        $member = AVPVH_DB::get_member($member_id);
+        if (!$member || $member->status !== 'active') {
+            return false;
+        }
+        // Ere-lid (or any future flag with affects_fees=1 — see AVPVH_DB's
+        // "Member flags" section) never gets a contribution item generated.
+        if (AVPVH_DB::member_is_fee_exempt($member_id)) {
+            return false;
+        }
+        $computed = self::compute_activity_rate($member, $activity, 1, "$year-01-01");
+        if (!$computed) {
+            return false;
+        }
+        $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
+        AVBK_DB::upsert_contribution_fee_item(
+            $member_id,
+            $year,
+            $computed['amount'],
+            "Contributie {$year}{$label}",
+            $computed['is_estimated'],
+            $computed['reason'],
+            (int) $activity->id
+        );
+        return true;
+    }
+
+    /**
+     * Captures the profile target before avpvh-members handles the AJAX
+     * request, then refreshes after that handler has saved (or harmlessly
+     * recomputes the unchanged value if validation rejected the edit).
+     */
+    public function schedule_member_contribution_refresh(): void {
+        $member_id = absint(wp_unslash($_POST['member_id'] ?? 0));
+        if (!$member_id) {
+            $own_member = AVPVH_DB::get_member_by_wp_user(get_current_user_id());
+            $member_id = $own_member ? (int) $own_member->id : 0;
+        }
+        if ($member_id) {
+            add_action('shutdown', static function () use ($member_id): void {
+                self::generate_contribution_fee_for_member($member_id);
+            });
         }
     }
 
@@ -84,7 +132,11 @@ class AVBK_Fee_Generation {
         // Student is a status flag, not an age bracket (a 22-year-old
         // can be either) — it wins over age when set and a student
         // rate is actually configured.
-        if (!empty($member->is_student)) {
+        // Studentstatus is measured on 1 January of the activity year. A
+        // year-specific historical value wins over the member's current
+        // checkbox, so recalculating 2025 in 2026 cannot change the tariff.
+        $status_year = (int) substr($reference_date, 0, 4);
+        if (AVBK_DB::is_member_student_for_year($member, $status_year)) {
             $rate = AVBK_DB::get_student_activity_rate($activity_id);
         }
         if (!$rate) {
@@ -124,6 +176,26 @@ class AVBK_Fee_Generation {
     }
 
     public function on_activity_participation_saved(int $member_id, int $activity_id, int $participation_id): void {
+        // A manually added participant in a sheet-backed flat-price event
+        // (e.g. a congress) must get the same event fee as someone imported
+        // from the sheet. Previously only the importer created that fee;
+        // saving the participation in avpvh-members therefore left nothing
+        // for a bank payment to be allocated to.
+        if (class_exists('AVBK_Sheet_Import')) {
+            $config = AVBK_Sheet_Import::get_config($activity_id);
+            $flat_price = (float) ($config['price_per_person'] ?? 0);
+            if ($flat_price > 0) {
+                $activity = AVPVH_DB::get_activity($activity_id);
+                AVBK_DB::upsert_event_fee_item(
+                    $member_id,
+                    $activity ? $activity->name : 'Activiteit',
+                    $flat_price,
+                    $activity_id
+                );
+                return;
+            }
+        }
+
         $participation = AVPVH_DB::get_participation_by_id($participation_id);
         if (!$participation || !$participation->nights) {
             return; // nothing to charge until nights are known
@@ -177,11 +249,12 @@ class AVBK_Fee_Generation {
      * Open contribution/camp fee items whose stored amount no longer
      * matches what today's inputs (current nights on file, current birth
      * date/year, current rate table) would produce — the general form of
-     * the bug fixed by hand for Cas (birth date added after her fee
-     * item was generated) and Finn (nights corrected after generation):
-     * a fee item only ever refreshes on the next participation save or a
-     * manual "genereren/bijwerken" click, so any other edit leaves it
-     * silently stale until someone happens to notice. Surfaced on the
+     * a bug once fixed by hand for one member (birth date added after her
+     * fee item was generated) and another (nights corrected after
+     * generation): a fee item only ever refreshes on the next
+     * participation save or a manual "genereren/bijwerken" click, so any
+     * other edit leaves it silently stale until someone happens to
+     * notice. Surfaced on the
      * Overzicht page so that stops being "until someone happens to
      * notice."
      */

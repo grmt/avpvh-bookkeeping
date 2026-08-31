@@ -74,6 +74,43 @@
     padding: .15rem .3rem;
 }
 
+.avbk-checklist-filter {
+    position: relative;
+}
+
+.avbk-checklist-toggle {
+    width: 100%;
+    text-align: left;
+    font-weight: normal;
+}
+
+.avbk-checklist-mode {
+    width: 100%;
+    margin-top: .2rem;
+    text-align: left;
+    font-weight: normal;
+}
+
+.avbk-checklist-menu {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    left: 0;
+    min-width: 12em;
+    max-height: 16em;
+    overflow: auto;
+    padding: .4rem .55rem;
+    background: #fff;
+    border: 1px solid #999;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
+}
+
+.avbk-checklist-menu label {
+    display: block;
+    padding: .15rem 0;
+    white-space: nowrap;
+}
+
 .avbk-balance-table-tools {
     position: relative;
     margin-bottom: .4rem;
@@ -197,6 +234,10 @@
     box-sizing: border-box;
     margin-top: .75rem;
     text-align: left;
+}
+
+.avbk-balance-declare-link {
+    margin-top: 1rem;
 }
 
 .avbk-estimate-flag {

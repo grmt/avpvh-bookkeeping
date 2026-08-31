@@ -17,9 +17,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!rows.length) return;
 
     // --- Sorting ---
-    function cellValue(row, index, numeric) {
-        var text = row.children[index].textContent.trim();
-        if (!numeric) return text.toLowerCase();
+    function cellValue(row, index, type) {
+        var cell = row.children[index];
+        var text = cell.dataset.sortValue || cell.textContent.trim();
+        if (type !== 'number') return text.toLowerCase();
         var n = parseFloat(text.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.'));
         return isNaN(n) ? 0 : n;
     }
@@ -32,7 +33,8 @@ document.addEventListener('DOMContentLoaded', function () {
         th.appendChild(indicator);
 
         th.addEventListener('click', function () {
-            var numeric = th.dataset.type === 'number';
+            var previousScroll = window.scrollY;
+            var type = th.dataset.type || 'text';
             var dir = th.dataset.sortDir === 'asc' ? 'desc' : 'asc';
             headerCells.forEach(function (other) {
                 delete other.dataset.sortDir;
@@ -43,14 +45,15 @@ document.addEventListener('DOMContentLoaded', function () {
             indicator.textContent = dir === 'asc' ? ' ▲' : ' ▼';
 
             var sorted = dataRows().sort(function (a, b) {
-                var av = cellValue(a, index, numeric);
-                var bv = cellValue(b, index, numeric);
-                if (numeric) {
+                var av = cellValue(a, index, type);
+                var bv = cellValue(b, index, type);
+                if (type === 'number') {
                     return dir === 'asc' ? av - bv : bv - av;
                 }
                 return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
             });
             sorted.forEach(function (row) { tbody.appendChild(row); });
+            window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
         });
     });
 
@@ -69,32 +72,71 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var control;
         if (th.dataset.filter === 'select') {
-            control = document.createElement('select');
+            var wrapper = document.createElement('div');
+            wrapper.className = 'avbk-checklist-filter';
+            var toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'button button-small avbk-checklist-toggle';
+            toggle.textContent = 'Alle';
+            var modeToggle = document.createElement('button');
+            modeToggle.type = 'button';
+            modeToggle.className = 'button button-small avbk-checklist-mode';
+            modeToggle.textContent = 'Selecteren';
+            var exclude = false;
+            var menu = document.createElement('div');
+            menu.className = 'avbk-checklist-menu';
+            menu.hidden = true;
             var values = [];
             dataRows().forEach(function (row) {
-                var v = row.children[index].textContent.trim();
+                var cell = row.children[index];
+                var v = (cell.dataset.filterValue || cell.textContent).trim();
                 if (v && values.indexOf(v) === -1) values.push(v);
             });
             values.sort();
-            var optAll = document.createElement('option');
-            optAll.value = '';
-            optAll.textContent = 'Alle';
-            control.appendChild(optAll);
             values.forEach(function (v) {
-                var opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
-                control.appendChild(opt);
+                var label = document.createElement('label');
+                var checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = v;
+                checkbox.addEventListener('change', function () {
+                    var checked = menu.querySelectorAll('input[type="checkbox"]:checked').length;
+                    toggle.textContent = checked ? checked + ' geselecteerd' : 'Alle';
+                    applyFiltersPreservingScroll();
+                });
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(' ' + v));
+                menu.appendChild(label);
             });
-            control.addEventListener('change', applyFilters);
+            toggle.addEventListener('click', function (event) {
+                event.stopPropagation();
+                menu.hidden = !menu.hidden;
+            });
+            modeToggle.addEventListener('click', function () {
+                exclude = !exclude;
+                modeToggle.textContent = exclude ? 'Alles behalve' : 'Selecteren';
+                applyFiltersPreservingScroll();
+            });
+            wrapper.appendChild(toggle);
+            wrapper.appendChild(modeToggle);
+            wrapper.appendChild(menu);
+            control = {
+                element: wrapper,
+                selected: function () {
+                    return Array.prototype.slice.call(menu.querySelectorAll('input[type="checkbox"]:checked')).map(function (input) {
+                        return input.value.trim().toLowerCase();
+                    });
+                },
+                excludes: function () { return exclude; }
+            };
+            filterTh.appendChild(wrapper);
         } else {
             control = document.createElement('input');
             control.type = 'text';
             control.placeholder = 'Filter…';
-            control.addEventListener('input', applyFilters);
+            control.addEventListener('input', applyFiltersPreservingScroll);
+            filterTh.appendChild(control);
         }
-        control.className = 'avbk-filter-control';
-        filterTh.appendChild(control);
+        if (control.nodeType) control.className = 'avbk-filter-control';
         filterRow.appendChild(filterTh);
         filters[index] = control;
     });
@@ -107,21 +149,49 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!visible) return;
                 var idx = parseInt(idxStr, 10);
                 var control = filters[idx];
-                var filterVal = control.value.trim().toLowerCase();
-                if (!filterVal) return;
-                var cellText = row.children[idx].textContent.trim().toLowerCase();
-                if (control.tagName === 'SELECT') {
-                    if (cellText !== filterVal) visible = false;
-                } else if (cellText.indexOf(filterVal) === -1) {
-                    visible = false;
+                var cell = row.children[idx];
+                var cellText = (cell.dataset.filterValue || cell.textContent).trim().toLowerCase();
+                if (control && typeof control.selected === 'function') {
+                    var selected = control.selected();
+                    if (selected.length) {
+                        var isSelected = selected.indexOf(cellText) !== -1;
+                        if ((!control.excludes() && !isSelected) || (control.excludes() && isSelected)) visible = false;
+                    }
+                } else {
+                    var filterVal = control.value.trim().toLowerCase();
+                    if (filterVal && cellText.indexOf(filterVal) === -1) visible = false;
                 }
             });
             row.style.display = visible ? '' : 'none';
         });
+        updateTotals();
+    }
+
+    function updateTotals() {
+        var foot = table.tFoot;
+        if (!foot || !foot.rows[0]) return;
+        var cells = foot.rows[0].children;
+        var paid = 0;
+        var due = 0;
+        dataRows().forEach(function (row) {
+            if (row.style.display === 'none') return;
+            var paidValue = parseFloat((row.children[4].dataset.sortValue || '0').replace(',', '.'));
+            var dueValue = parseFloat((row.children[5].dataset.sortValue || '0').replace(',', '.'));
+            if (!isNaN(paidValue)) paid += paidValue;
+            if (!isNaN(dueValue)) due += dueValue;
+        });
+        if (cells[4]) cells[4].textContent = '€ ' + paid.toLocaleString('nl-NL', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        if (cells[5]) cells[5].textContent = '€ ' + due.toLocaleString('nl-NL', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function applyFiltersPreservingScroll() {
+        var previousScroll = window.scrollY;
+        applyFilters();
+        window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
     }
 
     // --- Column show/hide ---
-    var storageKey = 'avbk_balance_hidden_cols';
+    var storageKey = table.dataset.storageKey || 'avbk_balance_hidden_cols';
     var panel = document.querySelector('.avbk-col-toggle-panel');
     var toggleBtn = document.querySelector('.avbk-col-toggle-btn');
     var footRow = table.tFoot ? table.tFoot.rows[0] : null;
@@ -173,11 +243,13 @@ document.addEventListener('DOMContentLoaded', function () {
         cb.type = 'checkbox';
         cb.checked = !isHidden;
         cb.addEventListener('change', function () {
+            var previousScroll = window.scrollY;
             setColumnVisibility(index, cb.checked);
             var current = storedHidden() || [];
             current = current.filter(function (c) { return c !== col; });
             if (!cb.checked) current.push(col);
             saveHidden(current);
+            window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
         });
         label.appendChild(cb);
         label.appendChild(document.createTextNode(' ' + th.textContent.replace(/[▲▼]/g, '').trim()));
@@ -189,4 +261,5 @@ document.addEventListener('DOMContentLoaded', function () {
             panel.hidden = !panel.hidden;
         });
     }
+    updateTotals();
 });
