@@ -9,8 +9,8 @@ defined('ABSPATH') || exit;
  * Real export data (ING "Alle transacties") showed why this needs more
  * than a keyword check: only ~38% of incoming rows mention "contributie"/
  * "kamp" at all, one transfer routinely pays for several members at once
- * ("Lidgeld Anna, Bram en Cas", "Kamp Timo Merel Sepp" — first
- * names only, no member IDs), and connectors vary ("," / " - " / " en " /
+ * ("Lidgeld Anna, Bram en Cas", "Kamp Anna Bram Cas" — first names only,
+ * no member IDs), and connectors vary ("," / " - " / " en " /
  * "e/o" ["en/of"]). So beneficiary names are matched within the payer's
  * own household first (AVPVH_DB::get_manageable_members) before falling
  * back to a search across every active member.
@@ -234,8 +234,8 @@ class AVBK_Matcher {
             }
         }
 
-        // Strip the fee-type word itself ("Kamp Timo Merel Sepp" ->
-        // "Timo Merel Sepp") — left in place, it drags down every name
+        // Strip the fee-type word itself ("Kamp Anna Bram Cas" ->
+        // "Anna Bram Cas") — left in place, it drags down every name
         // comparison and can make a real match silently fall below
         // MIN_SCORE.
         $beneficiary_text = self::strip_leading_keyword(self::extract_beneficiary_text($description));
@@ -251,7 +251,7 @@ class AVBK_Matcher {
         }
 
         // Plain space-separated first names with no comma/"en"/"-" between
-        // them ("Kamp Timo Merel Sepp") can't be split by split_names.
+        // them ("Kamp Anna Bram Cas") can't be split by split_names.
         // Within a known household (small, so a wrong per-word guess is
         // low-risk) also try every individual word on its own.
         if ($household_pool && $beneficiary_text !== '') {
@@ -359,10 +359,10 @@ class AVBK_Matcher {
 
     /**
      * If $counterparty_name is shaped like "<initials> <surname>" (with or
-     * without honorific/periods — "S J M Jansen", "Hr P M H Bakker",
-     * "M.C. Hendriks") AND the surname matches $last_name, returns the
+     * without honorific/periods — "S J M Jansen", "Hr P M H de Boer",
+     * "M.C. de Wit") AND the surname matches $last_name, returns the
      * canonical "S.J.M." initials string. Returns null for anything else —
-     * including a spelled-out first name ("Simon Jansen") — so this only
+     * including a spelled-out first name ("Piet Jansen") — so this only
      * ever captures genuine initials, never misfiles a full given name.
      */
     public static function extract_initials(string $counterparty_name, string $last_name): ?string {

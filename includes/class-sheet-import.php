@@ -590,8 +590,8 @@ class AVBK_Sheet_Import {
      * first-name remainder rather than left attached, since avm_members
      * keeps those in a separate `suffix` column with a bare last_name —
      * find_members_by_name() only compares first_name/last_name, so
-     * "Timo van Berg" must split into ("Timo", "Berg"), not
-     * ("Timo van", "Berg"), to ever match the real member.
+     * "Anna van Berg" must split into ("Anna", "Berg"), not
+     * ("Anna van", "Berg"), to ever match the real member.
      */
     private static function split_name(string $full_name): array {
         $full_name = trim($full_name);

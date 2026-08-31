@@ -249,11 +249,12 @@ class AVBK_Fee_Generation {
      * Open contribution/camp fee items whose stored amount no longer
      * matches what today's inputs (current nights on file, current birth
      * date/year, current rate table) would produce — the general form of
-     * the bug fixed by hand for Cas (birth date added after her fee
-     * item was generated) and Finn (nights corrected after generation):
-     * a fee item only ever refreshes on the next participation save or a
-     * manual "genereren/bijwerken" click, so any other edit leaves it
-     * silently stale until someone happens to notice. Surfaced on the
+     * a bug once fixed by hand for one member (birth date added after her
+     * fee item was generated) and another (nights corrected after
+     * generation): a fee item only ever refreshes on the next
+     * participation save or a manual "genereren/bijwerken" click, so any
+     * other edit leaves it silently stale until someone happens to
+     * notice. Surfaced on the
      * Overzicht page so that stops being "until someone happens to
      * notice."
      */

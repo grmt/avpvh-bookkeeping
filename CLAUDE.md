@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Werkwijze in deze repo
 
 - **Nooit direct op `main` committen of pushen.** `main` is op GitHub beschermd

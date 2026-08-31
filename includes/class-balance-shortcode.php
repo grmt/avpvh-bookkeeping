@@ -57,8 +57,8 @@ class AVBK_Balance_Shortcode {
         // "Betaal ook voor" — fold a household/family member's open items
         // into this same view + a single combined QR, for the common
         // real-world case of one bank transfer covering a whole family
-        // (see AVBK_Matcher's docblock: "Lidgeld Anna, Bram en
-        // Cas"). Candidates are $target_member's own household, not
+        // (see AVBK_Matcher's docblock: "Lidgeld Anna, Bram en Cas").
+        // Candidates are $target_member's own household, not
         // the viewer's — the two only differ when bestuur/admin is viewing
         // someone else's page via ?member_id=, and it's that person's
         // household that makes sense to combine with.
