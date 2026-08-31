@@ -20,3 +20,10 @@ repo terechtkomen.
 - Bij twijfel: geen namen. Ledengegevens horen in de database (met de
   normale toegangsbeperkingen), niet in git-geschiedenis die ooit gedeeld
   of gepusht kan worden.
+
+## Versiebump bij elke PR
+
+Elke pull request die naar `main` gemerged wordt, bevat een versiebump
+van de `Version:`-header in `avpvh-bookkeeping.php` — als onderdeel van
+diezelfde PR, niet achteraf los. Patch/minor/major naar inschatting van
+de omvang van de wijziging.
