@@ -20,9 +20,9 @@ class AVBK_Xlsx_Reader {
     private const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
     /**
-     * @return array{headers: string[], rows: array<int, array<string, string>>}
+     * @return array{headers: string[], rows: array<int, array<string, string>>, header_cells: array<int, string>, preview_rows: array<int, array{row_number:int,cells:array}>}
      */
-    public static function read(string $path): array {
+    public static function read(string $path, ?int $header_row_number = null): array {
         if (!class_exists('ZipArchive')) {
             throw new \RuntimeException('ZipArchive-extensie is niet beschikbaar.');
         }
@@ -63,15 +63,41 @@ class AVBK_Xlsx_Reader {
                 $cells[$col_index] = self::cell_value($c, $shared);
             }
             if ($cells) {
-                $sheet_rows[] = $cells;
+                // Excel's own 1-based row number (from the <row r="..">
+                // attribute, not a recount) — kept alongside each row so a
+                // treasurer can find the exact line in the original
+                // spreadsheet when double-checking an import (see
+                // 'source_row' in AVBK_Matcher::parse_row()).
+                $sheet_rows[] = ['row_number' => (int) $row['r'], 'cells' => $cells];
             }
         }
 
         if (!$sheet_rows) {
-            return ['headers' => [], 'rows' => []];
+            return ['headers' => [], 'rows' => [], 'header_cells' => [], 'preview_rows' => []];
         }
 
-        $header_row = array_shift($sheet_rows);
+        // Keep the literal first three non-empty worksheet rows available to
+        // the configuration screen. This is captured before selecting the
+        // configured heading row, so title/instruction rows remain visible.
+        $preview_rows = self::preview_rows_with_total($sheet_rows);
+
+        if ($header_row_number !== null) {
+            $header_row_number = max(1, $header_row_number);
+            $header_index = array_search($header_row_number, array_column($sheet_rows, 'row_number'), true);
+            if ($header_index === false) {
+                throw new \RuntimeException("Kopregel {$header_row_number} is niet gevonden in het xlsx-bestand.");
+            }
+            $header_entry = $sheet_rows[$header_index];
+            // Title/instruction rows before the configured headings are not
+            // registration data. Preserve Excel's real row numbers for all
+            // rows after the selected header.
+            $sheet_rows = array_slice($sheet_rows, $header_index + 1);
+        } else {
+            // Existing callers (notably configurable bank imports) retain
+            // the old behaviour: first non-empty spreadsheet row is header.
+            $header_entry = array_shift($sheet_rows);
+        }
+        $header_row = $header_entry['cells'];
         $max_col = max(array_keys($header_row));
         $headers = [];
         for ($i = 0; $i <= $max_col; $i++) {
@@ -79,7 +105,11 @@ class AVBK_Xlsx_Reader {
         }
 
         $rows = [];
-        foreach ($sheet_rows as $cells) {
+        foreach ($sheet_rows as $entry) {
+            $cells = $entry['cells'];
+            if (self::is_total_row($cells)) {
+                break;
+            }
             $row = [];
             foreach ($headers as $index => $name) {
                 if ($name === '') {
@@ -89,11 +119,57 @@ class AVBK_Xlsx_Reader {
             }
             // Skip fully blank rows (a trailing empty row is common at the end of an export).
             if (implode('', $row) !== '') {
+                $row['__row_number'] = $entry['row_number'];
+                // Raw, position-indexed cells (0=A, 1=B, ...) alongside the
+                // by-header-name row above — used by AVBK_Sheet_Import, which
+                // addresses columns by spreadsheet letter rather than by
+                // header text (a Google Form response sheet repeats the same
+                // header per attendee slot, so a name lookup is ambiguous).
+                $row['__raw_cells'] = $cells;
                 $rows[] = $row;
             }
         }
 
-        return ['headers' => array_values(array_filter($headers, fn($h) => $h !== '')), 'rows' => $rows];
+        return [
+            'headers' => array_values(array_filter($headers, fn($h) => $h !== '')),
+            'rows' => $rows,
+            // Header row, position-indexed (0=A, 1=B, ...), blanks kept — the
+            // counterpart to '__raw_cells' above.
+            'header_cells' => $headers,
+            'preview_rows' => $preview_rows,
+        ];
+    }
+
+    /** Show the first rows plus the context around a Totaal/Total row. */
+    private static function preview_rows_with_total(array $rows): array {
+        $keep = array_slice($rows, 0, 3);
+        foreach ($rows as $i => $entry) {
+            if (!self::is_total_row($entry['cells'])) {
+                continue;
+            }
+            foreach ([$i - 1, $i, $i + 1] as $context_index) {
+                if (isset($rows[$context_index])) {
+                    $keep[] = $rows[$context_index];
+                }
+            }
+            break;
+        }
+        $unique = [];
+        foreach ($keep as $entry) {
+            $unique[(int) $entry['row_number']] = $entry;
+        }
+        ksort($unique, SORT_NUMERIC);
+        return array_values($unique);
+    }
+
+    private static function is_total_row(array $cells): bool {
+        foreach ($cells as $value) {
+            $text = strtolower(remove_accents(trim((string) $value)));
+            if ($text === 'totaal' || $text === 'total' || str_starts_with($text, 'totaal ') || str_starts_with($text, 'total ')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function read_shared_strings(\ZipArchive $zip): array {

@@ -34,51 +34,80 @@ document.addEventListener('DOMContentLoaded', function () {
     // for the rest of a multi-person payment, and much faster to pick from
     // than the full member list.
     function applyHouseholdSuggestions(form, selects, candidates) {
-        selects.forEach(function (select, idx) {
-            if (idx === 0 || select.value) return; // leave the trigger row and any already-filled row alone
-
+        selects.forEach(function (select) {
+            // A selected family member can currently live inside the
+            // suggested optgroup itself. Removing that group makes the
+            // browser immediately fall back to the first regular option
+            // (usually the originally suggested payer), so remember the
+            // treasurer's choice before rebuilding and restore it after.
+            var selectedValue = select.value;
             var existing = select.querySelector('optgroup[data-avbk-suggested]');
             if (existing) existing.remove();
-            if (!candidates.length) return;
+            if (!candidates.length) {
+                select.value = selectedValue;
+                return;
+            }
 
             var group = document.createElement('optgroup');
             group.label = 'Suggesties (familie/huisgenoten)';
             group.setAttribute('data-avbk-suggested', '1');
             candidates.forEach(function (c) {
+                if (String(c.id) === String(select.value)) return;
                 var opt = document.createElement('option');
                 opt.value = c.id;
                 opt.textContent = c.label;
                 group.appendChild(opt);
             });
             select.insertBefore(group, select.firstChild);
+            select.value = selectedValue;
         });
     }
 
-    function loadHouseholdSuggestions(form) {
+    var householdCache = {};
+
+    function loadHouseholdSuggestions(form, memberId) {
         var selects = Array.from(form.querySelectorAll('select[name="member_id[]"]'));
         var first = selects[0];
-        if (!first || !first.value) return;
+        memberId = memberId || (first && first.value);
+        if (!memberId) return Promise.resolve([]);
+        if (householdCache[memberId]) {
+            applyHouseholdSuggestions(form, selects, householdCache[memberId]);
+            return Promise.resolve(householdCache[memberId]);
+        }
 
         var body = new URLSearchParams();
         body.set('action', 'avbk_household_candidates');
         body.set('nonce', cfg.nonce);
-        body.set('member_id', first.value);
+        body.set('member_id', memberId);
 
-        fetch(cfg.ajaxUrl, {
+        return fetch(cfg.ajaxUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
         })
             .then(function (r) { return r.json(); })
             .then(function (res) {
-                if (!res.success) return;
+                if (!res.success) return [];
+                householdCache[memberId] = res.data;
                 applyHouseholdSuggestions(form, selects, res.data);
+                return res.data;
             });
     }
 
     function parseAmount(value) {
         var n = parseFloat(String(value).replace(',', '.'));
         return isNaN(n) ? 0 : n;
+    }
+
+    function updateRowShortfall(input) {
+        var row = input.closest('tr');
+        var shortfallEl = row && row.querySelector('.avbk-detail-shortfall');
+        if (!shortfallEl) return;
+        var openAmount = parseAmount(input.dataset.openAmount || '0');
+        var shortfall = Math.round((openAmount - parseAmount(input.value)) * 100) / 100;
+        shortfallEl.textContent = shortfall > 0.005
+            ? '⚠ Gedeeltelijke betaling: € ' + shortfall.toFixed(2).replace('.', ',') + ' blijft voor deze bijdrage open.'
+            : '';
     }
 
     // Sums every regel-bedrag on this transaction and checks it against the
@@ -94,6 +123,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var total = 0;
         form.querySelectorAll('input[name="amount[]"]').forEach(function (input) {
             total += parseAmount(input.value);
+            updateRowShortfall(input);
         });
         total = Math.round(total * 100) / 100;
         sumEl.textContent = '€ ' + total.toFixed(2).replace('.', ',');
@@ -104,15 +134,13 @@ document.addEventListener('DOMContentLoaded', function () {
             diffEl.textContent = '';
             diffEl.classList.remove('avbk-diff-mismatch');
         } else {
-            // Framed from the payment's own perspective, not the
-            // allocation's — "de betaling is te weinig/te veel", not
-            // "toegewezen is te veel/weinig" — since it's the treasurer's
-            // row edits being checked against a fixed, already-known
-            // payment amount, not the other way round.
             var diffAbs = Math.abs(diff).toFixed(2).replace('.', ',');
+            var txText = txAmount.toFixed(2).replace('.', ',');
+            var assignedText = total.toFixed(2).replace('.', ',');
             diffEl.textContent = diff > 0
-                ? '— de betaling is € ' + diffAbs + ' te veel (nog niet alles toegewezen)'
-                : '— de betaling is € ' + diffAbs + ' te weinig (meer toegewezen dan ontvangen)';
+                ? '— nog € ' + diffAbs + ' van de ontvangen € ' + txText + ' moet worden toegewezen'
+                : '— ontvangen € ' + txText + '; geselecteerde openstaande bijdragen € ' + assignedText
+                    + ' — € ' + diffAbs + ' minder ontvangen';
             diffEl.classList.add('avbk-diff-mismatch');
         }
     }
@@ -126,6 +154,25 @@ document.addEventListener('DOMContentLoaded', function () {
     function matchedActivityId(value) {
         var m = /^a(\d+)$/.exec(value);
         return m ? m[1] : null;
+    }
+
+    // A loose category such as Drank has no registered activity/rate from
+    // which an amount can be calculated. The most useful default is the
+    // exact part of this bank payment that the other rows have not already
+    // consumed. Excluding this row's previous value also makes switching
+    // Drank -> Eten idempotent instead of subtracting the old value twice.
+    function fillRemainingAmount(row, form) {
+        var amountInput = row.querySelector('.avbk-amount-input');
+        if (!amountInput) return;
+
+        var assignedElsewhere = 0;
+        form.querySelectorAll('input[name="amount[]"]').forEach(function (input) {
+            if (input !== amountInput) assignedElsewhere += parseAmount(input.value);
+        });
+        var remaining = Math.max(0, Math.round((parseAmount(form.dataset.txAmount) - assignedElsewhere) * 100) / 100);
+        amountInput.value = remaining.toFixed(2).replace('.', ',');
+        amountInput.dataset.known = '0';
+        updateTotals(form);
     }
 
     // Wires one regel's lid- and activiteit-dropdowns: toggling the
@@ -155,12 +202,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function updateMemberEditLink() {
-            if (!memberLink) return;
             if (memberSelect.value) {
-                memberLink.href = cfg.memberProfileUrl + '?member_id=' + encodeURIComponent(memberSelect.value);
-                memberLink.style.display = '';
+                if (memberLink) {
+                    memberLink.href = cfg.memberDetailUrl + encodeURIComponent(memberSelect.value);
+                    memberLink.style.display = '';
+                }
             } else {
-                memberLink.style.display = 'none';
+                if (memberLink) memberLink.style.display = 'none';
             }
         }
 
@@ -174,15 +222,21 @@ document.addEventListener('DOMContentLoaded', function () {
             // misleading, even briefly.
             if (fragmentsEl) fragmentsEl.innerHTML = '';
             if (estimatedEl) estimatedEl.textContent = '';
+            if (amountInput) amountInput.dataset.openAmount = '';
 
+            // No matched activiteit (Weekend, Drank, Overig, ...) means no
+            // tarief to compute a bedrag from, but the endpoint still
+            // returns the member's scholier/student status for activity_id
+            // 0 — worth the round-trip even then, see
+            // AVBK_DB::get_member_status_detail().
             var activityId = matchedActivityId(activitySelect.value);
-            if (!memberSelect.value || !activityId) return;
+            if (!memberSelect.value) return;
 
             var body = new URLSearchParams();
             body.set('action', 'avbk_member_fee_detail');
             body.set('nonce', cfg.nonce);
             body.set('member_id', memberSelect.value);
-            body.set('activity_id', activityId);
+            body.set('activity_id', activityId || '0');
 
             fetch(cfg.ajaxUrl, {
                 method: 'POST',
@@ -194,9 +248,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (!res.success) return;
                     var d = res.data;
                     if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
-                    if (estimatedEl) estimatedEl.textContent = d.estimated_text || '';
+                    if (estimatedEl) {
+                        estimatedEl.textContent = d.estimated_text || '';
+                        estimatedEl.classList.toggle('avbk-detail-estimated-warning', !!d.estimated_warning);
+                    }
                     if (amountInput) {
                         amountInput.dataset.known = d.found ? '1' : '0';
+                        amountInput.dataset.openAmount = d.found ? d.share.toFixed(2) : '';
                         if (d.found) {
                             amountInput.value = d.share.toFixed(2).replace('.', ',');
                         }
@@ -206,12 +264,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         memberSelect.addEventListener('change', function () {
-            loadHouseholdSuggestions(form);
+            loadHouseholdSuggestions(form, memberSelect.value);
             updateMemberEditLink();
             lookupDetail();
         });
         activitySelect.addEventListener('change', function () {
             updateDescriptionVisibility();
+            if (activitySelect.value && !matchedActivityId(activitySelect.value)) {
+                fillRemainingAmount(row, form);
+            }
             lookupDetail();
         });
         updateDescriptionVisibility();
@@ -262,9 +323,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    document.querySelectorAll('.avbk-review-form').forEach(function (form) {
-        loadHouseholdSuggestions(form); // rows often already arrive pre-filled with a suggested payer
+    var householdObserver = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            var form = entry.target;
+            loadHouseholdSuggestions(form);
+            householdObserver.unobserve(form);
+        });
+    }, { rootMargin: '250px 0px' }) : null;
 
+    document.querySelectorAll('.avbk-review-form').forEach(function (form) {
         form.querySelectorAll('.avbk-review-split tr').forEach(function (row) {
             wireRow(row, form);
             wireRemoveButton(row, form);
@@ -292,5 +360,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         updateTotals(form);
+        if (householdObserver) householdObserver.observe(form);
     });
 });

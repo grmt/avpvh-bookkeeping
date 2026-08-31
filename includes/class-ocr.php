@@ -139,4 +139,52 @@ class AVBK_OCR {
     private static function to_float(string $amount): float {
         return (float) str_replace(',', '.', $amount);
     }
+
+    /**
+     * Best-guess purchase date from raw receipt OCR text — the first
+     * plausible dd-mm-yyyy/dd.mm.yyyy/dd/mm/yyyy (2- or 4-digit year) or
+     * yyyy-mm-dd date found anywhere. Used both as a pre-fill hint and,
+     * together with guess_store(), as a fuzzy duplicate-receipt signal
+     * (see AVBK_DB::find_duplicate_receipt()) for photos of the same
+     * paper receipt that don't hash-match byte-for-byte.
+     */
+    public static function guess_date(string $text): ?string {
+        if (preg_match('/(?<!\d)(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4}|\d{2})(?!\d)/', $text, $m)) {
+            $day = (int) $m[1];
+            $month = (int) $m[2];
+            $year = (int) $m[3];
+            if ($year < 100) {
+                $year += $year < 70 ? 2000 : 1900;
+            }
+            if (checkdate($month, $day, $year)) {
+                return sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
+        if (preg_match('/(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/', $text, $m)) {
+            $year = (int) $m[1];
+            $month = (int) $m[2];
+            $day = (int) $m[3];
+            if (checkdate($month, $day, $year)) {
+                return sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Best-guess store/vendor name — the first line containing real text,
+     * which on virtually every receipt layout is the business name printed
+     * above the address/phone/date block. A rough heuristic (see
+     * guess_date()'s docblock for why it's good enough here).
+     */
+    public static function guess_store(string $text): ?string {
+        $lines = preg_split('/\r\n|\r|\n/', $text) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '' && preg_match('/[a-zA-Z]{3,}/', $line)) {
+                return mb_substr($line, 0, 100);
+            }
+        }
+        return null;
+    }
 }
