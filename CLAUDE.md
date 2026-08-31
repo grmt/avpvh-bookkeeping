@@ -12,3 +12,6 @@
 - Deploy naar productie (rsync naar de server) mag vanaf een feature branch
   vóór het mergen, zoals al gebruikelijk in deze workflow — dat is losstaand
   van de git-historie.
+- **Elke gemergede PR gaat gepaard met een versiebump** van de `Version:`-
+  header in `avpvh-bookkeeping.php` (patch/minor/major naar inschatting van
+  de wijziging) — als onderdeel van diezelfde PR, niet achteraf los.
