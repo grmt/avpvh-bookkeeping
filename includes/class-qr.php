@@ -21,6 +21,12 @@ class AVBK_QR {
         return sprintf('%s-%d', $prefix, $member_id);
     }
 
+    /** A member reference extended with the exact fee-item ids this QR pays. */
+    public static function fee_reference_code(int $member_id, array $fee_item_ids): string {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $fee_item_ids))));
+        return self::reference_code($member_id) . ($ids ? '-F' . implode('.', $ids) : '');
+    }
+
     /**
      * EPC069-12 "BCD" payload, one field per line. BIC (field 5) is left
      * blank — allowed for IBANs from SEPA countries, which covers every
@@ -76,6 +82,22 @@ class AVBK_QR {
         return (new QRCode($options))->render($payload);
     }
 
+    /** Binary PNG output for mail clients that strip inline SVG. */
+    public static function png(string $payload): ?string {
+        if (!class_exists(QRCode::class)) {
+            return null;
+        }
+        $options = new QROptions([
+            'outputType'   => QROutputInterface::GDIMAGE_PNG,
+            'eccLevel'     => EccLevel::M,
+            'outputBase64' => false,
+            'addQuietzone' => true,
+            'scale'        => 6,
+        ]);
+        $png = (new QRCode($options))->render($payload);
+        return is_string($png) && $png !== '' ? $png : null;
+    }
+
     /**
      * The EPC remittance text: the auto-match reference code first — that's
      * what a member typing a manual transfer actually needs, and leading
@@ -91,16 +113,18 @@ class AVBK_QR {
      * just the QR).
      */
     public static function remittance_for_balance(array $items, int $member_id): string {
-        $reference = self::reference_code($member_id);
         $fragments = [];
+        $fee_item_ids = [];
         foreach ($items as $item) {
             if ($item->status === 'waived' || $item->remaining <= 0.005) {
                 continue;
             }
+            $fee_item_ids[] = (int) $item->id;
             $parts = AVBK_DB::split_fee_description((string) $item->description);
             $qty = AVBK_DB::fee_item_quantity_label($item);
             $fragments[] = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
         }
+        $reference = self::fee_reference_code($member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;
@@ -130,12 +154,26 @@ class AVBK_QR {
         if ($remaining <= 0) {
             return null;
         }
-        $remittance = self::reference_code($member_id) . ': ' . $fee_item->description;
+        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
         if (mb_strlen($remittance) > 140) {
             $remittance = mb_substr($remittance, 0, 139) . '…';
         }
         $payload = self::epc_payload($remaining, $remittance);
         return $payload ? self::svg($payload) : null;
+    }
+
+    /** Same exact fee-item payload as for_fee_item(), encoded as PNG bytes for e-mail embedding. */
+    public static function png_for_fee_item(int $member_id, object $fee_item): ?string {
+        $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
+        if ($remaining <= 0) {
+            return null;
+        }
+        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
+        if (mb_strlen($remittance) > 140) {
+            $remittance = mb_substr($remittance, 0, 139) . '…';
+        }
+        $payload = self::epc_payload($remaining, $remittance);
+        return $payload ? self::png($payload) : null;
     }
 
     /**
@@ -149,18 +187,20 @@ class AVBK_QR {
      * $entries: array of ['item' => object (from get_member_balance()), 'name' => string].
      */
     public static function remittance_for_combined(array $entries, int $reference_member_id): string {
-        $reference = self::reference_code($reference_member_id);
         $fragments = [];
+        $fee_item_ids = [];
         foreach ($entries as $entry) {
             $item = $entry['item'];
             if ($item->status === 'waived' || $item->remaining <= 0.005) {
                 continue;
             }
+            $fee_item_ids[] = (int) $item->id;
             $parts = AVBK_DB::split_fee_description((string) $item->description);
             $qty = AVBK_DB::fee_item_quantity_label($item);
             $base = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
             $fragments[] = "{$entry['name']}: {$base}";
         }
+        $reference = self::fee_reference_code($reference_member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;

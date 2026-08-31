@@ -78,14 +78,26 @@ class AVBK_Balance_Shortcode {
         }
         $show_member_column = count($combined_ids) > 1;
 
+        // A closed year is (by definition) fully settled — hide its items
+        // here entirely, from both the itemized list and the totals, so
+        // what a member sees always matches what they're shown they owe.
+        // Nothing is deleted or locked: AVBK_DB::get_member_balance() and
+        // "Alle transacties" (with "toon oudere jaren") still have it all.
+        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+
         $items = [];
         $total_due = 0.0;
         $total_paid = 0.0;
         foreach ($combined_ids as $mid) {
             $b = AVBK_DB::get_member_balance($mid);
-            array_push($items, ...$b['items']);
-            $total_due += $b['total_due'];
-            $total_paid += $b['total_paid'];
+            foreach ($b['items'] as $item) {
+                if ($closed_through_year && AVBK_DB::fee_item_book_year($item) <= $closed_through_year) {
+                    continue;
+                }
+                $items[] = $item;
+                $total_due += $item->status === 'waived' ? 0.0 : (float) $item->amount_due;
+                $total_paid += $item->status === 'waived' ? 0.0 : $item->paid;
+            }
         }
         $balance = [
             'items'      => $items,
@@ -93,6 +105,29 @@ class AVBK_Balance_Shortcode {
             'total_paid' => round($total_paid, 2),
             'balance'    => round($total_due - $total_paid, 2),
         ];
+
+        // An explicit pay[] selection is used by the treasurer's payment-
+        // request link and by the checkboxes below. With no parameter, all
+        // open items stay selected, preserving the original whole-balance
+        // behavior. IDs are intersected with the already access-checked
+        // combined item list, so a crafted URL cannot expose/pay another
+        // member's fee item.
+        $open_item_ids = array_map(
+            fn($item) => (int) $item->id,
+            array_values(array_filter($items, fn($item) => $item->status !== 'waived' && $item->remaining > 0.005))
+        );
+        $requested_pay_ids = array_values(array_unique(array_filter(array_map(
+            'intval',
+            (array) ($_GET['pay'] ?? [])
+        ))));
+        $selected_pay_ids = isset($_GET['pay'])
+            ? array_values(array_intersect($requested_pay_ids, $open_item_ids))
+            : $open_item_ids;
+        $selected_items = array_values(array_filter(
+            $items,
+            fn($item) => in_array((int) $item->id, $selected_pay_ids, true)
+        ));
+        $selected_total = round(array_sum(array_map(fn($item) => (float) $item->remaining, $selected_items)), 2);
 
         ob_start();
         ?>
@@ -128,6 +163,7 @@ class AVBK_Balance_Shortcode {
             <table class="avbk-balance-table" id="avbk-balance-table">
                 <thead>
                     <tr class="avbk-balance-header-row">
+                        <?php if ($balance['balance'] > 0.005) : ?><th data-col="betalen">Betalen</th><?php endif; ?>
                         <?php if ($show_member_column) : ?><th data-col="lid" data-filter="select">Lid</th><?php endif; ?>
                         <th data-col="omschrijving">Omschrijving</th>
                         <th data-col="tarief" class="avbk-col-optional">Tarief</th>
@@ -140,7 +176,7 @@ class AVBK_Balance_Shortcode {
                 </thead>
                 <tbody>
                 <?php if (!$balance['items']) : ?>
-                    <tr><td colspan="<?php echo $show_member_column ? 8 : 7; ?>">Nog geen bijdragen geregistreerd.</td></tr>
+                    <tr><td colspan="<?php echo ($show_member_column ? 8 : 7) + ($balance['balance'] > 0.005 ? 1 : 0); ?>">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php else : foreach ($balance['items'] as $item) :
                     $status = $item->status === 'waived'
                         ? 'Kwijtgescholden'
@@ -152,6 +188,13 @@ class AVBK_Balance_Shortcode {
                     $qty = AVBK_DB::fee_item_quantity_label($item);
                     ?>
                     <tr class="<?php echo esc_attr($status_class); ?>">
+                        <?php if ($balance['balance'] > 0.005) : ?>
+                            <td>
+                                <?php if ($item->status !== 'waived' && $item->remaining > 0.005) : ?>
+                                    <input type="checkbox" name="pay[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?>>
+                                <?php else : ?>&mdash;<?php endif; ?>
+                            </td>
+                        <?php endif; ?>
                         <?php if ($show_member_column) : ?>
                             <td class="avbk-cell-wrap-words"><?php echo esc_html(avpvh_format_name($combined_members[(int) $item->member_id] ?? $target_member)); ?></td>
                         <?php endif; ?>
@@ -182,6 +225,7 @@ class AVBK_Balance_Shortcode {
                     // display:none and end up drifting out of alignment.
                     ?>
                     <tr>
+                        <?php if ($balance['balance'] > 0.005) : ?><th></th><?php endif; ?>
                         <?php if ($show_member_column) : ?><th>Totaal</th><?php else : ?><th class="avbk-col-description">Totaal</th><?php endif; ?>
                         <?php if ($show_member_column) : ?><th class="avbk-col-description"></th><?php endif; ?>
                         <th class="avbk-col-optional"></th>
@@ -194,20 +238,26 @@ class AVBK_Balance_Shortcode {
                 </tfoot>
             </table>
             </div>
-            <?php if ($balance['balance'] > 0.005) :
+            <?php if ($balance['balance'] > 0.005) : ?>
+                <form id="avbk-balance-payment-selection" method="get" action="#bijdrage" class="avbk-balance-also-form">
+                    <input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>">
+                    <?php foreach ($also_ids as $also_id) : ?>
+                        <input type="hidden" name="also[]" value="<?php echo esc_attr($also_id); ?>">
+                    <?php endforeach; ?>
+                    <button type="submit" class="button">QR voor selectie bijwerken</button>
+                    <span>Geselecteerd: &euro; <?php echo esc_html(number_format($selected_total, 2, ',', '.')); ?></span>
+                </form>
+                <?php
                 if ($show_member_column) {
                     $entries = [];
-                    foreach ($items as $item) {
-                        if ($item->status === 'waived' || $item->remaining <= 0.005) {
-                            continue;
-                        }
+                    foreach ($selected_items as $item) {
                         $entries[] = ['item' => $item, 'name' => ($combined_members[(int) $item->member_id] ?? $target_member)->first_name];
                     }
-                    $qr = AVBK_QR::for_combined_balance($target_id, $balance['balance'], $entries);
+                    $qr = AVBK_QR::for_combined_balance($target_id, $selected_total, $entries);
                     $reference_text = AVBK_QR::remittance_for_combined($entries, $target_id);
                 } else {
-                    $qr = AVBK_QR::for_member_balance($target_id, $balance['balance'], $balance['items']);
-                    $reference_text = AVBK_QR::remittance_for_balance($balance['items'], $target_id);
+                    $qr = AVBK_QR::for_member_balance($target_id, $selected_total, $selected_items);
+                    $reference_text = AVBK_QR::remittance_for_balance($selected_items, $target_id);
                 }
                 ?>
                 <?php if ($qr) : ?>

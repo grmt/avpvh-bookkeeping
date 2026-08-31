@@ -19,30 +19,124 @@ class AVBK_Matcher {
 
     const MIN_SCORE = 55;
 
-    /** Raw AVBK_Xlsx_Reader row -> normalized transaction fields. */
-    public static function parse_row(array $row): ?array {
-        $date_raw = trim($row['Datum'] ?? '');
-        if (!preg_match('/^(\d{4})(\d{2})(\d{2})$/', $date_raw, $m)) {
+    /** Personal one-off charges that are valid without a dated activity record. */
+    public static function personal_one_off_types(): array {
+        return ['Drank', 'Eten', 'Boek', 'T-shirt', 'Overig'];
+    }
+
+    public static function is_personal_one_off_type(string $type_name): bool {
+        return in_array($type_name, self::personal_one_off_types(), true);
+    }
+
+    /**
+     * Raw AVBK_Xlsx_Reader/AVBK_Csv_Reader row -> normalized transaction
+     * fields. ING exports the same "Alle transacties" report with either
+     * Dutch or English column headers depending on the account's own
+     * language setting at export time — both are accepted here so an
+     * import doesn't silently produce zero rows just because someone's
+     * ING language preference happened to be English that day.
+     */
+    public static function parse_row(array $row, ?array $layout = null): ?array {
+        $layout = AVBK_Bank_Import_Layout::resolve($layout);
+        $date = AVBK_Bank_Import_Layout::parse_date(
+            AVBK_Bank_Import_Layout::value($row, $layout, 'date'),
+            $layout['date_format']
+        );
+        if (!$date) {
             return null;
         }
-        $amount = self::parse_amount($row['Bedrag (EUR)'] ?? '0');
-        $direction = strtolower(trim($row['Af Bij'] ?? '')) === 'bij' ? 'in' : 'out';
+        $signed_amount = AVBK_Bank_Import_Layout::parse_amount(
+            AVBK_Bank_Import_Layout::value($row, $layout, 'amount'),
+            $layout['decimal_separator']
+        );
+        $direction = AVBK_Bank_Import_Layout::parse_direction(
+            AVBK_Bank_Import_Layout::value($row, $layout, 'direction'),
+            $signed_amount,
+            $layout
+        );
 
         return [
-            'transaction_date'  => "{$m[1]}-{$m[2]}-{$m[3]}",
-            'amount'            => $amount,
+            'transaction_date'  => $date,
+            'amount'            => abs($signed_amount),
             'direction'         => $direction,
-            'counterparty_name' => trim($row['Naam / Omschrijving'] ?? ''),
-            'counterparty_iban' => strtoupper(trim($row['Tegenrekening'] ?? '')),
-            'description'       => trim($row['Mededelingen'] ?? ''),
+            'counterparty_name' => AVBK_Bank_Import_Layout::value($row, $layout, 'name'),
+            'counterparty_iban' => strtoupper(AVBK_Bank_Import_Layout::value($row, $layout, 'iban')),
+            'description'       => AVBK_Bank_Import_Layout::value($row, $layout, 'description'),
+            'source_row'        => isset($row['__row_number']) ? (int) $row['__row_number'] : null,
         ];
     }
 
+    /**
+     * The field labels this bank's flat "Naam: X Omschrijving: Y IBAN: Z
+     * ..." Mededelingen/Notifications format always uses, in whatever
+     * order they happen to appear — in either Dutch or English, since
+     * (like the column headers themselves, see parse_row()) this follows
+     * the account's own ING language setting at export time.
+     */
+    private const DESCRIPTION_LABELS = [
+        'Naam:', 'Omschrijving:', 'IBAN:', 'Datum/Tijd:', 'Valutadatum:', 'Kenmerk:', 'Overige partij:', 'Mutatiesoort:',
+        'Name:', 'Description:', 'Date/time:', 'Value date:', 'Reference:', 'Other party:', 'Transaction type:',
+    ];
+    /** Whichever language, this label's value is always the payer's own name — already shown separately, so strip_name_field() drops it. */
+    private const NAME_LABELS = ['Naam:', 'Name:'];
+
+    /**
+     * Drops the "Naam: ..." segment from the bank's flat Mededelingen
+     * string — it only ever repeats the payer's own name, which is already
+     * shown separately as counterparty_name, so it's pure noise here.
+     * Every other labelled segment (Omschrijving, IBAN, Kenmerk, ...) is
+     * kept as-is. Display-only: never touches the stored description.
+     */
+    public static function strip_name_field(string $description): string {
+        if ($description === '') {
+            return $description;
+        }
+        $pattern = '/(' . implode('|', array_map(fn($l) => preg_quote($l, '/'), self::DESCRIPTION_LABELS)) . ')/';
+        $parts = preg_split($pattern, $description, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!$parts || count($parts) < 3) {
+            // Doesn't actually follow the labelled format — nothing to strip.
+            return $description;
+        }
+        $result = trim($parts[0]);
+        for ($i = 1; $i < count($parts); $i += 2) {
+            $label = $parts[$i];
+            $value = trim($parts[$i + 1] ?? '');
+            if (in_array($label, self::NAME_LABELS, true)) {
+                continue;
+            }
+            $result .= ($result !== '' ? ' ' : '') . $label . ' ' . $value;
+        }
+        return trim($result) !== '' ? trim($result) : $description;
+    }
+
+    /**
+     * Bolds the field labels in the bank's flat Mededelingen string so it
+     * reads as a mini key/value list instead of a wall of text. Escapes
+     * first, then bolds the (already-safe, no HTML-special-character)
+     * label text — never the other way round.
+     */
+    public static function format_description_html(string $description): string {
+        $escaped = esc_html($description);
+        foreach (self::DESCRIPTION_LABELS as $label) {
+            $escaped = preg_replace('/(?<=^|\s)' . preg_quote($label, '/') . '/', '<strong>' . $label . '</strong>', $escaped);
+        }
+        return $escaped;
+    }
+
     /** "82,83" (European decimal comma) -> 82.83 */
+    /**
+     * "82,83" (European, dot-as-thousands) -> 82.83, but also "75.0" or
+     * "1116.56" (English-locale ING export, dot-as-decimal, no thousands
+     * separator at all) -> left as-is. A comma present anywhere is the
+     * signal it's the European format; otherwise a lone dot is already a
+     * plain decimal point PHP's own float cast handles correctly.
+     */
     public static function parse_amount(string $raw): float {
         $raw = trim(str_replace(['€', ' '], '', $raw));
-        $raw = str_replace('.', '', $raw);   // thousands separator, if present
-        $raw = str_replace(',', '.', $raw);  // decimal comma -> dot
+        if (str_contains($raw, ',')) {
+            $raw = str_replace('.', '', $raw);   // thousands separator
+            $raw = str_replace(',', '.', $raw);  // decimal comma -> dot
+        }
         return (float) $raw;
     }
 
@@ -63,12 +157,33 @@ class AVBK_Matcher {
         $types = [];
 
         foreach (AVPVH_DB::get_activity_types() as $activity_type) {
-            if (str_contains($d, mb_strtolower($activity_type->name))) {
+            // A type by itself is only taxonomy. Suggest it for a bank
+            // payment only when at least one concrete activity of that
+            // type is actually registered; otherwise an unused type such
+            // as "Feest" becomes a misleading one-off payment category.
+            if (
+                str_contains($d, mb_strtolower($activity_type->name))
+                && (
+                    AVBK_DB::get_current_activity_for_type_name($activity_type->name)
+                    || self::is_personal_one_off_type($activity_type->name)
+                )
+            ) {
                 $types[] = $activity_type->name;
             }
         }
 
-        if (!in_array('Contributie', $types, true)) {
+        // "Drankafrekening archeoweekend" says what is being paid for
+        // (Drank) and only names the weekend as context. Treating the
+        // embedded word "weekend" as a second charge produced two already-
+        // paid Weekend rows at €0 and hid the actual personal drink bill.
+        if (preg_match('/\bdrank\s*afrekening\b/u', $d) && in_array('Drank', $types, true)) {
+            return ['Drank'];
+        }
+
+        if (
+            !in_array('Contributie', $types, true)
+            && AVBK_DB::get_current_activity_for_type_name('Contributie')
+        ) {
             foreach (['contributie', 'lidmaatschap', 'lidgeld', 'inschrijving', 'inschrijfkosten'] as $kw) {
                 if (str_contains($d, $kw)) {
                     $types[] = 'Contributie';
@@ -89,6 +204,15 @@ class AVBK_Matcher {
         return null;
     }
 
+    /** Exact fee ids embedded by current AVBK_QR codes (legacy PVH-<member> references simply return []). */
+    public static function match_fee_item_reference(string $description): array {
+        $prefix = preg_quote((string) get_option('avbk_reference_prefix', 'PVH'), '/');
+        if (!preg_match('/\b' . $prefix . '-\d+-F(\d+(?:\.\d+)*)\b/i', $description, $m)) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(array_map('intval', explode('.', $m[1])))));
+    }
+
     /**
      * Candidate members for this transaction, best guess first. Each entry
      * is ['member' => object, 'score' => 0-100]. Never guesses beyond
@@ -96,16 +220,8 @@ class AVBK_Matcher {
      * which is exactly what should land as fully unmatched.
      */
     public static function find_candidates(string $counterparty_name, string $description): array {
-        $payer_names = self::split_names(self::strip_via_suffix($counterparty_name));
         $all_members = AVBK_DB::get_payable_members();
-
-        $payer_matches = [];
-        foreach ($payer_names as $name) {
-            $match = self::best_match($name, $all_members);
-            if ($match) {
-                $payer_matches[$match['member']->id] = $match;
-            }
-        }
+        $payer_matches = self::find_payer_candidates($counterparty_name, $all_members);
 
         // Household pool: self + household of every matched payer — the
         // pool beneficiary names ("Anna, Bram en Cas") get
@@ -147,6 +263,8 @@ class AVBK_Matcher {
             }
         }
 
+        $matched_beneficiary = (bool) $found;
+
         // Nothing named explicitly (or none of those names matched) —
         // fall back to whoever we matched as the payer(s) themselves,
         // the self-payment case ("Hr S J M Jansen" / "contributie 2026").
@@ -154,8 +272,47 @@ class AVBK_Matcher {
             $found = $payer_matches;
         }
 
+        foreach ($found as &$match) {
+            $match['source'] = $matched_beneficiary ? 'beneficiary' : 'payer';
+        }
+        unset($match);
+
         usort($found, fn($a, $b) => $b['score'] <=> $a['score']);
         return array_values($found);
+    }
+
+    /**
+     * Best payer-name matches inside an explicit member pool. Personal
+     * one-off charges use this with the known owners of an IBAN, preventing
+     * a weak fuzzy surname match outside that pool from beating the actual
+     * account holder merely because a first name shares a few characters
+     * with the bank's initials.
+     */
+    public static function find_payer_candidates(string $counterparty_name, array $members): array {
+        $matches = [];
+        foreach (self::split_names(self::strip_via_suffix($counterparty_name)) as $name) {
+            $match = self::best_match($name, $members);
+            if ($match) {
+                $match['source'] = 'payer';
+                $matches[(int) $match['member']->id] = $match;
+            }
+        }
+        usort($matches, fn($a, $b) => $b['score'] <=> $a['score']);
+        return array_values($matches);
+    }
+
+    /** True only when the available birth data affirmatively says <18. */
+    public static function member_is_minor(object $member, ?string $reference_date = null): bool {
+        $reference_date = $reference_date ?: current_time('Y-m-d');
+        if (!empty($member->birth_date)) {
+            $birth = new \DateTimeImmutable((string) $member->birth_date);
+            $reference = new \DateTimeImmutable($reference_date);
+            return $birth->diff($reference)->y < 18;
+        }
+        if (!empty($member->birth_year)) {
+            return ((int) substr($reference_date, 0, 4) - (int) $member->birth_year) < 18;
+        }
+        return false;
     }
 
     private static function extract_beneficiary_text(string $description): string {

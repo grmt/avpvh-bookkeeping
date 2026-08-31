@@ -24,6 +24,12 @@
     color: #555;
 }
 
+/* The shared sortable/filterable table stylesheet is also used on admin
+   screens; keep WordPress admin's normal readable font size there. */
+.wrap .avbk-balance-table {
+    font-size: inherit;
+}
+
 .avbk-review-row {
     background: #fff;
     border: 1px solid #ccd0d4;
@@ -97,11 +103,25 @@
 
 .avbk-detail-estimated {
     display: block;
+    color: #646970;
+}
+
+.avbk-detail-estimated-warning {
     color: #b32d2e;
     font-weight: 600;
 }
 
 .avbk-detail-estimated:empty {
+    display: none;
+}
+
+.avbk-detail-shortfall {
+    display: block;
+    color: #b32d2e;
+    font-weight: 600;
+}
+
+.avbk-detail-shortfall:empty {
     display: none;
 }
 
@@ -144,6 +164,48 @@
     vertical-align: top;
     margin: 0 1.5rem 1rem 0;
     max-width: 160px;
+}
+
+.avbk-dropzone {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: .5rem;
+    max-width: 400px;
+    min-height: 100px;
+    padding: 1rem;
+    border: 2px dashed #999;
+    border-radius: 6px;
+    background: #fafafa;
+    cursor: pointer;
+    text-align: center;
+}
+
+.avbk-dropzone:hover,
+.avbk-dropzone:focus-visible {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+.avbk-dropzone.avbk-dropzone-dragover {
+    border-color: #2271b1;
+    background: #e5f1fa;
+}
+
+.avbk-dropzone-text {
+    color: #555;
+    font-size: .9em;
+}
+
+.avbk-dropzone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
 }
 
 .avbk-receipt-edit-form {

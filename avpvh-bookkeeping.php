@@ -72,6 +72,8 @@ add_action('plugins_loaded', function () {
     AVBK_DB::maybe_upgrade();
 
     require_once AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-import.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-generation.php';
@@ -81,6 +83,8 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-balance-shortcode.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-sheet-import.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-frontend-admin-menu.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
     new AVBK_Fee_Generation();
@@ -88,5 +92,6 @@ add_action('plugins_loaded', function () {
     new AVBK_Balance_Shortcode();
     new AVBK_Reimbursements();
     new AVBK_Congress();
+    new AVBK_Frontend_Admin_Menu();
     new AVBK_Admin();
 });

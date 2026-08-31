@@ -43,7 +43,7 @@ class AVBK_Congress {
      * separate setting pointing at "the active congress". Null if the
      * treasurer hasn't created one yet.
      */
-    private function get_current_congress_activity(): ?object {
+    public static function get_current_congress_activity(): ?object {
         $congres_type = current(array_filter(
             AVPVH_DB::get_activity_types(),
             fn($t) => $t->name === 'Congres'
@@ -123,7 +123,7 @@ class AVBK_Congress {
                 <?php if ($qr) : ?>
                     <div class="avbk-congress-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-congress-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::reference_code((int) $reg->member_id) . ': ' . $fee_item->description); ?></code></p>
+                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::fee_reference_code((int) $reg->member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description); ?></code></p>
                 <?php elseif ($remaining > 0.005) : ?>
                     <p>Er kon geen QR-code worden gegenereerd. Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) om te betalen.</p>
                 <?php endif; ?>
