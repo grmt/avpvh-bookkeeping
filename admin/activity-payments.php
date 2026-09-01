@@ -6,9 +6,20 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 $activities = AVPVH_DB::get_activities();
 $activity_id = (int) ($_GET['activity_id'] ?? 0);
-if (!$activity_id) {
-    $current = AVPVH_DB::get_current_activity();
-    $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
+$current_user_id = get_current_user_id();
+if ($activity_id) {
+    // Remember per-admin so the page reopens on whichever activity this
+    // user last looked at, instead of always falling back to "current".
+    update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
+} else {
+    $remembered_id = (int) get_user_meta($current_user_id, 'avbk_last_activity_payments_id', true);
+    $remembered_exists = $remembered_id && array_filter($activities, fn($a) => (int) $a->id === $remembered_id);
+    if ($remembered_exists) {
+        $activity_id = $remembered_id;
+    } else {
+        $current = AVPVH_DB::get_current_activity();
+        $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
+    }
 }
 $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
@@ -376,9 +387,6 @@ foreach ($raw_preview_rows as $preview_row) {
         <h2>Deelnemers <?php echo esc_html($activity->name); ?> (<?php echo esc_html(count($participants)); ?>)</h2>
         <p class="description">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
         <p class="description"><strong>Ingeschreven op</strong> is uitsluitend de oorspronkelijke formulierdatum van een daadwerkelijke deelname aan deze activiteit. Er wordt geen datum uit een betaling, ledenrecord of koppelactiviteit afgeleid.</p>
-        <?php if (empty($config['timestamp_column'])) : ?>
-            <div class="notice notice-warning inline"><p>Er is geen kolom voor de inschrijfdatum gekozen. Selecteer bij Kolomindeling de kolom “Timestamp” of “Tijdstempel” en verwerk de Sheet opnieuw.</p></div>
-        <?php endif; ?>
         <?php if (isset($_GET['payment_requested'])) : ?>
             <div class="notice notice-success is-dismissible"><p>Betaalverzoek verstuurd.</p></div>
         <?php elseif (isset($_GET['payment_request_failed'])) : ?>
@@ -457,7 +465,7 @@ foreach ($raw_preview_rows as $preview_row) {
                                 </form>
                             <?php endif; ?>
                             <?php if ($payment_request) : ?>
-                                <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($payment_request->requested_at))); ?></div>
+                                <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(mysql2date('d-m-Y H:i', $payment_request->requested_at)); ?></div>
                             <?php elseif ($remaining <= 0.005) : ?>&mdash;<?php endif; ?>
                         </td>
                     </tr>

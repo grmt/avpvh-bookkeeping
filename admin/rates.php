@@ -185,8 +185,15 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <th><label for="payment_email_login_help">Inloguitleg in betaalmail</label></th>
                 <td>
                     <label><input type="checkbox" id="payment_email_login_help" name="payment_email_login_help" value="1" <?php checked((bool) get_option('avbk_payment_email_login_help', 1)); ?>> Voeg uitleg over wachtwoord, Google en Microsoft toe</label>
-                    <textarea name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)); ?></textarea>
+                    <textarea name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', '') ?: AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT); ?></textarea>
                     <p class="description">Gebruik <code>[wachtwoord-link]</code> voor de klikbare link “hier” naar het scherm om in te loggen of een wachtwoord in te stellen. De QR-code en profiel-link blijven altijd in de betaalmail staan.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="qr_caption_text">Uitleg boven QR-code</label></th>
+                <td>
+                    <input type="text" id="qr_caption_text" name="qr_caption_text" class="large-text" value="<?php echo esc_attr(get_option('avbk_qr_caption_text', '') ?: AVBK_Admin::DEFAULT_QR_CAPTION_TEXT); ?>">
+                    <p class="description">Tekst boven de QR-code in de "Vraag om betaling"-e-mail (één regel).</p>
                 </td>
             </tr>
         </table>

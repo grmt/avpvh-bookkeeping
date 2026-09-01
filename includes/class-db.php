@@ -522,6 +522,10 @@ class AVBK_DB {
                 reimbursement_id INT UNSIGNED NOT NULL,
                 receipt_path VARCHAR(255) NOT NULL DEFAULT '',
                 receipt_hash CHAR(64) NOT NULL DEFAULT '',
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                date DATE NULL,
+                store VARCHAR(255) NOT NULL DEFAULT '',
+                amount DECIMAL(8,2) NULL,
                 ocr_amount DECIMAL(8,2) NULL,
                 ocr_date DATE NULL,
                 ocr_store VARCHAR(255) NOT NULL DEFAULT '',
@@ -761,6 +765,31 @@ class AVBK_DB {
                 $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions ADD COLUMN activity_id INT UNSIGNED NULL AFTER duplicate_of, ADD KEY activity_id (activity_id)");
             }
             update_option('avbk_db_version', '1.31');
+        }
+        if (version_compare($version, '1.32', '<')) {
+            // Same reasoning as description (1.16): the aankoopdatum is
+            // member-confirmable per receipt, pre-filled with the OCR
+            // guess — kept separate from ocr_date, which stays the raw
+            // OCR read used for duplicate-receipt matching regardless of
+            // what the member edits it to.
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'date'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN date DATE NULL AFTER description");
+            }
+            update_option('avbk_db_version', '1.32');
+        }
+        if (version_compare($version, '1.33', '<')) {
+            // store/amount, same pattern as date (1.32): member-confirmed,
+            // pre-filled from the OCR guess where one exists — but now
+            // also the only source of truth for a receipt-less manual
+            // line (cash expense, lost receipt), which has no ocr_store/
+            // ocr_amount to fall back on at all.
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'store'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN store VARCHAR(255) NOT NULL DEFAULT '' AFTER date");
+            }
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'amount'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN amount DECIMAL(8,2) NULL AFTER store");
+            }
+            update_option('avbk_db_version', '1.33');
         }
     }
 
@@ -1758,6 +1787,9 @@ class AVBK_DB {
             'receipt_path'     => (string) $data['receipt_path'],
             'receipt_hash'     => (string) ($data['receipt_hash'] ?? ''),
             'description'      => (string) ($data['description'] ?? ''),
+            'date'             => $data['date'] ?: null,
+            'store'            => (string) ($data['store'] ?? ''),
+            'amount'           => isset($data['amount']) && $data['amount'] !== null ? (float) $data['amount'] : null,
             'ocr_amount'       => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
             'ocr_date'         => $data['ocr_date'] ?: null,
             'ocr_store'        => (string) ($data['ocr_store'] ?? ''),
@@ -1766,13 +1798,20 @@ class AVBK_DB {
     }
 
     /**
-     * @return object[] One entry per attached receipt photo, each with
-     * ->id, ->receipt_path, ->receipt_hash, ->description, ->ocr_amount,
-     * ->ocr_date, ->ocr_store. Declarations from before multi-receipt
-     * support kept their one photo directly on the avb_reimbursements row
-     * instead of this child table — synthesized here (id 0, description
-     * taken from the parent's own field) so callers never need to special-
-     * case old data.
+     * @return object[] One entry per declaration line (an attached receipt
+     * photo, or a manually-entered line with no photo at all — a cash
+     * expense, a lost receipt), each with ->id, ->receipt_path,
+     * ->receipt_hash, ->description, ->date, ->store, ->amount,
+     * ->ocr_amount, ->ocr_date, ->ocr_store. ->date/->store/->amount are
+     * member-confirmed (pre-filled from the OCR guess where a receipt
+     * exists, the only source of truth where it doesn't) — use them over
+     * ->ocr_date/->ocr_store/->ocr_amount wherever the actual value
+     * matters; the ocr_* columns stay the raw OCR read, kept only for
+     * duplicate-receipt matching. Declarations
+     * from before multi-receipt support kept their one photo directly on
+     * the avb_reimbursements row instead of this child table — synthesized
+     * here (id 0, description taken from the parent's own field) so
+     * callers never need to special-case old data.
      */
     public static function get_reimbursement_receipts(int $reimbursement_id): array {
         global $wpdb;
@@ -1791,6 +1830,9 @@ class AVBK_DB {
                 'receipt_path'     => $r->receipt_path,
                 'receipt_hash'     => $r->receipt_hash,
                 'description'      => $r->description,
+                'date'             => $r->ocr_date,
+                'store'            => $r->ocr_store,
+                'amount'           => $r->amount,
                 'ocr_amount'       => $r->ocr_amount,
                 'ocr_date'         => $r->ocr_date,
                 'ocr_store'        => $r->ocr_store,
@@ -1815,12 +1857,40 @@ class AVBK_DB {
      * refresh_reimbursement_description_summary()) for a child-table row.
      */
     public static function update_reimbursement_receipt_description(int $reimbursement_id, int $receipt_id, string $description): void {
+        self::update_reimbursement_receipt($reimbursement_id, $receipt_id, ['description' => $description]);
+    }
+
+    /**
+     * Admin correction of a receipt's confirmed date/store/description/
+     * amount (e.g. OCR misread the store, or the member left a field
+     * blank) — any subset of these may be present in $data. A legacy
+     * (pre-multi-receipt) declaration has no child row to update
+     * ($receipt_id === 0, see get_reimbursement_receipts()'s synthesized
+     * fallback), so only its description lives anywhere editable; the
+     * others are silently ignored for that case rather than erroring.
+     */
+    public static function update_reimbursement_receipt(int $reimbursement_id, int $receipt_id, array $data): void {
         global $wpdb;
         if ($receipt_id > 0) {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", ['description' => $description], ['id' => $receipt_id]);
+            $fields = [];
+            if (array_key_exists('description', $data)) {
+                $fields['description'] = (string) $data['description'];
+            }
+            if (array_key_exists('date', $data)) {
+                $fields['date'] = $data['date'] ?: null;
+            }
+            if (array_key_exists('store', $data)) {
+                $fields['store'] = (string) $data['store'];
+            }
+            if (array_key_exists('amount', $data)) {
+                $fields['amount'] = $data['amount'] !== null ? (float) $data['amount'] : null;
+            }
+            if ($fields) {
+                $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id]);
+            }
             self::refresh_reimbursement_description_summary($reimbursement_id);
-        } else {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['description' => $description], ['id' => $reimbursement_id]);
+        } elseif (array_key_exists('description', $data)) {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['description' => (string) $data['description']], ['id' => $reimbursement_id]);
         }
     }
 

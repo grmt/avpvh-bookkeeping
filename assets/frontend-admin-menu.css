@@ -1,0 +1,11 @@
+/* AVBK_Frontend_Admin_Menu injects "Administratie" as a top-level item,
+   usually the rightmost in the header nav. The core Navigation block
+   opens a nested submenu (a submenu's own submenu, e.g. "Leden"'s
+   subitems) further to the right of its already right-positioned
+   parent, which pushes it off-screen here. Flip nested submenus to
+   open leftward instead — !important because the core block-library
+   styles it overrides load with matching specificity. */
+.avbk-frontend-admin-menu .wp-block-navigation__submenu-container .wp-block-navigation__submenu-container {
+    left: auto !important;
+    right: 100% !important;
+}
