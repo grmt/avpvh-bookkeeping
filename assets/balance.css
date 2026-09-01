@@ -79,14 +79,20 @@
 }
 
 .avbk-checklist-toggle {
+    box-sizing: border-box;
     width: 100%;
+    padding: .15rem .3rem;
+    font-size: .85em;
     text-align: left;
     font-weight: normal;
 }
 
 .avbk-checklist-mode {
+    box-sizing: border-box;
     width: 100%;
     margin-top: .2rem;
+    padding: .15rem .3rem;
+    font-size: .85em;
     text-align: left;
     font-weight: normal;
 }

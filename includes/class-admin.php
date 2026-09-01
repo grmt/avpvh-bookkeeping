@@ -4,6 +4,7 @@ defined('ABSPATH') || exit;
 class AVBK_Admin {
 
     public const DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT = "Inloggen: gebruik als gebruikersnaam je e-mailadres. Als je nog niet eerder bent ingelogd of je je wachtwoord niet weet, klik dan [wachtwoord-link].\n\nAls je met je browser al bent ingelogd bij Google (Gmail) of Microsoft (Outlook/Hotmail), kun je ook de knop Inloggen met Google respectievelijk Inloggen met Microsoft proberen. Dan heb je geen (nieuw) wachtwoord nodig. Het e-mailadres moet wel overeenkomen met het adres dat bij de vereniging bekend is.";
+    public const DEFAULT_QR_CAPTION_TEXT = 'Scan deze QR-code met je bankieren-app:';
 
     public function __construct() {
         add_action('admin_menu', [$this, 'register_menus'], 5);
@@ -836,7 +837,7 @@ class AVBK_Admin {
         $login_url = wp_login_url($balance_url);
         $login_help = '';
         if (get_option('avbk_payment_email_login_help', 1)) {
-            $login_text = (string) get_option('avbk_payment_email_login_text', self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
+            $login_text = (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT;
             $login_help = wpautop(str_replace(
                 '[wachtwoord-link]',
                 '<a href="' . esc_url($login_url) . '">hier</a>',
@@ -846,17 +847,34 @@ class AVBK_Admin {
         $subject = sprintf('Openstaande betaling — %s', $activity->name);
         $qr_png = AVBK_QR::png_for_fee_item($member_id, $fee_item);
         $qr_cid = 'avbk-payment-qr-' . $fee_item->id . '-' . wp_generate_password(8, false, false) . '@avpvh.nl';
+        // Alt text (what shows if the embedded image doesn't render) names
+        // the specific activity, not a generic "QR-code voor betaling" —
+        // the reader should know what payment this is for even then.
+        $qr_alt = sprintf('QR-code voor betaling %s', $activity->name);
+        $qr_caption = (string) get_option('avbk_qr_caption_text', '') ?: self::DEFAULT_QR_CAPTION_TEXT;
+        // Same remittance text embedded in the QR itself — see
+        // AVBK_QR::remittance_for_fee_item() — so a scanned QR and a
+        // manually-typed omschrijving read identically; it's not a
+        // separate "kenmerk" field banks have, just the ordinary vrije
+        // omschrijving.
+        $reference_code = AVBK_QR::remittance_for_fee_item($member_id, $fee_item);
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
+        $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+        $reference_line = '<p>Wil je de boeking zelf doen? Gebruik dan de volgende gegevens:<br>'
+            . ($club_iban ? 'IBAN: <code style="font-size:1.3em">' . esc_html($club_iban_display) . '</code><br>' : '')
+            . 'Ten name van: ' . esc_html($club_name) . '<br>'
+            . 'Omschrijving: <code style="font-size:1.3em">' . esc_html($reference_code) . '</code>'
+            . '</p>';
         $qr_block = $qr_png
-            ? '<p><strong>Scan deze QR-code met je bankieren-app:</strong></p><div style="background:#fff;padding:12px;display:inline-block"><img src="cid:' . esc_attr($qr_cid) . '" width="360" height="360" alt="QR-code voor betaling"></div>'
-            : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>';
+            ? '<p>' . esc_html($qr_caption) . '</p><div style="background:#fff;padding:12px;display:inline-block"><img src="cid:' . esc_attr($qr_cid) . '" width="360" height="360" alt="' . esc_attr($qr_alt) . '"></div>' . $reference_line
+            : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>' . $reference_line;
         $body = sprintf(
-            '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s<p>Je vindt deze betaling én al je gegevens, inclusief alle andere betalingen die je misschien nog moet doen en al hebt gedaan, op je profielpagina van de website:<br><a href="%s">%s</a></p>%s<p>Groet,<br>%s</p></body></html>',
+            '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s%s<p>Groet,<br>%s</p></body></html>',
             esc_html($member->first_name),
             esc_html($activity->name),
             esc_html(number_format($remaining, 2, ',', '.')),
             $qr_block,
-            esc_url($balance_url),
-            esc_html($balance_url),
             $login_help,
             esc_html($penningmeester_name)
         );
@@ -978,7 +996,7 @@ class AVBK_Admin {
             $login_help_text = "\n\n" . str_replace(
                 '[wachtwoord-link]',
                 wp_login_url($balance_url),
-                (string) get_option('avbk_payment_email_login_text', self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)
+                (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT
             );
         }
         $body = sprintf(
@@ -1163,7 +1181,8 @@ class AVBK_Admin {
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
         update_option('avbk_penningmeester_name', sanitize_text_field(wp_unslash($_POST['penningmeester_name'] ?? '')) ?: 'de penningmeester');
         update_option('avbk_payment_email_login_help', !empty($_POST['payment_email_login_help']) ? 1 : 0);
-        update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)));
+        update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
+        update_option('avbk_qr_caption_text', sanitize_text_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }

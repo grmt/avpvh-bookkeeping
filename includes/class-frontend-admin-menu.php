@@ -8,6 +8,9 @@ class AVBK_Frontend_Admin_Menu {
 
     public function __construct() {
         add_filter('render_block_core/navigation', [$this, 'inject_block_navigation'], 20, 2);
+        add_action('wp_enqueue_scripts', function () {
+            wp_enqueue_style('avbk-frontend-admin-menu', AVBK_PLUGIN_URL . 'assets/frontend-admin-menu.css', [], avbk_asset_version('assets/frontend-admin-menu.css'));
+        });
     }
 
     private function menu_tree(): array {
@@ -76,10 +79,10 @@ class AVBK_Frontend_Admin_Menu {
         $position = strrpos($content, '</ul>');
         if ($position === false) return $content;
         $this->block_menu_injected = true;
-        return substr($content, 0, $position) . $this->block_items($tree) . substr($content, $position);
+        return substr($content, 0, $position) . $this->block_items($tree, true) . substr($content, $position);
     }
 
-    private function block_items(array $items): string {
+    private function block_items(array $items, bool $is_top_level = false): string {
         $html = '';
         foreach ($items as $item) {
             $label = esc_html($item['label']);
@@ -88,7 +91,11 @@ class AVBK_Frontend_Admin_Menu {
                 $html .= '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="' . $url . '"><span class="wp-block-navigation-item__label">' . $label . '</span></a></li>';
                 continue;
             }
-            $html .= '<li data-wp-context="{&quot;submenuOpenedBy&quot;:{&quot;click&quot;:false,&quot;hover&quot;:false,&quot;focus&quot;:false},&quot;type&quot;:&quot;submenu&quot;,&quot;modal&quot;:null,&quot;previousFocus&quot;:null}" data-wp-interactive="core/navigation" data-wp-on--focusout="actions.handleMenuFocusout" data-wp-on--keydown="actions.handleMenuKeydown" data-wp-on--pointerenter="actions.openMenuOnHover" data-wp-on--pointerleave="actions.closeMenuOnHover" data-wp-watch="callbacks.initMenu" tabindex="-1" class="wp-block-navigation-item has-child open-on-hover-click wp-block-navigation-submenu">';
+            // avbk-frontend-admin-menu marks only the injected top-level
+            // item, scoping frontend-admin-menu.css's leftward-flyout
+            // fix to this menu without touching the theme's own nav items.
+            $top_level_class = $is_top_level ? ' avbk-frontend-admin-menu' : '';
+            $html .= '<li data-wp-context="{&quot;submenuOpenedBy&quot;:{&quot;click&quot;:false,&quot;hover&quot;:false,&quot;focus&quot;:false},&quot;type&quot;:&quot;submenu&quot;,&quot;modal&quot;:null,&quot;previousFocus&quot;:null}" data-wp-interactive="core/navigation" data-wp-on--focusout="actions.handleMenuFocusout" data-wp-on--keydown="actions.handleMenuKeydown" data-wp-on--pointerenter="actions.openMenuOnHover" data-wp-on--pointerleave="actions.closeMenuOnHover" data-wp-watch="callbacks.initMenu" tabindex="-1" class="wp-block-navigation-item has-child open-on-hover-click wp-block-navigation-submenu' . $top_level_class . '">';
             $html .= '<a class="wp-block-navigation-item__content" href="' . $url . '"><span class="wp-block-navigation-item__label">' . $label . '</span></a>';
             $html .= '<button data-wp-bind--aria-expanded="state.isSubmenuOpen" data-wp-on--click="actions.toggleMenuOnClick" aria-label="' . esc_attr($item['label']) . ' submenu" class="wp-block-navigation__submenu-icon wp-block-navigation-submenu__toggle"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false"><path d="M1.5 4L6 8L10.5 4" stroke-width="1.5"></path></svg></button>';
             $html .= '<ul data-wp-on--focus="actions.openMenuOnFocus" class="wp-block-navigation__submenu-container wp-block-navigation-submenu">' . $this->block_items($item['children']) . '</ul></li>';

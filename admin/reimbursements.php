@@ -68,20 +68,29 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
                     <tr><th>Rekeningnummer</th><td><?php echo esc_html($r->iban); ?><?php echo $iban_account_name ? ' &mdash; ' . esc_html($iban_account_name) : ''; ?><?php echo count($known_ibans) > 1 ? ' <span class="description">(meerdere rekeningen bekend bij dit lid &mdash; zie &ldquo;aanpassen&rdquo; hieronder)</span>' : ''; ?></td></tr>
                     <tr><th>Bonnetje(s)</th><td>
                         <?php foreach ($receipts as $rec) :
-                            $rec_view_url = wp_nonce_url(add_query_arg(['action' => 'avbk_view_receipt', 'id' => $r->id, 'receipt' => $rec->id], admin_url('admin-post.php')), 'avbk_view_receipt');
-                            $rec_date_flag = $rec->ocr_date && $window_start && (strtotime($rec->ocr_date) < $window_start || strtotime($rec->ocr_date) > $window_end);
+                            $rec_effective_date = $rec->date ?? $rec->ocr_date;
+                            $rec_date_flag = $rec_effective_date && $window_start && (strtotime($rec_effective_date) < $window_start || strtotime($rec_effective_date) > $window_end);
+                            $rec_has_photo = !empty($rec->receipt_path);
                             ?>
                             <span class="avbk-receipt-item">
-                                <img src="<?php echo esc_url($rec_view_url); ?>" alt="Bonnetje van <?php echo esc_attr($member_name); ?>" class="avbk-receipt-thumb">
-                                <br><a href="<?php echo esc_url($rec_view_url); ?>" target="_blank">open in nieuw tabblad</a>
+                                <?php if ($rec_has_photo) :
+                                    $rec_view_url = wp_nonce_url(add_query_arg(['action' => 'avbk_view_receipt', 'id' => $r->id, 'receipt' => $rec->id], admin_url('admin-post.php')), 'avbk_view_receipt');
+                                    ?>
+                                    <img src="<?php echo esc_url($rec_view_url); ?>" alt="Bonnetje van <?php echo esc_attr($member_name); ?>" class="avbk-receipt-thumb">
+                                    <br><a href="<?php echo esc_url($rec_view_url); ?>" target="_blank">open in nieuw tabblad</a>
+                                <?php else : ?>
+                                    <span class="description">(geen foto — handmatig ingevoerd)</span>
+                                <?php endif; ?>
                                 <?php if ($rec_date_flag) : ?><br><span class="avbk-badge avbk-badge-warn">&#9888; datum wijkt af van activiteit</span><?php endif; ?>
                                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-receipt-edit-form">
                                     <?php wp_nonce_field('avbk_update_receipt'); ?>
                                     <input type="hidden" name="action" value="avbk_update_receipt">
                                     <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
                                     <input type="hidden" name="receipt_id" value="<?php echo esc_attr($rec->id); ?>">
-                                    <input type="date" name="ocr_date" value="<?php echo esc_attr($rec->ocr_date); ?>">
-                                    <input type="text" name="ocr_store" value="<?php echo esc_attr($rec->ocr_store); ?>" placeholder="Winkel">
+                                    <label>Datum<br><input type="date" name="date" value="<?php echo esc_attr($rec->date); ?>"></label>
+                                    <label>Winkel<br><input type="text" name="store" value="<?php echo esc_attr($rec->store); ?>" placeholder="Winkel"></label>
+                                    <label>Omschrijving<br><input type="text" name="description" value="<?php echo esc_attr($rec->description); ?>" placeholder="Omschrijving"></label>
+                                    <label>Bedrag<br>&euro; <input type="text" name="amount" value="<?php echo esc_attr($rec->amount !== null ? number_format((float) $rec->amount, 2, ',', '') : ''); ?>" placeholder="0,00"></label>
                                     <button type="submit" class="button button-small">Opslaan</button>
                                 </form>
                             </span>

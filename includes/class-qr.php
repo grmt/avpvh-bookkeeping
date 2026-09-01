@@ -21,10 +21,28 @@ class AVBK_QR {
         return sprintf('%s-%d', $prefix, $member_id);
     }
 
-    /** A member reference extended with the exact fee-item ids this QR pays. */
+    /**
+     * A member reference extended with the exact fee-item ids this QR
+     * pays. Enough simultaneously-selected items (a household "betaal ook
+     * voor" combining several members' whole year, say) can make this
+     * grow past what still leaves room for a summary within the 140-char
+     * EPC remittance limit (see remittance_for_balance()) — worse,
+     * without a cap here it could exceed 140 on its own, and
+     * epc_payload_to()'s mb_substr(...,0,140) would then blindly chop
+     * digits off the END of the id list, corrupting which item(s) it
+     * names. Falls back to the bare member reference instead: still
+     * auto-matches to the right member (AVBK_Matcher::match_reference_
+     * code()), just FIFO-allocated across their open items rather than
+     * named individually — exactly what already happens for any
+     * unitemized payment, nothing new to depend on.
+     */
     public static function fee_reference_code(int $member_id, array $fee_item_ids): string {
         $ids = array_values(array_unique(array_filter(array_map('intval', $fee_item_ids))));
-        return self::reference_code($member_id) . ($ids ? '-F' . implode('.', $ids) : '');
+        if (!$ids) {
+            return self::reference_code($member_id);
+        }
+        $with_ids = self::reference_code($member_id) . '-F' . implode('.', $ids);
+        return mb_strlen($with_ids) <= 100 ? $with_ids : self::reference_code($member_id);
     }
 
     /**
@@ -148,17 +166,33 @@ class AVBK_QR {
         return $payload ? self::svg($payload) : null;
     }
 
+    /**
+     * "{reference}: {description}", the description's own book year
+     * appended when it isn't in there already — an "other" fee item's
+     * description (AVBK_DB::create_other_fee_item()) is free text set
+     * once when the extra charge is configured, unlike a contribution/
+     * camp item's own generated description, so it often has no year at
+     * all. Shared by for_fee_item()/png_for_fee_item() and the "Vraag om
+     * betaling" e-mail (AVBK_Admin::handle_request_payment()) so a
+     * scanned QR and a manually-typed omschrijving read the same.
+     */
+    public static function remittance_for_fee_item(int $member_id, object $fee_item): string {
+        $description = $fee_item->description;
+        $year = AVBK_DB::fee_item_book_year($fee_item);
+        if ($year && !str_contains($description, (string) $year)) {
+            $description .= ' ' . $year;
+        }
+        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $description;
+        return mb_strlen($remittance) > 140 ? mb_substr($remittance, 0, 139) . '…' : $remittance;
+    }
+
     /** Convenience: a single fee item's own QR (e.g. a congress registration) rather than the member's whole balance — null if it's already fully paid or settings are incomplete. */
     public static function for_fee_item(int $member_id, object $fee_item): ?string {
         $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
         if ($remaining <= 0) {
             return null;
         }
-        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
-        if (mb_strlen($remittance) > 140) {
-            $remittance = mb_substr($remittance, 0, 139) . '…';
-        }
-        $payload = self::epc_payload($remaining, $remittance);
+        $payload = self::epc_payload($remaining, self::remittance_for_fee_item($member_id, $fee_item));
         return $payload ? self::svg($payload) : null;
     }
 
@@ -168,11 +202,7 @@ class AVBK_QR {
         if ($remaining <= 0) {
             return null;
         }
-        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
-        if (mb_strlen($remittance) > 140) {
-            $remittance = mb_substr($remittance, 0, 139) . '…';
-        }
-        $payload = self::epc_payload($remaining, $remittance);
+        $payload = self::epc_payload($remaining, self::remittance_for_fee_item($member_id, $fee_item));
         return $payload ? self::png($payload) : null;
     }
 
