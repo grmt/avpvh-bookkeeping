@@ -791,6 +791,27 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.33');
         }
+        if (version_compare($version, '1.34', '<')) {
+            // One generic betaalverzoek (link + QR) per activity — e.g. an
+            // ING Betaalverzoek/Tikkie link the penningmeester sets up once
+            // and shares with everyone attending, instead of each
+            // participant's own per-member EPC QR. Deliberately never
+            // auto-inserted into the "Vraag om betaling" e-mail (see
+            // AVBK_Admin::payment_request_email_template()) — shown only
+            // on the activity-payments admin page for the penningmeester
+            // to copy/share themselves. One row per activity_id (no
+            // separate id), so saving just replaces it.
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_activity_payment_links (
+                activity_id INT UNSIGNED NOT NULL,
+                payment_url VARCHAR(500) NOT NULL DEFAULT '',
+                qr_image LONGBLOB NULL,
+                qr_image_mime VARCHAR(50) NOT NULL DEFAULT '',
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (activity_id)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.34');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -2855,6 +2876,73 @@ class AVBK_DB {
         }
         $code = substr($iban, 4, 4);
         return self::IBAN_BANK_NAMES[$code] ?? $code;
+    }
+
+    // -------------------------------------------------------------------
+    // Generic per-activity betaalverzoeklink + QR (not per-member) — see
+    // AVBK_Admin's activity-payments handlers.
+    // -------------------------------------------------------------------
+
+    /** Strips any leading text before "https"/"http" — a pasted link is often prefixed with a share-message ("Bekijk mijn Tikkie: https://..."), and only the URL itself is worth keeping. Leaves the input as-is if no http(s) is found. */
+    public static function strip_url_prefix(string $text): string {
+        $text = trim($text);
+        if (preg_match('/https?:\/\/\S+/i', $text, $m)) {
+            return trim($m[0]);
+        }
+        return $text;
+    }
+
+    /** The saved generic betaalverzoek (link + QR) for an activity, or null if none is set. */
+    public static function get_activity_payment_link(int $activity_id): ?object {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        return $row ?: null;
+    }
+
+    /** Saves/replaces the activity's generic betaalverzoeklink; pass '' to clear it without touching the QR. The URL is reduced via strip_url_prefix() before storing, matching what's shown. */
+    public static function save_activity_payment_url(int $activity_id, string $url): void {
+        global $wpdb;
+        $url = self::strip_url_prefix($url);
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT activity_id FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        if ($exists) {
+            $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['payment_url' => $url], ['activity_id' => $activity_id]);
+        } else {
+            $wpdb->insert("{$wpdb->prefix}avb_activity_payment_links", ['activity_id' => $activity_id, 'payment_url' => $url]);
+        }
+    }
+
+    /** Saves/replaces the activity's generic betaalverzoek-QR image (raw bytes) without touching the link. */
+    public static function save_activity_payment_qr(int $activity_id, string $image_data, string $mime): void {
+        global $wpdb;
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT activity_id FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        $fields = ['qr_image' => $image_data, 'qr_image_mime' => $mime];
+        if ($exists) {
+            $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", $fields, ['activity_id' => $activity_id]);
+        } else {
+            $fields['activity_id'] = $activity_id;
+            $wpdb->insert("{$wpdb->prefix}avb_activity_payment_links", $fields);
+        }
+    }
+
+    /** Removes just the QR image, keeping any saved link. */
+    public static function delete_activity_payment_qr(int $activity_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['qr_image' => null, 'qr_image_mime' => ''], ['activity_id' => $activity_id]);
+    }
+
+    /** Removes just the link, keeping any saved QR. */
+    public static function delete_activity_payment_url(int $activity_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['payment_url' => ''], ['activity_id' => $activity_id]);
     }
 
     // -------------------------------------------------------------------
