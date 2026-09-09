@@ -44,6 +44,10 @@ class AVBK_Admin {
         add_action('admin_post_avbk_revert_transaction_to_review',   [$this, 'handle_revert_transaction_to_review']);
         add_action('admin_post_avbk_revert_year_payments_to_review', [$this, 'handle_revert_year_payments_to_review']);
         add_action('admin_post_avbk_set_closed_through_year',        [$this, 'handle_set_closed_through_year']);
+        add_action('admin_post_avbk_save_activity_payment_url',      [$this, 'handle_save_activity_payment_url']);
+        add_action('admin_post_avbk_save_activity_payment_qr',       [$this, 'handle_save_activity_payment_qr']);
+        add_action('admin_post_avbk_delete_activity_payment_url',    [$this, 'handle_delete_activity_payment_url']);
+        add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
     }
@@ -1440,6 +1444,71 @@ class AVBK_Admin {
         </body>
         </html>
         <?php
+        exit;
+    }
+
+    /**
+     * Saves the activity's generic betaalverzoeklink (e.g. an ING
+     * Betaalverzoek/Tikkie link the penningmeester sets up once and shares
+     * with everyone attending) — see AVBK_DB::save_activity_payment_url()
+     * for why this is per-activity, not per-member, and never auto-used in
+     * the "Vraag om betaling" e-mail.
+     */
+    public function handle_save_activity_payment_url(): void {
+        check_admin_referer('avbk_save_activity_payment_url');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::save_activity_payment_url($activity_id, sanitize_text_field(wp_unslash($_POST['payment_url'] ?? '')));
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Saves the activity's generic betaalverzoek-QR (dragged-and-dropped image, see admin/activity-payments.php) — same table/row as the link, see AVBK_DB::save_activity_payment_qr(). */
+    public function handle_save_activity_payment_qr(): void {
+        check_admin_referer('avbk_save_activity_payment_qr');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $mime = (string) ($_POST['qr_image_mime'] ?? '');
+        $data = (string) ($_POST['qr_image_data'] ?? '');
+        if ($activity_id && $data !== '' && in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true)) {
+            $decoded = base64_decode($data, true);
+            if ($decoded !== false && strlen($decoded) > 0 && strlen($decoded) < 3 * 1024 * 1024) {
+                AVBK_DB::save_activity_payment_qr($activity_id, $decoded, $mime);
+            }
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_activity_payment_url(): void {
+        check_admin_referer('avbk_delete_activity_payment_url');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::delete_activity_payment_url($activity_id);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_activity_payment_qr(): void {
+        check_admin_referer('avbk_delete_activity_payment_qr');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::delete_activity_payment_qr($activity_id);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
         exit;
     }
 
