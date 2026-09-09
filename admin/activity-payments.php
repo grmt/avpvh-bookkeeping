@@ -404,6 +404,9 @@ foreach ($raw_preview_rows as $preview_row) {
             <table id="avbk-balance-table" data-storage-key="avbk_activity_payments_hidden_cols_<?php echo esc_attr($activity_id); ?>" class="wp-list-table widefat striped avbk-balance-table">
                 <thead><tr class="avbk-balance-header-row">
                     <th data-col="naam">Naam</th>
+                    <th data-col="bank" class="avbk-col-optional">Bank(en)</th>
+                    <th data-col="bank_naam" data-filter="select" class="avbk-col-optional">Bank</th>
+                    <th data-col="land" data-filter="select" class="avbk-col-optional">Land</th>
                     <th data-col="ingeschreven" data-filter="select">Ingeschreven op</th>
                     <th data-col="allergieen" class="avbk-col-optional">Allergieën</th>
                     <th data-col="notities" class="avbk-col-optional">Notities</th>
@@ -426,8 +429,25 @@ foreach ($raw_preview_rows as $preview_row) {
                         ? $registration_meta->registered_at
                         : ($registration_meta->source_timestamp ?? '');
                     ?>
+                    <?php
+                    $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
+                    // Almost every participant has at most one account, so
+                    // this joined string is also each one's clean, single
+                    // filter value in the common case; someone with two
+                    // different banks just gets their own combined option
+                    // in the filter list rather than silently hiding one.
+                    $bank_names = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_bank_name($k->iban), $known_ibans)));
+                    $countries = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_country($k->iban), $known_ibans)));
+                    ?>
                     <tr>
                         <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avpvh-member-detail', 'id' => $p->member_id], admin_url('admin.php'))); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($p, 'list')); ?></a></td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', wp_list_pluck($known_ibans, 'iban'))); ?>">
+                            <?php if (!$known_ibans) : ?>&mdash;<?php else : foreach ($known_ibans as $known) : ?>
+                                <div><?php echo esc_html($known->iban); ?><?php echo $known->account_name ? ' (' . esc_html($known->account_name) . ')' : ''; ?></div>
+                            <?php endforeach; endif; ?>
+                        </td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', $bank_names)); ?>"><?php echo esc_html($bank_names ? implode(', ', $bank_names) : '—'); ?></td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', $countries)); ?>"><?php echo esc_html($countries ? implode(', ', $countries) : '—'); ?></td>
                         <td style="white-space:nowrap" data-sort-value="<?php echo esc_attr($registration_sort); ?>" data-filter-value="<?php echo esc_attr($registration_meta && ($registration_meta->registered_at || $registration_meta->source_timestamp) ? 'Datum bekend' : 'Geen datum'); ?>">
                             <?php if ($registration_meta && $registration_meta->registered_at) : ?>
                                 <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($registration_meta->registered_at))); ?>
@@ -463,6 +483,26 @@ foreach ($raw_preview_rows as $preview_row) {
                                     <input type="hidden" name="member_id" value="<?php echo esc_attr($p->member_id); ?>">
                                     <?php submit_button($payment_request ? 'Opnieuw vragen' : 'Vraag om betaling', 'secondary small', 'submit', false); ?>
                                 </form>
+                                <?php
+                                $preview_email_url = wp_nonce_url(
+                                    add_query_arg(
+                                        ['action' => 'avbk_preview_request_payment_email', 'activity_id' => $activity_id, 'member_id' => $p->member_id],
+                                        admin_url('admin-post.php')
+                                    ),
+                                    'avbk_preview_request_payment_email'
+                                );
+                                ?>
+                                <a href="<?php echo esc_url($preview_email_url); ?>" target="_blank" rel="noopener" class="button button-secondary button-small" style="margin-left:.3em">Vraag om betaling en voeg nog iets toe</a>
+                                <?php
+                                $preview_url = wp_nonce_url(
+                                    add_query_arg(
+                                        ['action' => 'avbk_preview_payment_request', 'activity_id' => $activity_id, 'member_id' => $p->member_id],
+                                        admin_url('admin-post.php')
+                                    ),
+                                    'avbk_preview_payment_request'
+                                );
+                                ?>
+                                <a href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener" class="button button-secondary button-small" style="margin-left:.3em">Toon QR</a>
                             <?php endif; ?>
                             <?php if ($payment_request) : ?>
                                 <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(mysql2date('d-m-Y H:i', $payment_request->requested_at)); ?></div>
@@ -472,7 +512,7 @@ foreach ($raw_preview_rows as $preview_row) {
                 <?php endforeach; ?>
                 </tbody>
                 <tfoot><tr>
-                    <th>Totaal</th><th></th><th></th><th></th>
+                    <th>Totaal</th><th></th><th></th><th></th><th></th><th></th><th></th>
                     <th data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></th>
                     <th data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></th>
                     <th></th>

@@ -83,17 +83,17 @@ class AVBK_Balance_Shortcode {
         // what a member sees always matches what they're shown they owe.
         // Nothing is deleted or locked: AVBK_DB::get_member_balance() and
         // "Alle transacties" (with "toon oudere jaren") still have it all.
-        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
-
+        // AVBK_DB::get_member_balance_excluding_closed() is the one shared
+        // place this filtering happens — every other spot that shows a
+        // member's balance (admin/members-balance.php, class-fee-popup.php)
+        // calls it too, so a bug like fee-popup.php once having its own
+        // unfiltered copy can't happen again by drifting out of sync here.
         $items = [];
         $total_due = 0.0;
         $total_paid = 0.0;
         foreach ($combined_ids as $mid) {
-            $b = AVBK_DB::get_member_balance($mid);
+            $b = AVBK_DB::get_member_balance_excluding_closed($mid);
             foreach ($b['items'] as $item) {
-                if ($closed_through_year && AVBK_DB::fee_item_book_year($item) <= $closed_through_year) {
-                    continue;
-                }
                 $items[] = $item;
                 $total_due += $item->status === 'waived' ? 0.0 : (float) $item->amount_due;
                 $total_paid += $item->status === 'waived' ? 0.0 : $item->paid;
@@ -263,7 +263,16 @@ class AVBK_Balance_Shortcode {
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-balance-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html($reference_text); ?></code></p>
+                    <?php
+                    $club_iban = trim((string) get_option('avbk_club_iban', ''));
+                    $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
+                    $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+                    ?>
+                    <p class="avbk-balance-qr-ref">Wil je de boeking zelf doen? Gebruik dan de volgende gegevens:<br>
+                        <?php if ($club_iban) : ?>IBAN: <code><?php echo esc_html($club_iban_display); ?></code><br><?php endif; ?>
+                        Ten name van: <?php echo esc_html($club_name); ?><br>
+                        Omschrijving: <code><?php echo esc_html($reference_text); ?></code>
+                    </p>
                 <?php endif; ?>
             <?php endif; ?>
 

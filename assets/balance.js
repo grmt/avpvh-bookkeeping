@@ -72,61 +72,105 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var control;
         if (th.dataset.filter === 'select') {
+            // A cell can carry several comma-separated values (e.g. a
+            // member with two different banks) — split into individual
+            // options rather than listing "ING, Rabobank" as one single
+            // combined checkbox, and match a row if ANY of its own
+            // values matches, not the whole joined string.
+            function splitValues(cell) {
+                return (cell.dataset.filterValue || cell.textContent)
+                    .split(',')
+                    .map(function (s) { return s.trim(); })
+                    .filter(function (s) { return s !== ''; });
+            }
+
             var wrapper = document.createElement('div');
             wrapper.className = 'avbk-checklist-filter';
             var toggle = document.createElement('button');
             toggle.type = 'button';
-            toggle.className = 'button button-small avbk-checklist-toggle';
+            toggle.className = 'avbk-checklist-toggle';
             toggle.textContent = 'Alle';
-            var modeToggle = document.createElement('button');
-            modeToggle.type = 'button';
-            modeToggle.className = 'button button-small avbk-checklist-mode';
-            modeToggle.textContent = 'Selecteren';
-            var exclude = false;
             var menu = document.createElement('div');
             menu.className = 'avbk-checklist-menu';
             menu.hidden = true;
+            // value (lowercased) -> 'include' | 'exclude', absent = no filter on it.
+            var states = {};
             var values = [];
             dataRows().forEach(function (row) {
-                var cell = row.children[index];
-                var v = (cell.dataset.filterValue || cell.textContent).trim();
-                if (v && values.indexOf(v) === -1) values.push(v);
+                splitValues(row.children[index]).forEach(function (v) {
+                    if (values.indexOf(v) === -1) values.push(v);
+                });
             });
             values.sort();
+
+            function updateToggleLabel() {
+                var included = 0, excluded = 0;
+                Object.keys(states).forEach(function (v) {
+                    if (states[v] === 'include') included++;
+                    else if (states[v] === 'exclude') excluded++;
+                });
+                if (!included && !excluded) {
+                    toggle.textContent = 'Alle';
+                } else {
+                    var parts = [];
+                    if (included) parts.push(included + ' geselecteerd');
+                    if (excluded) parts.push(excluded + ' uitgesloten');
+                    toggle.textContent = parts.join(', ');
+                }
+            }
+
             values.forEach(function (v) {
-                var label = document.createElement('label');
-                var checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.value = v;
-                checkbox.addEventListener('change', function () {
-                    var checked = menu.querySelectorAll('input[type="checkbox"]:checked').length;
-                    toggle.textContent = checked ? checked + ' geselecteerd' : 'Alle';
+                var key = v.toLowerCase();
+                var option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'avbk-tristate-option';
+                option.dataset.state = 'none';
+                var icon = document.createElement('span');
+                icon.className = 'avbk-tristate-icon';
+                option.appendChild(icon);
+                option.appendChild(document.createTextNode(' ' + v));
+                option.addEventListener('click', function () {
+                    var next = option.dataset.state === 'none' ? 'include'
+                        : option.dataset.state === 'include' ? 'exclude'
+                        : 'none';
+                    option.dataset.state = next;
+                    icon.textContent = next === 'include' ? '✓' : next === 'exclude' ? '−' : '';
+                    if (next === 'none') delete states[key];
+                    else states[key] = next;
+                    updateToggleLabel();
                     applyFiltersPreservingScroll();
                 });
-                label.appendChild(checkbox);
-                label.appendChild(document.createTextNode(' ' + v));
-                menu.appendChild(label);
+                menu.appendChild(option);
             });
             toggle.addEventListener('click', function (event) {
                 event.stopPropagation();
                 menu.hidden = !menu.hidden;
             });
-            modeToggle.addEventListener('click', function () {
-                exclude = !exclude;
-                modeToggle.textContent = exclude ? 'Alles behalve' : 'Selecteren';
-                applyFiltersPreservingScroll();
-            });
             wrapper.appendChild(toggle);
-            wrapper.appendChild(modeToggle);
             wrapper.appendChild(menu);
             control = {
                 element: wrapper,
-                selected: function () {
-                    return Array.prototype.slice.call(menu.querySelectorAll('input[type="checkbox"]:checked')).map(function (input) {
-                        return input.value.trim().toLowerCase();
-                    });
+                // Named avbkMatches, not matches — Element.prototype.matches()
+                // is a native DOM method every plain <input> already has, so
+                // "typeof control.matches === 'function'" was true for those
+                // too and wrongly routed them into this branch.
+                // A row is visible if it has no values matching any
+                // 'exclude', and — only when at least one 'include' is
+                // set anywhere — it matches at least one of those.
+                avbkMatches: function (cellValues) {
+                    var hasInclude = false;
+                    for (var key in states) {
+                        if (states[key] === 'include') { hasInclude = true; break; }
+                    }
+                    var matchesInclude = !hasInclude;
+                    for (var i = 0; i < cellValues.length; i++) {
+                        var v = cellValues[i];
+                        if (states[v] === 'exclude') return false;
+                        if (states[v] === 'include') matchesInclude = true;
+                    }
+                    return matchesInclude;
                 },
-                excludes: function () { return exclude; }
+                splitValues: splitValues
             };
             filterTh.appendChild(wrapper);
         } else {
@@ -150,14 +194,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 var idx = parseInt(idxStr, 10);
                 var control = filters[idx];
                 var cell = row.children[idx];
-                var cellText = (cell.dataset.filterValue || cell.textContent).trim().toLowerCase();
-                if (control && typeof control.selected === 'function') {
-                    var selected = control.selected();
-                    if (selected.length) {
-                        var isSelected = selected.indexOf(cellText) !== -1;
-                        if ((!control.excludes() && !isSelected) || (control.excludes() && isSelected)) visible = false;
-                    }
+                if (control && typeof control.avbkMatches === 'function') {
+                    var cellValues = control.splitValues(cell).map(function (v) { return v.toLowerCase(); });
+                    if (!control.avbkMatches(cellValues)) visible = false;
                 } else {
+                    var cellText = (cell.dataset.filterValue || cell.textContent).trim().toLowerCase();
                     var filterVal = control.value.trim().toLowerCase();
                     if (filterVal && cellText.indexOf(filterVal) === -1) visible = false;
                 }
