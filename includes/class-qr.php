@@ -188,7 +188,7 @@ class AVBK_QR {
 
     /** Convenience: a single fee item's own QR (e.g. a congress registration) rather than the member's whole balance — null if it's already fully paid or settings are incomplete. */
     public static function for_fee_item(int $member_id, object $fee_item): ?string {
-        $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
+        $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
         if ($remaining <= 0) {
             return null;
         }
@@ -198,7 +198,7 @@ class AVBK_QR {
 
     /** Same exact fee-item payload as for_fee_item(), encoded as PNG bytes for e-mail embedding. */
     public static function png_for_fee_item(int $member_id, object $fee_item): ?string {
-        $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
+        $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
         if ($remaining <= 0) {
             return null;
         }

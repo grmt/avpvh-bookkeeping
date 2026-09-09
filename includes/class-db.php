@@ -1024,8 +1024,7 @@ class AVBK_DB {
             return $detail;
         }
         $detail['found'] = true;
-        $paid = self::get_fee_item_paid((int) $item->id);
-        $detail['share'] = round((float) $item->amount_due - $paid, 2);
+        $detail['share'] = self::get_fee_item_remaining($item);
         if (!empty($item->is_estimated)) {
             $reason = $item->estimate_reason ?: 'Geschat bedrag.';
             $detail['estimated_warning'] = !str_starts_with($reason, 'Alleen geboortejaar ');
@@ -1392,6 +1391,23 @@ class AVBK_DB {
         ));
     }
 
+    /**
+     * A fee item's outstanding balance: 0 for a waived item (regardless of
+     * amount_due/paid — see get_member_balance()'s original handling of
+     * this, the one caller among the ~10 duplicates of this formula that
+     * actually checked waived status), otherwise amount_due minus what's
+     * been paid. Pass an object that already carries a numeric ->paid
+     * (e.g. from get_member_balance()'s own JOIN) to skip a fresh query;
+     * without one, get_fee_item_paid() is called for you.
+     */
+    public static function get_fee_item_remaining(object $fee_item): float {
+        if (($fee_item->status ?? '') === 'waived') {
+            return 0.0;
+        }
+        $paid = isset($fee_item->paid) ? (float) $fee_item->paid : self::get_fee_item_paid((int) $fee_item->id);
+        return round((float) $fee_item->amount_due - $paid, 2);
+    }
+
     /** Earlier transactions that already paid a fee item, for the review queue's explanatory hotlinks when the remaining amount is zero. */
     public static function get_payments_for_fee_item(int $fee_item_id): array {
         global $wpdb;
@@ -1498,7 +1514,7 @@ class AVBK_DB {
         $total_paid = 0.0;
         foreach ($items as $item) {
             $item->paid = (float) $item->paid;
-            $item->remaining = $item->status === 'waived' ? 0.0 : round((float) $item->amount_due - $item->paid, 2);
+            $item->remaining = self::get_fee_item_remaining($item);
             if ($item->status !== 'waived') {
                 $total_due += (float) $item->amount_due;
                 $total_paid += $item->paid;
@@ -2705,6 +2721,140 @@ class AVBK_DB {
              GROUP BY iban ORDER BY created_at DESC",
             $household_ids
         ));
+    }
+
+    /**
+     * Unlike get_known_ibans_for_member(), no household expansion — just
+     * this member's own directly-attributed IBANs. Attribution is already
+     * correct at the source (a parent paying for a child's fee gets
+     * remember_iban()'d against the child, not the parent — see
+     * AVBK_Import's confirm-handler), so showing a participant's own
+     * account(s) here (e.g. the "Bank(en)" column on Activiteit
+     * betalingen) shouldn't also surface a parent's or housemate's
+     * unrelated account just because they share an address.
+     * @return object[] Each with ->iban and ->account_name.
+     */
+    public static function get_own_known_ibans(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
+             FROM {$wpdb->prefix}avb_known_ibans WHERE member_id = %d
+             GROUP BY iban ORDER BY created_at DESC",
+            $member_id
+        ));
+    }
+
+    /**
+     * Dutch bank code (IBAN characters 5-8, e.g. "INGB") -> the bank's
+     * usual short name — for filtering/display only, not matching logic.
+     * Not exhaustive, just the banks actually likely to show up among
+     * members; an unrecognised code (or a non-NL IBAN, where this
+     * position isn't a bank code at all) falls back to the raw 4 letters
+     * in iban_bank_name() below rather than guessing.
+     */
+    const IBAN_BANK_NAMES = [
+        'INGB' => 'ING',
+        'RABO' => 'Rabobank',
+        'ABNA' => 'ABN AMRO',
+        'TRIO' => 'Triodos Bank',
+        'SNSB' => 'SNS Bank',
+        'ASNB' => 'ASN Bank',
+        'RBRB' => 'RegioBank',
+        'KNAB' => 'Knab',
+        'BUNQ' => 'bunq',
+        'FVLB' => 'Van Lanschot',
+        'REVO' => 'Revolut',
+    ];
+
+    /**
+     * Belgian bank code (IBAN characters 5-7, e.g. "731" — 3 numeric
+     * digits, unlike NL's 4-letter code at the same position) -> bank
+     * name, as [min, max, name] ranges. Sourced from the National Bank
+     * of Belgium's own registry (nbb.be, "Bank identification codes"),
+     * restricted to the major retail banks actually likely to show up
+     * among members — that registry runs 000-999 and includes dozens of
+     * niche forex/payment-service entries irrelevant here. An unmatched
+     * code falls back to the raw 3 digits, same as an unrecognised NL one.
+     */
+    const IBAN_BE_BANK_RANGES = [
+        [694, 694, 'Deutsche Bank'],
+        [700, 709, 'Crelan'],
+        [719, 722, 'ABN AMRO'],
+        [725, 727, 'KBC Bank'],
+        [728, 729, 'CBC Banque'],
+        [730, 731, 'KBC Bank'],
+        [732, 732, 'CBC Banque'],
+        [733, 741, 'KBC Bank'],
+        [742, 742, 'CBC Banque'],
+        [743, 749, 'KBC Bank'],
+        [750, 765, 'Crelan'],
+        [772, 774, 'Crelan'],
+        [775, 799, 'Belfius'],
+        [800, 806, 'Crelan'],
+        [824, 824, 'ING België'],
+        [825, 826, 'Deutsche Bank'],
+        [828, 828, 'ING België'],
+        [830, 839, 'Belfius'],
+        [845, 845, 'Bank Degroof Petercam'],
+        [850, 853, 'Crelan'],
+        [859, 866, 'Crelan'],
+        [868, 868, 'KBC Bank'],
+        [871, 871, 'Bank Nagelmackers'],
+        [873, 873, 'bpost bank'],
+        [876, 876, 'MeDirect Bank'],
+        [877, 879, 'Bank Nagelmackers'],
+        [880, 881, 'ING België'],
+        [883, 884, 'ING België'],
+        [887, 888, 'ING België'],
+        [890, 899, 'vdk bank'],
+        [910, 910, 'ING België'],
+        [920, 920, 'ING België'],
+        [922, 923, 'ING België'],
+        [929, 931, 'ING België'],
+        [934, 934, 'ING België'],
+        [936, 936, 'ING België'],
+        [939, 939, 'ING België'],
+        [950, 959, 'Beobank'],
+        [960, 960, 'ABN AMRO'],
+        [961, 961, 'ING België'],
+        [963, 963, 'Crelan'],
+        [971, 971, 'ING België'],
+        [973, 973, 'Argenta Spaarbank'],
+        [975, 975, 'Crelan'],
+        [976, 976, 'ING België'],
+        [978, 980, 'Argenta Spaarbank'],
+        [981, 984, 'bpost bank'],
+    ];
+
+    /** First two letters of an IBAN — its country code (e.g. "NL"), empty for anything too short to have one. */
+    public static function iban_country(string $iban): string {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        return mb_strlen($iban) >= 2 ? substr($iban, 0, 2) : '';
+    }
+
+    /**
+     * Readable bank name for an IBAN. NL uses a 4-letter code right
+     * after the 2 check digits (IBAN_BANK_NAMES); BE uses a 3-digit
+     * numeric one in the same position (IBAN_BE_BANK_RANGES) — anything
+     * else falls back to the raw code fragment rather than guessing at
+     * a format this hasn't been taught. Empty if too short to have one.
+     */
+    public static function iban_bank_name(string $iban): string {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        if (mb_strlen($iban) < 7) {
+            return '';
+        }
+        if (self::iban_country($iban) === 'BE') {
+            $code = (int) substr($iban, 4, 3);
+            foreach (self::IBAN_BE_BANK_RANGES as [$min, $max, $name]) {
+                if ($code >= $min && $code <= $max) {
+                    return $name;
+                }
+            }
+            return substr($iban, 4, 3);
+        }
+        $code = substr($iban, 4, 4);
+        return self::IBAN_BANK_NAMES[$code] ?? $code;
     }
 
     // -------------------------------------------------------------------

@@ -248,7 +248,7 @@ class AVBK_Import {
             if ($closed_through_year && AVBK_DB::fee_item_book_year($item) <= $closed_through_year) {
                 return []; // an old QR is revoked as soon as its book year is closed
             }
-            $remaining = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            $remaining = AVBK_DB::get_fee_item_remaining($item);
             if ($remaining <= 0.005) {
                 return [];
             }
@@ -572,7 +572,7 @@ class AVBK_Import {
         $due = 0.0;
         foreach (AVBK_DB::get_open_fee_items_for_member($member_id) as $item) {
             if ((int) $item->activity_id === $activity_id) {
-                $due += max(0, round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2));
+                $due += max(0, AVBK_DB::get_fee_item_remaining($item));
             }
         }
         return round($due, 2);
@@ -626,7 +626,7 @@ class AVBK_Import {
             if ($remaining <= 0) {
                 break;
             }
-            $due_left = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            $due_left = AVBK_DB::get_fee_item_remaining($item);
             if ($due_left <= 0) {
                 continue;
             }
@@ -661,7 +661,7 @@ class AVBK_Import {
             if ($remaining <= 0) {
                 break;
             }
-            $due_left = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            $due_left = AVBK_DB::get_fee_item_remaining($item);
             if ($due_left <= 0) {
                 continue;
             }
