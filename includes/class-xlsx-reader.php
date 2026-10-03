@@ -18,6 +18,46 @@ class AVBK_Xlsx_Reader {
     // XPath always means "no namespace", so `xpath('.//t')` silently
     // matches nothing here. children($ns) is what actually works.
     private const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    private const DOCUMENT_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+    /**
+     * Read one specifically named worksheet as sparse, position-indexed rows.
+     * Row keys are Excel's real 1-based row numbers; cell keys are zero-based
+     * columns (A=0). Used by the fixed-layout camp importer, whose workbook
+     * contains several sheets and whose first sheet may be an obsolete copy.
+     */
+    public static function read_named_rows(string $path, string $sheet_name): array {
+        if (!class_exists('ZipArchive')) {
+            throw new \RuntimeException('ZipArchive-extensie is niet beschikbaar.');
+        }
+        $zip = new \ZipArchive();
+        if ($zip->open($path) !== true) {
+            throw new \RuntimeException('Kan het xlsx-bestand niet openen.');
+        }
+        try {
+            $shared = self::read_shared_strings($zip);
+            $sheet_path = self::named_sheet_path($zip, $sheet_name);
+            $sheet_xml = $zip->getFromName($sheet_path);
+        } finally {
+            $zip->close();
+        }
+        if ($sheet_xml === false || $sheet_xml === null) {
+            throw new \RuntimeException('Het werkbladbestand ontbreekt in het xlsx-bestand.');
+        }
+        $sheet = simplexml_load_string($sheet_xml);
+        if ($sheet === false) {
+            throw new \RuntimeException('Kan het werkblad niet lezen (ongeldige XML).');
+        }
+        $rows = [];
+        foreach ($sheet->sheetData->row as $row) {
+            $row_number = (int) $row['r'];
+            foreach ($row->c as $cell) {
+                $reference = (string) $cell['r'];
+                $rows[$row_number][self::column_index($reference)] = self::cell_value($cell, $shared);
+            }
+        }
+        return $rows;
+    }
 
     /**
      * @return array{headers: string[], rows: array<int, array<string, string>>, header_cells: array<int, string>, preview_rows: array<int, array{row_number:int,cells:array}>}
@@ -170,6 +210,45 @@ class AVBK_Xlsx_Reader {
             }
         }
         return false;
+    }
+
+    private static function named_sheet_path(\ZipArchive $zip, string $wanted_name): string {
+        $workbook_xml = $zip->getFromName('xl/workbook.xml');
+        $relationships_xml = $zip->getFromName('xl/_rels/workbook.xml.rels');
+        if ($workbook_xml === false || $relationships_xml === false) {
+            throw new \RuntimeException('De werkmapstructuur ontbreekt in het xlsx-bestand.');
+        }
+        $workbook = simplexml_load_string($workbook_xml);
+        $relationships = simplexml_load_string($relationships_xml);
+        if ($workbook === false || $relationships === false) {
+            throw new \RuntimeException('Kan de werkmapstructuur niet lezen.');
+        }
+
+        $relationship_id = '';
+        foreach ($workbook->sheets->sheet as $sheet) {
+            if (strtolower(trim((string) $sheet['name'])) !== strtolower(trim($wanted_name))) {
+                continue;
+            }
+            $relationship_attributes = $sheet->attributes(self::DOCUMENT_REL_NS);
+            $relationship_id = (string) ($relationship_attributes['id'] ?? '');
+            break;
+        }
+        if ($relationship_id === '') {
+            throw new \RuntimeException('Werkblad "' . $wanted_name . '" is niet gevonden.');
+        }
+
+        foreach ($relationships->Relationship as $relationship) {
+            if ((string) $relationship['Id'] !== $relationship_id) {
+                continue;
+            }
+            $target = str_replace('\\', '/', (string) $relationship['Target']);
+            $path = str_starts_with($target, '/') ? ltrim($target, '/') : 'xl/' . ltrim($target, '/');
+            if (str_contains($path, '..') || !str_starts_with($path, 'xl/worksheets/')) {
+                throw new \RuntimeException('Ongeldig werkbladpad in het xlsx-bestand.');
+            }
+            return $path;
+        }
+        throw new \RuntimeException('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.');
     }
 
     private static function read_shared_strings(\ZipArchive $zip): array {
