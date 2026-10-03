@@ -2973,7 +2973,7 @@ class AVBK_DB {
 
     /**
      * Resolves a registrant to an avm_members row: exact e-mail match wins
-     * (strongest signal — LLDAP e-mail addresses are globally unique), then
+     * (strongest signal — directory e-mail addresses are globally unique), then
      * an exact case-insensitive first+last name match. A single name match
      * also gets the submitted e-mail linked as a new identity so the
      * registrant can log in with it (OAuth or otherwise) afterwards without
@@ -3011,15 +3011,15 @@ class AVBK_DB {
         $base_uid = preg_replace('/[^a-z0-9._-]/', '.', strtolower("{$first_name}.{$last_name}"));
         $uid = $base_uid;
         $n = 1;
-        while (AVPVH_LLDAP::get_user_display_name($uid) !== null) {
+        while (AVPVH_Directory::user_exists($uid)) {
             $n++;
             $uid = "{$base_uid}{$n}";
         }
         $display_name = trim(preg_replace('/\s+/', ' ', "{$first_name} {$suffix} {$last_name}"));
 
-        $created = AVPVH_LLDAP::create_user($uid, $email, $display_name);
+        $created = AVPVH_Directory::create_user($uid, $email, $display_name);
         if (is_wp_error($created)) {
-            // The registration itself must still succeed even if the LLDAP
+            // The registration itself must still succeed even if the directory
             // write fails (e.g. e-mail already claimed by an account with no
             // matching avm_members row) — record it unlinked so the
             // treasurer can create/link the member by hand.
