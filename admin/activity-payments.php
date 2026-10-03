@@ -6,17 +6,29 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 $activities = AVPVH_DB::get_activities();
 $activity_id = (int) ($_GET['activity_id'] ?? 0);
-if (!$activity_id) {
-    $current = AVPVH_DB::get_current_activity();
-    $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
+$current_user_id = get_current_user_id();
+if ($activity_id) {
+    // Remember per-admin so the page reopens on whichever activity this
+    // user last looked at, instead of always falling back to "current".
+    update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
+} else {
+    $remembered_id = (int) get_user_meta($current_user_id, 'avbk_last_activity_payments_id', true);
+    $remembered_exists = $remembered_id && array_filter($activities, fn($a) => (int) $a->id === $remembered_id);
+    if ($remembered_exists) {
+        $activity_id = $remembered_id;
+    } else {
+        $current = AVPVH_DB::get_current_activity();
+        $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
+    }
 }
 $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+$is_camp = $activity && ($activity->type_name ?? '') === 'Kamp';
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
 $import_result = get_transient(AVBK_Sheet_Import::result_transient_key($activity_id));
 $participants = $activity_id ? AVPVH_DB::get_participation_for_activity($activity_id) : [];
-$preview_result = $activity_id
+$preview_result = $activity_id && !$is_camp
     ? AVBK_Sheet_Import::fetch_preview($config['sheet_url'], (int) $config['header_row'])
-    : ['headers' => [], 'rows' => [], 'error' => null];
+    : ['headers' => [], 'rows' => [], 'raw_rows' => [], 'error' => null];
 $headers_result = ['headers' => $preview_result['headers'], 'error' => $preview_result['error']];
 // A live sheet-link fetch wins when there is one; otherwise fall back to
 // whatever the last successful fetch/upload saw, so a file-upload-only
@@ -34,7 +46,7 @@ foreach ($raw_preview_rows as $preview_row) {
 ?>
 <div class="wrap">
     <h1>Activiteit betalingen</h1>
-    <p class="description">Voor een activiteit waarvan de aanmeldingen via een extern Google Form binnenkomen (in plaats van via deze plugin) — elke herkende aanmelding wordt verwerkt als een gewone deelname + bijdrage, net als bij Kamp/Weekend/etc.</p>
+    <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
     <form method="get" style="margin-bottom:1rem">
         <input type="hidden" name="page" value="avbk-activity-payments">
@@ -70,6 +82,27 @@ foreach ($raw_preview_rows as $preview_row) {
         <?php endif; ?>
 
         <h2>Aanmeldingen &mdash; bron</h2>
+        <?php if ($is_camp) : ?>
+            <p class="description">
+                Voor een kamp wordt automatisch de speciale indeling van het werkblad
+                <code>totaal inschrijvingen</code> gebruikt. Je hoeft daarom geen kopregel of kolomindeling in te stellen.
+                Namen staan in D, kampdagen in E–T en nawacht, opmerkingen en dieet in W–Z.
+            </p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" style="margin:1rem 0 1.5rem">
+                <?php wp_nonce_field('avbk_sheet_import_upload'); ?>
+                <input type="hidden" name="action" value="avbk_sheet_import_upload">
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <div class="avbk-dropzone" tabindex="0" style="max-width:32em">
+                    <span class="avbk-dropzone-text">Sleep het bijgewerkte kampbestand (.xlsx) hierheen, of klik om te kiezen</span>
+                    <input type="file" name="sheet_file" accept=".xlsx" required>
+                </div>
+                <p class="description">
+                    Herkende deelnemers en hun dagen worden bijgewerkt; de kampperiode volgt de datums in het bestand.
+                    Niet-herkende namen komen hieronder ter beoordeling. Deelnemers die niet meer in het bestand staan worden niet automatisch verwijderd.
+                </p>
+                <?php submit_button('Kampbestand verwerken', 'primary', 'submit', false); ?>
+            </form>
+        <?php else : ?>
         <p class="description">
             De aanmeldingen komen ofwel uit een <strong>live Google Sheet-link</strong> (kies dit als het Google
             Form/Sheet blijft bestaan — elke keer op "Ververs" klikken haalt de nieuwste stand op), ofwel uit een
@@ -282,6 +315,7 @@ foreach ($raw_preview_rows as $preview_row) {
             })();
             </script>
         <?php endif; ?>
+        <?php endif; ?>
 
         <?php if ($import_result) : ?>
             <?php if ($import_result['errors']) : ?>
@@ -289,6 +323,9 @@ foreach ($raw_preview_rows as $preview_row) {
             <?php else : ?>
                 <div class="notice notice-success">
                     <p><?php echo esc_html(count($import_result['matched'])); ?> persoon/personen verwerkt<?php echo $import_result['unmatched'] ? ', ' . esc_html(count($import_result['unmatched'])) . ' niet herkend (zie hieronder)' : ''; ?>.</p>
+                    <?php if (!empty($import_result['camp'])) : ?>
+                        <p>Kampperiode: <?php echo esc_html($import_result['camp']['start_date']); ?> t/m <?php echo esc_html($import_result['camp']['end_date']); ?>.</p>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -309,6 +346,10 @@ foreach ($raw_preview_rows as $preview_row) {
                             <input type="hidden" name="amount" value="<?php echo esc_attr($person['amount'] ?? 0); ?>">
                             <input type="hidden" name="registered_at" value="<?php echo esc_attr($person['registered_at'] ?? ''); ?>">
                             <input type="hidden" name="source_timestamp" value="<?php echo esc_attr($person['source_timestamp'] ?? ''); ?>">
+                            <?php if (isset($person['camp_days'])) : ?>
+                                <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
+                                <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
+                            <?php endif; ?>
                             <label style="display:block;margin:.4rem 0"><input type="search" class="avbk-unmatched-member-search" placeholder="Zoek lid, bijv. paul" style="width:20em"></label>
                             <label style="display:block;margin:.4rem 0"><input type="checkbox" class="avbk-show-inactive-members"> Toon inactieve leden</label>
                             <select name="member_id" class="avbk-unmatched-member-select" required>
@@ -376,9 +417,6 @@ foreach ($raw_preview_rows as $preview_row) {
         <h2>Deelnemers <?php echo esc_html($activity->name); ?> (<?php echo esc_html(count($participants)); ?>)</h2>
         <p class="description">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
         <p class="description"><strong>Ingeschreven op</strong> is uitsluitend de oorspronkelijke formulierdatum van een daadwerkelijke deelname aan deze activiteit. Er wordt geen datum uit een betaling, ledenrecord of koppelactiviteit afgeleid.</p>
-        <?php if (empty($config['timestamp_column'])) : ?>
-            <div class="notice notice-warning inline"><p>Er is geen kolom voor de inschrijfdatum gekozen. Selecteer bij Kolomindeling de kolom “Timestamp” of “Tijdstempel” en verwerk de Sheet opnieuw.</p></div>
-        <?php endif; ?>
         <?php if (isset($_GET['payment_requested'])) : ?>
             <div class="notice notice-success is-dismissible"><p>Betaalverzoek verstuurd.</p></div>
         <?php elseif (isset($_GET['payment_request_failed'])) : ?>
@@ -396,6 +434,9 @@ foreach ($raw_preview_rows as $preview_row) {
             <table id="avbk-balance-table" data-storage-key="avbk_activity_payments_hidden_cols_<?php echo esc_attr($activity_id); ?>" class="wp-list-table widefat striped avbk-balance-table">
                 <thead><tr class="avbk-balance-header-row">
                     <th data-col="naam">Naam</th>
+                    <th data-col="bank" class="avbk-col-optional">Bank(en)</th>
+                    <th data-col="bank_naam" data-filter="select" class="avbk-col-optional">Bank</th>
+                    <th data-col="land" data-filter="select" class="avbk-col-optional">Land</th>
                     <th data-col="ingeschreven" data-filter="select">Ingeschreven op</th>
                     <th data-col="allergieen" class="avbk-col-optional">Allergieën</th>
                     <th data-col="notities" class="avbk-col-optional">Notities</th>
@@ -418,8 +459,25 @@ foreach ($raw_preview_rows as $preview_row) {
                         ? $registration_meta->registered_at
                         : ($registration_meta->source_timestamp ?? '');
                     ?>
+                    <?php
+                    $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
+                    // Almost every participant has at most one account, so
+                    // this joined string is also each one's clean, single
+                    // filter value in the common case; someone with two
+                    // different banks just gets their own combined option
+                    // in the filter list rather than silently hiding one.
+                    $bank_names = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_bank_name($k->iban), $known_ibans)));
+                    $countries = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_country($k->iban), $known_ibans)));
+                    ?>
                     <tr>
                         <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avpvh-member-detail', 'id' => $p->member_id], admin_url('admin.php'))); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($p, 'list')); ?></a></td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', wp_list_pluck($known_ibans, 'iban'))); ?>">
+                            <?php if (!$known_ibans) : ?>&mdash;<?php else : foreach ($known_ibans as $known) : ?>
+                                <div><?php echo esc_html($known->iban); ?><?php echo $known->account_name ? ' (' . esc_html($known->account_name) . ')' : ''; ?></div>
+                            <?php endforeach; endif; ?>
+                        </td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', $bank_names)); ?>"><?php echo esc_html($bank_names ? implode(', ', $bank_names) : '—'); ?></td>
+                        <td data-filter-value="<?php echo esc_attr(implode(', ', $countries)); ?>"><?php echo esc_html($countries ? implode(', ', $countries) : '—'); ?></td>
                         <td style="white-space:nowrap" data-sort-value="<?php echo esc_attr($registration_sort); ?>" data-filter-value="<?php echo esc_attr($registration_meta && ($registration_meta->registered_at || $registration_meta->source_timestamp) ? 'Datum bekend' : 'Geen datum'); ?>">
                             <?php if ($registration_meta && $registration_meta->registered_at) : ?>
                                 <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($registration_meta->registered_at))); ?>
@@ -455,16 +513,36 @@ foreach ($raw_preview_rows as $preview_row) {
                                     <input type="hidden" name="member_id" value="<?php echo esc_attr($p->member_id); ?>">
                                     <?php submit_button($payment_request ? 'Opnieuw vragen' : 'Vraag om betaling', 'secondary small', 'submit', false); ?>
                                 </form>
+                                <?php
+                                $preview_email_url = wp_nonce_url(
+                                    add_query_arg(
+                                        ['action' => 'avbk_preview_request_payment_email', 'activity_id' => $activity_id, 'member_id' => $p->member_id],
+                                        admin_url('admin-post.php')
+                                    ),
+                                    'avbk_preview_request_payment_email'
+                                );
+                                ?>
+                                <a href="<?php echo esc_url($preview_email_url); ?>" target="_blank" rel="noopener" class="button button-secondary button-small" style="margin-left:.3em">Vraag om betaling en voeg nog iets toe</a>
+                                <?php
+                                $preview_url = wp_nonce_url(
+                                    add_query_arg(
+                                        ['action' => 'avbk_preview_payment_request', 'activity_id' => $activity_id, 'member_id' => $p->member_id],
+                                        admin_url('admin-post.php')
+                                    ),
+                                    'avbk_preview_payment_request'
+                                );
+                                ?>
+                                <a href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener" class="button button-secondary button-small" style="margin-left:.3em">Toon QR</a>
                             <?php endif; ?>
                             <?php if ($payment_request) : ?>
-                                <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($payment_request->requested_at))); ?></div>
+                                <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(mysql2date('d-m-Y H:i', $payment_request->requested_at)); ?></div>
                             <?php elseif ($remaining <= 0.005) : ?>&mdash;<?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
                 <tfoot><tr>
-                    <th>Totaal</th><th></th><th></th><th></th>
+                    <th>Totaal</th><th></th><th></th><th></th><th></th><th></th><th></th>
                     <th data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></th>
                     <th data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></th>
                     <th></th>

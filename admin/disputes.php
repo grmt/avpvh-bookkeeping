@@ -61,7 +61,7 @@ $resolved = AVBK_DB::get_disputes('resolved');
                     <td style="white-space:nowrap"><?php echo esc_html(wp_date('D d M Y H:i', strtotime($dispute->created_at))); ?></td>
                     <td><?php echo $member ? esc_html(avpvh_format_name($member, 'list')) : '&mdash;'; ?></td>
                     <td><?php echo nl2br(esc_html($dispute->message)); ?></td>
-                    <td style="white-space:nowrap"><?php echo $dispute->resolved_at ? esc_html(wp_date('D d M Y', strtotime($dispute->resolved_at))) : '&mdash;'; ?></td>
+                    <td style="white-space:nowrap"><?php echo $dispute->resolved_at ? esc_html(mysql2date('D d M Y', $dispute->resolved_at)) : '&mdash;'; ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

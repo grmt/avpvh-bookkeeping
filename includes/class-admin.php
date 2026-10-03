@@ -4,6 +4,7 @@ defined('ABSPATH') || exit;
 class AVBK_Admin {
 
     public const DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT = "Inloggen: gebruik als gebruikersnaam je e-mailadres. Als je nog niet eerder bent ingelogd of je je wachtwoord niet weet, klik dan [wachtwoord-link].\n\nAls je met je browser al bent ingelogd bij Google (Gmail) of Microsoft (Outlook/Hotmail), kun je ook de knop Inloggen met Google respectievelijk Inloggen met Microsoft proberen. Dan heb je geen (nieuw) wachtwoord nodig. Het e-mailadres moet wel overeenkomen met het adres dat bij de vereniging bekend is.";
+    public const DEFAULT_QR_CAPTION_TEXT = 'Scan deze QR-code met je bankieren-app:';
 
     public function __construct() {
         add_action('admin_menu', [$this, 'register_menus'], 5);
@@ -33,6 +34,8 @@ class AVBK_Admin {
         add_action('admin_post_avbk_sheet_import_link_attendee',     [$this, 'handle_sheet_import_link_attendee']);
         add_action('admin_post_avbk_sheet_import_ignore_attendee',   [$this, 'handle_sheet_import_ignore_attendee']);
         add_action('admin_post_avbk_request_payment',                [$this, 'handle_request_payment']);
+        add_action('admin_post_avbk_preview_request_payment_email',  [$this, 'handle_preview_request_payment_email']);
+        add_action('admin_post_avbk_preview_payment_request',        [$this, 'handle_preview_payment_request']);
         add_action('admin_post_avbk_request_balance_payment',        [$this, 'handle_request_balance_payment']);
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
         add_action('admin_post_avbk_save_review_order',              [$this, 'handle_save_review_order']);
@@ -41,6 +44,10 @@ class AVBK_Admin {
         add_action('admin_post_avbk_revert_transaction_to_review',   [$this, 'handle_revert_transaction_to_review']);
         add_action('admin_post_avbk_revert_year_payments_to_review', [$this, 'handle_revert_year_payments_to_review']);
         add_action('admin_post_avbk_set_closed_through_year',        [$this, 'handle_set_closed_through_year']);
+        add_action('admin_post_avbk_save_activity_payment_url',      [$this, 'handle_save_activity_payment_url']);
+        add_action('admin_post_avbk_save_activity_payment_qr',       [$this, 'handle_save_activity_payment_qr']);
+        add_action('admin_post_avbk_delete_activity_payment_url',    [$this, 'handle_delete_activity_payment_url']);
+        add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
     }
@@ -48,6 +55,11 @@ class AVBK_Admin {
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
     private function can_manage(): bool {
         return current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('penningmeester');
+    }
+
+    private function is_camp_activity(int $activity_id): bool {
+        $activity = $activity_id > 0 ? AVPVH_DB::get_activity($activity_id) : null;
+        return $activity && ($activity->type_name ?? '') === 'Kamp';
     }
 
     public function register_menus(): void {
@@ -550,6 +562,9 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($this->is_camp_activity($activity_id)) {
+            wp_die('Voor een kamp wordt de speciale kampimport gebruikt; een generieke sheet-link is niet van toepassing.', 400);
+        }
         if ($activity_id) {
             $config = AVBK_Sheet_Import::get_config($activity_id);
             $old_header_row = max(1, (int) $config['header_row']);
@@ -627,6 +642,9 @@ class AVBK_Admin {
             wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments'], admin_url('admin.php')));
             exit;
         }
+        if ($this->is_camp_activity($activity_id)) {
+            wp_die('Voor een kamp is geen generieke kolomindeling nodig.', 400);
+        }
         $config = AVBK_Sheet_Import::get_config($activity_id);
         $posted_header_row = max(1, (int) ($_POST['header_row'] ?? $config['header_row']));
         $config['last_data_row'] = max(0, (int) ($_POST['last_data_row'] ?? ($config['last_data_row'] ?? 0)));
@@ -679,29 +697,42 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
-        $result = $activity_id
-            ? AVBK_Sheet_Import::import($activity_id)
-            : ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+        if (!$activity_id) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+        } elseif ($this->is_camp_activity($activity_id)) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Upload voor een kamp het speciale .xlsx-kampbestand.']];
+        } else {
+            $result = AVBK_Sheet_Import::import($activity_id);
+        }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
         exit;
     }
 
-    /** Same as handle_sheet_import(), but from a one-off .xlsx upload instead of the configured Google Sheet link — for a sign-up source with no shareable live link. */
+    /** Upload route: fixed camp parser for Kamp, configurable parser for every other activity type. */
     public function handle_sheet_import_upload(): void {
         check_admin_referer('avbk_sheet_import_upload');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
-        if (empty($_FILES['sheet_file']['tmp_name']) || !is_uploaded_file($_FILES['sheet_file']['tmp_name'])) {
+        $file = $_FILES['sheet_file'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as a PHP upload; cell values are sanitized by the selected importer
+        if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen bestand geüpload.']];
+        } elseif (strtolower(pathinfo(sanitize_file_name((string) ($file['name'] ?? '')), PATHINFO_EXTENSION)) !== 'xlsx') {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Gebruik een .xlsx-bestand. Sla een oud .xls-bestand eerst op als .xlsx.']];
+        } elseif ((int) ($file['size'] ?? 0) <= 0 || (int) ($file['size'] ?? 0) > 20 * MB_IN_BYTES) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Het xlsx-bestand is leeg of groter dan 20 MB.']];
         } else {
             // Never moved into wp-content/uploads — read once from PHP's own
             // private upload tmp path, same as the bank-export upload.
-            $result = $activity_id
-                ? AVBK_Sheet_Import::import($activity_id, $_FILES['sheet_file']['tmp_name'])
-                : ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+            if (!$activity_id) {
+                $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+            } elseif ($this->is_camp_activity($activity_id)) {
+                $result = AVBK_Camp_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
+            } else {
+                $result = AVBK_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
+            }
         }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
@@ -719,6 +750,7 @@ class AVBK_Admin {
         $email_added = null;
         $linked = false;
         if ($member_id && $activity_id && AVPVH_DB::get_member($member_id)) {
+            $is_camp = $this->is_camp_activity($activity_id);
             $source_name = sanitize_text_field(wp_unslash($_POST['source_name'] ?? ''));
             $source_email = sanitize_text_field(wp_unslash($_POST['source_email'] ?? ''));
             AVBK_Sheet_Import::remember_match($activity_id, $source_name, $source_email, $member_id);
@@ -726,23 +758,36 @@ class AVBK_Admin {
                 $email = sanitize_email($source_email);
                 $email_added = $email !== '' && AVPVH_DB::ensure_identity($member_id, 'email', $email);
             }
-            AVPVH_DB::save_participation($member_id, $activity_id, [
-                'nights'  => null,
-                'nawacht' => false,
-                'diet'    => sanitize_text_field(wp_unslash($_POST['allergies'] ?? '')),
-                'notes'   => sanitize_text_field(wp_unslash($_POST['notes'] ?? '')),
+            $camp_days = [];
+            if ($is_camp) {
+                $posted_days = json_decode(wp_unslash($_POST['camp_days'] ?? ''), true);
+                foreach (is_array($posted_days) ? $posted_days : [] as $date => $status) {
+                    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) {
+                        $camp_days[(string) $date] = substr(sanitize_text_field((string) $status), 0, 10);
+                    }
+                }
+            }
+            $participation_id = AVPVH_DB::save_participation($member_id, $activity_id, [
+                'nights'  => $is_camp ? count(array_filter($camp_days, fn($status) => strtolower($status) === 'n')) : null,
+                'nawacht' => $is_camp && !empty($_POST['camp_nawacht']),
+                'diet'    => sanitize_textarea_field(wp_unslash($_POST['allergies'] ?? '')),
+                'notes'   => sanitize_textarea_field(wp_unslash($_POST['notes'] ?? '')),
             ]);
-            AVBK_DB::save_sheet_participation_meta(
-                $activity_id,
-                $member_id,
-                sanitize_text_field(wp_unslash($_POST['registered_at'] ?? '')) ?: null,
-                sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? ''))
-            );
-            $config = AVBK_Sheet_Import::get_config($activity_id);
-            $row_amount = (float) ($_POST['amount'] ?? 0);
-            $amount = $row_amount > 0 ? $row_amount : (float) $config['price_per_person'];
-            if ($amount > 0) {
-                AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
+            if ($is_camp) {
+                AVPVH_DB::save_participation_days($participation_id, $camp_days);
+            } else {
+                AVBK_DB::save_sheet_participation_meta(
+                    $activity_id,
+                    $member_id,
+                    sanitize_text_field(wp_unslash($_POST['registered_at'] ?? '')) ?: null,
+                    sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? ''))
+                );
+                $config = AVBK_Sheet_Import::get_config($activity_id);
+                $row_amount = (float) ($_POST['amount'] ?? 0);
+                $amount = $row_amount > 0 ? $row_amount : (float) $config['price_per_person'];
+                if ($amount > 0) {
+                    AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
+                }
             }
             $linked = true;
             $this->remove_sheet_review_entry($activity_id, $source_name, $source_email, sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? '')));
@@ -809,6 +854,74 @@ class AVBK_Admin {
      * specific amount + activity, with the exact fee-item QR embedded in the
      * HTML mail and a fallback link to the live balance page.
      */
+    /** Marks where handle_request_payment()/handle_preview_request_payment_email() splice in the optional free-text note. */
+    private const EXTRA_MESSAGE_PLACEHOLDER = '{{AVBK_EXTRA_MESSAGE}}';
+    /** Marks where the betaalgegevens (IBAN/naam/omschrijving) block goes — replaceable so the penningmeester can swap in different text. */
+    private const DETAILS_PLACEHOLDER = '{{AVBK_DETAILS_BLOCK}}';
+    /** Marks where the QR caption+image goes as one unit — replaceable so a QR copied from elsewhere (e.g. an ING Betaalverzoek, or a generic scan-your-own-amount QR) can be pasted in instead. */
+    private const QR_PLACEHOLDER = '{{AVBK_QR_BLOCK}}';
+
+    /**
+     * Subject + body template shared by the real send (handle_request_
+     * payment()) and its preview (handle_preview_request_payment_email(),
+     * which live-updates this in JS as the treasurer types/edits) — one
+     * source of truth so what gets previewed can't drift from what
+     * actually gets sent. The extra-message, betaalgegevens and QR blocks
+     * are all left as placeholder tokens rather than filled in here: the
+     * preview needs to keep swapping them live without a server round
+     * trip, and the two default blocks are returned separately so both
+     * callers can fall back to them when nothing was overridden.
+     * $qr_image_html is passed in rather than built here because the two
+     * callers embed the QR differently (send: PNG via cid:, preview:
+     * inline SVG — nothing to download in a browser tab), null meaning
+     * generation failed.
+     */
+    private function payment_request_email_template(object $member, object $activity, object $fee_item, float $remaining, ?string $qr_image_html): array {
+        $penningmeester_name = get_option('avbk_penningmeester_name', 'de penningmeester');
+        $balance_url = home_url('/leden/beheer/member-profile/');
+        $login_url = wp_login_url($balance_url);
+        $login_help = '';
+        if (get_option('avbk_payment_email_login_help', 1)) {
+            $login_text = (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT;
+            $login_help = wpautop(str_replace(
+                '[wachtwoord-link]',
+                '<a href="' . esc_url($login_url) . '">hier</a>',
+                esc_html($login_text)
+            ));
+        }
+        $subject = sprintf('Openstaande betaling — %s', $activity->name);
+        $qr_caption = (string) get_option('avbk_qr_caption_text', '') ?: self::DEFAULT_QR_CAPTION_TEXT;
+        // Same remittance text embedded in the QR itself — see
+        // AVBK_QR::remittance_for_fee_item() — so a scanned QR and a
+        // manually-typed omschrijving read identically; it's not a
+        // separate "kenmerk" field banks have, just the ordinary vrije
+        // omschrijving.
+        $reference_code = AVBK_QR::remittance_for_fee_item((int) $member->id, $fee_item);
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
+        $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+        $default_details_html = '<p>Doe je de betaling zelf? Gebruik dan de volgende gegevens:<br>'
+            . ($club_iban ? 'IBAN: <code style="font-size:1.3em">' . esc_html($club_iban_display) . '</code><br>' : '')
+            . 'Ten name van: ' . esc_html($club_name) . '<br>'
+            . 'Omschrijving: <code style="font-size:1.3em">' . esc_html($reference_code) . '</code>'
+            . '</p>';
+        $default_qr_html = $qr_image_html !== null
+            ? '<p>' . nl2br(esc_html($qr_caption)) . '</p>' . $qr_image_html
+            : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>';
+        $body_template = sprintf(
+            '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s%s%s%s<p>Groet,<br>%s</p></body></html>',
+            esc_html($member->first_name),
+            esc_html($activity->name),
+            esc_html(number_format($remaining, 2, ',', '.')),
+            self::EXTRA_MESSAGE_PLACEHOLDER,
+            self::DETAILS_PLACEHOLDER,
+            self::QR_PLACEHOLDER,
+            $login_help,
+            esc_html($penningmeester_name)
+        );
+        return [$subject, $body_template, $default_details_html, $default_qr_html];
+    }
+
     public function handle_request_payment(): void {
         check_admin_referer('avbk_request_payment');
         if (!$this->can_manage()) {
@@ -816,6 +929,15 @@ class AVBK_Admin {
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $extra_message = trim(sanitize_textarea_field(wp_unslash($_POST['extra_message'] ?? '')));
+        // Override from the "Vraag om betaling en voeg nog iets toe"
+        // preview page: the penningmeester can clear the QR block there and
+        // type/paste a replacement (e.g. an ING Betaalverzoek QR) — see
+        // handle_preview_request_payment_email().
+        $custom_qr_active = !empty($_POST['custom_qr_active']);
+        $custom_qr_html = $custom_qr_active ? wp_kses_post(wp_unslash($_POST['custom_qr_html'] ?? '')) : '';
+        $custom_qr_image_data = $custom_qr_active ? (string) ($_POST['custom_qr_image_data'] ?? '') : '';
+        $custom_qr_image_mime = $custom_qr_active ? (string) ($_POST['custom_qr_image_mime'] ?? '') : '';
         $redirect = fn(string $flag) => wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, $flag => '1'], admin_url('admin.php')));
 
         $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
@@ -825,48 +947,65 @@ class AVBK_Admin {
             $redirect('payment_request_failed');
             exit;
         }
-        $remaining = round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2);
+        $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
         if ($remaining <= 0.005 || !is_email($member->email)) {
             $redirect('payment_request_failed');
             exit;
         }
 
-        $penningmeester_name = get_option('avbk_penningmeester_name', 'de penningmeester');
-        $balance_url = home_url('/leden/beheer/member-profile/');
-        $login_url = wp_login_url($balance_url);
-        $login_help = '';
-        if (get_option('avbk_payment_email_login_help', 1)) {
-            $login_text = (string) get_option('avbk_payment_email_login_text', self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
-            $login_help = wpautop(str_replace(
-                '[wachtwoord-link]',
-                '<a href="' . esc_url($login_url) . '">hier</a>',
-                esc_html($login_text)
-            ));
-        }
-        $subject = sprintf('Openstaande betaling — %s', $activity->name);
-        $qr_png = AVBK_QR::png_for_fee_item($member_id, $fee_item);
+        // Skip generating the default QR entirely when a pasted one will
+        // replace it anyway — payment_request_email_template() still needs
+        // a value for its (unused, in that case) default QR block.
+        $qr_png = $custom_qr_active ? null : AVBK_QR::png_for_fee_item($member_id, $fee_item);
         $qr_cid = 'avbk-payment-qr-' . $fee_item->id . '-' . wp_generate_password(8, false, false) . '@avpvh.nl';
-        $qr_block = $qr_png
-            ? '<p><strong>Scan deze QR-code met je bankieren-app:</strong></p><div style="background:#fff;padding:12px;display:inline-block"><img src="cid:' . esc_attr($qr_cid) . '" width="360" height="360" alt="QR-code voor betaling"></div>'
-            : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>';
-        $body = sprintf(
-            '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s<p>Je vindt deze betaling én al je gegevens, inclusief alle andere betalingen die je misschien nog moet doen en al hebt gedaan, op je profielpagina van de website:<br><a href="%s">%s</a></p>%s<p>Groet,<br>%s</p></body></html>',
-            esc_html($member->first_name),
-            esc_html($activity->name),
-            esc_html(number_format($remaining, 2, ',', '.')),
-            $qr_block,
-            esc_url($balance_url),
-            esc_html($balance_url),
-            $login_help,
-            esc_html($penningmeester_name)
-        );
+        // Alt text (what shows if the embedded image doesn't render) names
+        // the specific activity, not a generic "QR-code voor betaling" —
+        // the reader should know what payment this is for even then.
+        $qr_alt = sprintf('QR-code voor betaling %s', $activity->name);
+        $qr_image_html = $qr_png
+            ? '<div style="background:#fff;padding:12px;display:inline-block"><img src="cid:' . esc_attr($qr_cid) . '" width="360" height="360" alt="' . esc_attr($qr_alt) . '"></div>'
+            : null;
+        [$subject, $body_template, $default_details_html, $default_qr_html] = $this->payment_request_email_template($member, $activity, $fee_item, $remaining, $qr_image_html);
+
+        // A pasted replacement QR (e.g. an ING Betaalverzoek, or a generic
+        // scan-your-own-amount QR) gets embedded as its own cid: image,
+        // same mechanism as the generated one — a data: URI would just get
+        // stripped by most mail clients' HTML sanitizers.
+        $custom_qr_cid = null;
+        $decoded_qr_image = null;
+        if ($custom_qr_active && $custom_qr_image_data !== '' && in_array($custom_qr_image_mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true)) {
+            $decoded_qr_image = base64_decode($custom_qr_image_data, true);
+            if ($decoded_qr_image !== false && strlen($decoded_qr_image) > 0 && strlen($decoded_qr_image) < 3 * 1024 * 1024) {
+                $custom_qr_cid = 'avbk-custom-qr-' . wp_generate_password(8, false, false) . '@avpvh.nl';
+            } else {
+                $decoded_qr_image = null;
+            }
+        }
+        $custom_qr_image_tag = $custom_qr_cid
+            ? '<div style="background:#fff;padding:12px;display:inline-block"><img src="cid:' . esc_attr($custom_qr_cid) . '" style="max-width:360px;width:100%;height:auto" alt="QR-code"></div>'
+            : '';
+
+        // Free-text note from the "... en voeg nog iets toe" form, placed
+        // right after the amount and before the payment details/QR — the
+        // treasurer's own words belong with the personal part of the mail,
+        // not buried below the boilerplate.
+        $extra_message_block = $extra_message !== '' ? '<p>' . nl2br(esc_html($extra_message)) . '</p>' : '';
+        $qr_block = $custom_qr_active ? ($custom_qr_image_tag . $custom_qr_html) : $default_qr_html;
+        $body = strtr($body_template, [
+            self::EXTRA_MESSAGE_PLACEHOLDER => $extra_message_block,
+            self::DETAILS_PLACEHOLDER => $default_details_html,
+            self::QR_PLACEHOLDER => $qr_block,
+        ]);
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
         }
-        $embed_qr = static function ($phpmailer) use ($qr_png, $qr_cid): void {
+        $embed_qr = static function ($phpmailer) use ($qr_png, $qr_cid, $decoded_qr_image, $custom_qr_cid, $custom_qr_image_mime): void {
             if ($qr_png && is_object($phpmailer) && method_exists($phpmailer, 'addStringEmbeddedImage')) {
                 $phpmailer->addStringEmbeddedImage($qr_png, $qr_cid, 'betaling-qr.png', 'base64', 'image/png');
+            }
+            if ($decoded_qr_image && $custom_qr_cid && is_object($phpmailer) && method_exists($phpmailer, 'addStringEmbeddedImage')) {
+                $phpmailer->addStringEmbeddedImage($decoded_qr_image, $custom_qr_cid, 'qr', 'base64', $custom_qr_image_mime);
             }
         };
         // Some SMTP plugins replace the From header during phpmailer_init.
@@ -882,7 +1021,7 @@ class AVBK_Admin {
                 // Keep the mail send alive if a relay rejects the address.
             }
         };
-        if ($qr_png) {
+        if ($qr_png || $decoded_qr_image) {
             add_action('phpmailer_init', $embed_qr);
         }
         $headers = [
@@ -899,7 +1038,7 @@ class AVBK_Admin {
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
         remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
-        if ($qr_png) {
+        if ($qr_png || $decoded_qr_image) {
             remove_action('phpmailer_init', $embed_qr);
         }
 
@@ -908,6 +1047,550 @@ class AVBK_Admin {
         }
 
         $redirect($sent ? 'payment_requested' : 'payment_request_failed');
+        exit;
+    }
+
+    /**
+     * Standalone preview of the "Vraag om betaling" e-mail — full subject +
+     * body in an iframe, with a textarea that live-updates it in the
+     * browser (no server round trip) as the treasurer adds a note, and a
+     * "Verstuur" button at the bottom that posts straight to
+     * handle_request_payment() with that same text.
+     */
+    public function handle_preview_request_payment_email(): void {
+        check_admin_referer('avbk_preview_request_payment_email');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_GET['member_id'] ?? 0);
+        $activity_id = (int) ($_GET['activity_id'] ?? 0);
+        $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+        $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+        $fee_item = ($member && $activity) ? AVBK_DB::get_fee_item_for_member_activity($member_id, $activity_id) : null;
+        if (!$member || !$activity || !$fee_item) {
+            wp_die('Niet gevonden.', 404);
+        }
+        $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
+        if ($remaining <= 0.005) {
+            wp_die('Deze rekening is al betaald.', 200);
+        }
+
+        // The activity's own generic betaalverzoek (link/QR, see
+        // AVBK_DB::get_activity_payment_link()) — set up once, shared by
+        // everyone attending, and only pulled into a specific mail here on
+        // request, never automatically.
+        $payment_link = AVBK_DB::get_activity_payment_link($activity_id);
+        $generic_payment_url = $payment_link->payment_url ?? '';
+        $generic_qr_data_url = !empty($payment_link->qr_image)
+            ? 'data:' . $payment_link->qr_image_mime . ';base64,' . base64_encode($payment_link->qr_image)
+            : '';
+
+        $qr_svg = AVBK_QR::for_fee_item($member_id, $fee_item);
+        // The <style> here is not redundant with the outer page's own
+        // stylesheet: this markup ends up inside the iframe's srcdoc, a
+        // separate HTML document with no <style> of its own, so without
+        // this the raw <svg> renders at whatever tiny/default intrinsic
+        // size it carries instead of filling its wrapper.
+        $qr_image_html = $qr_svg
+            ? '<div style="background:#fff;padding:12px;display:inline-block;max-width:360px"><style>svg{width:100%;height:auto;display:block}</style>' . $qr_svg . '</div>'
+            : null;
+        [$subject, $body_template, $default_details_html, $default_qr_html] = $this->payment_request_email_template($member, $activity, $fee_item, $remaining, $qr_image_html);
+        // Filled once on load: {{...}} tokens become fixed <div id="..."> wrappers
+        // holding the default content, so every later edit (typing the extra
+        // note, "verwijderen" + paste for the QR) mutates that already-
+        // loaded iframe document directly instead of reassigning srcdoc —
+        // reassigning would reload the iframe from scratch and wipe out
+        // whatever the treasurer had just pasted. The betaalgegevens block
+        // has no editable wrapper — it's not editable here, just shown.
+        $initial_html = strtr($body_template, [
+            self::EXTRA_MESSAGE_PLACEHOLDER => '<div id="avbk-mail-extra"></div>',
+            self::DETAILS_PLACEHOLDER => $default_details_html,
+            self::QR_PLACEHOLDER => '<div id="avbk-mail-qr">' . $default_qr_html . '</div>',
+        ]);
+
+        header('Content-Type: text/html; charset=UTF-8');
+        ?>
+        <!doctype html>
+        <html lang="nl">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Voorbeeld &mdash; Betaalverzoek <?php echo esc_html($activity->name); ?></title>
+        <style>
+            body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem 2rem; }
+            .avbk-preview-subject { color: #555; margin-bottom: .5rem; }
+            #avbk-preview-frame { width: 100%; height: 560px; border: 1px solid #ccc; background: #fff; }
+            textarea { width: 100%; box-sizing: border-box; font-family: inherit; }
+            .avbk-preview-edit-buttons { margin: .5rem 0 1.25rem; }
+        </style>
+        </head>
+        <body>
+            <p class="avbk-preview-subject">Onderwerp: <strong><?php echo esc_html($subject); ?></strong></p>
+            <iframe id="avbk-preview-frame" title="Voorbeeld e-mail"></iframe>
+            <p class="avbk-preview-edit-buttons">
+                <button type="button" id="avbk-clear-qr" class="button button-small">QR-code verwijderen</button>
+                <?php if ($generic_qr_data_url !== '') : ?>
+                    <button type="button" id="avbk-use-generic-qr" class="button button-small">Generieke QR-code gebruiken</button>
+                <?php endif; ?>
+                <?php if ($generic_payment_url !== '') : ?>
+                    <button type="button" id="avbk-add-generic-link" class="button button-small">Betaalverzoeklink toevoegen</button>
+                <?php endif; ?>
+            </p>
+            <p class="description">Na "verwijderen" kun je in de mail zelf klikken en typen, of een QR-code/afbeelding van elders plakken (Ctrl+V) om die te vervangen — bijvoorbeeld een ING Betaalverzoek of een generieke QR-code waarmee de betaler zelf het bedrag kiest.<?php if ($generic_qr_data_url !== '' || $generic_payment_url !== '') : ?> "Generieke QR-code gebruiken"/"Betaalverzoeklink toevoegen" halen wat bij deze activiteit is opgeslagen (zie de activiteit-betalingenpagina) direct in deze mail.<?php endif; ?></p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-send-form">
+                <?php wp_nonce_field('avbk_request_payment'); ?>
+                <input type="hidden" name="action" value="avbk_request_payment">
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <input type="hidden" name="member_id" value="<?php echo esc_attr($member_id); ?>">
+                <input type="hidden" name="custom_qr_active" id="avbk-custom-qr-active" value="">
+                <input type="hidden" name="custom_qr_html" id="avbk-custom-qr-html" value="">
+                <input type="hidden" name="custom_qr_image_data" id="avbk-custom-qr-image-data" value="">
+                <input type="hidden" name="custom_qr_image_mime" id="avbk-custom-qr-image-mime" value="">
+                <p>
+                    <label for="avbk-extra-message">Extra tekst (optioneel, verschijnt boven de betaalgegevens):</label><br>
+                    <textarea name="extra_message" id="avbk-extra-message" rows="4"></textarea>
+                </p>
+                <?php submit_button('Verstuur', 'primary', 'submit', false); ?>
+            </form>
+            <script>
+            (function () {
+                var initialHtml = <?php echo wp_json_encode($initial_html); ?>;
+                var defaultQrHtml = <?php echo wp_json_encode($default_qr_html); ?>;
+                var genericQrDataUrl = <?php echo wp_json_encode($generic_qr_data_url); ?>;
+                var genericPaymentUrl = <?php echo wp_json_encode($generic_payment_url); ?>;
+                var textarea = document.getElementById('avbk-extra-message');
+                var frame = document.getElementById('avbk-preview-frame');
+                var qrActive = false;
+                var qrPlaceholder = 'Plak hier een QR-code (Ctrl+V), bijv. een ING Betaalverzoek';
+                // Whatever was typed/pasted survives toggling back to the
+                // default and into edit mode again — "terugzetten" only
+                // swaps what's shown, it doesn't throw the draft away.
+                var qrDraft = null;
+                function escapeHtml(s) {
+                    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                }
+                function frameDoc() {
+                    return frame.contentDocument;
+                }
+                function updateExtra() {
+                    var value = textarea.value.trim();
+                    var block = value ? '<p>' + escapeHtml(value).replace(/\n/g, '<br>') + '</p>' : '';
+                    var el = frameDoc().getElementById('avbk-mail-extra');
+                    if (el) {
+                        el.innerHTML = block;
+                    }
+                }
+                function applyEditableStyle(el) {
+                    el.setAttribute('contenteditable', 'true');
+                    el.style.minHeight = '3em';
+                    el.style.border = '1px dashed #999';
+                    el.style.padding = '.5em';
+                }
+                function makeEditable(el, placeholderText) {
+                    el.innerHTML = '';
+                    el.textContent = placeholderText;
+                    applyEditableStyle(el);
+                    el.style.color = '#888';
+                    el.addEventListener('focus', function once() {
+                        if (el.textContent === placeholderText) {
+                            el.textContent = '';
+                            el.style.color = '';
+                        }
+                        el.removeEventListener('focus', once);
+                    });
+                    el.focus();
+                }
+                // Re-enters edit mode with a previously typed/pasted draft
+                // instead of a blank placeholder — used when toggling back
+                // after "terugzetten" so nothing already entered is lost.
+                function restoreDraft(el, draftHtml) {
+                    el.innerHTML = draftHtml;
+                    applyEditableStyle(el);
+                    el.style.color = '';
+                    el.focus();
+                }
+                // Back to plain, non-editable, with the original generated
+                // content — same look as before "verwijderen" was ever
+                // clicked. Whatever was in `el` is the caller's job to save
+                // as a draft first if it should survive this.
+                function restoreDefault(el, defaultHtml) {
+                    el.innerHTML = defaultHtml;
+                    el.removeAttribute('contenteditable');
+                    el.style.minHeight = '';
+                    el.style.border = '';
+                    el.style.padding = '';
+                    el.style.color = '';
+                    el.style.display = '';
+                    el.style.alignItems = '';
+                    el.style.justifyContent = '';
+                    el.style.textAlign = '';
+                }
+                // Returns el's current innerHTML as a draft to remember, or
+                // null if there's nothing meaningful there yet (still the
+                // untouched placeholder, or truly empty) — callers keep
+                // whatever draft they already had in that case rather than
+                // erasing it. Checked via children too, not just text,
+                // since a pasted QR image has no textContent of its own.
+                function captureDraft(el, placeholderText) {
+                    var text = el.textContent.trim();
+                    if (el.children.length === 0 && (text === '' || text === placeholderText)) {
+                        return null;
+                    }
+                    return el.innerHTML;
+                }
+                frame.addEventListener('load', function () {
+                    updateExtra();
+                    var qrBtn = document.getElementById('avbk-clear-qr');
+                    var qrEl = frameDoc().getElementById('avbk-mail-qr');
+                    // Attached once, up front, rather than re-added on every
+                    // "verwijderen" click — it no-ops via the qrActive check
+                    // whenever the QR block isn't the paste target.
+                    qrEl.addEventListener('paste', function (e) {
+                        if (!qrActive) {
+                            return;
+                        }
+                        var items = (e.clipboardData || window.clipboardData).items || [];
+                        for (var i = 0; i < items.length; i++) {
+                            if (items[i].type.indexOf('image') === -1) {
+                                continue;
+                            }
+                            var file = items[i].getAsFile();
+                            var reader = new FileReader();
+                            reader.onload = function (ev) {
+                                if (qrEl.textContent === qrPlaceholder) {
+                                    qrEl.textContent = '';
+                                    qrEl.style.color = '';
+                                }
+                                var img = document.createElement('img');
+                                img.src = ev.target.result;
+                                img.style.maxWidth = '100%';
+                                qrEl.appendChild(img);
+                            };
+                            reader.readAsDataURL(file);
+                            e.preventDefault();
+                            return;
+                        }
+                    });
+                    qrBtn.addEventListener('click', function () {
+                        qrActive = !qrActive;
+                        if (qrActive) {
+                            if (qrDraft !== null) {
+                                restoreDraft(qrEl, qrDraft);
+                            } else {
+                                makeEditable(qrEl, qrPlaceholder);
+                            }
+                            qrEl.style.display = 'flex';
+                            qrEl.style.alignItems = 'center';
+                            qrEl.style.justifyContent = 'center';
+                            qrEl.style.textAlign = 'center';
+                            qrBtn.textContent = 'QR-code terugzetten';
+                        } else {
+                            var captured = captureDraft(qrEl, qrPlaceholder);
+                            if (captured !== null) {
+                                qrDraft = captured;
+                            }
+                            restoreDefault(qrEl, defaultQrHtml);
+                            qrBtn.textContent = 'QR-code verwijderen';
+                        }
+                    });
+                    var genericQrBtn = document.getElementById('avbk-use-generic-qr');
+                    if (genericQrBtn) {
+                        genericQrBtn.addEventListener('click', function () {
+                            qrActive = true;
+                            qrEl.innerHTML = '';
+                            applyEditableStyle(qrEl);
+                            qrEl.style.color = '';
+                            qrEl.style.display = 'flex';
+                            qrEl.style.alignItems = 'center';
+                            qrEl.style.justifyContent = 'center';
+                            qrEl.style.textAlign = 'center';
+                            var img = document.createElement('img');
+                            img.src = genericQrDataUrl;
+                            img.style.maxWidth = '100%';
+                            qrEl.appendChild(img);
+                            qrBtn.textContent = 'QR-code terugzetten';
+                        });
+                    }
+                    var genericLinkBtn = document.getElementById('avbk-add-generic-link');
+                    if (genericLinkBtn) {
+                        genericLinkBtn.addEventListener('click', function () {
+                            var addition = 'Of gebruik deze betaalverzoeklink: ' + genericPaymentUrl;
+                            textarea.value = textarea.value.trim() ? textarea.value.trim() + '\n\n' + addition : addition;
+                            updateExtra();
+                        });
+                    }
+                });
+                textarea.addEventListener('input', updateExtra);
+                frame.srcdoc = initialHtml;
+
+                document.getElementById('avbk-send-form').addEventListener('submit', function () {
+                    document.getElementById('avbk-custom-qr-active').value = qrActive ? '1' : '';
+                    if (qrActive) {
+                        var qrEl = frameDoc().getElementById('avbk-mail-qr');
+                        var img = qrEl.querySelector('img');
+                        if (img && img.src.indexOf('data:') === 0) {
+                            var match = img.src.match(/^data:([^;]+);base64,(.*)$/);
+                            img.remove();
+                            if (match) {
+                                document.getElementById('avbk-custom-qr-image-mime').value = match[1];
+                                document.getElementById('avbk-custom-qr-image-data').value = match[2];
+                            }
+                        }
+                        var qrHtml = qrEl.textContent.trim() === qrPlaceholder ? '' : qrEl.innerHTML;
+                        document.getElementById('avbk-custom-qr-html').value = qrHtml;
+                    }
+                });
+            })();
+            </script>
+        </body>
+        </html>
+        <?php
+        exit;
+    }
+
+    /**
+     * On-screen version of the "Vraag om betaling" e-mail: same QR and
+     * reference, but as a standalone page instead of a mail, so the
+     * penningmeester can hold up a phone/laptop screen and let the payer
+     * scan it directly (e.g. at a desk or during an activity) instead of
+     * needing to send and wait for an e-mail. No admin chrome, large QR —
+     * meant to be shown, not read as a document.
+     */
+    public function handle_preview_payment_request(): void {
+        check_admin_referer('avbk_preview_payment_request');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_GET['member_id'] ?? 0);
+        $activity_id = (int) ($_GET['activity_id'] ?? 0);
+        $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+        $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+        $fee_item = ($member && $activity) ? AVBK_DB::get_fee_item_for_member_activity($member_id, $activity_id) : null;
+        if (!$member || !$activity || !$fee_item) {
+            wp_die('Niet gevonden.', 404);
+        }
+        $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
+        if ($remaining <= 0.005) {
+            wp_die('Deze rekening is al betaald.', 200);
+        }
+
+        // The penningmeester can override both the amount and the
+        // betaalverzoektekst (the QR's SEPA remittance/omschrijving) right
+        // here — e.g. a payer who wants to pay a rounder amount, or add a
+        // note — and the QR is regenerated to match instead of always
+        // encoding the fee item's own remaining amount/reference verbatim.
+        // Purely a display override: nothing here touches the fee item or
+        // the ledger, matching/reconciliation still happens later from the
+        // actual bank transaction, same as any other QR payment.
+        $default_text = AVBK_QR::remittance_for_fee_item($member_id, $fee_item);
+        $edit_amount = $remaining;
+        if (isset($_GET['betaal_bedrag'])) {
+            $posted_amount = (float) str_replace(',', '.', sanitize_text_field(wp_unslash($_GET['betaal_bedrag'])));
+            if ($posted_amount > 0) {
+                $edit_amount = $posted_amount;
+            }
+        }
+        $edit_text = isset($_GET['betaal_tekst'])
+            ? mb_substr(trim(sanitize_text_field(wp_unslash($_GET['betaal_tekst']))), 0, 140)
+            : $default_text;
+        if ($edit_text === '') {
+            $edit_text = $default_text;
+        }
+        $qr_payload = AVBK_QR::epc_payload($edit_amount, $edit_text);
+        $qr_svg = $qr_payload ? AVBK_QR::svg($qr_payload) : null;
+        $reference_code = $edit_text;
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $beneficiary_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
+        $beneficiary_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+        $remaining = $edit_amount;
+
+        header('Content-Type: text/html; charset=UTF-8');
+        ?>
+        <!doctype html>
+        <html lang="nl">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Betaalverzoek &mdash; <?php echo esc_html($activity->name); ?></title>
+        <style>
+            body { font-family: -apple-system, sans-serif; margin: 0; padding: 1.5rem 1rem 3rem; }
+            /* Side by side on anything roomier than a phone, so the whole
+               thing fits on one screen without scrolling when it's held up
+               for someone else to read + scan at the same time; wraps to
+               the original stacked layout on narrow viewports. */
+            .avbk-preview-wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.5rem; max-width: 720px; margin: 0 auto; }
+            .avbk-preview-info { flex: 1 1 260px; min-width: 220px; text-align: center; }
+            h1 { font-size: 1.1rem; font-weight: normal; margin-bottom: .25rem; }
+            .avbk-preview-amount { font-size: 1.6rem; font-weight: 600; margin: 0 0 1.25rem; }
+            .avbk-preview-qr { flex: 0 0 auto; display: inline-block; background: #fff; padding: 16px; max-width: 320px; width: 60vw; }
+            .avbk-preview-qr svg { width: 100%; height: auto; }
+            .avbk-preview-details { margin-top: 1.25rem; font-size: .95rem; color: #333; text-align: left; }
+            .avbk-preview-details code { font-size: 1.15em; }
+            .avbk-preview-edit { max-width: 720px; margin: 2rem auto 0; padding-top: 1.25rem; border-top: 1px solid #ddd; font-size: .9rem; }
+            .avbk-preview-edit label { display: block; margin-bottom: .75rem; }
+            .avbk-preview-edit input[type="text"],
+            .avbk-preview-edit input[type="number"] { width: 100%; box-sizing: border-box; margin-top: .25rem; padding: .4rem .5rem; font-size: 1rem; }
+        </style>
+        </head>
+        <body>
+            <div class="avbk-preview-wrap">
+                <div class="avbk-preview-info">
+                    <h1><?php echo esc_html(avpvh_format_name($member)); ?> &mdash; <?php echo esc_html($activity->name); ?></h1>
+                    <p class="avbk-preview-amount">&euro; <?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></p>
+                    <p class="avbk-preview-details" id="avbk-details">
+                        <?php if ($beneficiary_iban_display) : ?>IBAN: <code><?php echo esc_html($beneficiary_iban_display); ?></code><br><?php endif; ?>
+                        Ten name van: <?php echo esc_html($beneficiary_name); ?><br>
+                        Omschrijving: <code><?php echo esc_html($reference_code); ?></code>
+                    </p>
+                    <button type="button" id="avbk-clear-text" class="button button-small">Tekst verwijderen</button>
+                </div>
+                <div id="avbk-qr-wrap">
+                    <?php if ($qr_svg) : ?>
+                        <div class="avbk-preview-qr" id="avbk-qr"><?php echo $qr_svg; ?></div>
+                    <?php else : ?>
+                        <p id="avbk-qr">De QR-code kon niet worden gegenereerd.</p>
+                    <?php endif; ?>
+                    <button type="button" id="avbk-clear-qr" class="button button-small">QR-code verwijderen</button>
+                </div>
+            </div>
+            <form class="avbk-preview-edit" method="get" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('avbk_preview_payment_request'); ?>
+                <input type="hidden" name="action" value="avbk_preview_payment_request">
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <input type="hidden" name="member_id" value="<?php echo esc_attr($member_id); ?>">
+                <label>Bedrag
+                    <input type="number" step="0.01" min="0.01" name="betaal_bedrag" value="<?php echo esc_attr(number_format($edit_amount, 2, '.', '')); ?>">
+                </label>
+                <label>Betaalverzoektekst (omschrijving in de QR-code)
+                    <input type="text" name="betaal_tekst" maxlength="140" value="<?php echo esc_attr($edit_text); ?>">
+                </label>
+                <?php submit_button('QR-code bijwerken', 'secondary', 'submit', false); ?>
+            </form>
+            <script>
+            (function () {
+                // "Tekst verwijderen": clears the IBAN/naam/omschrijving
+                // block and turns it into a plain editable area, so the
+                // penningmeester can paste in different text (e.g. from
+                // another system) instead of the generated details.
+                document.getElementById('avbk-clear-text').addEventListener('click', function () {
+                    var el = document.getElementById('avbk-details');
+                    el.textContent = '';
+                    el.setAttribute('contenteditable', 'true');
+                    el.style.minHeight = '3em';
+                    el.style.border = '1px dashed #999';
+                    el.style.padding = '.5em';
+                    el.focus();
+                });
+                // "QR-code verwijderen": same idea, but for an image —
+                // becomes a paste target so a QR copied from elsewhere
+                // (another payment system, an e-mail, ...) can replace the
+                // generated one. Ctrl+V/long-press paste of an image lands
+                // here via the browser's clipboard API; the generated QR
+                // is simply discarded, nothing server-side to undo.
+                document.getElementById('avbk-clear-qr').addEventListener('click', function () {
+                    var el = document.getElementById('avbk-qr');
+                    el.textContent = 'Plak hier een QR-code (Ctrl+V)';
+                    el.setAttribute('contenteditable', 'true');
+                    el.style.minHeight = '200px';
+                    el.style.display = 'flex';
+                    el.style.alignItems = 'center';
+                    el.style.justifyContent = 'center';
+                    el.style.textAlign = 'center';
+                    el.style.color = '#888';
+                    el.style.border = '2px dashed #999';
+                    el.addEventListener('paste', function (e) {
+                        var items = (e.clipboardData || window.clipboardData).items || [];
+                        for (var i = 0; i < items.length; i++) {
+                            if (items[i].type.indexOf('image') === -1) {
+                                continue;
+                            }
+                            var file = items[i].getAsFile();
+                            var reader = new FileReader();
+                            reader.onload = function (ev) {
+                                el.textContent = '';
+                                el.style.color = '';
+                                var img = document.createElement('img');
+                                img.src = ev.target.result;
+                                img.style.maxWidth = '100%';
+                                el.appendChild(img);
+                            };
+                            reader.readAsDataURL(file);
+                            e.preventDefault();
+                            return;
+                        }
+                    });
+                    el.focus();
+                });
+            })();
+            </script>
+        </body>
+        </html>
+        <?php
+        exit;
+    }
+
+    /**
+     * Saves the activity's generic betaalverzoeklink (e.g. an ING
+     * Betaalverzoek/Tikkie link the penningmeester sets up once and shares
+     * with everyone attending) — see AVBK_DB::save_activity_payment_url()
+     * for why this is per-activity, not per-member, and never auto-used in
+     * the "Vraag om betaling" e-mail.
+     */
+    public function handle_save_activity_payment_url(): void {
+        check_admin_referer('avbk_save_activity_payment_url');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::save_activity_payment_url($activity_id, sanitize_text_field(wp_unslash($_POST['payment_url'] ?? '')));
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Saves the activity's generic betaalverzoek-QR (dragged-and-dropped image, see admin/activity-payments.php) — same table/row as the link, see AVBK_DB::save_activity_payment_qr(). */
+    public function handle_save_activity_payment_qr(): void {
+        check_admin_referer('avbk_save_activity_payment_qr');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $mime = (string) ($_POST['qr_image_mime'] ?? '');
+        $data = (string) ($_POST['qr_image_data'] ?? '');
+        if ($activity_id && $data !== '' && in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true)) {
+            $decoded = base64_decode($data, true);
+            if ($decoded !== false && strlen($decoded) > 0 && strlen($decoded) < 3 * 1024 * 1024) {
+                AVBK_DB::save_activity_payment_qr($activity_id, $decoded, $mime);
+            }
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_activity_payment_url(): void {
+        check_admin_referer('avbk_delete_activity_payment_url');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::delete_activity_payment_url($activity_id);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_activity_payment_qr(): void {
+        check_admin_referer('avbk_delete_activity_payment_qr');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($activity_id) {
+            AVBK_DB::delete_activity_payment_qr($activity_id);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
         exit;
     }
 
@@ -938,7 +1621,7 @@ class AVBK_Admin {
             if (!$item || (int) $item->member_id !== $member_id || $item->status === 'waived') {
                 continue;
             }
-            $remaining = round((float) $item->amount_due - AVBK_DB::get_fee_item_paid((int) $item->id), 2);
+            $remaining = AVBK_DB::get_fee_item_remaining($item);
             if ($remaining <= 0.005) {
                 continue;
             }
@@ -978,7 +1661,7 @@ class AVBK_Admin {
             $login_help_text = "\n\n" . str_replace(
                 '[wachtwoord-link]',
                 wp_login_url($balance_url),
-                (string) get_option('avbk_payment_email_login_text', self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)
+                (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT
             );
         }
         $body = sprintf(
@@ -1163,7 +1846,8 @@ class AVBK_Admin {
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
         update_option('avbk_penningmeester_name', sanitize_text_field(wp_unslash($_POST['penningmeester_name'] ?? '')) ?: 'de penningmeester');
         update_option('avbk_payment_email_login_help', !empty($_POST['payment_email_login_help']) ? 1 : 0);
-        update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT)));
+        update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
+        update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }

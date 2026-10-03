@@ -522,6 +522,10 @@ class AVBK_DB {
                 reimbursement_id INT UNSIGNED NOT NULL,
                 receipt_path VARCHAR(255) NOT NULL DEFAULT '',
                 receipt_hash CHAR(64) NOT NULL DEFAULT '',
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                date DATE NULL,
+                store VARCHAR(255) NOT NULL DEFAULT '',
+                amount DECIMAL(8,2) NULL,
                 ocr_amount DECIMAL(8,2) NULL,
                 ocr_date DATE NULL,
                 ocr_store VARCHAR(255) NOT NULL DEFAULT '',
@@ -762,6 +766,52 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.31');
         }
+        if (version_compare($version, '1.32', '<')) {
+            // Same reasoning as description (1.16): the aankoopdatum is
+            // member-confirmable per receipt, pre-filled with the OCR
+            // guess — kept separate from ocr_date, which stays the raw
+            // OCR read used for duplicate-receipt matching regardless of
+            // what the member edits it to.
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'date'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN date DATE NULL AFTER description");
+            }
+            update_option('avbk_db_version', '1.32');
+        }
+        if (version_compare($version, '1.33', '<')) {
+            // store/amount, same pattern as date (1.32): member-confirmed,
+            // pre-filled from the OCR guess where one exists — but now
+            // also the only source of truth for a receipt-less manual
+            // line (cash expense, lost receipt), which has no ocr_store/
+            // ocr_amount to fall back on at all.
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'store'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN store VARCHAR(255) NOT NULL DEFAULT '' AFTER date");
+            }
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_reimbursement_receipts LIKE 'amount'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_reimbursement_receipts ADD COLUMN amount DECIMAL(8,2) NULL AFTER store");
+            }
+            update_option('avbk_db_version', '1.33');
+        }
+        if (version_compare($version, '1.34', '<')) {
+            // One generic betaalverzoek (link + QR) per activity — e.g. an
+            // ING Betaalverzoek/Tikkie link the penningmeester sets up once
+            // and shares with everyone attending, instead of each
+            // participant's own per-member EPC QR. Deliberately never
+            // auto-inserted into the "Vraag om betaling" e-mail (see
+            // AVBK_Admin::payment_request_email_template()) — shown only
+            // on the activity-payments admin page for the penningmeester
+            // to copy/share themselves. One row per activity_id (no
+            // separate id), so saving just replaces it.
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_activity_payment_links (
+                activity_id INT UNSIGNED NOT NULL,
+                payment_url VARCHAR(500) NOT NULL DEFAULT '',
+                qr_image LONGBLOB NULL,
+                qr_image_mime VARCHAR(50) NOT NULL DEFAULT '',
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (activity_id)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.34');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -995,8 +1045,7 @@ class AVBK_DB {
             return $detail;
         }
         $detail['found'] = true;
-        $paid = self::get_fee_item_paid((int) $item->id);
-        $detail['share'] = round((float) $item->amount_due - $paid, 2);
+        $detail['share'] = self::get_fee_item_remaining($item);
         if (!empty($item->is_estimated)) {
             $reason = $item->estimate_reason ?: 'Geschat bedrag.';
             $detail['estimated_warning'] = !str_starts_with($reason, 'Alleen geboortejaar ');
@@ -1363,6 +1412,23 @@ class AVBK_DB {
         ));
     }
 
+    /**
+     * A fee item's outstanding balance: 0 for a waived item (regardless of
+     * amount_due/paid — see get_member_balance()'s original handling of
+     * this, the one caller among the ~10 duplicates of this formula that
+     * actually checked waived status), otherwise amount_due minus what's
+     * been paid. Pass an object that already carries a numeric ->paid
+     * (e.g. from get_member_balance()'s own JOIN) to skip a fresh query;
+     * without one, get_fee_item_paid() is called for you.
+     */
+    public static function get_fee_item_remaining(object $fee_item): float {
+        if (($fee_item->status ?? '') === 'waived') {
+            return 0.0;
+        }
+        $paid = isset($fee_item->paid) ? (float) $fee_item->paid : self::get_fee_item_paid((int) $fee_item->id);
+        return round((float) $fee_item->amount_due - $paid, 2);
+    }
+
     /** Earlier transactions that already paid a fee item, for the review queue's explanatory hotlinks when the remaining amount is zero. */
     public static function get_payments_for_fee_item(int $fee_item_id): array {
         global $wpdb;
@@ -1469,7 +1535,7 @@ class AVBK_DB {
         $total_paid = 0.0;
         foreach ($items as $item) {
             $item->paid = (float) $item->paid;
-            $item->remaining = $item->status === 'waived' ? 0.0 : round((float) $item->amount_due - $item->paid, 2);
+            $item->remaining = self::get_fee_item_remaining($item);
             if ($item->status !== 'waived') {
                 $total_due += (float) $item->amount_due;
                 $total_paid += $item->paid;
@@ -1515,6 +1581,41 @@ class AVBK_DB {
             'total_due'  => round($total_due, 2),
             'total_paid' => round($total_paid, 2),
             'balance'    => round($total_due - $total_paid, 2),
+        ];
+    }
+
+    /**
+     * get_member_balance_excluding_closed() bucketed into the current
+     * book year vs everything else it still returned — in practice a
+     * not-yet-closed previous year, since a genuinely closed year is by
+     * definition fully settled and never contributes a nonzero remaining
+     * here (see fee_item_book_year()/avbk_closed_through_year). Backs
+     * both the Ledenoverzicht list's optional per-year columns and each
+     * member's detail-page breakdown; 'items' is the same filtered list
+     * get_member_balance_excluding_closed() would return, so callers can
+     * further split it into "this year only" for the default (non-toggled)
+     * view without a second query.
+     */
+    public static function get_member_balance_by_year(int $member_id, bool $include_closed = false): array {
+        $balance = self::get_member_balance_excluding_closed($member_id, $include_closed);
+        $current_year = (int) current_time('Y');
+        $current = 0.0;
+        $other = 0.0;
+        foreach ($balance['items'] as $item) {
+            if ($item->status === 'waived') {
+                continue;
+            }
+            if (self::fee_item_book_year($item) === $current_year) {
+                $current += (float) $item->remaining;
+            } else {
+                $other += (float) $item->remaining;
+            }
+        }
+        return [
+            'items'   => $balance['items'],
+            'current' => round($current, 2),
+            'other'   => round($other, 2),
+            'total'   => round($current + $other, 2),
         ];
     }
 
@@ -1723,6 +1824,9 @@ class AVBK_DB {
             'receipt_path'     => (string) $data['receipt_path'],
             'receipt_hash'     => (string) ($data['receipt_hash'] ?? ''),
             'description'      => (string) ($data['description'] ?? ''),
+            'date'             => $data['date'] ?: null,
+            'store'            => (string) ($data['store'] ?? ''),
+            'amount'           => isset($data['amount']) && $data['amount'] !== null ? (float) $data['amount'] : null,
             'ocr_amount'       => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
             'ocr_date'         => $data['ocr_date'] ?: null,
             'ocr_store'        => (string) ($data['ocr_store'] ?? ''),
@@ -1731,13 +1835,20 @@ class AVBK_DB {
     }
 
     /**
-     * @return object[] One entry per attached receipt photo, each with
-     * ->id, ->receipt_path, ->receipt_hash, ->description, ->ocr_amount,
-     * ->ocr_date, ->ocr_store. Declarations from before multi-receipt
-     * support kept their one photo directly on the avb_reimbursements row
-     * instead of this child table — synthesized here (id 0, description
-     * taken from the parent's own field) so callers never need to special-
-     * case old data.
+     * @return object[] One entry per declaration line (an attached receipt
+     * photo, or a manually-entered line with no photo at all — a cash
+     * expense, a lost receipt), each with ->id, ->receipt_path,
+     * ->receipt_hash, ->description, ->date, ->store, ->amount,
+     * ->ocr_amount, ->ocr_date, ->ocr_store. ->date/->store/->amount are
+     * member-confirmed (pre-filled from the OCR guess where a receipt
+     * exists, the only source of truth where it doesn't) — use them over
+     * ->ocr_date/->ocr_store/->ocr_amount wherever the actual value
+     * matters; the ocr_* columns stay the raw OCR read, kept only for
+     * duplicate-receipt matching. Declarations
+     * from before multi-receipt support kept their one photo directly on
+     * the avb_reimbursements row instead of this child table — synthesized
+     * here (id 0, description taken from the parent's own field) so
+     * callers never need to special-case old data.
      */
     public static function get_reimbursement_receipts(int $reimbursement_id): array {
         global $wpdb;
@@ -1756,6 +1867,9 @@ class AVBK_DB {
                 'receipt_path'     => $r->receipt_path,
                 'receipt_hash'     => $r->receipt_hash,
                 'description'      => $r->description,
+                'date'             => $r->ocr_date,
+                'store'            => $r->ocr_store,
+                'amount'           => $r->amount,
                 'ocr_amount'       => $r->ocr_amount,
                 'ocr_date'         => $r->ocr_date,
                 'ocr_store'        => $r->ocr_store,
@@ -1780,12 +1894,40 @@ class AVBK_DB {
      * refresh_reimbursement_description_summary()) for a child-table row.
      */
     public static function update_reimbursement_receipt_description(int $reimbursement_id, int $receipt_id, string $description): void {
+        self::update_reimbursement_receipt($reimbursement_id, $receipt_id, ['description' => $description]);
+    }
+
+    /**
+     * Admin correction of a receipt's confirmed date/store/description/
+     * amount (e.g. OCR misread the store, or the member left a field
+     * blank) — any subset of these may be present in $data. A legacy
+     * (pre-multi-receipt) declaration has no child row to update
+     * ($receipt_id === 0, see get_reimbursement_receipts()'s synthesized
+     * fallback), so only its description lives anywhere editable; the
+     * others are silently ignored for that case rather than erroring.
+     */
+    public static function update_reimbursement_receipt(int $reimbursement_id, int $receipt_id, array $data): void {
         global $wpdb;
         if ($receipt_id > 0) {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", ['description' => $description], ['id' => $receipt_id]);
+            $fields = [];
+            if (array_key_exists('description', $data)) {
+                $fields['description'] = (string) $data['description'];
+            }
+            if (array_key_exists('date', $data)) {
+                $fields['date'] = $data['date'] ?: null;
+            }
+            if (array_key_exists('store', $data)) {
+                $fields['store'] = (string) $data['store'];
+            }
+            if (array_key_exists('amount', $data)) {
+                $fields['amount'] = $data['amount'] !== null ? (float) $data['amount'] : null;
+            }
+            if ($fields) {
+                $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id]);
+            }
             self::refresh_reimbursement_description_summary($reimbursement_id);
-        } else {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['description' => $description], ['id' => $reimbursement_id]);
+        } elseif (array_key_exists('description', $data)) {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['description' => (string) $data['description']], ['id' => $reimbursement_id]);
         }
     }
 
@@ -2304,9 +2446,31 @@ class AVBK_DB {
     }
 
     /** Rows still needing the treasurer's attention — everything else applied itself. */
-    public static function get_review_queue(string $order = 'asc'): array {
+    /**
+     * $min_year: 0 for no filter, otherwise hides transactions dated before
+     * it — same convention as get_transactions_pending_second_approval() and
+     * get_transactions()'s 'min_year' arg, used so a closed book year's
+     * stray unmatched/suggested transactions don't surface here by default
+     * (see avbk_closed_through_year) even though this queue itself isn't
+     * year-scoped the way balances/fee items are: an unreviewed incoming
+     * payment still needs a human decision (match or "negeren") regardless
+     * of which year it's dated, closing a year doesn't make that go away —
+     * it's just not something the penningmeester needs nudged about by
+     * default once that year is settled.
+     */
+    public static function get_review_queue(string $order = 'asc', int $min_year = 0): array {
         global $wpdb;
         $sql_order = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+        if ($min_year) {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
+                 FROM {$wpdb->prefix}avb_transactions t
+                 LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
+                 WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched') AND YEAR(t.transaction_date) >= %d
+                 ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}",
+                $min_year
+            )) ?: [];
+        }
         return $wpdb->get_results(
             "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
              FROM {$wpdb->prefix}avb_transactions t
@@ -2600,6 +2764,207 @@ class AVBK_DB {
              GROUP BY iban ORDER BY created_at DESC",
             $household_ids
         ));
+    }
+
+    /**
+     * Unlike get_known_ibans_for_member(), no household expansion — just
+     * this member's own directly-attributed IBANs. Attribution is already
+     * correct at the source (a parent paying for a child's fee gets
+     * remember_iban()'d against the child, not the parent — see
+     * AVBK_Import's confirm-handler), so showing a participant's own
+     * account(s) here (e.g. the "Bank(en)" column on Activiteit
+     * betalingen) shouldn't also surface a parent's or housemate's
+     * unrelated account just because they share an address.
+     * @return object[] Each with ->iban and ->account_name.
+     */
+    public static function get_own_known_ibans(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
+             FROM {$wpdb->prefix}avb_known_ibans WHERE member_id = %d
+             GROUP BY iban ORDER BY created_at DESC",
+            $member_id
+        ));
+    }
+
+    /**
+     * Dutch bank code (IBAN characters 5-8, e.g. "INGB") -> the bank's
+     * usual short name — for filtering/display only, not matching logic.
+     * Not exhaustive, just the banks actually likely to show up among
+     * members; an unrecognised code (or a non-NL IBAN, where this
+     * position isn't a bank code at all) falls back to the raw 4 letters
+     * in iban_bank_name() below rather than guessing.
+     */
+    const IBAN_BANK_NAMES = [
+        'INGB' => 'ING',
+        'RABO' => 'Rabobank',
+        'ABNA' => 'ABN AMRO',
+        'TRIO' => 'Triodos Bank',
+        'SNSB' => 'SNS Bank',
+        'ASNB' => 'ASN Bank',
+        'RBRB' => 'RegioBank',
+        'KNAB' => 'Knab',
+        'BUNQ' => 'bunq',
+        'FVLB' => 'Van Lanschot',
+        'REVO' => 'Revolut',
+    ];
+
+    /**
+     * Belgian bank code (IBAN characters 5-7, e.g. "731" — 3 numeric
+     * digits, unlike NL's 4-letter code at the same position) -> bank
+     * name, as [min, max, name] ranges. Sourced from the National Bank
+     * of Belgium's own registry (nbb.be, "Bank identification codes"),
+     * restricted to the major retail banks actually likely to show up
+     * among members — that registry runs 000-999 and includes dozens of
+     * niche forex/payment-service entries irrelevant here. An unmatched
+     * code falls back to the raw 3 digits, same as an unrecognised NL one.
+     */
+    const IBAN_BE_BANK_RANGES = [
+        [694, 694, 'Deutsche Bank'],
+        [700, 709, 'Crelan'],
+        [719, 722, 'ABN AMRO'],
+        [725, 727, 'KBC Bank'],
+        [728, 729, 'CBC Banque'],
+        [730, 731, 'KBC Bank'],
+        [732, 732, 'CBC Banque'],
+        [733, 741, 'KBC Bank'],
+        [742, 742, 'CBC Banque'],
+        [743, 749, 'KBC Bank'],
+        [750, 765, 'Crelan'],
+        [772, 774, 'Crelan'],
+        [775, 799, 'Belfius'],
+        [800, 806, 'Crelan'],
+        [824, 824, 'ING België'],
+        [825, 826, 'Deutsche Bank'],
+        [828, 828, 'ING België'],
+        [830, 839, 'Belfius'],
+        [845, 845, 'Bank Degroof Petercam'],
+        [850, 853, 'Crelan'],
+        [859, 866, 'Crelan'],
+        [868, 868, 'KBC Bank'],
+        [871, 871, 'Bank Nagelmackers'],
+        [873, 873, 'bpost bank'],
+        [876, 876, 'MeDirect Bank'],
+        [877, 879, 'Bank Nagelmackers'],
+        [880, 881, 'ING België'],
+        [883, 884, 'ING België'],
+        [887, 888, 'ING België'],
+        [890, 899, 'vdk bank'],
+        [910, 910, 'ING België'],
+        [920, 920, 'ING België'],
+        [922, 923, 'ING België'],
+        [929, 931, 'ING België'],
+        [934, 934, 'ING België'],
+        [936, 936, 'ING België'],
+        [939, 939, 'ING België'],
+        [950, 959, 'Beobank'],
+        [960, 960, 'ABN AMRO'],
+        [961, 961, 'ING België'],
+        [963, 963, 'Crelan'],
+        [971, 971, 'ING België'],
+        [973, 973, 'Argenta Spaarbank'],
+        [975, 975, 'Crelan'],
+        [976, 976, 'ING België'],
+        [978, 980, 'Argenta Spaarbank'],
+        [981, 984, 'bpost bank'],
+    ];
+
+    /** First two letters of an IBAN — its country code (e.g. "NL"), empty for anything too short to have one. */
+    public static function iban_country(string $iban): string {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        return mb_strlen($iban) >= 2 ? substr($iban, 0, 2) : '';
+    }
+
+    /**
+     * Readable bank name for an IBAN. NL uses a 4-letter code right
+     * after the 2 check digits (IBAN_BANK_NAMES); BE uses a 3-digit
+     * numeric one in the same position (IBAN_BE_BANK_RANGES) — anything
+     * else falls back to the raw code fragment rather than guessing at
+     * a format this hasn't been taught. Empty if too short to have one.
+     */
+    public static function iban_bank_name(string $iban): string {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        if (mb_strlen($iban) < 7) {
+            return '';
+        }
+        if (self::iban_country($iban) === 'BE') {
+            $code = (int) substr($iban, 4, 3);
+            foreach (self::IBAN_BE_BANK_RANGES as [$min, $max, $name]) {
+                if ($code >= $min && $code <= $max) {
+                    return $name;
+                }
+            }
+            return substr($iban, 4, 3);
+        }
+        $code = substr($iban, 4, 4);
+        return self::IBAN_BANK_NAMES[$code] ?? $code;
+    }
+
+    // -------------------------------------------------------------------
+    // Generic per-activity betaalverzoeklink + QR (not per-member) — see
+    // AVBK_Admin's activity-payments handlers.
+    // -------------------------------------------------------------------
+
+    /** Strips any leading text before "https"/"http" — a pasted link is often prefixed with a share-message ("Bekijk mijn Tikkie: https://..."), and only the URL itself is worth keeping. Leaves the input as-is if no http(s) is found. */
+    public static function strip_url_prefix(string $text): string {
+        $text = trim($text);
+        if (preg_match('/https?:\/\/\S+/i', $text, $m)) {
+            return trim($m[0]);
+        }
+        return $text;
+    }
+
+    /** The saved generic betaalverzoek (link + QR) for an activity, or null if none is set. */
+    public static function get_activity_payment_link(int $activity_id): ?object {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        return $row ?: null;
+    }
+
+    /** Saves/replaces the activity's generic betaalverzoeklink; pass '' to clear it without touching the QR. The URL is reduced via strip_url_prefix() before storing, matching what's shown. */
+    public static function save_activity_payment_url(int $activity_id, string $url): void {
+        global $wpdb;
+        $url = self::strip_url_prefix($url);
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT activity_id FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        if ($exists) {
+            $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['payment_url' => $url], ['activity_id' => $activity_id]);
+        } else {
+            $wpdb->insert("{$wpdb->prefix}avb_activity_payment_links", ['activity_id' => $activity_id, 'payment_url' => $url]);
+        }
+    }
+
+    /** Saves/replaces the activity's generic betaalverzoek-QR image (raw bytes) without touching the link. */
+    public static function save_activity_payment_qr(int $activity_id, string $image_data, string $mime): void {
+        global $wpdb;
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT activity_id FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
+            $activity_id
+        ));
+        $fields = ['qr_image' => $image_data, 'qr_image_mime' => $mime];
+        if ($exists) {
+            $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", $fields, ['activity_id' => $activity_id]);
+        } else {
+            $fields['activity_id'] = $activity_id;
+            $wpdb->insert("{$wpdb->prefix}avb_activity_payment_links", $fields);
+        }
+    }
+
+    /** Removes just the QR image, keeping any saved link. */
+    public static function delete_activity_payment_qr(int $activity_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['qr_image' => null, 'qr_image_mime' => ''], ['activity_id' => $activity_id]);
+    }
+
+    /** Removes just the link, keeping any saved QR. */
+    public static function delete_activity_payment_url(int $activity_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_activity_payment_links", ['payment_url' => ''], ['activity_id' => $activity_id]);
     }
 
     // -------------------------------------------------------------------

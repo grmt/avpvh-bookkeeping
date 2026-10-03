@@ -28,7 +28,10 @@ class AVBK_Fee_Popup {
         if (!$member || $member->status !== 'active') {
             return;
         }
-        $balance = AVBK_DB::get_member_balance((int) $member->id);
+        // Excludes closed book years — a closed year is by definition
+        // fully settled and shouldn't still nudge a member to pay it (see
+        // AVBK_DB::get_member_balance_excluding_closed()'s own docblock).
+        $balance = AVBK_DB::get_member_balance_excluding_closed((int) $member->id);
         if ($balance['balance'] > 0.005) {
             update_user_meta($user->ID, self::USER_META, 1);
         } else {
@@ -54,7 +57,10 @@ class AVBK_Fee_Popup {
             return;
         }
 
-        $balance = AVBK_DB::get_member_balance((int) $member->id);
+        // Excludes closed book years — a closed year is by definition
+        // fully settled and shouldn't still nudge a member to pay it (see
+        // AVBK_DB::get_member_balance_excluding_closed()'s own docblock).
+        $balance = AVBK_DB::get_member_balance_excluding_closed((int) $member->id);
         if ($balance['balance'] <= 0.005) {
             delete_user_meta(get_current_user_id(), self::USER_META);
             return;
@@ -95,7 +101,16 @@ class AVBK_Fee_Popup {
                 <?php if ($qr_svg) : ?>
                     <div class="avbk-fee-popup-qr"><?php echo $qr_svg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
-                    <p class="avbk-fee-popup-ref">Gebruik bij een handmatige overschrijving de referentie: <code><?php echo esc_html($reference); ?></code></p>
+                    <?php
+                    $club_iban = trim((string) get_option('avbk_club_iban', ''));
+                    $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
+                    $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+                    ?>
+                    <p class="avbk-fee-popup-ref">Wil je de boeking zelf doen? Gebruik dan de volgende gegevens:<br>
+                        <?php if ($club_iban) : ?>IBAN: <code><?php echo esc_html($club_iban_display); ?></code><br><?php endif; ?>
+                        Ten name van: <?php echo esc_html($club_name); ?><br>
+                        Omschrijving: <code><?php echo esc_html($reference); ?></code>
+                    </p>
                 <?php endif; ?>
                 <p class="avbk-fee-popup-detail-link">
                     <a id="avbk-fee-detail-link" href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">Volledig overzicht en details bekijken &rarr;</a>

@@ -104,7 +104,7 @@ class AVBK_Congress {
         AVBK_DB::confirm_congress_registration((int) $reg->id);
 
         $fee_item = $reg->fee_item_id ? AVBK_DB::get_fee_item((int) $reg->fee_item_id) : null;
-        $remaining = $fee_item ? round((float) $fee_item->amount_due - AVBK_DB::get_fee_item_paid((int) $fee_item->id), 2) : 0.0;
+        $remaining = $fee_item ? AVBK_DB::get_fee_item_remaining($fee_item) : 0.0;
         $qr = ($reg->member_id && $fee_item) ? AVBK_QR::for_fee_item((int) $reg->member_id, $fee_item) : null;
         $providers = ($reg->member_id && class_exists('AVPVH_OAuth')) ? AVPVH_OAuth::configured_providers() : [];
 
