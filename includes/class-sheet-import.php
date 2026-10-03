@@ -253,6 +253,23 @@ class AVBK_Sheet_Import {
         self::save_config($activity_id, $config);
     }
 
+    /** Shared by the fixed-layout camp importer so saved manual links remain effective there too. */
+    public static function match_source_person(int $activity_id, string $name, string $email = ''): ?object {
+        $config = self::get_config($activity_id);
+        return self::find_match($name, $email, [$activity_id])
+            ?: self::find_saved_match($config, $name, $email);
+    }
+
+    /** Review suggestions in the same shape used by the generic importer UI. */
+    public static function source_person_suggestions(int $activity_id, string $name): array {
+        return self::fuzzy_member_suggestions($name, [$activity_id]);
+    }
+
+    /** An ignored camp-grid label/person stays ignored on later uploads. */
+    public static function is_source_identity_ignored(int $activity_id, string $name, string $email = ''): bool {
+        return self::is_ignored_source_identity(self::get_config($activity_id), $name, $email);
+    }
+
     private static function is_ignored_source_identity(array $config, string $name, string $email): bool {
         return !empty(($config['ignored_source_identities'] ?? [])[self::source_identity_key($name, $email)]);
     }

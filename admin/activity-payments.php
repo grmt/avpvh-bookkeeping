@@ -22,12 +22,13 @@ if ($activity_id) {
     }
 }
 $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+$is_camp = $activity && ($activity->type_name ?? '') === 'Kamp';
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
 $import_result = get_transient(AVBK_Sheet_Import::result_transient_key($activity_id));
 $participants = $activity_id ? AVPVH_DB::get_participation_for_activity($activity_id) : [];
-$preview_result = $activity_id
+$preview_result = $activity_id && !$is_camp
     ? AVBK_Sheet_Import::fetch_preview($config['sheet_url'], (int) $config['header_row'])
-    : ['headers' => [], 'rows' => [], 'error' => null];
+    : ['headers' => [], 'rows' => [], 'raw_rows' => [], 'error' => null];
 $headers_result = ['headers' => $preview_result['headers'], 'error' => $preview_result['error']];
 // A live sheet-link fetch wins when there is one; otherwise fall back to
 // whatever the last successful fetch/upload saw, so a file-upload-only
@@ -46,7 +47,7 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
 ?>
 <div class="wrap">
     <h1>Activiteit betalingen</h1>
-    <p class="description">Voor een activiteit waarvan de aanmeldingen via een extern Google Form binnenkomen (in plaats van via deze plugin) — elke herkende aanmelding wordt verwerkt als een gewone deelname + bijdrage, net als bij Kamp/Weekend/etc.</p>
+    <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
     <form method="get" style="margin-bottom:1rem">
         <input type="hidden" name="page" value="avbk-activity-payments">
@@ -172,6 +173,27 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
         </script>
 
         <h2>Aanmeldingen &mdash; bron</h2>
+        <?php if ($is_camp) : ?>
+            <p class="description">
+                Voor een kamp wordt automatisch de speciale indeling van het werkblad
+                <code>totaal inschrijvingen</code> gebruikt. Je hoeft daarom geen kopregel of kolomindeling in te stellen.
+                Namen staan in D, kampdagen in E–T en nawacht, opmerkingen en dieet in W–Z.
+            </p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" style="margin:1rem 0 1.5rem">
+                <?php wp_nonce_field('avbk_sheet_import_upload'); ?>
+                <input type="hidden" name="action" value="avbk_sheet_import_upload">
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <div class="avbk-dropzone" tabindex="0" style="max-width:32em">
+                    <span class="avbk-dropzone-text">Sleep het bijgewerkte kampbestand (.xlsx) hierheen, of klik om te kiezen</span>
+                    <input type="file" name="sheet_file" accept=".xlsx" required>
+                </div>
+                <p class="description">
+                    Herkende deelnemers en hun dagen worden bijgewerkt; de kampperiode volgt de datums in het bestand.
+                    Niet-herkende namen komen hieronder ter beoordeling. Deelnemers die niet meer in het bestand staan worden niet automatisch verwijderd.
+                </p>
+                <?php submit_button('Kampbestand verwerken', 'primary', 'submit', false); ?>
+            </form>
+        <?php else : ?>
         <p class="description">
             De aanmeldingen komen ofwel uit een <strong>live Google Sheet-link</strong> (kies dit als het Google
             Form/Sheet blijft bestaan — elke keer op "Ververs" klikken haalt de nieuwste stand op), ofwel uit een
@@ -384,6 +406,7 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
             })();
             </script>
         <?php endif; ?>
+        <?php endif; ?>
 
         <?php if ($import_result) : ?>
             <?php if ($import_result['errors']) : ?>
@@ -391,6 +414,9 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
             <?php else : ?>
                 <div class="notice notice-success">
                     <p><?php echo esc_html(count($import_result['matched'])); ?> persoon/personen verwerkt<?php echo $import_result['unmatched'] ? ', ' . esc_html(count($import_result['unmatched'])) . ' niet herkend (zie hieronder)' : ''; ?>.</p>
+                    <?php if (!empty($import_result['camp'])) : ?>
+                        <p>Kampperiode: <?php echo esc_html($import_result['camp']['start_date']); ?> t/m <?php echo esc_html($import_result['camp']['end_date']); ?>.</p>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -411,6 +437,10 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
                             <input type="hidden" name="amount" value="<?php echo esc_attr($person['amount'] ?? 0); ?>">
                             <input type="hidden" name="registered_at" value="<?php echo esc_attr($person['registered_at'] ?? ''); ?>">
                             <input type="hidden" name="source_timestamp" value="<?php echo esc_attr($person['source_timestamp'] ?? ''); ?>">
+                            <?php if (isset($person['camp_days'])) : ?>
+                                <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
+                                <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
+                            <?php endif; ?>
                             <label style="display:block;margin:.4rem 0"><input type="search" class="avbk-unmatched-member-search" placeholder="Zoek lid, bijv. paul" style="width:20em"></label>
                             <label style="display:block;margin:.4rem 0"><input type="checkbox" class="avbk-show-inactive-members"> Toon inactieve leden</label>
                             <select name="member_id" class="avbk-unmatched-member-select" required>

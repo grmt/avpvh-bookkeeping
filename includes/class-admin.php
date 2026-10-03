@@ -57,6 +57,11 @@ class AVBK_Admin {
         return current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('penningmeester');
     }
 
+    private function is_camp_activity(int $activity_id): bool {
+        $activity = $activity_id > 0 ? AVPVH_DB::get_activity($activity_id) : null;
+        return $activity && ($activity->type_name ?? '') === 'Kamp';
+    }
+
     public function register_menus(): void {
         if (!$this->can_manage()) {
             return; // not registered at all for anyone else — 'read' (used below) is every logged-in user's capability
@@ -557,6 +562,9 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if ($this->is_camp_activity($activity_id)) {
+            wp_die('Voor een kamp wordt de speciale kampimport gebruikt; een generieke sheet-link is niet van toepassing.', 400);
+        }
         if ($activity_id) {
             $config = AVBK_Sheet_Import::get_config($activity_id);
             $old_header_row = max(1, (int) $config['header_row']);
@@ -634,6 +642,9 @@ class AVBK_Admin {
             wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments'], admin_url('admin.php')));
             exit;
         }
+        if ($this->is_camp_activity($activity_id)) {
+            wp_die('Voor een kamp is geen generieke kolomindeling nodig.', 400);
+        }
         $config = AVBK_Sheet_Import::get_config($activity_id);
         $posted_header_row = max(1, (int) ($_POST['header_row'] ?? $config['header_row']));
         $config['last_data_row'] = max(0, (int) ($_POST['last_data_row'] ?? ($config['last_data_row'] ?? 0)));
@@ -686,29 +697,42 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
-        $result = $activity_id
-            ? AVBK_Sheet_Import::import($activity_id)
-            : ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+        if (!$activity_id) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+        } elseif ($this->is_camp_activity($activity_id)) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Upload voor een kamp het speciale .xlsx-kampbestand.']];
+        } else {
+            $result = AVBK_Sheet_Import::import($activity_id);
+        }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
         exit;
     }
 
-    /** Same as handle_sheet_import(), but from a one-off .xlsx upload instead of the configured Google Sheet link — for a sign-up source with no shareable live link. */
+    /** Upload route: fixed camp parser for Kamp, configurable parser for every other activity type. */
     public function handle_sheet_import_upload(): void {
         check_admin_referer('avbk_sheet_import_upload');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
-        if (empty($_FILES['sheet_file']['tmp_name']) || !is_uploaded_file($_FILES['sheet_file']['tmp_name'])) {
+        $file = $_FILES['sheet_file'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as a PHP upload; cell values are sanitized by the selected importer
+        if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen bestand geüpload.']];
+        } elseif (strtolower(pathinfo(sanitize_file_name((string) ($file['name'] ?? '')), PATHINFO_EXTENSION)) !== 'xlsx') {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Gebruik een .xlsx-bestand. Sla een oud .xls-bestand eerst op als .xlsx.']];
+        } elseif ((int) ($file['size'] ?? 0) <= 0 || (int) ($file['size'] ?? 0) > 20 * MB_IN_BYTES) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Het xlsx-bestand is leeg of groter dan 20 MB.']];
         } else {
             // Never moved into wp-content/uploads — read once from PHP's own
             // private upload tmp path, same as the bank-export upload.
-            $result = $activity_id
-                ? AVBK_Sheet_Import::import($activity_id, $_FILES['sheet_file']['tmp_name'])
-                : ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+            if (!$activity_id) {
+                $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+            } elseif ($this->is_camp_activity($activity_id)) {
+                $result = AVBK_Camp_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
+            } else {
+                $result = AVBK_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
+            }
         }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
@@ -726,6 +750,7 @@ class AVBK_Admin {
         $email_added = null;
         $linked = false;
         if ($member_id && $activity_id && AVPVH_DB::get_member($member_id)) {
+            $is_camp = $this->is_camp_activity($activity_id);
             $source_name = sanitize_text_field(wp_unslash($_POST['source_name'] ?? ''));
             $source_email = sanitize_text_field(wp_unslash($_POST['source_email'] ?? ''));
             AVBK_Sheet_Import::remember_match($activity_id, $source_name, $source_email, $member_id);
@@ -733,23 +758,36 @@ class AVBK_Admin {
                 $email = sanitize_email($source_email);
                 $email_added = $email !== '' && AVPVH_DB::ensure_identity($member_id, 'email', $email);
             }
-            AVPVH_DB::save_participation($member_id, $activity_id, [
-                'nights'  => null,
-                'nawacht' => false,
-                'diet'    => sanitize_text_field(wp_unslash($_POST['allergies'] ?? '')),
-                'notes'   => sanitize_text_field(wp_unslash($_POST['notes'] ?? '')),
+            $camp_days = [];
+            if ($is_camp) {
+                $posted_days = json_decode(wp_unslash($_POST['camp_days'] ?? ''), true);
+                foreach (is_array($posted_days) ? $posted_days : [] as $date => $status) {
+                    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) {
+                        $camp_days[(string) $date] = substr(sanitize_text_field((string) $status), 0, 10);
+                    }
+                }
+            }
+            $participation_id = AVPVH_DB::save_participation($member_id, $activity_id, [
+                'nights'  => $is_camp ? count(array_filter($camp_days, fn($status) => strtolower($status) === 'n')) : null,
+                'nawacht' => $is_camp && !empty($_POST['camp_nawacht']),
+                'diet'    => sanitize_textarea_field(wp_unslash($_POST['allergies'] ?? '')),
+                'notes'   => sanitize_textarea_field(wp_unslash($_POST['notes'] ?? '')),
             ]);
-            AVBK_DB::save_sheet_participation_meta(
-                $activity_id,
-                $member_id,
-                sanitize_text_field(wp_unslash($_POST['registered_at'] ?? '')) ?: null,
-                sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? ''))
-            );
-            $config = AVBK_Sheet_Import::get_config($activity_id);
-            $row_amount = (float) ($_POST['amount'] ?? 0);
-            $amount = $row_amount > 0 ? $row_amount : (float) $config['price_per_person'];
-            if ($amount > 0) {
-                AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
+            if ($is_camp) {
+                AVPVH_DB::save_participation_days($participation_id, $camp_days);
+            } else {
+                AVBK_DB::save_sheet_participation_meta(
+                    $activity_id,
+                    $member_id,
+                    sanitize_text_field(wp_unslash($_POST['registered_at'] ?? '')) ?: null,
+                    sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? ''))
+                );
+                $config = AVBK_Sheet_Import::get_config($activity_id);
+                $row_amount = (float) ($_POST['amount'] ?? 0);
+                $amount = $row_amount > 0 ? $row_amount : (float) $config['price_per_person'];
+                if ($amount > 0) {
+                    AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
+                }
             }
             $linked = true;
             $this->remove_sheet_review_entry($activity_id, $source_name, $source_email, sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? '')));
