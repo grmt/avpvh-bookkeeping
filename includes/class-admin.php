@@ -25,6 +25,10 @@ class AVBK_Admin {
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
+        add_action('admin_post_avbk_save_iban_country_format', [$this, 'handle_save_iban_country_format']);
+        add_action('admin_post_avbk_delete_iban_country_format', [$this, 'handle_delete_iban_country_format']);
+        add_action('admin_post_avbk_save_iban_bank_code',   [$this, 'handle_save_iban_bank_code']);
+        add_action('admin_post_avbk_delete_iban_bank_code', [$this, 'handle_delete_iban_bank_code']);
         add_action('admin_post_avbk_generate_contribution_fees_now', [$this, 'handle_generate_contribution_fees_now']);
         add_action('admin_post_avbk_generate_camp_fees_now',         [$this, 'handle_generate_camp_fees_now']);
         add_action('admin_post_avbk_save_sheet_url',                 [$this, 'handle_save_sheet_url']);
@@ -82,6 +86,7 @@ class AVBK_Admin {
         add_submenu_page('avbk-overview', 'Alle transacties', 'Alle transacties', 'read', 'avbk-transactions', [$this, 'render_transactions']);
         add_submenu_page('avbk-overview', 'Ledenoverzicht', 'Ledenoverzicht', 'read', 'avbk-members', [$this, 'render_members']);
         add_submenu_page('avbk-overview', 'Tarieven', 'Tarieven', 'read', 'avbk-rates', [$this, 'render_rates']);
+        add_submenu_page('avbk-overview', 'IBAN-bankcodes', 'IBAN-bankcodes', 'read', 'avbk-iban-bank-codes', [$this, 'render_iban_bank_codes']);
 
         $open_disputes = AVBK_DB::count_open_disputes();
         $disputes_label = 'Bezwaren' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
@@ -139,6 +144,7 @@ class AVBK_Admin {
     public function render_transactions(): void { require AVBK_PLUGIN_DIR . 'admin/transactions.php'; }
     public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
     public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
+    public function render_iban_bank_codes(): void { require AVBK_PLUGIN_DIR . 'admin/iban-bank-codes.php'; }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
@@ -1805,6 +1811,74 @@ class AVBK_Admin {
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_save_iban_country_format(): void {
+        check_admin_referer('avbk_save_iban_country_format');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $country_code = strtoupper(sanitize_text_field(wp_unslash($_POST['country_code'] ?? '')));
+        $saved = AVBK_DB::save_iban_country_format(
+            $country_code,
+            sanitize_text_field(wp_unslash($_POST['country_name'] ?? '')),
+            (int) ($_POST['bank_code_position'] ?? 0),
+            (int) ($_POST['bank_code_length'] ?? 0)
+        );
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-iban-bank-codes',
+            $saved ? 'country_saved' : 'iban_error' => '1',
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_iban_country_format(): void {
+        check_admin_referer('avbk_delete_iban_country_format');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        AVBK_DB::delete_iban_country_format(sanitize_text_field(wp_unslash($_POST['country_code'] ?? '')));
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-iban-bank-codes',
+            'country_deleted' => '1',
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_save_iban_bank_code(): void {
+        check_admin_referer('avbk_save_iban_bank_code');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $country_code = strtoupper(sanitize_text_field(wp_unslash($_POST['country_code'] ?? '')));
+        $saved = AVBK_DB::save_iban_bank_code(
+            (int) ($_POST['id'] ?? 0),
+            $country_code,
+            sanitize_text_field(wp_unslash($_POST['code_start'] ?? '')),
+            sanitize_text_field(wp_unslash($_POST['code_end'] ?? '')),
+            sanitize_text_field(wp_unslash($_POST['bank_name'] ?? ''))
+        );
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-iban-bank-codes',
+            'country' => $country_code,
+            $saved ? 'bank_saved' : 'iban_error' => '1',
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_delete_iban_bank_code(): void {
+        check_admin_referer('avbk_delete_iban_bank_code');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $country_code = strtoupper(sanitize_text_field(wp_unslash($_POST['country_code'] ?? '')));
+        AVBK_DB::delete_iban_bank_code((int) ($_POST['id'] ?? 0));
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-iban-bank-codes',
+            'country' => $country_code,
+            'bank_deleted' => '1',
+        ], admin_url('admin.php')));
         exit;
     }
 }
