@@ -208,7 +208,7 @@ class AVBK_Camp_Sheet_Import {
             if ($month_label !== '') {
                 $month = self::MONTHS[$month_label] ?? null;
                 if ($month === null) {
-                    throw new \RuntimeException('Onbekende maand in het kampoverzicht: ' . $month_label . '.');
+                    throw new \RuntimeException('Onbekende maand in het kampoverzicht: ' . $month_label . '.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
                 }
                 if ($previous_month !== null && $month < $previous_month) {
                     $year++;

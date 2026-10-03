@@ -2499,6 +2499,10 @@ class AVBK_DB {
     public static function get_review_queue(string $order = 'asc'): array {
         global $wpdb;
         $sql_order = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+        // $sql_order is whitelisted to the literal 'ASC' or 'DESC' just above
+        // (ORDER BY direction can't be a prepare() placeholder); the table
+        // names are WP's own prefix. No user input reaches the SQL.
+        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         return $wpdb->get_results(
             "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
              FROM {$wpdb->prefix}avb_transactions t
@@ -2506,6 +2510,7 @@ class AVBK_DB {
              WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched')
              ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}"
         ) ?: [];
+        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
     /**
@@ -2518,6 +2523,8 @@ class AVBK_DB {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($member_ids), '%d'));
+        // $placeholders is a generated run of %d, one per id, filled in by prepare() below; PHPCS can't see that.
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT a.member_id, MAX(t.transaction_date) AS last_payment
              FROM {$wpdb->prefix}avb_transaction_allocations a
@@ -2526,6 +2533,7 @@ class AVBK_DB {
              GROUP BY a.member_id",
             $member_ids
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         $result = [];
         foreach ($rows as $row) {
             $result[(int) $row->member_id] = $row->last_payment;
@@ -2786,12 +2794,15 @@ class AVBK_DB {
         }
 
         $placeholders = implode(',', array_fill(0, count($household_ids), '%d'));
+        // $placeholders is a generated run of %d, one per id, filled in by prepare() below; PHPCS can't see that.
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         return $wpdb->get_results($wpdb->prepare(
             "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
              FROM {$wpdb->prefix}avb_known_ibans WHERE member_id IN ($placeholders)
              GROUP BY iban ORDER BY created_at DESC",
             $household_ids
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
     }
 
     /**

@@ -102,8 +102,13 @@ jobs:
           exclude-directories: |
             .claude
             .github
+          # Agent instruction docs live at the plugin root on purpose; they
+          # aren't shipped plugin content (exact filenames only, globs are
+          # not matched by plugin-check-action).
           exclude-files: |
             .gitignore
+            AGENTS.md
+            CLAUDE.md
           # direct_db_queries: this plugin's whole DB layer is custom
           # $wpdb queries (see class-db.php) — an architectural choice,
           # not a gap, same reasoning as avpvh-members.
