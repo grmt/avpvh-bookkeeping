@@ -1408,7 +1408,7 @@ class AVBK_Admin {
                 </div>
                 <div id="avbk-qr-wrap">
                     <?php if ($qr_svg) : ?>
-                        <div class="avbk-preview-qr" id="avbk-qr"><?php echo $qr_svg; ?></div>
+                        <div class="avbk-preview-qr" id="avbk-qr"><?php echo $qr_svg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode (AVBK_QR::svg), not user input; esc_html() would break the markup. ?></div>
                     <?php else : ?>
                         <p id="avbk-qr">De QR-code kon niet worden gegenereerd.</p>
                     <?php endif; ?>

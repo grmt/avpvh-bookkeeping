@@ -102,7 +102,7 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
                 <p style="margin:0 0 .3rem">Betaalverzoek-QR</p>
                 <div id="avbk-payment-qr-drop" style="border:2px dashed #999; border-radius:4px; min-height:160px; display:flex; align-items:center; justify-content:center; text-align:center; color:#888; padding:.75rem; box-sizing:border-box">
                     <?php if (!empty($payment_link->qr_image)) : ?>
-                        <img src="data:<?php echo esc_attr($payment_link->qr_image_mime); ?>;base64,<?php echo base64_encode($payment_link->qr_image); ?>" style="max-width:100%; max-height:220px">
+                        <img src="data:<?php echo esc_attr($payment_link->qr_image_mime); ?>;base64,<?php echo esc_attr(base64_encode($payment_link->qr_image)); ?>" style="max-width:100%; max-height:220px">
                     <?php else : ?>
                         Sleep hier een QR-code-afbeelding naartoe
                     <?php endif; ?>

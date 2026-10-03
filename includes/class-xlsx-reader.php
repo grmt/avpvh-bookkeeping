@@ -125,7 +125,7 @@ class AVBK_Xlsx_Reader {
             $header_row_number = max(1, $header_row_number);
             $header_index = array_search($header_row_number, array_column($sheet_rows, 'row_number'), true);
             if ($header_index === false) {
-                throw new \RuntimeException("Kopregel {$header_row_number} is niet gevonden in het xlsx-bestand.");
+                throw new \RuntimeException("Kopregel {$header_row_number} is niet gevonden in het xlsx-bestand."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
             }
             $header_entry = $sheet_rows[$header_index];
             // Title/instruction rows before the configured headings are not
@@ -234,7 +234,7 @@ class AVBK_Xlsx_Reader {
             break;
         }
         if ($relationship_id === '') {
-            throw new \RuntimeException('Werkblad "' . $wanted_name . '" is niet gevonden.');
+            throw new \RuntimeException('Werkblad "' . $wanted_name . '" is niet gevonden.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
         }
 
         foreach ($relationships->Relationship as $relationship) {
@@ -248,7 +248,7 @@ class AVBK_Xlsx_Reader {
             }
             return $path;
         }
-        throw new \RuntimeException('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.');
+        throw new \RuntimeException('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
     }
 
     private static function read_shared_strings(\ZipArchive $zip): array {
