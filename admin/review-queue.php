@@ -5,7 +5,9 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 }
 
 $review_order = get_user_meta(get_current_user_id(), 'avbk_review_order', true) === 'desc' ? 'desc' : 'asc';
-$queue = AVBK_DB::get_review_queue($review_order);
+$closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+$show_all_years = !empty($_GET['show_all_years']);
+$queue = AVBK_DB::get_review_queue($review_order, $show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
 $duplicate_candidates = array_values(array_filter(
     AVBK_DB::get_transactions(),
     fn($candidate) => $candidate->direction === 'in' && empty($candidate->duplicate_of)
@@ -111,6 +113,18 @@ function avbk_row_detail(array $row): ?array {
 ]); ?></script>
 <div class="wrap">
     <h1>Te controleren transacties</h1>
+
+    <?php if ($closed_through_year) : ?>
+        <p class="description">
+            <?php if ($show_all_years) : ?>
+                Toont ook transacties tot en met <?php echo esc_html($closed_through_year); ?> (afgesloten).
+                <a href="<?php echo esc_url(remove_query_arg('show_all_years')); ?>">Verberg afgesloten jaren</a>.
+            <?php else : ?>
+                Transacties tot en met <?php echo esc_html($closed_through_year); ?> zijn afgesloten en worden hier verborgen.
+                <a href="<?php echo esc_url(add_query_arg('show_all_years', '1')); ?>">Toon oudere jaren</a>.
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
 
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0 1rem">
         <?php wp_nonce_field('avbk_save_review_order'); ?>
