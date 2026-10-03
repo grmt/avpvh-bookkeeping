@@ -13,13 +13,14 @@
   vóór het mergen, zoals al gebruikelijk in deze workflow — dat is losstaand
   van de git-historie.
 
-## Productieomgeving (grmt@avpvh.nl)
+## Productieomgeving
 
+- Stel lokaal `DEPLOY_HOST` in op het SSH-doel; leg de concrete loginnaam niet vast in deze repository.
 - **Deployen**: rsync de gewijzigde bestanden naar
-  `grmt@avpvh.nl:/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/`,
+  `$DEPLOY_HOST:/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/`,
   bijv.:
   ```
-  rsync -av includes/class-db.php grmt@avpvh.nl:/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/ --relative
+  rsync -av includes/class-db.php "$DEPLOY_HOST":/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/ --relative
   ```
   Dit is de live WordPress-install, gedraaid in Docker
   (webserver-container `scripts-wordpress-pvh-1`).
@@ -31,7 +32,7 @@
   `docker exec php` geeft daar "Error establishing a database
   connection", ook al draait de site zelf prima).
   ```
-  ssh grmt@avpvh.nl "docker compose -f /opt/docker/scripts/docker-compose.yml run --rm --no-deps wpcli-pvh wp <commando>"
+  ssh "$DEPLOY_HOST" "docker compose -f /opt/docker/scripts/docker-compose.yml run --rm --no-deps wpcli-pvh wp <commando>"
   ```
   Bijv. `wp option get siteurl`, `wp db query "SELECT ..."`,
   `wp eval-file ...`. Laat `-it` weg — er is geen TTY beschikbaar via
