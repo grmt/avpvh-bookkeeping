@@ -2446,9 +2446,31 @@ class AVBK_DB {
     }
 
     /** Rows still needing the treasurer's attention — everything else applied itself. */
-    public static function get_review_queue(string $order = 'asc'): array {
+    /**
+     * $min_year: 0 for no filter, otherwise hides transactions dated before
+     * it — same convention as get_transactions_pending_second_approval() and
+     * get_transactions()'s 'min_year' arg, used so a closed book year's
+     * stray unmatched/suggested transactions don't surface here by default
+     * (see avbk_closed_through_year) even though this queue itself isn't
+     * year-scoped the way balances/fee items are: an unreviewed incoming
+     * payment still needs a human decision (match or "negeren") regardless
+     * of which year it's dated, closing a year doesn't make that go away —
+     * it's just not something the penningmeester needs nudged about by
+     * default once that year is settled.
+     */
+    public static function get_review_queue(string $order = 'asc', int $min_year = 0): array {
         global $wpdb;
         $sql_order = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+        if ($min_year) {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
+                 FROM {$wpdb->prefix}avb_transactions t
+                 LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
+                 WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched') AND YEAR(t.transaction_date) >= %d
+                 ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}",
+                $min_year
+            )) ?: [];
+        }
         return $wpdb->get_results(
             "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
              FROM {$wpdb->prefix}avb_transactions t
