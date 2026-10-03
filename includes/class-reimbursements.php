@@ -104,17 +104,6 @@ class AVBK_Reimbursements {
                 <input type="hidden" name="action" value="avbk_submit_reimbursement">
 
                 <p>
-                    <label for="avbk-receipt-input">Foto's van het bonnetje (meerdere mogelijk)</label><br>
-                    <div class="avbk-dropzone" id="avbk-dropzone" tabindex="0">
-                        <span class="avbk-dropzone-text">Sleep een of meer foto's hierheen, of klik om te kiezen</span>
-                        <input type="file" name="receipt[]" id="avbk-receipt-input" accept="image/*" capture="environment" multiple required>
-                    </div>
-                    <ul class="avbk-dropzone-list" id="avbk-dropzone-list"></ul>
-                </p>
-
-                <p id="avbk-ocr-status" class="avbk-reimbursement-ocr-status" hidden></p>
-
-                <p>
                     <label for="avbk-activity">Activiteit</label><br>
                     <select name="activity_id" id="avbk-activity">
                         <option value="">&mdash; geen (algemene onkosten) &mdash;</option>
@@ -127,12 +116,22 @@ class AVBK_Reimbursements {
                 </p>
 
                 <p>
-                    <label for="avbk-description">Omschrijving</label><br>
-                    <input type="text" name="description" id="avbk-description" class="regular-text" placeholder="Bijv. boodschappen voor het weekend">
+                    <label for="avbk-receipt-input">Bonnetjes</label><br>
+                    <div class="avbk-dropzone" id="avbk-dropzone" tabindex="0">
+                        <span class="avbk-dropzone-text">Sleep een of meer foto's hierheen, of klik om te kiezen</span>
+                        <input type="file" name="receipt[]" id="avbk-receipt-input" accept="image/*" capture="environment" multiple>
+                    </div>
+                    <button type="button" class="button" id="avbk-add-manual-row">+ Regel toevoegen zonder bonnetje</button>
+                    <table class="avbk-dropzone-table" id="avbk-dropzone-table" hidden>
+                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th>Bedrag</th><th></th></tr></thead>
+                        <tbody id="avbk-dropzone-list"></tbody>
+                    </table>
                 </p>
 
+                <p id="avbk-ocr-status" class="avbk-reimbursement-ocr-status" hidden></p>
+
                 <p>
-                    <label for="avbk-amount">Bedrag</label><br>
+                    <label for="avbk-amount">Totaal bedrag</label><br>
                     &euro; <input type="text" name="amount" id="avbk-amount" placeholder="0,00" required>
                 </p>
 
@@ -347,10 +346,17 @@ class AVBK_Reimbursements {
 
         $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? ''));
         $iban = strtoupper(str_replace(' ', '', sanitize_text_field(wp_unslash($_POST['iban'] ?? ''))));
-        $files = $_FILES['receipt'] ?? null;
-        $has_receipt = $files && !empty(array_filter((array) $files['tmp_name']));
+        $files = $_FILES['receipt'] ?? ['tmp_name' => [], 'name' => []];
+        // has_receipt[] carries one flag per declaration LINE, in the same
+        // order as date[]/store[]/description[]/amount[] — a line with no
+        // photo (manual entry: cash expense, lost receipt) has no matching
+        // slot in $files at all, since a native file input only ever
+        // submits the files actually selected. This pointer is how a
+        // '1' flag knows which $files entry is "next", without assuming
+        // line index and file index are the same number.
+        $has_receipt_flags = (array) ($_POST['has_receipt'] ?? []);
 
-        if (!$member || !$has_receipt || $amount <= 0 || $iban === '') {
+        if (!$member || !$has_receipt_flags || $amount <= 0 || $iban === '') {
             wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
             exit;
         }
@@ -362,17 +368,47 @@ class AVBK_Reimbursements {
         // actually stored (see analyze_uploaded_receipt()'s docblock).
         $seen_hashes = [];
         $analyzed = [];
-        foreach ($files['tmp_name'] as $i => $tmp_path) {
-            if (!$tmp_path) {
-                continue;
-            }
+        $file_index = 0;
+        foreach ($has_receipt_flags as $i => $flag) {
             $description = sanitize_text_field(wp_unslash($_POST['description'][$i] ?? ''));
-            $info = $this->analyze_uploaded_receipt($tmp_path, $seen_hashes, (int) $member->id);
-            if ($info === null) {
-                wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
-                exit;
+            $store = sanitize_text_field(wp_unslash($_POST['store'][$i] ?? ''));
+            $date_raw = sanitize_text_field(wp_unslash($_POST['date'][$i] ?? ''));
+            $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_raw) ? $date_raw : null;
+            $row_amount_raw = (string) ($_POST['amount'][$i] ?? '');
+            $row_amount = $row_amount_raw !== '' ? (float) str_replace(',', '.', $row_amount_raw) : null;
+
+            if (!empty($flag) && !empty($files['tmp_name'][$file_index])) {
+                $tmp_path = $files['tmp_name'][$file_index];
+                $name = (string) ($files['name'][$file_index] ?? '');
+                $file_index++;
+                $info = $this->analyze_uploaded_receipt($tmp_path, $seen_hashes, (int) $member->id);
+                if ($info === null) {
+                    wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
+                    exit;
+                }
+                $analyzed[] = $info + [
+                    'tmp_path'    => $tmp_path,
+                    'name'        => $name,
+                    'description' => $description,
+                    'date'        => $date ?: $info['ocr_date'],
+                    'store'       => $store !== '' ? $store : $info['ocr_store'],
+                    'amount'      => $row_amount ?? $info['ocr_amount'],
+                ];
+            } elseif ($row_amount !== null && $row_amount > 0) {
+                // Manual line — no photo, nothing to OCR or duplicate-check.
+                $analyzed[] = [
+                    'hash'        => '',
+                    'ocr_amount'  => null,
+                    'ocr_date'    => null,
+                    'ocr_store'   => '',
+                    'tmp_path'    => null,
+                    'name'        => '',
+                    'description' => $description,
+                    'date'        => $date,
+                    'store'       => $store,
+                    'amount'      => $row_amount,
+                ];
             }
-            $analyzed[] = $info + ['tmp_path' => $tmp_path, 'name' => (string) $files['name'][$i], 'description' => $description];
         }
         if (!$analyzed) {
             wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
@@ -394,11 +430,16 @@ class AVBK_Reimbursements {
             'iban'        => $iban,
         ]);
         foreach ($analyzed as $a) {
-            $random_name = $this->store_receipt_file($a['tmp_path'], $a['name']);
+            // A manual line has no tmp_path — nothing to move, receipt_path/
+            // receipt_hash just stay at their column defaults (empty string).
+            $random_name = $a['tmp_path'] !== null ? $this->store_receipt_file($a['tmp_path'], $a['name']) : '';
             AVBK_DB::add_reimbursement_receipt($id, [
                 'receipt_path' => $random_name,
                 'receipt_hash' => $a['hash'],
                 'description'  => $a['description'],
+                'date'         => $a['date'],
+                'store'        => $a['store'],
+                'amount'       => $a['amount'],
                 'ocr_amount'   => $a['ocr_amount'],
                 'ocr_date'     => $a['ocr_date'],
                 'ocr_store'    => $a['ocr_store'],
@@ -452,8 +493,18 @@ class AVBK_Reimbursements {
         $id = (int) ($_POST['id'] ?? 0);
         $receipt_id = (int) ($_POST['receipt_id'] ?? 0);
         $description = sanitize_text_field(wp_unslash($_POST['description'] ?? ''));
+        $store = sanitize_text_field(wp_unslash($_POST['store'] ?? ''));
+        $date_raw = sanitize_text_field(wp_unslash($_POST['date'] ?? ''));
+        $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_raw) ? $date_raw : null;
+        $amount_raw = (string) ($_POST['amount'] ?? '');
+        $amount = $amount_raw !== '' ? (float) str_replace(',', '.', $amount_raw) : null;
         if ($id) {
-            AVBK_DB::update_reimbursement_receipt_description($id, $receipt_id, $description);
+            AVBK_DB::update_reimbursement_receipt($id, $receipt_id, [
+                'description' => $description,
+                'date'        => $date,
+                'store'       => $store,
+                'amount'      => $amount,
+            ]);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-reimbursements', 'updated' => '1'], admin_url('admin.php')));
         exit;
@@ -530,6 +581,7 @@ class AVBK_Reimbursements {
             'receipt_path' => $random_name,
             'receipt_hash' => $info['hash'],
             'description'  => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
+            'date'         => $info['ocr_date'],
             'ocr_amount'   => $info['ocr_amount'],
             'ocr_date'     => $info['ocr_date'],
             'ocr_store'    => $info['ocr_store'],

@@ -66,29 +66,40 @@
     border-bottom: 2px solid #ccc;
 }
 
-.avbk-filter-control {
-    width: 100%;
-    box-sizing: border-box;
-    font-size: .85em;
-    font-weight: normal;
-    padding: .15rem .3rem;
+/* Both the element+class form (input.avbk-filter-control) AND !important
+   are needed here: wp-admin's own input[type="text"] { padding: 3px 5px; }
+   rule has HIGHER specificity than a bare class selector (an attribute
+   selector outweighs a class), so it silently overrode our padding/height
+   here even though this rule appears later in the cascade — that's what
+   made the "Filter…" box render taller than the "Alle" button next to it
+   despite both declaring the same height. */
+input.avbk-filter-control,
+.avbk-checklist-toggle {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 1.7rem !important;
+    line-height: 1.7rem !important;
+    margin: 0 !important;
+    padding: 0 .3rem !important;
+    border: 1px solid #8c8f94 !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    font-family: inherit !important;
+    font-size: .85em !important;
+    font-weight: normal !important;
+    color: #2c3338 !important;
+}
+
+/* Not .button/.button-small — those bring wp-admin's own min-height and
+   line-height, which made this box noticeably taller than the plain
+   .avbk-filter-control text inputs next to it. */
+.avbk-checklist-toggle {
+    text-align: left;
+    cursor: pointer;
 }
 
 .avbk-checklist-filter {
     position: relative;
-}
-
-.avbk-checklist-toggle {
-    width: 100%;
-    text-align: left;
-    font-weight: normal;
-}
-
-.avbk-checklist-mode {
-    width: 100%;
-    margin-top: .2rem;
-    text-align: left;
-    font-weight: normal;
 }
 
 .avbk-checklist-menu {
@@ -105,10 +116,44 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
 }
 
-.avbk-checklist-menu label {
+.avbk-tristate-option {
     display: block;
+    width: 100%;
+    box-sizing: border-box;
     padding: .15rem 0;
+    background: none;
+    border: none;
+    font-size: .85em;
+    font-weight: normal;
+    text-align: left;
     white-space: nowrap;
+    cursor: pointer;
+}
+
+.avbk-tristate-icon {
+    display: inline-block;
+    width: 1.1em;
+    height: 1.1em;
+    line-height: 1.1em;
+    margin-right: .3em;
+    text-align: center;
+    vertical-align: middle;
+    border: 1px solid #888;
+    border-radius: 2px;
+    font-size: .95em;
+    font-weight: 700;
+}
+
+.avbk-tristate-option[data-state="include"] .avbk-tristate-icon {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.avbk-tristate-option[data-state="exclude"] .avbk-tristate-icon {
+    background: #b32d2e;
+    border-color: #b32d2e;
+    color: #fff;
 }
 
 .avbk-balance-table-tools {
