@@ -1081,6 +1081,16 @@ class AVBK_Admin {
             wp_die('Deze rekening is al betaald.', 200);
         }
 
+        // The activity's own generic betaalverzoek (link/QR, see
+        // AVBK_DB::get_activity_payment_link()) — set up once, shared by
+        // everyone attending, and only pulled into a specific mail here on
+        // request, never automatically.
+        $payment_link = AVBK_DB::get_activity_payment_link($activity_id);
+        $generic_payment_url = $payment_link->payment_url ?? '';
+        $generic_qr_data_url = !empty($payment_link->qr_image)
+            ? 'data:' . $payment_link->qr_image_mime . ';base64,' . base64_encode($payment_link->qr_image)
+            : '';
+
         $qr_svg = AVBK_QR::for_fee_item($member_id, $fee_item);
         // The <style> here is not redundant with the outer page's own
         // stylesheet: this markup ends up inside the iframe's srcdoc, a
@@ -1125,8 +1135,14 @@ class AVBK_Admin {
             <iframe id="avbk-preview-frame" title="Voorbeeld e-mail"></iframe>
             <p class="avbk-preview-edit-buttons">
                 <button type="button" id="avbk-clear-qr" class="button button-small">QR-code verwijderen</button>
+                <?php if ($generic_qr_data_url !== '') : ?>
+                    <button type="button" id="avbk-use-generic-qr" class="button button-small">Generieke QR-code gebruiken</button>
+                <?php endif; ?>
+                <?php if ($generic_payment_url !== '') : ?>
+                    <button type="button" id="avbk-add-generic-link" class="button button-small">Betaalverzoeklink toevoegen</button>
+                <?php endif; ?>
             </p>
-            <p class="description">Na "verwijderen" kun je in de mail zelf klikken en typen, of een QR-code/afbeelding van elders plakken (Ctrl+V) om die te vervangen — bijvoorbeeld een ING Betaalverzoek of een generieke QR-code waarmee de betaler zelf het bedrag kiest.</p>
+            <p class="description">Na "verwijderen" kun je in de mail zelf klikken en typen, of een QR-code/afbeelding van elders plakken (Ctrl+V) om die te vervangen — bijvoorbeeld een ING Betaalverzoek of een generieke QR-code waarmee de betaler zelf het bedrag kiest.<?php if ($generic_qr_data_url !== '' || $generic_payment_url !== '') : ?> "Generieke QR-code gebruiken"/"Betaalverzoeklink toevoegen" halen wat bij deze activiteit is opgeslagen (zie de activiteit-betalingenpagina) direct in deze mail.<?php endif; ?></p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-send-form">
                 <?php wp_nonce_field('avbk_request_payment'); ?>
                 <input type="hidden" name="action" value="avbk_request_payment">
@@ -1146,6 +1162,8 @@ class AVBK_Admin {
             (function () {
                 var initialHtml = <?php echo wp_json_encode($initial_html); ?>;
                 var defaultQrHtml = <?php echo wp_json_encode($default_qr_html); ?>;
+                var genericQrDataUrl = <?php echo wp_json_encode($generic_qr_data_url); ?>;
+                var genericPaymentUrl = <?php echo wp_json_encode($generic_payment_url); ?>;
                 var textarea = document.getElementById('avbk-extra-message');
                 var frame = document.getElementById('avbk-preview-frame');
                 var qrActive = false;
@@ -1281,6 +1299,32 @@ class AVBK_Admin {
                             qrBtn.textContent = 'QR-code verwijderen';
                         }
                     });
+                    var genericQrBtn = document.getElementById('avbk-use-generic-qr');
+                    if (genericQrBtn) {
+                        genericQrBtn.addEventListener('click', function () {
+                            qrActive = true;
+                            qrEl.innerHTML = '';
+                            applyEditableStyle(qrEl);
+                            qrEl.style.color = '';
+                            qrEl.style.display = 'flex';
+                            qrEl.style.alignItems = 'center';
+                            qrEl.style.justifyContent = 'center';
+                            qrEl.style.textAlign = 'center';
+                            var img = document.createElement('img');
+                            img.src = genericQrDataUrl;
+                            img.style.maxWidth = '100%';
+                            qrEl.appendChild(img);
+                            qrBtn.textContent = 'QR-code terugzetten';
+                        });
+                    }
+                    var genericLinkBtn = document.getElementById('avbk-add-generic-link');
+                    if (genericLinkBtn) {
+                        genericLinkBtn.addEventListener('click', function () {
+                            var addition = 'Of gebruik deze betaalverzoeklink: ' + genericPaymentUrl;
+                            textarea.value = textarea.value.trim() ? textarea.value.trim() + '\n\n' + addition : addition;
+                            updateExtra();
+                        });
+                    }
                 });
                 textarea.addEventListener('input', updateExtra);
                 frame.srcdoc = initialHtml;

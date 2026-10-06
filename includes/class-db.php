@@ -2496,13 +2496,35 @@ class AVBK_DB {
     }
 
     /** Rows still needing the treasurer's attention — everything else applied itself. */
-    public static function get_review_queue(string $order = 'asc'): array {
+    /**
+     * $min_year: 0 for no filter, otherwise hides transactions dated before
+     * it — same convention as get_transactions_pending_second_approval() and
+     * get_transactions()'s 'min_year' arg, used so a closed book year's
+     * stray unmatched/suggested transactions don't surface here by default
+     * (see avbk_closed_through_year) even though this queue itself isn't
+     * year-scoped the way balances/fee items are: an unreviewed incoming
+     * payment still needs a human decision (match or "negeren") regardless
+     * of which year it's dated, closing a year doesn't make that go away —
+     * it's just not something the penningmeester needs nudged about by
+     * default once that year is settled.
+     */
+    public static function get_review_queue(string $order = 'asc', int $min_year = 0): array {
         global $wpdb;
         $sql_order = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
         // $sql_order is whitelisted to the literal 'ASC' or 'DESC' just above
         // (ORDER BY direction can't be a prepare() placeholder); the table
         // names are WP's own prefix. No user input reaches the SQL.
         // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($min_year) {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
+                 FROM {$wpdb->prefix}avb_transactions t
+                 LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
+                 WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched') AND YEAR(t.transaction_date) >= %d
+                 ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}",
+                $min_year
+            )) ?: [];
+        }
         return $wpdb->get_results(
             "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
              FROM {$wpdb->prefix}avb_transactions t
@@ -3156,7 +3178,7 @@ class AVBK_DB {
 
     /**
      * Resolves a registrant to an avm_members row: exact e-mail match wins
-     * (strongest signal — LLDAP e-mail addresses are globally unique), then
+     * (strongest signal — directory e-mail addresses are globally unique), then
      * an exact case-insensitive first+last name match. A single name match
      * also gets the submitted e-mail linked as a new identity so the
      * registrant can log in with it (OAuth or otherwise) afterwards without
@@ -3194,15 +3216,15 @@ class AVBK_DB {
         $base_uid = preg_replace('/[^a-z0-9._-]/', '.', strtolower("{$first_name}.{$last_name}"));
         $uid = $base_uid;
         $n = 1;
-        while (AVPVH_LLDAP::get_user_display_name($uid) !== null) {
+        while (AVPVH_Directory::user_exists($uid)) {
             $n++;
             $uid = "{$base_uid}{$n}";
         }
         $display_name = trim(preg_replace('/\s+/', ' ', "{$first_name} {$suffix} {$last_name}"));
 
-        $created = AVPVH_LLDAP::create_user($uid, $email, $display_name);
+        $created = AVPVH_Directory::create_user($uid, $email, $display_name);
         if (is_wp_error($created)) {
-            // The registration itself must still succeed even if the LLDAP
+            // The registration itself must still succeed even if the directory
             // write fails (e.g. e-mail already claimed by an account with no
             // matching avm_members row) — record it unlinked so the
             // treasurer can create/link the member by hand.
