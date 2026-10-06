@@ -3,6 +3,9 @@ defined('ABSPATH') || exit;
 
 class AVBK_DB {
 
+    private static $iban_country_format_cache = null;
+    private static $iban_bank_code_cache = null;
+
     public static function install(): void {
         global $wpdb;
         $charset = $wpdb->get_charset_collate();
@@ -151,6 +154,30 @@ class AVBK_DB {
             KEY iban (iban),
             KEY member_id (member_id)
         ) $charset;");
+
+        // IBAN bank identifiers are country-specific. Keeping the extraction
+        // format and labels in tables lets the treasurer add another country
+        // without a plugin release.
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_iban_country_formats (
+            country_code CHAR(2) NOT NULL,
+            country_name VARCHAR(100) NOT NULL DEFAULT '',
+            bank_code_position TINYINT UNSIGNED NOT NULL,
+            bank_code_length TINYINT UNSIGNED NOT NULL,
+            PRIMARY KEY (country_code)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_iban_bank_codes (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            country_code CHAR(2) NOT NULL,
+            code_start VARCHAR(16) NOT NULL,
+            code_end VARCHAR(16) NOT NULL,
+            bank_name VARCHAR(100) NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY country_range (country_code, code_start, code_end),
+            KEY country_code (country_code)
+        ) $charset;");
+
+        self::seed_iban_bank_tables();
 
         // Source metadata for a participation imported from an external
         // registration sheet. The participation itself remains owned by
@@ -811,6 +838,29 @@ class AVBK_DB {
                 PRIMARY KEY (activity_id)
             ) {$wpdb->get_charset_collate()};");
             update_option('avbk_db_version', '1.34');
+        }
+        if (version_compare($version, '1.35', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset = $wpdb->get_charset_collate();
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_iban_country_formats (
+                country_code CHAR(2) NOT NULL,
+                country_name VARCHAR(100) NOT NULL DEFAULT '',
+                bank_code_position TINYINT UNSIGNED NOT NULL,
+                bank_code_length TINYINT UNSIGNED NOT NULL,
+                PRIMARY KEY (country_code)
+            ) $charset;");
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_iban_bank_codes (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                country_code CHAR(2) NOT NULL,
+                code_start VARCHAR(16) NOT NULL,
+                code_end VARCHAR(16) NOT NULL,
+                bank_name VARCHAR(100) NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY country_range (country_code, code_start, code_end),
+                KEY country_code (country_code)
+            ) $charset;");
+            self::seed_iban_bank_tables();
+            update_option('avbk_db_version', '1.35');
         }
     }
 
@@ -2461,6 +2511,10 @@ class AVBK_DB {
     public static function get_review_queue(string $order = 'asc', int $min_year = 0): array {
         global $wpdb;
         $sql_order = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+        // $sql_order is whitelisted to the literal 'ASC' or 'DESC' just above
+        // (ORDER BY direction can't be a prepare() placeholder); the table
+        // names are WP's own prefix. No user input reaches the SQL.
+        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         if ($min_year) {
             return $wpdb->get_results($wpdb->prepare(
                 "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
@@ -2478,6 +2532,7 @@ class AVBK_DB {
              WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched')
              ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}"
         ) ?: [];
+        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
     /**
@@ -2490,6 +2545,8 @@ class AVBK_DB {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($member_ids), '%d'));
+        // $placeholders is a generated run of %d, one per id, filled in by prepare() below; PHPCS can't see that.
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT a.member_id, MAX(t.transaction_date) AS last_payment
              FROM {$wpdb->prefix}avb_transaction_allocations a
@@ -2498,6 +2555,7 @@ class AVBK_DB {
              GROUP BY a.member_id",
             $member_ids
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         $result = [];
         foreach ($rows as $row) {
             $result[(int) $row->member_id] = $row->last_payment;
@@ -2758,12 +2816,15 @@ class AVBK_DB {
         }
 
         $placeholders = implode(',', array_fill(0, count($household_ids), '%d'));
+        // $placeholders is a generated run of %d, one per id, filled in by prepare() below; PHPCS can't see that.
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
         return $wpdb->get_results($wpdb->prepare(
             "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
              FROM {$wpdb->prefix}avb_known_ibans WHERE member_id IN ($placeholders)
              GROUP BY iban ORDER BY created_at DESC",
             $household_ids
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
     }
 
     /**
@@ -2787,87 +2848,218 @@ class AVBK_DB {
         ));
     }
 
-    /**
-     * Dutch bank code (IBAN characters 5-8, e.g. "INGB") -> the bank's
-     * usual short name — for filtering/display only, not matching logic.
-     * Not exhaustive, just the banks actually likely to show up among
-     * members; an unrecognised code (or a non-NL IBAN, where this
-     * position isn't a bank code at all) falls back to the raw 4 letters
-     * in iban_bank_name() below rather than guessing.
-     */
-    const IBAN_BANK_NAMES = [
-        'INGB' => 'ING',
-        'RABO' => 'Rabobank',
-        'ABNA' => 'ABN AMRO',
-        'TRIO' => 'Triodos Bank',
-        'SNSB' => 'SNS Bank',
-        'ASNB' => 'ASN Bank',
-        'RBRB' => 'RegioBank',
-        'KNAB' => 'Knab',
-        'BUNQ' => 'bunq',
-        'FVLB' => 'Van Lanschot',
-        'REVO' => 'Revolut',
-    ];
+    /** Initial contents for a new/migrated site; runtime lookup never uses these arrays. */
+    private static function seed_iban_bank_tables(): void {
+        global $wpdb;
+        $formats = [
+            ['NL', 'Nederland', 5, 4],
+            ['BE', 'België', 5, 3],
+        ];
+        foreach ($formats as [$country_code, $country_name, $position, $length]) {
+            $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->prefix}avb_iban_country_formats
+                 (country_code, country_name, bank_code_position, bank_code_length)
+                 VALUES (%s, %s, %d, %d)",
+                $country_code,
+                $country_name,
+                $position,
+                $length
+            ));
+        }
 
-    /**
-     * Belgian bank code (IBAN characters 5-7, e.g. "731" — 3 numeric
-     * digits, unlike NL's 4-letter code at the same position) -> bank
-     * name, as [min, max, name] ranges. Sourced from the National Bank
-     * of Belgium's own registry (nbb.be, "Bank identification codes"),
-     * restricted to the major retail banks actually likely to show up
-     * among members — that registry runs 000-999 and includes dozens of
-     * niche forex/payment-service entries irrelevant here. An unmatched
-     * code falls back to the raw 3 digits, same as an unrecognised NL one.
-     */
-    const IBAN_BE_BANK_RANGES = [
-        [694, 694, 'Deutsche Bank'],
-        [700, 709, 'Crelan'],
-        [719, 722, 'ABN AMRO'],
-        [725, 727, 'KBC Bank'],
-        [728, 729, 'CBC Banque'],
-        [730, 731, 'KBC Bank'],
-        [732, 732, 'CBC Banque'],
-        [733, 741, 'KBC Bank'],
-        [742, 742, 'CBC Banque'],
-        [743, 749, 'KBC Bank'],
-        [750, 765, 'Crelan'],
-        [772, 774, 'Crelan'],
-        [775, 799, 'Belfius'],
-        [800, 806, 'Crelan'],
-        [824, 824, 'ING België'],
-        [825, 826, 'Deutsche Bank'],
-        [828, 828, 'ING België'],
-        [830, 839, 'Belfius'],
-        [845, 845, 'Bank Degroof Petercam'],
-        [850, 853, 'Crelan'],
-        [859, 866, 'Crelan'],
-        [868, 868, 'KBC Bank'],
-        [871, 871, 'Bank Nagelmackers'],
-        [873, 873, 'bpost bank'],
-        [876, 876, 'MeDirect Bank'],
-        [877, 879, 'Bank Nagelmackers'],
-        [880, 881, 'ING België'],
-        [883, 884, 'ING België'],
-        [887, 888, 'ING België'],
-        [890, 899, 'vdk bank'],
-        [910, 910, 'ING België'],
-        [920, 920, 'ING België'],
-        [922, 923, 'ING België'],
-        [929, 931, 'ING België'],
-        [934, 934, 'ING België'],
-        [936, 936, 'ING België'],
-        [939, 939, 'ING België'],
-        [950, 959, 'Beobank'],
-        [960, 960, 'ABN AMRO'],
-        [961, 961, 'ING België'],
-        [963, 963, 'Crelan'],
-        [971, 971, 'ING België'],
-        [973, 973, 'Argenta Spaarbank'],
-        [975, 975, 'Crelan'],
-        [976, 976, 'ING België'],
-        [978, 980, 'Argenta Spaarbank'],
-        [981, 984, 'bpost bank'],
-    ];
+        $codes = [
+            ['NL', 'INGB', 'INGB', 'ING'],
+            ['NL', 'RABO', 'RABO', 'Rabobank'],
+            ['NL', 'ABNA', 'ABNA', 'ABN AMRO'],
+            ['NL', 'TRIO', 'TRIO', 'Triodos Bank'],
+            ['NL', 'SNSB', 'SNSB', 'SNS Bank'],
+            ['NL', 'ASNB', 'ASNB', 'ASN Bank'],
+            ['NL', 'RBRB', 'RBRB', 'RegioBank'],
+            ['NL', 'KNAB', 'KNAB', 'Knab'],
+            ['NL', 'BUNQ', 'BUNQ', 'bunq'],
+            ['NL', 'FVLB', 'FVLB', 'Van Lanschot'],
+            ['NL', 'REVO', 'REVO', 'Revolut'],
+            ['BE', '694', '694', 'Deutsche Bank'],
+            ['BE', '700', '709', 'Crelan'],
+            ['BE', '719', '722', 'ABN AMRO'],
+            ['BE', '725', '727', 'KBC Bank'],
+            ['BE', '728', '729', 'CBC Banque'],
+            ['BE', '730', '731', 'KBC Bank'],
+            ['BE', '732', '732', 'CBC Banque'],
+            ['BE', '733', '741', 'KBC Bank'],
+            ['BE', '742', '742', 'CBC Banque'],
+            ['BE', '743', '749', 'KBC Bank'],
+            ['BE', '750', '765', 'Crelan'],
+            ['BE', '772', '774', 'Crelan'],
+            ['BE', '775', '799', 'Belfius'],
+            ['BE', '800', '806', 'Crelan'],
+            ['BE', '824', '824', 'ING België'],
+            ['BE', '825', '826', 'Deutsche Bank'],
+            ['BE', '828', '828', 'ING België'],
+            ['BE', '830', '839', 'Belfius'],
+            ['BE', '845', '845', 'Bank Degroof Petercam'],
+            ['BE', '850', '853', 'Crelan'],
+            ['BE', '859', '866', 'Crelan'],
+            ['BE', '868', '868', 'KBC Bank'],
+            ['BE', '871', '871', 'Bank Nagelmackers'],
+            ['BE', '873', '873', 'bpost bank'],
+            ['BE', '876', '876', 'MeDirect Bank'],
+            ['BE', '877', '879', 'Bank Nagelmackers'],
+            ['BE', '880', '881', 'ING België'],
+            ['BE', '883', '884', 'ING België'],
+            ['BE', '887', '888', 'ING België'],
+            ['BE', '890', '899', 'vdk bank'],
+            ['BE', '910', '910', 'ING België'],
+            ['BE', '920', '920', 'ING België'],
+            ['BE', '922', '923', 'ING België'],
+            ['BE', '929', '931', 'ING België'],
+            ['BE', '934', '934', 'ING België'],
+            ['BE', '936', '936', 'ING België'],
+            ['BE', '939', '939', 'ING België'],
+            ['BE', '950', '959', 'Beobank'],
+            ['BE', '960', '960', 'ABN AMRO'],
+            ['BE', '961', '961', 'ING België'],
+            ['BE', '963', '963', 'Crelan'],
+            ['BE', '971', '971', 'ING België'],
+            ['BE', '973', '973', 'Argenta Spaarbank'],
+            ['BE', '975', '975', 'Crelan'],
+            ['BE', '976', '976', 'ING België'],
+            ['BE', '978', '980', 'Argenta Spaarbank'],
+            ['BE', '981', '984', 'bpost bank'],
+        ];
+        foreach ($codes as [$country_code, $start, $end, $bank_name]) {
+            $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->prefix}avb_iban_bank_codes
+                 (country_code, code_start, code_end, bank_name) VALUES (%s, %s, %s, %s)",
+                $country_code,
+                $start,
+                $end,
+                $bank_name
+            ));
+        }
+        self::clear_iban_bank_caches();
+    }
+
+    private static function clear_iban_bank_caches(): void {
+        self::$iban_country_format_cache = null;
+        self::$iban_bank_code_cache = null;
+    }
+
+    public static function get_iban_country_formats(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}avb_iban_country_formats ORDER BY country_code"
+        ) ?: [];
+    }
+
+    public static function get_iban_bank_codes(string $country_code = ''): array {
+        global $wpdb;
+        $country_code = strtoupper(trim($country_code));
+        if ($country_code !== '') {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_iban_bank_codes
+                 WHERE country_code = %s ORDER BY code_start, code_end, bank_name",
+                $country_code
+            )) ?: [];
+        }
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}avb_iban_bank_codes
+             ORDER BY country_code, code_start, code_end, bank_name"
+        ) ?: [];
+    }
+
+    public static function save_iban_country_format(string $country_code, string $country_name, int $position, int $length): bool {
+        global $wpdb;
+        $country_code = strtoupper(trim($country_code));
+        $country_name = trim($country_name);
+        if (!preg_match('/^[A-Z]{2}$/', $country_code) || $country_name === ''
+            || $position < 1 || $position > 34 || $length < 1 || $length > 16
+            || $position + $length - 1 > 34) {
+            return false;
+        }
+        $incompatible_codes = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_iban_bank_codes
+             WHERE country_code = %s AND (CHAR_LENGTH(code_start) != %d OR CHAR_LENGTH(code_end) != %d)",
+            $country_code,
+            $length,
+            $length
+        ));
+        if ($incompatible_codes > 0) {
+            return false;
+        }
+        $result = $wpdb->replace("{$wpdb->prefix}avb_iban_country_formats", [
+            'country_code' => $country_code,
+            'country_name' => $country_name,
+            'bank_code_position' => $position,
+            'bank_code_length' => $length,
+        ], ['%s', '%s', '%d', '%d']);
+        self::clear_iban_bank_caches();
+        return $result !== false;
+    }
+
+    public static function delete_iban_country_format(string $country_code): void {
+        global $wpdb;
+        $country_code = strtoupper(trim($country_code));
+        if (!preg_match('/^[A-Z]{2}$/', $country_code)) {
+            return;
+        }
+        $wpdb->query('START TRANSACTION');
+        $wpdb->delete("{$wpdb->prefix}avb_iban_bank_codes", ['country_code' => $country_code], ['%s']);
+        $wpdb->delete("{$wpdb->prefix}avb_iban_country_formats", ['country_code' => $country_code], ['%s']);
+        $wpdb->query('COMMIT');
+        self::clear_iban_bank_caches();
+    }
+
+    public static function save_iban_bank_code(int $id, string $country_code, string $start, string $end, string $bank_name): bool {
+        global $wpdb;
+        $country_code = strtoupper(trim($country_code));
+        $start = strtoupper(preg_replace('/\s+/', '', $start));
+        $end = strtoupper(preg_replace('/\s+/', '', $end !== '' ? $end : $start));
+        $bank_name = trim($bank_name);
+        $format = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_iban_country_formats WHERE country_code = %s",
+            $country_code
+        ));
+        if (!$format || $bank_name === '' || !preg_match('/^[A-Z0-9]+$/', $start)
+            || !preg_match('/^[A-Z0-9]+$/', $end)
+            || strlen($start) !== (int) $format->bank_code_length
+            || strlen($end) !== (int) $format->bank_code_length
+            || strcmp($start, $end) > 0) {
+            return false;
+        }
+        $overlap = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}avb_iban_bank_codes
+             WHERE country_code = %s AND id != %d
+               AND NOT (code_end < %s OR code_start > %s)
+             LIMIT 1",
+            $country_code,
+            $id,
+            $start,
+            $end
+        ));
+        if ($overlap) {
+            return false;
+        }
+        $data = [
+            'country_code' => $country_code,
+            'code_start' => $start,
+            'code_end' => $end,
+            'bank_name' => $bank_name,
+        ];
+        $result = $id
+            ? $wpdb->update("{$wpdb->prefix}avb_iban_bank_codes", $data, ['id' => $id], ['%s', '%s', '%s', '%s'], ['%d'])
+            : $wpdb->insert("{$wpdb->prefix}avb_iban_bank_codes", $data, ['%s', '%s', '%s', '%s']);
+        self::clear_iban_bank_caches();
+        return $result !== false;
+    }
+
+    public static function delete_iban_bank_code(int $id): void {
+        global $wpdb;
+        if ($id > 0) {
+            $wpdb->delete("{$wpdb->prefix}avb_iban_bank_codes", ['id' => $id], ['%d']);
+            self::clear_iban_bank_caches();
+        }
+    }
 
     /** First two letters of an IBAN — its country code (e.g. "NL"), empty for anything too short to have one. */
     public static function iban_country(string $iban): string {
@@ -2875,29 +3067,42 @@ class AVBK_DB {
         return mb_strlen($iban) >= 2 ? substr($iban, 0, 2) : '';
     }
 
-    /**
-     * Readable bank name for an IBAN. NL uses a 4-letter code right
-     * after the 2 check digits (IBAN_BANK_NAMES); BE uses a 3-digit
-     * numeric one in the same position (IBAN_BE_BANK_RANGES) — anything
-     * else falls back to the raw code fragment rather than guessing at
-     * a format this hasn't been taught. Empty if too short to have one.
-     */
+    /** Readable bank name using the configured country format and code ranges. */
     public static function iban_bank_name(string $iban): string {
+        global $wpdb;
         $iban = strtoupper(str_replace(' ', '', $iban));
-        if (mb_strlen($iban) < 7) {
+        if (mb_strlen($iban) < 5) {
             return '';
         }
-        if (self::iban_country($iban) === 'BE') {
-            $code = (int) substr($iban, 4, 3);
-            foreach (self::IBAN_BE_BANK_RANGES as [$min, $max, $name]) {
-                if ($code >= $min && $code <= $max) {
-                    return $name;
-                }
+        if (self::$iban_country_format_cache === null) {
+            self::$iban_country_format_cache = [];
+            foreach ($wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_iban_country_formats") ?: [] as $format) {
+                self::$iban_country_format_cache[$format->country_code] = $format;
             }
-            return substr($iban, 4, 3);
         }
-        $code = substr($iban, 4, 4);
-        return self::IBAN_BANK_NAMES[$code] ?? $code;
+        $country = self::iban_country($iban);
+        $format = self::$iban_country_format_cache[$country] ?? null;
+        if (!$format) {
+            return substr($iban, 4, 4);
+        }
+        $position = max(0, (int) $format->bank_code_position - 1);
+        $length = (int) $format->bank_code_length;
+        if (strlen($iban) < $position + $length) {
+            return '';
+        }
+        $code = substr($iban, $position, $length);
+        if (self::$iban_bank_code_cache === null) {
+            self::$iban_bank_code_cache = [];
+            foreach ($wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_iban_bank_codes ORDER BY code_start, code_end") ?: [] as $row) {
+                self::$iban_bank_code_cache[$row->country_code][] = $row;
+            }
+        }
+        foreach (self::$iban_bank_code_cache[$country] ?? [] as $row) {
+            if (strcmp($code, $row->code_start) >= 0 && strcmp($code, $row->code_end) <= 0) {
+                return $row->bank_name;
+            }
+        }
+        return $code;
     }
 
     // -------------------------------------------------------------------

@@ -54,6 +54,7 @@ class AVBK_Frontend_Admin_Menu {
                 ['label' => 'Alle transacties', 'url' => admin_url('admin.php?page=avbk-transactions')],
                 ['label' => 'Ledenoverzicht', 'url' => admin_url('admin.php?page=avbk-members')],
                 ['label' => 'Tarieven', 'url' => admin_url('admin.php?page=avbk-rates')],
+                ['label' => 'IBAN-bankcodes', 'url' => admin_url('admin.php?page=avbk-iban-bank-codes')],
                 ['label' => 'Activiteit betalingen', 'url' => admin_url('admin.php?page=avbk-activity-payments')],
                 ['label' => 'Bezwaren', 'url' => admin_url('admin.php?page=avbk-disputes')],
                 ['label' => 'Declaraties', 'url' => admin_url('admin.php?page=avbk-reimbursements')],
