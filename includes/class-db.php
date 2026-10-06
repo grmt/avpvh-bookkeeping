@@ -3195,7 +3195,12 @@ class AVBK_DB {
     public static function find_or_create_member_for_registration(
         string $first_name, string $suffix, string $last_name, string $email, string $phone
     ): array {
-        $by_email = AVPVH_DB::get_member_by_email($email);
+        // get_member_by_email('') matches any member whose own email is
+        // blank (lowercase_email = '' on both sides) — a real bug for any
+        // registration without an e-mail, not hypothetical: it merged
+        // several distinct unmatched congress attendees into whichever one
+        // of them got created (and so stored an empty email) first.
+        $by_email = $email !== '' ? AVPVH_DB::get_member_by_email($email) : null;
         if ($by_email) {
             return ['member_id' => (int) $by_email->id, 'match_type' => 'email', 'review_note' => ''];
         }

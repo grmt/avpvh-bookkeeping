@@ -35,6 +35,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_save_sheet_import_config',       [$this, 'handle_save_sheet_import_config']);
         add_action('admin_post_avbk_sheet_import',                   [$this, 'handle_sheet_import']);
         add_action('admin_post_avbk_sheet_import_upload',            [$this, 'handle_sheet_import_upload']);
+        add_action('admin_post_avbk_camp_sheet_import_from_url',     [$this, 'handle_camp_sheet_import_from_url']);
         add_action('admin_post_avbk_sheet_import_link_attendee',     [$this, 'handle_sheet_import_link_attendee']);
         add_action('admin_post_avbk_sheet_import_ignore_attendee',   [$this, 'handle_sheet_import_ignore_attendee']);
         add_action('admin_post_avbk_request_payment',                [$this, 'handle_request_payment']);
@@ -652,6 +653,7 @@ class AVBK_Admin {
             wp_die('Voor een kamp is geen generieke kolomindeling nodig.', 400);
         }
         $config = AVBK_Sheet_Import::get_config($activity_id);
+        $config['timestamp_format'] = ($_POST['timestamp_format'] ?? '') === 'dmy' ? 'dmy' : 'mdy';
         $posted_header_row = max(1, (int) ($_POST['header_row'] ?? $config['header_row']));
         $config['last_data_row'] = max(0, (int) ($_POST['last_data_row'] ?? ($config['last_data_row'] ?? 0)));
         $posted_candidates = json_decode(wp_unslash($_POST['preview_header_candidates'] ?? ''), true);
@@ -739,6 +741,28 @@ class AVBK_Admin {
             } else {
                 $result = AVBK_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
             }
+        }
+        set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Camp-sheet counterpart of handle_sheet_import_upload() for a Google Sheets link instead of an uploaded file — see AVBK_Camp_Sheet_Import::import_from_url(). */
+    public function handle_camp_sheet_import_from_url(): void {
+        check_admin_referer('avbk_camp_sheet_import_from_url');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $sheet_url = esc_url_raw(wp_unslash($_POST['camp_sheet_url'] ?? ''));
+        if (!$activity_id) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
+        } elseif ($sheet_url === '') {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen link ingevuld.']];
+        } elseif (!$this->is_camp_activity($activity_id)) {
+            $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Deze link-import is alleen beschikbaar voor een activiteit van het type Kamp.']];
+        } else {
+            $result = AVBK_Camp_Sheet_Import::import_from_url($activity_id, $sheet_url);
         }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
