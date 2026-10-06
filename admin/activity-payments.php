@@ -43,7 +43,6 @@ foreach ($raw_preview_rows as $preview_row) {
     }
     $preview_header_candidates[(int) ($preview_row['row_number'] ?? 0)] = $candidate_headers;
 }
-$payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) : null;
 ?>
 <div class="wrap">
     <h1>Activiteit betalingen</h1>
@@ -81,96 +80,6 @@ $payment_link = $activity_id ? AVBK_DB::get_activity_payment_link($activity_id) 
         <?php elseif (isset($_GET['email_add_failed'])) : ?>
             <div class="notice notice-error"><p>E-mailadres kon niet worden toegevoegd. Het adres is mogelijk al aan een ander lid gekoppeld, ongeldig, of dit lid heeft al het maximumaantal adressen.</p></div>
         <?php endif; ?>
-
-        <h2>Generiek betaalverzoek (optioneel)</h2>
-        <p class="description">Eén gedeelde betaalverzoeklink/QR voor deze hele activiteit (bijv. een ING Betaalverzoek- of Tikkie-link) — voor als je liever één link deelt dan voor iedereen apart een QR verstuurt. Wordt nergens automatisch getoond of in de "Vraag om betaling"-mail gezet; puur hier bewaard zodat je 'm makkelijk terugvindt.</p>
-        <div style="display:flex; gap:2rem; flex-wrap:wrap; align-items:flex-start; margin-bottom:1.5rem">
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="flex:1 1 320px; max-width:500px">
-                <?php wp_nonce_field('avbk_save_activity_payment_url'); ?>
-                <input type="hidden" name="action" value="avbk_save_activity_payment_url">
-                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                <label for="avbk-payment-url">Betaalverzoeklink</label><br>
-                <input type="text" id="avbk-payment-url" name="payment_url" class="regular-text" style="width:100%; box-sizing:border-box" placeholder="Plak hier de link (voorlooptekst wordt automatisch weggehaald)" value="<?php echo esc_attr($payment_link->payment_url ?? ''); ?>">
-                <p>
-                    <?php submit_button('Opslaan', 'secondary small', 'submit', false); ?>
-                    <?php if (!empty($payment_link->payment_url)) : ?>
-                        <a href="<?php echo esc_url($payment_link->payment_url); ?>" target="_blank" rel="noopener" class="button button-small">Openen</a>
-                    <?php endif; ?>
-                </p>
-            </form>
-            <div style="flex:1 1 260px; max-width:320px">
-                <p style="margin:0 0 .3rem">Betaalverzoek-QR</p>
-                <div id="avbk-payment-qr-drop" style="border:2px dashed #999; border-radius:4px; min-height:160px; display:flex; align-items:center; justify-content:center; text-align:center; color:#888; padding:.75rem; box-sizing:border-box">
-                    <?php if (!empty($payment_link->qr_image)) : ?>
-                        <img src="data:<?php echo esc_attr($payment_link->qr_image_mime); ?>;base64,<?php echo esc_attr(base64_encode($payment_link->qr_image)); ?>" style="max-width:100%; max-height:220px">
-                    <?php else : ?>
-                        Sleep hier een QR-code-afbeelding naartoe
-                    <?php endif; ?>
-                </div>
-                <?php if (!empty($payment_link->qr_image)) : ?>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:.4rem">
-                        <?php wp_nonce_field('avbk_delete_activity_payment_qr'); ?>
-                        <input type="hidden" name="action" value="avbk_delete_activity_payment_qr">
-                        <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                        <?php submit_button('QR verwijderen', 'secondary small', 'submit', false); ?>
-                    </form>
-                <?php endif; ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-payment-qr-form">
-                    <?php wp_nonce_field('avbk_save_activity_payment_qr'); ?>
-                    <input type="hidden" name="action" value="avbk_save_activity_payment_qr">
-                    <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                    <input type="hidden" name="qr_image_data" id="avbk-payment-qr-data">
-                    <input type="hidden" name="qr_image_mime" id="avbk-payment-qr-mime">
-                </form>
-            </div>
-        </div>
-        <script>
-        (function () {
-            var urlInput = document.getElementById('avbk-payment-url');
-            function stripPrefix() {
-                var m = urlInput.value.match(/https?:\/\/\S+/i);
-                if (m && m[0] !== urlInput.value) {
-                    urlInput.value = m[0];
-                }
-            }
-            // Runs on paste (after the pasted text lands) and on blur — not
-            // on every keystroke, so someone can still type/edit a URL by
-            // hand without each keystroke fighting the regex.
-            urlInput.addEventListener('paste', function () { setTimeout(stripPrefix, 0); });
-            urlInput.addEventListener('blur', stripPrefix);
-
-            var drop = document.getElementById('avbk-payment-qr-drop');
-            var dataInput = document.getElementById('avbk-payment-qr-data');
-            var mimeInput = document.getElementById('avbk-payment-qr-mime');
-            var qrForm = document.getElementById('avbk-payment-qr-form');
-            drop.addEventListener('dragover', function (e) {
-                e.preventDefault();
-                drop.style.borderColor = '#2271b1';
-            });
-            drop.addEventListener('dragleave', function () {
-                drop.style.borderColor = '#999';
-            });
-            drop.addEventListener('drop', function (e) {
-                e.preventDefault();
-                drop.style.borderColor = '#999';
-                var file = (e.dataTransfer.files || [])[0];
-                if (!file || file.type.indexOf('image') !== 0) {
-                    return;
-                }
-                var reader = new FileReader();
-                reader.onload = function (ev) {
-                    var match = ev.target.result.match(/^data:([^;]+);base64,(.*)$/);
-                    if (!match) {
-                        return;
-                    }
-                    mimeInput.value = match[1];
-                    dataInput.value = match[2];
-                    qrForm.submit();
-                };
-                reader.readAsDataURL(file);
-            });
-        })();
-        </script>
 
         <h2>Aanmeldingen &mdash; bron</h2>
         <?php if ($is_camp) : ?>

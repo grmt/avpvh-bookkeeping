@@ -26,7 +26,7 @@ foreach ($formats as $format) {
         Hiermee worden de kolommen Bank en Land in de boekhouding opgebouwd; de gegevens worden niet gebruikt om betalingen automatisch te koppelen.
     </p>
 
-    <?php if (isset($_GET['country_saved'], $_GET['bank_saved'], $_GET['country_deleted'], $_GET['bank_deleted'])) : ?>
+    <?php if (isset($_GET['country_saved']) || isset($_GET['bank_saved']) || isset($_GET['country_deleted']) || isset($_GET['bank_deleted'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Opgeslagen.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['iban_error'])) : ?>
