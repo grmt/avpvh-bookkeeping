@@ -37,6 +37,41 @@ class AVBK_Camp_Sheet_Import {
         'december' => 12,
     ];
 
+    /**
+     * Same as import(), but fetches the workbook from a Google Sheets link
+     * instead of an uploaded file — for a kamp whose overview lives in a
+     * Google Sheet that gets updated in place rather than re-sent as a
+     * fresh .xlsx each time. Needs "Anyone with the link can view"; this
+     * is a one-off fetch-and-import, not a remembered live link like
+     * AVBK_Sheet_Import's sheet_url (Kamp activities explicitly don't use
+     * that config — see handle_save_sheet_url()).
+     */
+    public static function import_from_url(int $activity_id, string $sheet_url): array {
+        if (!preg_match('#/spreadsheets/d/([a-zA-Z0-9_-]+)#', $sheet_url, $m)) {
+            return self::error('Geen geldige Google Sheets-link.');
+        }
+        $export_url = "https://docs.google.com/spreadsheets/d/{$m[1]}/export?format=xlsx";
+        $response = wp_remote_get($export_url, ['timeout' => 30]);
+        if (is_wp_error($response)) {
+            return self::error($response->get_error_message());
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return self::error("Kon de sheet niet ophalen (HTTP {$code}) — staat 'ie op \"Anyone with the link can view\"?");
+        }
+        $body = wp_remote_retrieve_body($response);
+        if ($body === '') {
+            return self::error('De sheet kwam leeg terug.');
+        }
+        $tmp_path = wp_tempnam('avbk-camp-sheet');
+        file_put_contents($tmp_path, $body);
+        try {
+            return self::import($activity_id, $tmp_path);
+        } finally {
+            wp_delete_file($tmp_path);
+        }
+    }
+
     /** Return the standard AVBK_Sheet_Import result shape used by the page. */
     public static function import(int $activity_id, string $path): array {
         $activity = AVPVH_DB::get_activity($activity_id);

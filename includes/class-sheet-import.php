@@ -62,6 +62,13 @@ class AVBK_Sheet_Import {
         'header_row'       => 1,
         'last_data_row'    => 0,
         'timestamp_column' => '',
+        // 'mdy' (default) matches a Google Forms response timestamp, which
+        // Google always writes as M/D/Y H:i:s regardless of the form's own
+        // language. Only change this if the timestamp column comes from
+        // somewhere else that actually writes D/M/Y — guessing between the
+        // two per-row is exactly what caused a 9/11 (11 September, M/D/Y)
+        // to silently read as 9 November when D/M/Y was tried first.
+        'timestamp_format' => 'mdy',
         'match_activity_id' => 0,
         'price_per_person' => 0.0,
         'slots'            => [],
@@ -184,11 +191,13 @@ class AVBK_Sheet_Import {
 
         $matched = [];
         $unmatched = [];
+        $date_warnings = [];
         $description = self::fee_description($activity_id);
+        $timestamp_format = $config['timestamp_format'] ?? 'mdy';
 
         foreach ($data_rows as $cells) {
             $source_timestamp = self::cell($cells, (string) $config['timestamp_column']);
-            foreach (self::attendees_in_row($cells, $slots, $source_timestamp) as $attendee) {
+            foreach (self::attendees_in_row($cells, $slots, $source_timestamp, $timestamp_format) as $attendee) {
                 if (self::is_ignored_source_identity($config, $attendee['name'], $attendee['email'])) {
                     continue;
                 }
@@ -213,7 +222,20 @@ class AVBK_Sheet_Import {
                     $attendee['registered_at'],
                     $attendee['source_timestamp']
                 );
-                $amount = $attendee['amount'] > 0 ? $attendee['amount'] : $price;
+                // Can't flag a format mismatch from one row alone (both
+                // interpretations often parse as "valid" — that's the whole
+                // problem), but a resulting date that's unparseable despite
+                // real input, or that lands in the future, is never
+                // correct either way — surface it instead of silently
+                // trusting it (or silently dropping it on the floor).
+                if ($attendee['source_timestamp'] !== '' && $attendee['registered_at'] === null) {
+                    $date_warnings[] = "{$attendee['name']}: kon \"{$attendee['source_timestamp']}\" niet als datum lezen.";
+                } elseif ($attendee['registered_at'] !== null && $attendee['registered_at'] > current_time('mysql')) {
+                    $date_warnings[] = "{$attendee['name']}: inschrijfdatum " . mysql2date('d-m-Y H:i', $attendee['registered_at']) . ' ligt in de toekomst — controleer het datumformaat.';
+                }
+                $amount = $attendee['amount'] > 0
+                    ? $attendee['amount']
+                    : AVBK_Fee_Generation::event_price_for_member((int) $member->id, $activity_id, $price);
                 if ($amount > 0) {
                     AVBK_DB::upsert_event_fee_item((int) $member->id, $description, $amount, $activity_id);
                 }
@@ -226,7 +248,7 @@ class AVBK_Sheet_Import {
             }
         }
 
-        return ['matched' => $matched, 'unmatched' => $unmatched, 'errors' => [], 'preview' => $preview];
+        return ['matched' => $matched, 'unmatched' => $unmatched, 'errors' => [], 'date_warnings' => $date_warnings, 'preview' => $preview];
     }
 
     /**
@@ -393,9 +415,9 @@ class AVBK_Sheet_Import {
     }
 
     /** One row can register more than one person; either name or e-mail identifies a populated slot. */
-    private static function attendees_in_row(array $cells, array $slots, string $source_timestamp = ''): array {
+    private static function attendees_in_row(array $cells, array $slots, string $source_timestamp = '', string $timestamp_format = 'mdy'): array {
         $attendees = [];
-        $registered_at = self::parse_sheet_timestamp($source_timestamp);
+        $registered_at = self::parse_sheet_timestamp($source_timestamp, $timestamp_format);
         foreach ($slots as $slot) {
             $name = self::cell($cells, $slot['name'] ?? '');
             $email = self::cell($cells, $slot['email'] ?? '');
@@ -463,6 +485,32 @@ class AVBK_Sheet_Import {
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
     }
 
+    /** Whether $first_name/$last_name shares at least one name token with $member — an empty given name is treated as a match (nothing to contradict the e-mail with). */
+    /**
+     * A shared surname alone is not enough: a household account
+     * ("Hoekdeboe@gmail.com" used by Barbara De Boe, her partner Chris
+     * Hoek, and their kids) has several real, distinct people behind one
+     * e-mail who all legitimately share that surname — matching on any
+     * token (including the surname) let "Chris Hoek"/"Pieter Hoek" both
+     * get silently filed under whichever one of them (their son Michiel)
+     * actually owns that e-mail address. The first name is the only part
+     * that's actually specific to one person, so that's what must match
+     * (falling back to an exact full-name match, for a first/last swap).
+     */
+    private static function name_plausibly_matches_member(string $first_name, string $last_name, object $member): bool {
+        $given_first = self::normalize_match_text($first_name);
+        if ($given_first === '') {
+            return true;
+        }
+        $member_first_tokens = array_filter(explode(' ', self::normalize_match_text((string) $member->first_name)));
+        if (in_array($given_first, $member_first_tokens, true)) {
+            return true;
+        }
+        $given_full = trim($given_first . ' ' . self::normalize_match_text($last_name));
+        $member_full = self::normalize_match_text(trim((string) $member->first_name . ' ' . (string) $member->last_name));
+        return $given_full !== '' && $given_full === $member_full;
+    }
+
     private static function cell(array $cells, string $column_letter): string {
         if ($column_letter === '') {
             return '';
@@ -471,17 +519,25 @@ class AVBK_Sheet_Import {
         return trim((string) ($cells[$index] ?? ''));
     }
 
-    /** Normalize common Google Forms/Excel timestamp formats to MySQL local time. */
-    private static function parse_sheet_timestamp(string $raw): ?string {
+    /**
+     * Normalize common Google Forms/Excel timestamp formats to MySQL local
+     * time. $preferred_format ('mdy' or 'dmy', see DEFAULT_CONFIG) decides
+     * which of the ambiguous slash-formats is tried first — a per-activity
+     * setting rather than a guess, because guessing per row is exactly what
+     * caused a 9/11 (11 September, M/D/Y — Google's fixed export format) to
+     * silently read as 9 November: both interpretations parse as a
+     * "valid" date whenever day and month are both ≤12, so there's no way
+     * to detect that mistake from the row itself.
+     */
+    private static function parse_sheet_timestamp(string $raw, string $preferred_format = 'mdy'): ?string {
         $raw = trim($raw);
         if ($raw === '') {
             return null;
         }
         $timezone = wp_timezone();
-        $formats = [
-            'd-m-Y H:i:s', 'd-m-Y H:i', 'd/m/Y H:i:s', 'd/m/Y H:i',
-            'm/d/Y H:i:s', 'm/d/Y H:i', 'Y-m-d H:i:s', 'Y-m-d H:i',
-        ];
+        $mdy = ['m/d/Y H:i:s', 'm/d/Y H:i'];
+        $dmy = ['d-m-Y H:i:s', 'd-m-Y H:i', 'd/m/Y H:i:s', 'd/m/Y H:i'];
+        $formats = array_merge($preferred_format === 'dmy' ? $dmy : $mdy, $preferred_format === 'dmy' ? $mdy : $dmy, ['Y-m-d H:i:s', 'Y-m-d H:i']);
         foreach ($formats as $format) {
             $date = \DateTimeImmutable::createFromFormat('!' . $format, $raw, $timezone);
             if ($date instanceof \DateTimeImmutable) {
@@ -527,6 +583,17 @@ class AVBK_Sheet_Import {
      * An exact e-mail match is authoritative, even when the free-text name
      * contains a typo. If no member has that e-mail, fall back to exact,
      * unambiguous first+last-name matching and finally manual review.
+     *
+     * A household/couple sharing one e-mail address breaks the "e-mail is
+     * authoritative" assumption when a slot names someone else entirely
+     * (e.g. a form's second-attendee slot: "Axel De Boe" / his own e-mail
+     * for slot 1, then "Angelique Tijtgat" / that same e-mail for slot 2)
+     * — blindly trusting the e-mail silently filed her under Axel's own
+     * member record instead of leaving her for review/creation as her own
+     * person. Only trust the e-mail when the given name plausibly refers
+     * to that e-mail's own owner (shares at least one name token with
+     * them); a name that shares nothing with the e-mail owner's falls
+     * through to the normal name-based matching below instead.
      */
     private static function find_match(string $name, string $email, array $activity_ids = []): ?object {
         [$first_name, $last_name] = self::split_name($name);
@@ -537,7 +604,7 @@ class AVBK_Sheet_Import {
                 $identity = AVPVH_DB::get_identity_by_email($email);
                 $by_email = $identity ? AVPVH_DB::get_member((int) $identity->member_id) : null;
             }
-            if ($by_email) {
+            if ($by_email && self::name_plausibly_matches_member($first_name, $last_name, $by_email)) {
                 return $by_email;
             }
         }
