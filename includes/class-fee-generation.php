@@ -129,6 +129,14 @@ class AVBK_Fee_Generation {
         $rate = null;
         $activity_id = (int) $activity->id;
 
+        // A kenmerk-gebonden tarief ("Oud-docent PvH" -> €25) wins over
+        // everything else — it's an explicit per-person override the
+        // treasurer set, not a derived category like age/student.
+        $member_flag_ids = wp_list_pluck(AVPVH_DB::get_flags_for_member((int) $member->id), 'id');
+        if ($member_flag_ids) {
+            $rate = AVBK_DB::get_rate_for_flags($activity_id, $member_flag_ids);
+        }
+
         // Student is a status flag, not an age bracket (a 22-year-old
         // can be either) — it wins over age when set and a student
         // rate is actually configured.
@@ -175,6 +183,19 @@ class AVBK_Fee_Generation {
         ];
     }
 
+    /**
+     * The flat-price event's default price_per_person, unless $member has
+     * a kenmerk with its own rate row for $activity_id (see
+     * get_rate_for_flags()) — same override compute_activity_rate() gives
+     * age-bracketed activities, for the flat-price ones (Congres/...) that
+     * never go through compute_activity_rate() at all.
+     */
+    public static function event_price_for_member(int $member_id, int $activity_id, float $default_price): float {
+        $flag_ids = wp_list_pluck(AVPVH_DB::get_flags_for_member($member_id), 'id');
+        $rate = $flag_ids ? AVBK_DB::get_rate_for_flags($activity_id, $flag_ids) : null;
+        return $rate ? (float) $rate->rate : $default_price;
+    }
+
     public function on_activity_participation_saved(int $member_id, int $activity_id, int $participation_id): void {
         // A manually added participant in a sheet-backed flat-price event
         // (e.g. a congress) must get the same event fee as someone imported
@@ -189,7 +210,7 @@ class AVBK_Fee_Generation {
                 AVBK_DB::upsert_event_fee_item(
                     $member_id,
                     $activity ? $activity->name : 'Activiteit',
-                    $flat_price,
+                    self::event_price_for_member($member_id, $activity_id, $flat_price),
                     $activity_id
                 );
                 return;

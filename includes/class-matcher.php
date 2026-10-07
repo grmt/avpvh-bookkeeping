@@ -243,18 +243,44 @@ class AVBK_Matcher {
 
         $found = [];
         foreach ($beneficiary_names as $name) {
+            // Unlike the one leading fee-type word stripped above, a
+            // trailing reason ("... en Vries Bram congres
+            // archeologieclub") stays attached to whichever split name
+            // comes last and dilutes its score the same way — strip any
+            // activity-type word from anywhere in each individual name
+            // before matching it.
+            $name = self::strip_activity_type_words($name);
             $pool = $household_pool ?: $all_members;
             $match = self::best_match($name, $pool);
+            // The household pool disambiguates a bare first name ("Anna")
+            // among same-surname relatives, but it's a hint, not a wall —
+            // a full name that's a much stronger match elsewhere (e.g. the
+            // actually-named person simply isn't in the matched payer's
+            // household, such as a sibling who moved out) must win instead
+            // of settling for a weak same-surname guess from inside it.
+            if ($household_pool) {
+                $global_match = self::best_match($name, $all_members);
+                if ($global_match && (!$match || $global_match['score'] > $match['score'])) {
+                    $match = $global_match;
+                }
+            }
             if ($match) {
                 $found[$match['member']->id] = $match;
             }
         }
 
         // Plain space-separated first names with no comma/"en"/"-" between
-        // them ("Kamp Anna Bram Cas") can't be split by split_names.
-        // Within a known household (small, so a wrong per-word guess is
-        // low-risk) also try every individual word on its own.
-        if ($household_pool && $beneficiary_text !== '') {
+        // them ("Kamp Anna Bram Cas") can't be split by split_names, which
+        // then returns the whole blob as one "name". Within a known
+        // household (small, so a wrong per-word guess is low-risk) also
+        // try every individual word on its own. Only when split_names
+        // genuinely couldn't split anything (exactly one "name" back) —
+        // once it already split real names out ("Jansen Sanne en
+        // Vries Bram <rest>"), this loop would additionally try
+        // bare words like a lone surname ("Jansen") against the
+        // household and happily "match" some unrelated same-surname
+        // household member nobody named.
+        if ($household_pool && $beneficiary_text !== '' && count($beneficiary_names) <= 1) {
             foreach (preg_split('/\s+/', $beneficiary_text) as $word) {
                 $match = self::best_match($word, $household_pool);
                 if ($match) {
@@ -315,9 +341,34 @@ class AVBK_Matcher {
         return false;
     }
 
+    /** Labels whose value is the free-text "who/what this is for" the beneficiary names live in — Dutch or English, see DESCRIPTION_LABELS. */
+    private const OMSCHRIJVING_LABELS = ['Omschrijving:', 'Description:'];
+
+    /**
+     * Pulls out the value of the "Omschrijving"/"Description" field from
+     * the bank's flat labelled Mededelingen string — this is where
+     * beneficiary names ("Jansen Anna en Vries Bram
+     * congres...") actually live. Previously only recognized the Dutch
+     * label and Dutch terminator labels, so an English-language export
+     * ("Name: ... Description: Sanne en Fabrice ... IBAN: ...") silently
+     * extracted nothing — find_candidates() then fell back to fuzzy-
+     * matching the payer's surname alone, which can't tell apart two
+     * members sharing a surname (e.g. picked an unrelated Jansen
+     * instead of the one actually named in the description).
+     */
     private static function extract_beneficiary_text(string $description): string {
-        if (preg_match('/Omschrijving:\s*(.*?)\s*(?:IBAN:|Datum\/Tijd:|Valutadatum:|Kenmerk:|$)/u', $description, $m)) {
-            return trim($m[1]);
+        if ($description === '') {
+            return '';
+        }
+        $pattern = '/(' . implode('|', array_map(fn($l) => preg_quote($l, '/'), self::DESCRIPTION_LABELS)) . ')/';
+        $parts = preg_split($pattern, $description, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!$parts || count($parts) < 3) {
+            return '';
+        }
+        for ($i = 1; $i < count($parts); $i += 2) {
+            if (in_array($parts[$i], self::OMSCHRIJVING_LABELS, true)) {
+                return trim($parts[$i + 1] ?? '');
+            }
         }
         return '';
     }
@@ -328,6 +379,22 @@ class AVBK_Matcher {
             '',
             $text
         ));
+    }
+
+    /**
+     * Strips any whole-word occurrence of a registered activity *type*
+     * name (Kamp/Congres/Weekend/...) from anywhere in $text, dynamically
+     * sourced the same way classify_types() is — so a trailing reason
+     * word ("... Fabrice congres archeologieclub") doesn't dilute that
+     * split name's token-overlap score against the real member name.
+     */
+    private static function strip_activity_type_words(string $text): string {
+        $words = array_map(fn($t) => preg_quote($t->name, '/'), AVPVH_DB::get_activity_types());
+        if (!$words) {
+            return $text;
+        }
+        $stripped = preg_replace('/\b(' . implode('|', $words) . ')\b/iu', '', $text);
+        return trim(preg_replace('/\s+/u', ' ', $stripped));
     }
 
     private static function strip_via_suffix(string $name): string {

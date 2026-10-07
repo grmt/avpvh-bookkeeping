@@ -16,6 +16,8 @@ $current_book_year = (int) current_time('Y');
 
     <?php if (isset($_GET['waived'])) : ?>
         <div class="notice notice-success"><p>Bijdrage kwijtgescholden.</p></div>
+    <?php elseif (isset($_GET['amount_updated'])) : ?>
+        <div class="notice notice-success"><p>Bedrag bijgewerkt.</p></div>
     <?php elseif (isset($_GET['payment_requested'])) : ?>
         <div class="notice notice-success"><p>Betaalverzoek verstuurd.</p></div>
     <?php elseif (isset($_GET['payment_request_failed'])) : ?>
@@ -109,7 +111,20 @@ $current_book_year = (int) current_time('Y');
                                 <br><span<?php echo $estimate_is_warning ? ' style="color:#b32d2e;font-weight:600"' : ' style="color:#646970"'; ?>><?php echo $estimate_is_warning ? '&#9888; ' : ''; ?><?php echo esc_html($estimate_reason); ?></span>
                             <?php endif; ?>
                         </td>
-                        <td>&euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?></td>
+                        <td>
+                            <?php if ($item->status === 'open') : ?>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:.3rem;align-items:center">
+                                    <?php wp_nonce_field('avbk_update_fee_item_amount'); ?>
+                                    <input type="hidden" name="action" value="avbk_update_fee_item_amount">
+                                    <input type="hidden" name="id" value="<?php echo esc_attr($item->id); ?>">
+                                    <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                                    &euro; <input type="text" name="amount_due" value="<?php echo esc_attr(number_format((float) $item->amount_due, 2, ',', '')); ?>" size="6">
+                                    <button type="submit" class="button button-small">Opslaan</button>
+                                </form>
+                            <?php else : ?>
+                                &euro; <?php echo esc_html(number_format((float) $item->amount_due, 2, ',', '.')); ?>
+                            <?php endif; ?>
+                        </td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
                         <td>
                             <?php if (!$payments) : ?>

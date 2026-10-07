@@ -432,7 +432,25 @@ class AVBK_Import {
             // it creates the missing participation row below.
             $requires_generated_fee = isset(AVBK_DB::activity_fee_type_map()[$activity_obj->type_name]);
             $open_due = $requires_generated_fee ? self::open_due_for_activity($member_id, (int) $m[1]) : 0.0;
-            if ($requires_generated_fee && $open_due <= 0) {
+            if ($requires_generated_fee && $open_due <= 0 && $activity_obj->type_name === 'Contributie') {
+                // Contributie has no "deelname" concept at all — its fee
+                // item is generated straight from status+age (see
+                // AVBK_Fee_Generation), never from a participation record.
+                // Missing only because the nightly cron/a rate change
+                // hasn't generated it yet for this member is a one-off,
+                // idempotent self-heal, not something to bounce back to
+                // the treasurer as an error.
+                AVBK_Fee_Generation::generate_contribution_fee_for_member($member_id, (int) $activity_obj->year);
+                $open_due = self::open_due_for_activity($member_id, (int) $m[1]);
+            }
+            if ($requires_generated_fee && $open_due <= 0 && $activity_obj->type_name === 'Contributie') {
+                $member = AVPVH_DB::get_member($member_id);
+                $member_name = $member ? avpvh_format_name($member, 'list') : "lid #{$member_id}";
+                $errors[] = esc_html($member_name) . ': geen openstaande contributie voor '
+                    . esc_html($activity_obj->name ?? "activiteit #{$m[1]}")
+                    . ' — controleer of dit lid status "Lid" heeft en niet is vrijgesteld (kenmerk '
+                    . '"vrijgesteld van contributie"), of kies een andere activiteit.';
+            } elseif ($requires_generated_fee && $open_due <= 0) {
                 $member = AVPVH_DB::get_member($member_id);
                 $participation = AVPVH_DB::get_participation($member_id, (int) $m[1]);
                 $participation_url_args = [

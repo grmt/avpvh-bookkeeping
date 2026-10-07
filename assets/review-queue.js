@@ -63,7 +63,94 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Lets the treasurer type part of a name to narrow a lid-<select> that
+    // can otherwise hold the entire ledenbestand (or, for a well-attended
+    // activiteit, ~100 deelnemers). Rebuilds the plain (non-suggested)
+    // option list from cfg.allMembers on every keystroke by actually
+    // adding/removing <option> nodes — <option hidden> and display:none
+    // are not reliably honoured inside a native <select>'s popup list
+    // across browsers, so toggling those silently does nothing in some of
+    // them. Any "Suggesties"/"Deelnemers van deze activiteit" optgroup is
+    // left untouched (already short, and may still be loading via AJAX).
+    function wireMemberFilter(row) {
+        var filterInput = row.querySelector('.avbk-member-filter');
+        var select = row.querySelector('.avbk-member-select');
+        if (!filterInput || !select) return;
+        filterInput.addEventListener('input', function () {
+            var term = filterInput.value.trim().toLowerCase();
+            var selectedValue = select.value;
+            Array.prototype.slice.call(select.querySelectorAll('option[data-avbk-plain]')).forEach(function (opt) {
+                opt.remove();
+            });
+            cfg.allMembers.forEach(function (m) {
+                if (term !== '' && m.label.toLowerCase().indexOf(term) === -1) return;
+                var opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label;
+                opt.setAttribute('data-avbk-plain', '1');
+                select.appendChild(opt);
+            });
+            select.value = selectedValue;
+        });
+    }
+
     var householdCache = {};
+
+    // Same idea as the household-suggestions optgroup above, but scoped to
+    // the row's own (already-guessed) activiteit instead of the payer's
+    // household — the lid-dropdown otherwise lists every payable lid
+    // (which also excludes ex-leden, see AVBK_DB::get_payable_members()),
+    // making the actual attendee of e.g. a 100-person reünie tedious to
+    // find by hand.
+    var activityParticipantsCache = {};
+
+    function applyActivityParticipants(memberSelect, candidates) {
+        var selectedValue = memberSelect.value;
+        var existing = memberSelect.querySelector('optgroup[data-avbk-activity-suggested]');
+        if (existing) existing.remove();
+        if (!candidates.length) {
+            memberSelect.value = selectedValue;
+            return;
+        }
+        var group = document.createElement('optgroup');
+        group.label = 'Deelnemers van deze activiteit';
+        group.setAttribute('data-avbk-activity-suggested', '1');
+        candidates.forEach(function (c) {
+            var opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.label;
+            group.appendChild(opt);
+        });
+        memberSelect.insertBefore(group, memberSelect.firstChild);
+        memberSelect.value = selectedValue;
+    }
+
+    function loadActivityParticipants(memberSelect, activityId) {
+        if (!activityId) {
+            var existing = memberSelect.querySelector('optgroup[data-avbk-activity-suggested]');
+            if (existing) existing.remove();
+            return;
+        }
+        if (activityParticipantsCache[activityId]) {
+            applyActivityParticipants(memberSelect, activityParticipantsCache[activityId]);
+            return;
+        }
+        var body = new URLSearchParams();
+        body.set('action', 'avbk_activity_participants');
+        body.set('nonce', cfg.nonce);
+        body.set('activity_id', activityId);
+        fetch(cfg.ajaxUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res.success) return;
+                activityParticipantsCache[activityId] = res.data;
+                applyActivityParticipants(memberSelect, res.data);
+            });
+    }
 
     function loadHouseholdSuggestions(form, memberId) {
         var selects = Array.from(form.querySelectorAll('select[name="member_id[]"]'));
@@ -273,10 +360,13 @@ document.addEventListener('DOMContentLoaded', function () {
             if (activitySelect.value && !matchedActivityId(activitySelect.value)) {
                 fillRemainingAmount(row, form);
             }
+            loadActivityParticipants(memberSelect, matchedActivityId(activitySelect.value));
             lookupDetail();
         });
         updateDescriptionVisibility();
         updateMemberEditLink();
+        loadActivityParticipants(memberSelect, matchedActivityId(activitySelect.value));
+        wireMemberFilter(row);
     }
 
     // A guessed/spurious regel (e.g. "Weekend" matched from the bank
