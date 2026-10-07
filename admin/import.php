@@ -112,6 +112,7 @@ $layout = AVBK_Bank_Import_Layout::get_config();
         <table class="wp-list-table widefat striped">
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Geüpload</th>
                     <th>Bestand</th>
                     <th>Periode</th>
@@ -125,6 +126,7 @@ $layout = AVBK_Bank_Import_Layout::get_config();
                     $uploader = $batch->uploaded_by ? get_userdata((int) $batch->uploaded_by) : false;
                     ?>
                     <tr>
+                        <td>#<?php echo esc_html($batch->id); ?></td>
                         <td><?php echo esc_html(wp_date('D d M Y H:i', strtotime($batch->uploaded_at))); ?></td>
                         <td><?php echo esc_html($batch->filename); ?></td>
                         <td>
