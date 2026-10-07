@@ -886,6 +886,18 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.37');
         }
+        if (version_compare($version, '1.38', '<')) {
+            // suggested_type is a comma-joined list of every matched
+            // activity-type name (classify_types() can legitimately match
+            // several at once, e.g. "Contributie,Congres,Feest") —
+            // varchar(20) silently rejected the whole insert whenever
+            // that got long enough, with no error anywhere except a
+            // caught-and-redirected exception the treasurer saw once on
+            // screen and nowhere else (incident 2026-10-07: a QR-paid
+            // congresbijdrage import failed this way with zero log trace).
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions MODIFY COLUMN suggested_type VARCHAR(190) NOT NULL DEFAULT ''");
+            update_option('avbk_db_version', '1.38');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -1357,6 +1369,40 @@ class AVBK_DB {
      * updating an existing one: two "Drank" charges for the same member
      * are two real, separate charges, never a correction of each other.
      */
+    /**
+     * An existing open "other" fee item for this exact charge, if one is
+     * already on file — checked by confirm_transaction() before creating
+     * a new one (see create_other_fee_item()). Without this, confirming
+     * a payment against a Drank/Eten/Weekend/...-type activity (never
+     * auto-generated, so always arrives here) that the member already
+     * had an open regel for silently created a second, duplicate regel
+     * instead of settling the existing one (incident 2026-10-08: a
+     * Drankrekening Kamp paid this way, leaving the real original regel
+     * still open while a brand-new €0-paid duplicate took the payment).
+     * Scoped by activity_id when one is given (a specific dated
+     * activity — e.g. "Drankrekening Kamp 2026"); otherwise by category
+     * (a bare type name with no dated activity attached at all).
+     */
+    public static function get_open_other_fee_item(int $member_id, string $category, int $activity_id = 0): ?object {
+        global $wpdb;
+        if ($activity_id) {
+            // Any type, not just 'other': an activity like "Drankrekening
+            // Kamp" can already have an open regel created a different
+            // way entirely (e.g. upsert_event_fee_item(), type='event')
+            // before anyone ever confirms a payment against it here —
+            // that's still the one real charge to settle, not a reason
+            // to create a second one alongside it.
+            return $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id = %d AND status = 'open' ORDER BY id ASC LIMIT 1",
+                $member_id, $activity_id
+            )) ?: null;
+        }
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id IS NULL AND category = %s AND status = 'open' ORDER BY id ASC LIMIT 1",
+            $member_id, $category
+        )) ?: null;
+    }
+
     public static function create_other_fee_item(int $member_id, string $category, string $description, float $amount, int $activity_id = 0): int {
         global $wpdb;
         $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
@@ -2430,9 +2476,10 @@ class AVBK_DB {
         return $marked;
     }
 
+    /** @throws \RuntimeException if the row doesn't actually get written — this used to be silently swallowed (row_count still ticked up in the calling import loop, but no row ever existed; see incident 2026-10-07, a QR-paid congresbijdrage that vanished with zero error). */
     public static function insert_transaction(array $row): int {
         global $wpdb;
-        $wpdb->insert("{$wpdb->prefix}avb_transactions", [
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_transactions", [
             'import_batch_id'      => $row['import_batch_id'] ?? null,
             'transaction_date'     => $row['transaction_date'],
             'amount'               => $row['amount'],
@@ -2448,6 +2495,11 @@ class AVBK_DB {
             'suggested_type'       => $row['suggested_type'] ?? '',
             'source_row'           => $row['source_row'] ?? null,
         ]);
+        if ($inserted === false) {
+            throw new \RuntimeException(
+                'Kon transactie niet opslaan (regel ' . ($row['source_row'] ?? '?') . '): ' . $wpdb->last_error
+            );
+        }
         return (int) $wpdb->insert_id;
     }
 
