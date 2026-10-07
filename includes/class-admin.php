@@ -22,6 +22,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_rate', [$this, 'handle_delete_activity_rate']);
         add_action('admin_post_avbk_copy_activity_rates',  [$this, 'handle_copy_activity_rates']);
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
+        add_action('admin_post_avbk_update_fee_item_amount', [$this, 'handle_update_fee_item_amount']);
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
@@ -55,6 +56,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
+        add_action('wp_ajax_avbk_activity_participants', [$this, 'ajax_activity_participants']);
     }
 
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
@@ -232,7 +234,7 @@ class AVBK_Admin {
             set_transient('avbk_confirm_errors_' . get_current_user_id(), [
                 'Er is niets verwerkt: kies minimaal één lid en activiteit met een bedrag groter dan € 0,00.',
             ], 60);
-            wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirm_failed' => '1'], admin_url('admin.php')) . '#tx-' . $transaction_id);
+            wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirm_failed' => '1', 'confirm_failed_tx' => $transaction_id], admin_url('admin.php')) . '#tx-' . $transaction_id);
             exit;
         }
 
@@ -246,7 +248,7 @@ class AVBK_Admin {
                 // money unaccounted for.
                 AVBK_DB::save_transaction_draft($transaction_id, $rows);
                 set_transient('avbk_confirm_errors_' . get_current_user_id(), $result['errors'], 60);
-                wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirm_failed' => '1'], admin_url('admin.php')) . '#tx-' . $transaction_id);
+                wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirm_failed' => '1', 'confirm_failed_tx' => $transaction_id], admin_url('admin.php')) . '#tx-' . $transaction_id);
                 exit;
             }
         }
@@ -461,12 +463,13 @@ class AVBK_Admin {
         $min_age = $_POST['min_age'] !== '' ? (int) $_POST['min_age'] : null;
         $max_age = $_POST['max_age'] !== '' ? (int) $_POST['max_age'] : null;
         $for_students = !empty($_POST['for_students']);
+        $flag_id = (int) ($_POST['flag_id'] ?? 0) ?: null;
         $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
         // 0 is a legitimate rate (e.g. kids 0-3 free), so only activity_id gates this — not rate > 0.
         $rate = (float) str_replace(',', '.', (string) ($_POST['rate'] ?? ''));
 
         if ($activity_id) {
-            AVBK_DB::save_activity_rate($id, $activity_id, $min_age, $max_age, $label, $rate, $for_students);
+            AVBK_DB::save_activity_rate($id, $activity_id, $min_age, $max_age, $label, $rate, $for_students, $flag_id);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'activity_id' => $activity_id, 'rate_saved' => '1'], admin_url('admin.php')));
@@ -512,7 +515,8 @@ class AVBK_Admin {
                         $source_rate->max_age === null ? null : (int) $source_rate->max_age,
                         (string) $source_rate->label,
                         (float) $source_rate->rate,
-                        !empty($source_rate->for_students)
+                        !empty($source_rate->for_students),
+                        $source_rate->flag_id === null ? null : (int) $source_rate->flag_id
                     );
                 }
                 $result = 'copied';
@@ -814,7 +818,9 @@ class AVBK_Admin {
                 );
                 $config = AVBK_Sheet_Import::get_config($activity_id);
                 $row_amount = (float) ($_POST['amount'] ?? 0);
-                $amount = $row_amount > 0 ? $row_amount : (float) $config['price_per_person'];
+                $amount = $row_amount > 0
+                    ? $row_amount
+                    : AVBK_Fee_Generation::event_price_for_member($member_id, $activity_id, (float) $config['price_per_person']);
                 if ($amount > 0) {
                     AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
                 }
@@ -1794,6 +1800,33 @@ class AVBK_Admin {
         ], $candidates));
     }
 
+    /**
+     * Everyone already registered as a participant of one specific
+     * activiteit (e.g. "Congres/Reünie 50 jaar AVPvH") — surfaced as a
+     * suggestions optgroup in the review-queue's lid-dropdown, same idea as
+     * ajax_household_candidates() but scoped to the row's own matched
+     * activiteit instead of the payer's household. Much faster to pick the
+     * right person from ~100 known attendees than from every payable lid
+     * (which, unlike this list, also excludes ex-leden by default — see
+     * AVBK_DB::get_payable_members() — exactly who tends to show up for a
+     * jubileum/reünie).
+     */
+    public function ajax_activity_participants(): void {
+        check_ajax_referer('avbk_review_queue', 'nonce');
+        if (!$this->can_manage()) {
+            wp_send_json_error('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        if (!$activity_id) {
+            wp_send_json_error('Ontbrekende activiteit.', 400);
+        }
+        $rows = AVPVH_DB::get_participation_for_activity($activity_id);
+        wp_send_json_success(array_map(fn($p) => [
+            'id'    => (int) $p->member_id,
+            'label' => avpvh_format_name($p, 'list'),
+        ], $rows));
+    }
+
     public function handle_recompute_suggestions(): void {
         check_admin_referer('avbk_recompute_suggestions');
         if (!$this->can_manage()) {
@@ -1840,6 +1873,21 @@ class AVBK_Admin {
             AVBK_DB::waive_fee_item($id);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'waived' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_update_fee_item_amount(): void {
+        check_admin_referer('avbk_update_fee_item_amount');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $id = (int) ($_POST['id'] ?? 0);
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', (string) ($_POST['amount_due'] ?? ''));
+        if ($id) {
+            AVBK_DB::update_fee_item_amount($id, $amount);
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'amount_updated' => '1'], admin_url('admin.php')));
         exit;
     }
 

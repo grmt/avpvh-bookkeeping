@@ -14,6 +14,16 @@ $duplicate_candidates = array_values(array_filter(
 ));
 $all_members = AVBK_DB::get_payable_members();
 
+// Rendered inline on the transaction's own row below (not as a page-top
+// banner) — a treasurer scrolling through a long queue shouldn't have to
+// jump back up top to read why confirming just failed, then scroll back
+// down again to actually fix it.
+$confirm_failed_tx_id = isset($_GET['confirm_failed']) ? (int) ($_GET['confirm_failed_tx'] ?? 0) : 0;
+$confirm_errors = $confirm_failed_tx_id ? get_transient('avbk_confirm_errors_' . get_current_user_id()) : null;
+if ($confirm_failed_tx_id) {
+    delete_transient('avbk_confirm_errors_' . get_current_user_id());
+}
+
 // Every regel picks its own activiteit — no transactie-brede "Type" meer.
 // Contributie/Kamp/Congres (AVBK_DB::activity_fee_type_map()'s keys) match
 // against an existing, already-generated bijdrage-regel — but "Kamp" alone
@@ -40,14 +50,15 @@ $other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschri
 
 function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
     ?>
-    <select name="<?php echo esc_attr($name); ?>">
+    <select name="<?php echo esc_attr($name); ?>" class="avbk-member-select">
         <option value="">&mdash; kies lid &mdash;</option>
         <?php foreach ($members as $m) : ?>
-            <option value="<?php echo esc_attr($m->id); ?>" <?php selected($selected_id, (int) $m->id); ?>>
+            <option value="<?php echo esc_attr($m->id); ?>" data-avbk-plain="1" <?php selected($selected_id, (int) $m->id); ?>>
                 <?php echo esc_html(avpvh_format_name($m, 'list')); ?>
             </option>
         <?php endforeach; ?>
     </select>
+    <input type="text" class="avbk-member-filter" placeholder="Zoek op (achter)naam&hellip;" autocomplete="off">
     <a href="<?php echo esc_url($selected_id ? AVBK_DB::member_edit_url($selected_id) : '#'); ?>" target="_blank" class="avbk-detail-member-link"<?php echo $selected_id ? '' : ' style="display:none"'; ?>>bewerk lid</a>
     <?php
 }
@@ -110,6 +121,12 @@ function avbk_row_detail(array $row): ?array {
     'ajaxUrl'          => admin_url('admin-ajax.php'),
     'nonce'            => wp_create_nonce('avbk_review_queue'),
     'memberDetailUrl'  => admin_url('admin.php?page=avpvh-member-detail&id='),
+    // Source of truth for the lid-naamfilter (see wireMemberFilter() in
+    // review-queue.js) — filtering rebuilds the plain option list from
+    // this static array instead of hiding <option> nodes in place, since
+    // hidden/display:none on an <option> isn't reliably honoured inside a
+    // native <select> popup across browsers.
+    'allMembers'       => array_map(fn($m) => ['id' => (int) $m->id, 'label' => avpvh_format_name($m, 'list')], $all_members),
 ]); ?></script>
 <div class="wrap">
     <h1>Te controleren transacties</h1>
@@ -177,19 +194,9 @@ function avbk_row_detail(array $row): ?array {
         <?php else : ?>
             <div class="notice notice-success"><p>Transactie bevestigd.</p></div>
         <?php endif; ?>
-    <?php elseif (isset($_GET['confirm_failed'])) :
-        $confirm_errors = get_transient('avbk_confirm_errors_' . get_current_user_id());
-        delete_transient('avbk_confirm_errors_' . get_current_user_id());
-        ?>
+    <?php elseif (isset($_GET['confirm_failed'])) : ?>
         <div class="notice notice-error">
-            <p>Niet bevestigd — je invoer is bewaard als concept, maar er is nog niets verwerkt:</p>
-            <ul style="list-style:disc;margin-left:1.5em">
-                <?php foreach ((array) $confirm_errors as $error) : ?>
-                    <li><?php echo wp_kses((string) $error, [
-                        'a' => ['href' => true, 'target' => true, 'rel' => true],
-                    ]); ?></li>
-                <?php endforeach; ?>
-            </ul>
+            <p>Niet bevestigd — je invoer is bewaard als concept, maar er is nog niets verwerkt. Zie de melding bij de transactie hieronder<?php echo $confirm_failed_tx_id ? '' : ' (kon de precieze regel niet meer terugvinden)'; ?>.</p>
         </div>
     <?php elseif (isset($_GET['draft_saved'])) : ?>
         <div class="notice notice-success"><p>Concept opgeslagen.</p></div>
@@ -315,6 +322,18 @@ function avbk_row_detail(array $row): ?array {
                 <?php if (!$suggested_ids && !$suggested_types && $draft === null) : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
                 <?php if ($draft !== null) : ?><span class="avbk-badge avbk-badge-draft">concept</span><?php endif; ?>
             </div>
+            <?php if ((int) $tx->id === $confirm_failed_tx_id && $confirm_errors) : ?>
+                <div class="notice notice-error inline" style="margin:.5rem 0">
+                    <p>Niet bevestigd — je invoer is bewaard als concept, maar er is nog niets verwerkt:</p>
+                    <ul style="list-style:disc;margin-left:1.5em">
+                        <?php foreach ((array) $confirm_errors as $error) : ?>
+                            <li><?php echo wp_kses((string) $error, [
+                                'a' => ['href' => true, 'target' => true, 'rel' => true],
+                            ]); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
             <p class="description"><?php echo AVBK_Matcher::format_description_html(AVBK_Matcher::strip_name_field($tx->description)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_description_html() esc_html()'s the raw text first (see its own docblock), then only wraps already-safe hardcoded labels in <strong>. ?></p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($tx->description); ?>">

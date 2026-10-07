@@ -862,6 +862,19 @@ class AVBK_DB {
             self::seed_iban_bank_tables();
             update_option('avbk_db_version', '1.35');
         }
+        if (version_compare($version, '1.36', '<')) {
+            // A rate row can now apply by member kenmerk (e.g. "Oud-docent
+            // PvH" -> €25) instead of age/student-status — one shared
+            // mechanism for both the age-bracketed activities (Kamp/
+            // Contributie) and flat-price ones (Congres), which previously
+            // had no per-member override at all beyond a one-off manual
+            // amount typed in per row.
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_activity_rates LIKE 'flag_id'");
+            if (!$column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_activity_rates ADD COLUMN flag_id INT UNSIGNED NULL AFTER for_students");
+            }
+            update_option('avbk_db_version', '1.36');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -914,7 +927,7 @@ class AVBK_DB {
     public static function get_student_activity_rate(int $activity_id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_activity_rates WHERE activity_id = %d AND for_students = 1 LIMIT 1",
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates WHERE activity_id = %d AND for_students = 1 AND flag_id IS NULL LIMIT 1",
             $activity_id
         )) ?: null;
     }
@@ -923,19 +936,47 @@ class AVBK_DB {
      * The rate row covering $age for this activity, or null if none
      * configured. Excludes for_students rows — those only ever apply via
      * the is_student flag (get_student_activity_rate), never by
-     * coincidentally matching someone's age.
+     * coincidentally matching someone's age. Also excludes flag-only rows
+     * (null min/max age would otherwise look like an open "everyone"
+     * bracket here) — those only ever apply via get_rate_for_flags().
      */
     public static function get_rate_for_age(int $activity_id, int $age): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_activity_rates
-             WHERE activity_id = %d AND for_students = 0
+             WHERE activity_id = %d AND for_students = 0 AND flag_id IS NULL
                AND (min_age IS NULL OR min_age <= %d)
                AND (max_age IS NULL OR max_age >= %d)
              ORDER BY (min_age IS NOT NULL) DESC, (max_age IS NOT NULL) DESC
              LIMIT 1",
             $activity_id, $age, $age
         )) ?: null;
+    }
+
+    /**
+     * The best rate row tied to any of this member's kenmerken, for this
+     * activity — checked before student/age (see compute_activity_rate()),
+     * so e.g. "Oud-docent PvH" wins over whatever the age bracket would
+     * otherwise say. With more than one matching flag, the lowest rate
+     * wins (most generous discount) — a treasurer assigning two discount
+     * kenmerken to one member is an edge case, not a configuration to
+     * silently pick an arbitrary one of equal footing for.
+     */
+    public static function get_rate_for_flags(int $activity_id, array $flag_ids): ?object {
+        global $wpdb;
+        $flag_ids = array_values(array_unique(array_filter(array_map('intval', $flag_ids))));
+        if (!$flag_ids) {
+            return null;
+        }
+        $placeholders = implode(',', array_fill(0, count($flag_ids), '%d'));
+        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $placeholders is a generated run of %d, one per id, filled in by prepare() below.
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_activity_rates
+             WHERE activity_id = %d AND flag_id IN ($placeholders)
+             ORDER BY rate ASC LIMIT 1",
+            array_merge([$activity_id], $flag_ids)
+        )) ?: null;
+        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
     }
 
     /**
@@ -954,20 +995,29 @@ class AVBK_DB {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_activity_rates
-             WHERE activity_id = %d AND for_students = 0 AND max_age IS NULL
+             WHERE activity_id = %d AND for_students = 0 AND flag_id IS NULL AND max_age IS NULL
              ORDER BY min_age DESC
              LIMIT 1",
             $activity_id
         )) ?: null;
     }
 
-    public static function save_activity_rate(int $id, int $activity_id, ?int $min_age, ?int $max_age, string $label, float $rate, bool $for_students = false): int {
+    public static function save_activity_rate(int $id, int $activity_id, ?int $min_age, ?int $max_age, string $label, float $rate, bool $for_students = false, ?int $flag_id = null): int {
         global $wpdb;
+        // A kenmerk-gebonden rij heeft geen leeftijdsgrens/studentstatus —
+        // die dimensies zijn onderling uitsluitend, zie get_rate_for_flags()
+        // vs. get_rate_for_age()/get_student_activity_rate().
+        if ($flag_id) {
+            $min_age = null;
+            $max_age = null;
+            $for_students = false;
+        }
         $data = [
             'activity_id'  => $activity_id,
             'min_age'      => $min_age,
             'max_age'      => $max_age,
             'for_students' => (int) $for_students,
+            'flag_id'      => $flag_id ?: null,
             'label'        => $label,
             'rate'         => $rate,
         ];
@@ -1022,13 +1072,29 @@ class AVBK_DB {
      * names a type ("KAMP EN CONTRIBUTIE"); the treasurer's own row picks
      * the exact activity directly (see get_member_fee_detail_for_activity()),
      * so this heuristic never runs once a human has made a choice.
+     *
+     * A type that's barely ever used (e.g. "Feest", last seen in 2008)
+     * still has a "most recent" row by year, but surfacing a decades-old
+     * activity as a live suggestion is wrong — it previously caused a
+     * phantom €0 row for every "...Feest..." bank description (e.g. a
+     * jubileum congres description mentioning "Feest" in passing), because
+     * that stale activity isn't even in the review queue's recent-
+     * activities dropdown. A type is only "current" when it had an
+     * activity within the last 5 years.
      */
     public static function get_current_activity_for_type_name(string $type_name): ?object {
         $type = current(array_filter(
             AVPVH_DB::get_activity_types(),
             fn($t) => $t->name === $type_name
         ));
-        return $type ? AVPVH_DB::get_current_activity((int) $type->id) : null;
+        if (!$type) {
+            return null;
+        }
+        $activity = AVPVH_DB::get_current_activity((int) $type->id);
+        if ($activity && (int) $activity->year < (int) current_time('Y') - 5) {
+            return null;
+        }
+        return $activity;
     }
 
     /**
@@ -1324,8 +1390,14 @@ class AVBK_DB {
      * an IN-list, so this fetches both and merges/re-sorts in PHP.
      */
     public static function get_payable_members(): array {
+        // Includes 'inactive' (ex-lid) too — an ex-lid very much needs to be
+        // selectable for a reünie/jubileum-achtige activiteit, even though
+        // they're not billed for ongoing contributie/kamp. Excluding them
+        // here isn't "safe by default", it just makes an ex-lid's payment
+        // impossible to assign at all.
         $members = array_merge(
             AVPVH_DB::get_members(['status' => 'active']),
+            AVPVH_DB::get_members(['status' => 'inactive']),
             AVPVH_DB::get_members(['status' => 'visitor'])
         );
         usort($members, fn($a, $b) => strcmp($a->last_name, $b->last_name) ?: strcmp($a->first_name, $b->first_name));
@@ -1451,6 +1523,19 @@ class AVBK_DB {
     public static function waive_fee_item(int $id): void {
         global $wpdb;
         $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $id]);
+    }
+
+    /**
+     * Corrects an open fee item's amount — e.g. a registrant who actually
+     * booked a cheaper ticket tier (a discount kenmerk/rate exists for
+     * *new* fee items, see get_rate_for_flags(), but doesn't retroactively
+     * touch one already created). Only ever a manual, explicit treasurer
+     * correction, same spirit as "Kwijtschelden" (waive) but for a
+     * different amount rather than zero.
+     */
+    public static function update_fee_item_amount(int $id, float $amount): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_fee_items", ['amount_due' => max(0, round($amount, 2))], ['id' => $id]);
     }
 
     /** Amount already allocated (paid) towards a single fee item. */
@@ -2515,13 +2600,19 @@ class AVBK_DB {
         // (ORDER BY direction can't be a prepare() placeholder); the table
         // names are WP's own prefix. No user input reaches the SQL.
         // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // A saved-but-unconfirmed draft (see save_transaction_draft()) is
+        // deliberately parked, not forgotten — sorting it after everything
+        // still at its automatic suggestion lets the treasurer work
+        // straight down the list without re-hitting rows they already
+        // handled, instead of that row staying wherever its transaction
+        // date happened to sort it.
         if ($min_year) {
             return $wpdb->get_results($wpdb->prepare(
                 "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
                  FROM {$wpdb->prefix}avb_transactions t
                  LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
                  WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched') AND YEAR(t.transaction_date) >= %d
-                 ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}",
+                 ORDER BY (t.draft_data IS NOT NULL) ASC, t.transaction_date {$sql_order}, t.id {$sql_order}",
                 $min_year
             )) ?: [];
         }
@@ -2530,7 +2621,7 @@ class AVBK_DB {
              FROM {$wpdb->prefix}avb_transactions t
              LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
              WHERE t.direction = 'in' AND t.status IN ('suggested', 'unmatched')
-             ORDER BY t.transaction_date {$sql_order}, t.id {$sql_order}"
+             ORDER BY (t.draft_data IS NOT NULL) ASC, t.transaction_date {$sql_order}, t.id {$sql_order}"
         ) ?: [];
         // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }

@@ -81,6 +81,14 @@
     font-size: .85em;
 }
 
+.avbk-member-filter {
+    width: 9em;
+    margin-left: .3rem;
+    font-size: .85em;
+    padding: .1rem .3rem;
+    box-sizing: border-box;
+}
+
 .avbk-remove-row {
     color: #b32d2e;
     font-size: 1.1em;

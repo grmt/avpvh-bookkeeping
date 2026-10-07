@@ -233,7 +233,9 @@ class AVBK_Sheet_Import {
                 } elseif ($attendee['registered_at'] !== null && $attendee['registered_at'] > current_time('mysql')) {
                     $date_warnings[] = "{$attendee['name']}: inschrijfdatum " . mysql2date('d-m-Y H:i', $attendee['registered_at']) . ' ligt in de toekomst — controleer het datumformaat.';
                 }
-                $amount = $attendee['amount'] > 0 ? $attendee['amount'] : $price;
+                $amount = $attendee['amount'] > 0
+                    ? $attendee['amount']
+                    : AVBK_Fee_Generation::event_price_for_member((int) $member->id, $activity_id, $price);
                 if ($amount > 0) {
                     AVBK_DB::upsert_event_fee_item((int) $member->id, $description, $amount, $activity_id);
                 }
@@ -483,6 +485,19 @@ class AVBK_Sheet_Import {
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
     }
 
+    /** Whether $first_name/$last_name shares at least one name token with $member — an empty given name is treated as a match (nothing to contradict the e-mail with). */
+    private static function name_plausibly_matches_member(string $first_name, string $last_name, object $member): bool {
+        $given = trim(self::normalize_match_text($first_name) . ' ' . self::normalize_match_text($last_name));
+        if ($given === '') {
+            return true;
+        }
+        $given_tokens = array_filter(explode(' ', $given));
+        $member_tokens = array_filter(explode(' ', self::normalize_match_text(
+            trim((string) $member->first_name . ' ' . (string) $member->last_name)
+        )));
+        return (bool) array_intersect($given_tokens, $member_tokens);
+    }
+
     private static function cell(array $cells, string $column_letter): string {
         if ($column_letter === '') {
             return '';
@@ -555,6 +570,17 @@ class AVBK_Sheet_Import {
      * An exact e-mail match is authoritative, even when the free-text name
      * contains a typo. If no member has that e-mail, fall back to exact,
      * unambiguous first+last-name matching and finally manual review.
+     *
+     * A household/couple sharing one e-mail address breaks the "e-mail is
+     * authoritative" assumption when a slot names someone else entirely
+     * (e.g. a form's second-attendee slot: "Axel De Boe" / his own e-mail
+     * for slot 1, then "Angelique Tijtgat" / that same e-mail for slot 2)
+     * — blindly trusting the e-mail silently filed her under Axel's own
+     * member record instead of leaving her for review/creation as her own
+     * person. Only trust the e-mail when the given name plausibly refers
+     * to that e-mail's own owner (shares at least one name token with
+     * them); a name that shares nothing with the e-mail owner's falls
+     * through to the normal name-based matching below instead.
      */
     private static function find_match(string $name, string $email, array $activity_ids = []): ?object {
         [$first_name, $last_name] = self::split_name($name);
@@ -565,7 +591,7 @@ class AVBK_Sheet_Import {
                 $identity = AVPVH_DB::get_identity_by_email($email);
                 $by_email = $identity ? AVPVH_DB::get_member((int) $identity->member_id) : null;
             }
-            if ($by_email) {
+            if ($by_email && self::name_plausibly_matches_member($first_name, $last_name, $by_email)) {
                 return $by_email;
             }
         }
