@@ -485,14 +485,13 @@ class AVBK_Sheet_Import {
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
     }
 
-    /** Whether $first_name/$last_name shares at least one name token with $member — an empty given name is treated as a match (nothing to contradict the e-mail with). */
     /**
      * A shared surname alone is not enough: a household account
-     * ("jansenfamilie@gmail.com" used by Anna Jansen, her partner Chris
-     * Hoek, and their kids) has several real, distinct people behind one
+     * ("jansenfamilie@gmail.com" used by Anna Jansen, her partner Bram
+     * Vries, and their kids) has several real, distinct people behind one
      * e-mail who all legitimately share that surname — matching on any
      * token (including the surname) let "Bram Vries"/"Cas Vries" both
-     * get silently filed under whichever one of them (their son Daan)
+     * get silently filed under whichever one of them (their child Daan)
      * actually owns that e-mail address. The first name is the only part
      * that's actually specific to one person, so that's what must match
      * (falling back to an exact full-name match, for a first/last swap).
@@ -587,8 +586,8 @@ class AVBK_Sheet_Import {
      * A household/couple sharing one e-mail address breaks the "e-mail is
      * authoritative" assumption when a slot names someone else entirely
      * (e.g. a form's second-attendee slot: "Piet Jansen" / his own e-mail
-     * for slot 1, then "Anna Bakker" / that same e-mail for slot 2)
-     * — blindly trusting the e-mail silently filed her under Piet's own
+     * for slot 1, then "Anna Bakker" / that same e-mail for slot 2) —
+     * blindly trusting the e-mail silently filed her under Piet's own
      * member record instead of leaving her for review/creation as her own
      * person. Only trust the e-mail when the given name plausibly refers
      * to that e-mail's own owner (shares at least one name token with
