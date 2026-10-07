@@ -486,16 +486,29 @@ class AVBK_Sheet_Import {
     }
 
     /** Whether $first_name/$last_name shares at least one name token with $member — an empty given name is treated as a match (nothing to contradict the e-mail with). */
+    /**
+     * A shared surname alone is not enough: a household account
+     * ("Hoekdeboe@gmail.com" used by Barbara De Boe, her partner Chris
+     * Hoek, and their kids) has several real, distinct people behind one
+     * e-mail who all legitimately share that surname — matching on any
+     * token (including the surname) let "Chris Hoek"/"Pieter Hoek" both
+     * get silently filed under whichever one of them (their son Michiel)
+     * actually owns that e-mail address. The first name is the only part
+     * that's actually specific to one person, so that's what must match
+     * (falling back to an exact full-name match, for a first/last swap).
+     */
     private static function name_plausibly_matches_member(string $first_name, string $last_name, object $member): bool {
-        $given = trim(self::normalize_match_text($first_name) . ' ' . self::normalize_match_text($last_name));
-        if ($given === '') {
+        $given_first = self::normalize_match_text($first_name);
+        if ($given_first === '') {
             return true;
         }
-        $given_tokens = array_filter(explode(' ', $given));
-        $member_tokens = array_filter(explode(' ', self::normalize_match_text(
-            trim((string) $member->first_name . ' ' . (string) $member->last_name)
-        )));
-        return (bool) array_intersect($given_tokens, $member_tokens);
+        $member_first_tokens = array_filter(explode(' ', self::normalize_match_text((string) $member->first_name)));
+        if (in_array($given_first, $member_first_tokens, true)) {
+            return true;
+        }
+        $given_full = trim($given_first . ' ' . self::normalize_match_text($last_name));
+        $member_full = self::normalize_match_text(trim((string) $member->first_name . ' ' . (string) $member->last_name));
+        return $given_full !== '' && $given_full === $member_full;
     }
 
     private static function cell(array $cells, string $column_letter): string {

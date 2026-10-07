@@ -8,9 +8,16 @@ $review_order = get_user_meta(get_current_user_id(), 'avbk_review_order', true) 
 $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
 $show_all_years = !empty($_GET['show_all_years']);
 $queue = AVBK_DB::get_review_queue($review_order, $show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
+// A duplicate payment is, in practice, always close in time to the
+// original — going back to December of last year (not just this year) is
+// a buffer for an original that landed right at the turn of the year,
+// without dragging in the club's entire multi-year transaction history as
+// noise to scroll/filter through.
+$duplicate_cutoff = ((int) current_time('Y') - 1) . '-12-01';
 $duplicate_candidates = array_values(array_filter(
     AVBK_DB::get_transactions(),
     fn($candidate) => $candidate->direction === 'in' && empty($candidate->duplicate_of)
+        && $candidate->transaction_date >= $duplicate_cutoff
 ));
 $all_members = AVBK_DB::get_payable_members();
 
@@ -49,17 +56,23 @@ $other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschri
 
 
 function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
+    $selected_label = '';
+    if ($selected_id) {
+        foreach ($members as $m) {
+            if ((int) $m->id === $selected_id) {
+                $selected_label = avpvh_format_name($m, 'list');
+                break;
+            }
+        }
+    }
     ?>
-    <select name="<?php echo esc_attr($name); ?>" class="avbk-member-select">
-        <option value="">&mdash; kies lid &mdash;</option>
-        <?php foreach ($members as $m) : ?>
-            <option value="<?php echo esc_attr($m->id); ?>" data-avbk-plain="1" <?php selected($selected_id, (int) $m->id); ?>>
-                <?php echo esc_html(avpvh_format_name($m, 'list')); ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-    <input type="text" class="avbk-member-filter" placeholder="Zoek op (achter)naam&hellip;" autocomplete="off">
+    <div class="avbk-member-combo">
+        <input type="hidden" name="<?php echo esc_attr($name); ?>" class="avbk-member-combo-value" value="<?php echo esc_attr($selected_id ?: ''); ?>">
+        <input type="text" class="avbk-member-combo-input" autocomplete="off" placeholder="&mdash; kies lid &mdash;" value="<?php echo esc_attr($selected_label); ?>">
+        <div class="avbk-member-combo-list" hidden></div>
+    </div>
     <a href="<?php echo esc_url($selected_id ? AVBK_DB::member_edit_url($selected_id) : '#'); ?>" target="_blank" class="avbk-detail-member-link"<?php echo $selected_id ? '' : ' style="display:none"'; ?>>bewerk lid</a>
+    <a href="<?php echo esc_url($selected_id ? add_query_arg(['page' => 'avbk-members', 'member_id' => $selected_id], admin_url('admin.php')) : '#'); ?>" target="_blank" class="avbk-detail-member-balance-link"<?php echo $selected_id ? '' : ' style="display:none"'; ?>>bedrag bewerken</a>
     <?php
 }
 
@@ -121,12 +134,23 @@ function avbk_row_detail(array $row): ?array {
     'ajaxUrl'          => admin_url('admin-ajax.php'),
     'nonce'            => wp_create_nonce('avbk_review_queue'),
     'memberDetailUrl'  => admin_url('admin.php?page=avpvh-member-detail&id='),
+    'memberBalanceUrl' => admin_url('admin.php?page=avbk-members&member_id='),
     // Source of truth for the lid-naamfilter (see wireMemberFilter() in
     // review-queue.js) — filtering rebuilds the plain option list from
     // this static array instead of hiding <option> nodes in place, since
     // hidden/display:none on an <option> isn't reliably honoured inside a
     // native <select> popup across browsers.
-    'allMembers'       => array_map(fn($m) => ['id' => (int) $m->id, 'label' => avpvh_format_name($m, 'list')], $all_members),
+    'allMembers'       => array_map(fn($m) => [
+        'id'    => (int) $m->id,
+        'label' => avpvh_format_name($m, 'list'),
+        'first' => $m->first_name,
+        'last'  => $m->last_name,
+    ], $all_members),
+    'duplicateCandidates' => array_map(fn($candidate) => [
+        'id'    => (int) $candidate->id,
+        'label' => '#' . $candidate->id . ' — ' . wp_date('d-m-Y', strtotime($candidate->transaction_date))
+            . ' — € ' . number_format((float) $candidate->amount, 2, ',', '.') . ' — ' . $candidate->counterparty_name,
+    ], $duplicate_candidates),
 ]); ?></script>
 <div class="wrap">
     <h1>Te controleren transacties</h1>
@@ -320,7 +344,14 @@ function avbk_row_detail(array $row): ?array {
                     <span class="description">(import #<?php echo esc_html($tx->import_batch_id); ?><?php echo !empty($tx->import_filename) ? ': ' . esc_html($tx->import_filename) : ''; ?><?php echo $tx->source_row ? ', regel ' . esc_html($tx->source_row) : ''; ?>)</span>
                 <?php elseif ($tx->source_row) : ?><span class="description">(regel <?php echo esc_html($tx->source_row); ?>)</span><?php endif; ?>
                 <?php if (!$suggested_ids && !$suggested_types && $draft === null) : ?><span class="avbk-badge avbk-badge-warn">geen suggestie</span><?php endif; ?>
-                <?php if ($draft !== null) : ?><span class="avbk-badge avbk-badge-draft">concept</span><?php endif; ?>
+                <?php if ($draft !== null) : ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                        <?php wp_nonce_field('avbk_transaction_row'); ?>
+                        <input type="hidden" name="action" value="avbk_clear_transaction_draft">
+                        <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                        <button type="submit" class="avbk-badge avbk-badge-draft" title="Klik om het concept te wissen — terug naar de automatische suggestie">concept &times;</button>
+                    </form>
+                <?php endif; ?>
             </div>
             <?php if ((int) $tx->id === $confirm_failed_tx_id && $confirm_errors) : ?>
                 <div class="notice notice-error inline" style="margin:.5rem 0">
@@ -336,12 +367,13 @@ function avbk_row_detail(array $row): ?array {
             <?php endif; ?>
             <p class="description"><?php echo AVBK_Matcher::format_description_html(AVBK_Matcher::strip_name_field($tx->description)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_description_html() esc_html()'s the raw text first (see its own docblock), then only wraps already-safe hardcoded labels in <strong>. ?></p>
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($tx->description); ?>">
+            <?php $clean_tx_description = AVBK_Matcher::extract_beneficiary_text($tx->description) ?: $tx->description; ?>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($clean_tx_description); ?>">
                 <?php wp_nonce_field('avbk_transaction_row'); ?>
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
 
                 <table class="avbk-review-split">
-                    <thead><tr><th>Lid</th><th>Activiteit</th><th>Bedrag</th><th></th></tr></thead>
+                    <thead><tr><th>Persoon</th><th>Activiteit</th><th>Bedrag</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) :
                         $d = avbk_row_detail($row);
@@ -359,6 +391,7 @@ function avbk_row_detail(array $row): ?array {
                                 <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built entirely from esc_html()'d/esc_url()'d fragments in AVBK_DB::get_member_fee_detail() (see that method's own comment), never raw input. ?></span>
                                 <span class="avbk-detail-estimated<?php echo !empty($d['estimated_warning']) ? ' avbk-detail-estimated-warning' : ''; ?>"><?php echo esc_html($d['estimated_text'] ?? ''); ?></span>
                                 <span class="avbk-detail-shortfall"><?php echo $row_shortfall > 0.005 ? esc_html('⚠ Gedeeltelijke betaling: € ' . number_format($row_shortfall, 2, ',', '.') . ' blijft voor deze bijdrage open.') : ''; ?></span>
+                                <input type="hidden" name="donation_email[]" class="avbk-donation-email-flag" value="">
                             </td>
                             <td><button type="button" class="button-link avbk-remove-row" title="Verwijder regel &mdash; het bedrag wordt herverdeeld over de overige regels">&times;</button></td>
                         </tr>
@@ -378,6 +411,7 @@ function avbk_row_detail(array $row): ?array {
                             <span class="avbk-detail-fragments description"></span>
                             <span class="avbk-detail-estimated"></span>
                             <span class="avbk-detail-shortfall"></span>
+                            <input type="hidden" name="donation_email[]" class="avbk-donation-email-flag" value="">
                         </td>
                         <td><button type="button" class="button-link avbk-remove-row" title="Verwijder regel &mdash; het bedrag wordt herverdeeld over de overige regels">&times;</button></td>
                     </tr>
@@ -388,18 +422,14 @@ function avbk_row_detail(array $row): ?array {
                     van <span class="avbk-review-total-tx">&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></span>
                     <span class="avbk-review-total-diff"></span>
                 </p>
+                <p class="avbk-review-donation" hidden>
+                    <button type="button" class="button button-small avbk-donation-btn">Markeer rest als schenking</button>
+                    <label class="avbk-donation-email-label"><input type="checkbox" class="avbk-donation-email-toggle"> stuur een mail hierover</label>
+                </p>
 
                 <button type="submit" name="action" value="avbk_save_transaction_draft" class="button">Opslaan</button>
                 <button type="submit" name="action" value="avbk_confirm_transaction" class="button button-primary">Bevestigen</button>
             </form>
-            <?php if ($draft !== null) : ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-clear-draft-form">
-                    <?php wp_nonce_field('avbk_transaction_row'); ?>
-                    <input type="hidden" name="action" value="avbk_clear_transaction_draft">
-                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
-                    <?php submit_button('Concept wissen', 'secondary', 'submit', false); ?>
-                </form>
-            <?php endif; ?>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">
                 <?php wp_nonce_field('avbk_ignore_transaction'); ?>
                 <input type="hidden" name="action" value="avbk_ignore_transaction">
@@ -407,21 +437,16 @@ function avbk_row_detail(array $row): ?array {
                 <?php submit_button('Negeren (geen bijdrage)', 'secondary', 'submit', false); ?>
                 <span class="description">Markeert deze overschrijving als "hoort niet bij een bijdrage" &mdash; verdwijnt uit deze lijst, er wordt niets aangemaakt of afgeboekt. Gebruik dit voor bijv. een verkeerd bijgeschreven bedrag of iets dat niets met de vereniging te maken heeft.</span>
             </form>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form" style="margin-top:.5rem">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">
                 <?php wp_nonce_field('avbk_mark_transaction_duplicate'); ?>
                 <input type="hidden" name="action" value="avbk_mark_transaction_duplicate">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
                 <label>Dubbele betaling van:
-                    <select name="duplicate_of" required>
-                        <option value="">&mdash; kies de oorspronkelijke transactie &mdash;</option>
-                        <?php foreach ($duplicate_candidates as $candidate) :
-                            if ((int) $candidate->id === (int) $tx->id) continue;
-                            ?>
-                            <option value="<?php echo esc_attr($candidate->id); ?>">
-                                #<?php echo esc_html($candidate->id); ?> — <?php echo esc_html(wp_date('d-m-Y', strtotime($candidate->transaction_date))); ?> — &euro; <?php echo esc_html(number_format((float) $candidate->amount, 2, ',', '.')); ?> — <?php echo esc_html($candidate->counterparty_name); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="avbk-duplicate-combo" data-exclude-id="<?php echo esc_attr($tx->id); ?>">
+                        <input type="hidden" name="duplicate_of" class="avbk-duplicate-combo-value" value="">
+                        <input type="text" class="avbk-duplicate-combo-input" autocomplete="off" placeholder="&mdash; kies de oorspronkelijke transactie &mdash;" value="">
+                        <div class="avbk-duplicate-combo-list" hidden></div>
+                    </div>
                 </label>
                 <?php submit_button('Markeer als dubbele betaling', 'secondary', 'submit', false); ?>
                 <span class="description">Deze betaling verdwijnt uit de controlelijst, maar blijft zichtbaar in Alle transacties als duplicaat.</span>

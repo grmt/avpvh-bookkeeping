@@ -29,110 +29,39 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Once the first (payer) row on a transaction has a member selected,
-    // pre-suggest their household/family as an option group at the top of
-    // every still-blank row below it — the overwhelmingly likely candidates
-    // for the rest of a multi-person payment, and much faster to pick from
-    // than the full member list.
-    function applyHouseholdSuggestions(form, selects, candidates) {
-        selects.forEach(function (select) {
-            // A selected family member can currently live inside the
-            // suggested optgroup itself. Removing that group makes the
-            // browser immediately fall back to the first regular option
-            // (usually the originally suggested payer), so remember the
-            // treasurer's choice before rebuilding and restore it after.
-            var selectedValue = select.value;
-            var existing = select.querySelector('optgroup[data-avbk-suggested]');
-            if (existing) existing.remove();
-            if (!candidates.length) {
-                select.value = selectedValue;
-                return;
-            }
-
-            var group = document.createElement('optgroup');
-            group.label = 'Suggesties (familie/huisgenoten)';
-            group.setAttribute('data-avbk-suggested', '1');
-            candidates.forEach(function (c) {
-                if (String(c.id) === String(select.value)) return;
-                var opt = document.createElement('option');
-                opt.value = c.id;
-                opt.textContent = c.label;
-                group.appendChild(opt);
-            });
-            select.insertBefore(group, select.firstChild);
-            select.value = selectedValue;
-        });
-    }
-
-    // Lets the treasurer type part of a name to narrow a lid-<select> that
-    // can otherwise hold the entire ledenbestand (or, for a well-attended
-    // activiteit, ~100 deelnemers). Rebuilds the plain (non-suggested)
-    // option list from cfg.allMembers on every keystroke by actually
-    // adding/removing <option> nodes — <option hidden> and display:none
-    // are not reliably honoured inside a native <select>'s popup list
-    // across browsers, so toggling those silently does nothing in some of
-    // them. Any "Suggesties"/"Deelnemers van deze activiteit" optgroup is
-    // left untouched (already short, and may still be loading via AJAX).
-    function wireMemberFilter(row) {
-        var filterInput = row.querySelector('.avbk-member-filter');
-        var select = row.querySelector('.avbk-member-select');
-        if (!filterInput || !select) return;
-        filterInput.addEventListener('input', function () {
-            var term = filterInput.value.trim().toLowerCase();
-            var selectedValue = select.value;
-            Array.prototype.slice.call(select.querySelectorAll('option[data-avbk-plain]')).forEach(function (opt) {
-                opt.remove();
-            });
-            cfg.allMembers.forEach(function (m) {
-                if (term !== '' && m.label.toLowerCase().indexOf(term) === -1) return;
-                var opt = document.createElement('option');
-                opt.value = m.id;
-                opt.textContent = m.label;
-                opt.setAttribute('data-avbk-plain', '1');
-                select.appendChild(opt);
-            });
-            select.value = selectedValue;
+    // pre-suggest their household/family at the top of the lid-combobox's
+    // dropdown for every still-blank row below it — the overwhelmingly
+    // likely candidates for the rest of a multi-person payment, and much
+    // faster to pick from than the full member list.
+    function applyHouseholdSuggestions(form, hiddenInputs, candidates) {
+        hiddenInputs.forEach(function (hidden) {
+            var wrapper = hidden.closest('.avbk-member-combo');
+            if (wrapper) wrapper._householdSuggestions = candidates;
         });
     }
 
     var householdCache = {};
 
-    // Same idea as the household-suggestions optgroup above, but scoped to
-    // the row's own (already-guessed) activiteit instead of the payer's
-    // household — the lid-dropdown otherwise lists every payable lid
+    // Same idea as the household-suggestions above, but scoped to the
+    // row's own (already-guessed) activiteit instead of the payer's
+    // household — the lid-combobox otherwise lists every payable lid
     // (which also excludes ex-leden, see AVBK_DB::get_payable_members()),
     // making the actual attendee of e.g. a 100-person reünie tedious to
     // find by hand.
     var activityParticipantsCache = {};
 
-    function applyActivityParticipants(memberSelect, candidates) {
-        var selectedValue = memberSelect.value;
-        var existing = memberSelect.querySelector('optgroup[data-avbk-activity-suggested]');
-        if (existing) existing.remove();
-        if (!candidates.length) {
-            memberSelect.value = selectedValue;
-            return;
-        }
-        var group = document.createElement('optgroup');
-        group.label = 'Deelnemers van deze activiteit';
-        group.setAttribute('data-avbk-activity-suggested', '1');
-        candidates.forEach(function (c) {
-            var opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = c.label;
-            group.appendChild(opt);
-        });
-        memberSelect.insertBefore(group, memberSelect.firstChild);
-        memberSelect.value = selectedValue;
+    function applyActivityParticipants(hiddenInput, candidates) {
+        var wrapper = hiddenInput.closest('.avbk-member-combo');
+        if (wrapper) wrapper._activitySuggestions = candidates;
     }
 
-    function loadActivityParticipants(memberSelect, activityId) {
+    function loadActivityParticipants(hiddenInput, activityId) {
         if (!activityId) {
-            var existing = memberSelect.querySelector('optgroup[data-avbk-activity-suggested]');
-            if (existing) existing.remove();
+            applyActivityParticipants(hiddenInput, []);
             return;
         }
         if (activityParticipantsCache[activityId]) {
-            applyActivityParticipants(memberSelect, activityParticipantsCache[activityId]);
+            applyActivityParticipants(hiddenInput, activityParticipantsCache[activityId]);
             return;
         }
         var body = new URLSearchParams();
@@ -148,17 +77,17 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(function (res) {
                 if (!res.success) return;
                 activityParticipantsCache[activityId] = res.data;
-                applyActivityParticipants(memberSelect, res.data);
+                applyActivityParticipants(hiddenInput, res.data);
             });
     }
 
     function loadHouseholdSuggestions(form, memberId) {
-        var selects = Array.from(form.querySelectorAll('select[name="member_id[]"]'));
-        var first = selects[0];
+        var hiddenInputs = Array.from(form.querySelectorAll('input[name="member_id[]"]'));
+        var first = hiddenInputs[0];
         memberId = memberId || (first && first.value);
         if (!memberId) return Promise.resolve([]);
         if (householdCache[memberId]) {
-            applyHouseholdSuggestions(form, selects, householdCache[memberId]);
+            applyHouseholdSuggestions(form, hiddenInputs, householdCache[memberId]);
             return Promise.resolve(householdCache[memberId]);
         }
 
@@ -176,9 +105,276 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(function (res) {
                 if (!res.success) return [];
                 householdCache[memberId] = res.data;
-                applyHouseholdSuggestions(form, selects, res.data);
+                applyHouseholdSuggestions(form, hiddenInputs, res.data);
                 return res.data;
             });
+    }
+
+    // The lid-field is a small combobox, not a native <select>: typing
+    // filters cfg.allMembers (matching either voornaam or achternaam) into
+    // a clickable/keyboard-navigable dropdown list below the text input,
+    // with any household/activiteit suggestions (set via
+    // applyHouseholdSuggestions()/applyActivityParticipants() above,
+    // stashed directly on the wrapper element) pinned above it. A plain
+    // native <select> can't do this — typing into one only jumps to the
+    // next option starting with that letter, it doesn't narrow the list.
+    function wireMemberCombo(row) {
+        var wrapper = row.querySelector('.avbk-member-combo');
+        if (!wrapper) return;
+        var hidden = wrapper.querySelector('.avbk-member-combo-value');
+        var input = wrapper.querySelector('.avbk-member-combo-input');
+        var list = wrapper.querySelector('.avbk-member-combo-list');
+        if (!hidden || !input || !list) return;
+
+        var activeIndex = -1;
+        var renderedItems = [];
+
+        function labelFor(id) {
+            var m = cfg.allMembers.filter(function (x) { return String(x.id) === String(id); })[0];
+            return m ? m.label : '';
+        }
+
+        function selectMember(id, label) {
+            hidden.value = id;
+            input.value = label;
+            closeList();
+            hidden.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function closeList() {
+            list.hidden = true;
+            activeIndex = -1;
+        }
+
+        function setActive(index) {
+            var children = Array.prototype.slice.call(list.querySelectorAll('.avbk-member-combo-item'));
+            children.forEach(function (el, i) {
+                el.classList.toggle('is-active', i === index);
+            });
+            if (children[index]) children[index].scrollIntoView({ block: 'nearest' });
+            activeIndex = index;
+        }
+
+        function render(forceEmptyTerm) {
+            var term = forceEmptyTerm ? '' : input.value.trim().toLowerCase();
+            var seen = {};
+            renderedItems = [];
+            list.innerHTML = '';
+
+            function addGroup(heading, candidates) {
+                var filtered = (candidates || []).filter(function (c) {
+                    if (String(c.id) === String(hidden.value) || seen[c.id]) return false;
+                    return term === '' || c.label.toLowerCase().indexOf(term) !== -1;
+                });
+                if (!filtered.length) return;
+                var h = document.createElement('div');
+                h.className = 'avbk-member-combo-heading';
+                h.textContent = heading;
+                list.appendChild(h);
+                filtered.forEach(function (c) {
+                    seen[c.id] = true;
+                    appendItem(c.id, c.label, !!c.paid);
+                });
+            }
+
+            function appendItem(id, label, isPaid) {
+                var item = document.createElement('div');
+                item.className = 'avbk-member-combo-item' + (isPaid ? ' avbk-member-combo-item-paid' : '');
+                item.textContent = label + (isPaid ? ' (al betaald)' : '');
+                item.dataset.id = id;
+                item.addEventListener('mousedown', function (e) {
+                    e.preventDefault(); // keep focus so the subsequent blur doesn't close the list first
+                    selectMember(id, label);
+                });
+                list.appendChild(item);
+                renderedItems.push(item);
+            }
+
+            addGroup('Deelnemers van deze activiteit', wrapper._activitySuggestions);
+            addGroup('Suggesties (familie/huisgenoten)', wrapper._householdSuggestions);
+
+            var rest = cfg.allMembers.filter(function (m) {
+                if (seen[String(m.id)] || String(m.id) === String(hidden.value)) return false;
+                if (term === '') return true;
+                return (m.first || '').toLowerCase().indexOf(term) !== -1
+                    || (m.last || '').toLowerCase().indexOf(term) !== -1;
+            });
+            if (rest.length) {
+                if (renderedItems.length) {
+                    var h = document.createElement('div');
+                    h.className = 'avbk-member-combo-heading';
+                    h.textContent = 'Alle leden';
+                    list.appendChild(h);
+                }
+                rest.forEach(function (m) { appendItem(m.id, m.label); });
+            }
+            list.hidden = renderedItems.length === 0;
+            activeIndex = -1;
+        }
+
+        input.addEventListener('input', function () { render(false); });
+        input.addEventListener('focus', function () {
+            // The field shows the current selection's label, not an empty
+            // search box — select it so the first keystroke replaces it
+            // instead of editing into the middle of "Hulst, Guy (van)",
+            // and open with the full/suggested list (that old label isn't
+            // something the treasurer actually typed, so it must not be
+            // used as a filter term) instead of a dropdown that looks
+            // empty or wrong until the first real keystroke.
+            input.select();
+            render(true);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (list.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                render();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActive(Math.min(activeIndex + 1, renderedItems.length - 1));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActive(Math.max(activeIndex - 1, 0));
+            } else if (e.key === 'Enter') {
+                if (!list.hidden && activeIndex >= 0 && renderedItems[activeIndex]) {
+                    e.preventDefault();
+                    var item = renderedItems[activeIndex];
+                    selectMember(item.dataset.id, item.textContent);
+                }
+            } else if (e.key === 'Escape') {
+                closeList();
+            }
+        });
+
+        // A blur without an actual pick (clicked elsewhere mid-typing)
+        // shouldn't leave the visible text out of sync with the hidden
+        // value — revert to whatever is actually selected.
+        input.addEventListener('blur', function () {
+            setTimeout(function () {
+                closeList();
+                input.value = hidden.value ? labelFor(hidden.value) : '';
+            }, 150);
+        });
+    }
+
+    // Same combobox idea as wireMemberCombo() above, simplified: a flat
+    // filtered list (no suggestion groups, no voornaam/achternaam
+    // toggle) over cfg.duplicateCandidates — the transaction's own id
+    // (data-exclude-id) never lists itself as its own "original".
+    function wireDuplicateCombo(wrapper) {
+        var hidden = wrapper.querySelector('.avbk-duplicate-combo-value');
+        var input = wrapper.querySelector('.avbk-duplicate-combo-input');
+        var list = wrapper.querySelector('.avbk-duplicate-combo-list');
+        var excludeId = wrapper.dataset.excludeId;
+        if (!hidden || !input || !list) return;
+
+        var activeIndex = -1;
+        var renderedItems = [];
+
+        function labelFor(id) {
+            var c = cfg.duplicateCandidates.filter(function (x) { return String(x.id) === String(id); })[0];
+            return c ? c.label : '';
+        }
+
+        function closeList() {
+            list.hidden = true;
+            activeIndex = -1;
+        }
+
+        function selectCandidate(id, label) {
+            hidden.value = id;
+            input.value = label;
+            closeList();
+        }
+
+        function setActive(index) {
+            var children = Array.prototype.slice.call(list.querySelectorAll('.avbk-duplicate-combo-item'));
+            children.forEach(function (el, i) {
+                el.classList.toggle('is-active', i === index);
+            });
+            if (children[index]) children[index].scrollIntoView({ block: 'nearest' });
+            activeIndex = index;
+        }
+
+        function render(forceEmptyTerm) {
+            var term = forceEmptyTerm ? '' : input.value.trim().toLowerCase();
+            list.innerHTML = '';
+            renderedItems = [];
+            cfg.duplicateCandidates.forEach(function (c) {
+                if (String(c.id) === String(excludeId)) return;
+                if (term !== '' && c.label.toLowerCase().indexOf(term) === -1) return;
+                var item = document.createElement('div');
+                item.className = 'avbk-duplicate-combo-item';
+                item.textContent = c.label;
+                item.dataset.id = c.id;
+                item.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    selectCandidate(c.id, c.label);
+                });
+                list.appendChild(item);
+                renderedItems.push(item);
+            });
+            list.hidden = renderedItems.length === 0;
+            activeIndex = -1;
+        }
+
+        input.addEventListener('input', function () { render(false); });
+        input.addEventListener('focus', function () {
+            input.select();
+            render(true);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (list.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                render();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActive(Math.min(activeIndex + 1, renderedItems.length - 1));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActive(Math.max(activeIndex - 1, 0));
+            } else if (e.key === 'Enter') {
+                if (!list.hidden && activeIndex >= 0 && renderedItems[activeIndex]) {
+                    e.preventDefault();
+                    var item = renderedItems[activeIndex];
+                    selectCandidate(item.dataset.id, item.textContent);
+                }
+            } else if (e.key === 'Escape') {
+                closeList();
+            }
+        });
+        input.addEventListener('blur', function () {
+            setTimeout(function () {
+                closeList();
+                input.value = hidden.value ? labelFor(hidden.value) : '';
+            }, 150);
+        });
+
+        wrapper.closest('form').addEventListener('submit', function (e) {
+            if (!hidden.value) {
+                e.preventDefault();
+                input.focus();
+            }
+        });
+    }
+
+    // A flat snapshot of everything a draft-save would actually write —
+    // used only to tell whether anything changed since the page loaded
+    // (or since the last save), so "Opslaan" doesn't invite a no-op click.
+    function serializeRows(form) {
+        return Array.prototype.map.call(form.querySelectorAll('.avbk-review-split tr'), function (row) {
+            var member = row.querySelector('input[name="member_id[]"]');
+            var activity = row.querySelector('select[name="activity[]"]');
+            var description = row.querySelector('input[name="description[]"]');
+            var amount = row.querySelector('input[name="amount[]"]');
+            return [
+                member ? member.value : '',
+                activity ? activity.value : '',
+                description ? description.value : '',
+                amount ? amount.value : '',
+            ].join('|');
+        }).join(';;');
     }
 
     function parseAmount(value) {
@@ -217,6 +413,27 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var txAmount = parseAmount(form.dataset.txAmount);
         var diff = Math.round((txAmount - total) * 100) / 100;
+
+        // "Markeer rest als schenking" only makes sense for a genuine
+        // remainder still to be assigned (diff > 0) — an entered total
+        // that already exceeds the bank amount (diff < 0) is a typo to
+        // fix, not something to file as a donation. Once that's done
+        // (diff back to 0), the button itself has nothing left to do and
+        // hides, but the "stuur een mail hierover" checkbox stays —
+        // still bound live to the schenking row it created (see
+        // wireDonationEmailToggle() below), so toggling it right up
+        // until Bevestigen still has an effect.
+        var donationEl = form.querySelector('.avbk-review-donation');
+        var donationBtn = form.querySelector('.avbk-donation-btn');
+        var hasDonationRow = !!form.querySelector('[data-avbk-donation-row]');
+        if (donationEl) {
+            donationEl.hidden = diff <= 0.005 && !hasDonationRow;
+            donationEl.dataset.remaining = diff.toFixed(2);
+        }
+        if (donationBtn) {
+            donationBtn.hidden = diff <= 0.005 || hasDonationRow;
+        }
+
         if (Math.abs(diff) < 0.005) {
             diffEl.textContent = '';
             diffEl.classList.remove('avbk-diff-mismatch');
@@ -272,10 +489,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // Extracted so it applies both to rows rendered by PHP at page load and
     // to blank rows cloned client-side via "+ voeg regel toe".
     function wireRow(row, form) {
-        var memberSelect = row.querySelector('select[name="member_id[]"]');
+        var memberSelect = row.querySelector('input[name="member_id[]"]');
         var activitySelect = row.querySelector('select[name="activity[]"]');
         var descriptionInput = row.querySelector('.avbk-row-description');
         var memberLink = row.querySelector('.avbk-detail-member-link');
+        var memberBalanceLink = row.querySelector('.avbk-detail-member-balance-link');
         if (!memberSelect || !activitySelect) return;
 
         function updateDescriptionVisibility() {
@@ -294,8 +512,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     memberLink.href = cfg.memberDetailUrl + encodeURIComponent(memberSelect.value);
                     memberLink.style.display = '';
                 }
+                if (memberBalanceLink) {
+                    memberBalanceLink.href = cfg.memberBalanceUrl + encodeURIComponent(memberSelect.value);
+                    memberBalanceLink.style.display = '';
+                }
             } else {
                 if (memberLink) memberLink.style.display = 'none';
+                if (memberBalanceLink) memberBalanceLink.style.display = 'none';
             }
         }
 
@@ -366,7 +589,7 @@ document.addEventListener('DOMContentLoaded', function () {
         updateDescriptionVisibility();
         updateMemberEditLink();
         loadActivityParticipants(memberSelect, matchedActivityId(activitySelect.value));
-        wireMemberFilter(row);
+        wireMemberCombo(row);
     }
 
     // A guessed/spurious regel (e.g. "Weekend" matched from the bank
@@ -410,6 +633,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             }
             updateTotals(form);
+            form.dispatchEvent(new Event('change'));
         });
     }
 
@@ -428,6 +652,17 @@ document.addEventListener('DOMContentLoaded', function () {
             wireRemoveButton(row, form);
         });
 
+        // "Opslaan" writes a draft — pointless (and a little misleading,
+        // as if something just happened) to leave clickable when nothing
+        // about the rows actually differs from what's already there,
+        // whether that's the saved draft or the as-rendered suggestion.
+        var saveBtn = form.querySelector('button[value="avbk_save_transaction_draft"]');
+        var savedState = serializeRows(form);
+        function refreshSaveState() {
+            if (saveBtn) saveBtn.disabled = serializeRows(form) === savedState;
+        }
+        refreshSaveState();
+
         var addRowBtn = form.querySelector('.avbk-add-row');
         var rowTemplate = form.querySelector('.avbk-row-template');
         if (addRowBtn && rowTemplate) {
@@ -441,6 +676,72 @@ document.addEventListener('DOMContentLoaded', function () {
                 // The new row is blank, so it's exactly the case
                 // applyHouseholdSuggestions() targets.
                 loadHouseholdSuggestions(form);
+                refreshSaveState();
+            });
+        }
+
+        var donationBtn = form.querySelector('.avbk-donation-btn');
+        var donationEmailToggle = form.querySelector('.avbk-donation-email-toggle');
+        if (donationBtn && rowTemplate) {
+            donationBtn.addEventListener('click', function () {
+                var donationEl = form.querySelector('.avbk-review-donation');
+                var remaining = parseAmount(donationEl ? donationEl.dataset.remaining : '0');
+                if (remaining <= 0) return;
+
+                var table = form.querySelector('.avbk-review-split');
+                var tbody = table.querySelector('tbody') || table;
+                var row = rowTemplate.content.firstElementChild.cloneNode(true);
+                row.setAttribute('data-avbk-donation-row', '1');
+                tbody.appendChild(row);
+                wireRow(row, form);
+                wireRemoveButton(row, form);
+
+                // Pre-fill lid only when every other row already agrees on
+                // who's paying — a split payment with several different
+                // people has no single obvious "who overpaid", so that's
+                // left for the treasurer to pick by hand.
+                var otherMemberIds = Array.prototype.map.call(
+                    form.querySelectorAll('input[name="member_id[]"]'),
+                    function (el) { return el.value; }
+                ).filter(function (v, i, arr) { return v && arr.indexOf(v) === i; });
+                var memberHidden = row.querySelector('.avbk-member-combo-value');
+                var memberInput = row.querySelector('.avbk-member-combo-input');
+                if (otherMemberIds.length === 1 && memberHidden && memberInput) {
+                    var m = cfg.allMembers.filter(function (x) { return String(x.id) === otherMemberIds[0]; })[0];
+                    if (m) {
+                        memberHidden.value = m.id;
+                        memberInput.value = m.label;
+                    }
+                }
+
+                var activitySelect = row.querySelector('select[name="activity[]"]');
+                if (activitySelect) {
+                    activitySelect.value = 'Anders';
+                    activitySelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                var descriptionInput = row.querySelector('.avbk-row-description');
+                if (descriptionInput) descriptionInput.value = 'Schenking';
+                var amountInput = row.querySelector('.avbk-amount-input');
+                if (amountInput) amountInput.value = remaining.toFixed(2).replace('.', ',');
+                var donationFlag = row.querySelector('.avbk-donation-email-flag');
+                if (donationFlag) donationFlag.value = (donationEmailToggle && donationEmailToggle.checked) ? '1' : '';
+
+                updateTotals(form);
+                refreshSaveState();
+            });
+        }
+
+        // The checkbox stays usable after the schenking row is created
+        // (updateTotals() keeps it visible — see above) — keep it bound
+        // to that row's own hidden flag so toggling it right up until
+        // Bevestigen still changes whether the e-mail actually goes out,
+        // instead of freezing whatever it happened to be at click time.
+        if (donationEmailToggle) {
+            donationEmailToggle.addEventListener('change', function () {
+                var donationRow = form.querySelector('[data-avbk-donation-row]');
+                var donationFlag = donationRow && donationRow.querySelector('.avbk-donation-email-flag');
+                if (donationFlag) donationFlag.value = donationEmailToggle.checked ? '1' : '';
+                donationEmailToggle.closest('.avbk-donation-email-label').classList.toggle('is-set', donationEmailToggle.checked);
             });
         }
 
@@ -448,8 +749,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (e.target.matches('input[name="amount[]"]')) {
                 updateTotals(form);
             }
+            refreshSaveState();
         });
+        form.addEventListener('change', refreshSaveState);
         updateTotals(form);
         if (householdObserver) householdObserver.observe(form);
     });
+
+    document.querySelectorAll('.avbk-duplicate-combo').forEach(wireDuplicateCombo);
 });

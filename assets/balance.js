@@ -142,12 +142,48 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 menu.appendChild(option);
             });
+            // The menu is deliberately NOT nested inside .avbk-balance-
+            // table-wrap (which needs overflow-x:auto for a wide table on
+            // a narrow screen — see balance.css). Setting overflow-x on an
+            // element forces its overflow-y to an implicit "auto" too
+            // (can't have one axis clip and the other not), so with the
+            // menu positioned inside that wrapper, it got silently cut off
+            // by the wrapper's own bottom edge whenever the table was
+            // short — most noticeably once a filter already hid every
+            // row, shrinking the wrapper down to roughly header-height,
+            // which left the dropdown's options rendered but doesn't
+            // reliably clickable/even visible. Appending to <body> and
+            // positioning it with fixed coordinates computed from the
+            // toggle's own on-screen position sidesteps the whole problem.
+            document.body.appendChild(menu);
+            menu.style.position = 'fixed';
+
+            function positionMenu() {
+                var rect = toggle.getBoundingClientRect();
+                menu.style.top = rect.bottom + 'px';
+                menu.style.left = rect.left + 'px';
+                menu.style.minWidth = rect.width + 'px';
+            }
+
             toggle.addEventListener('click', function (event) {
                 event.stopPropagation();
+                if (menu.hidden) positionMenu();
                 menu.hidden = !menu.hidden;
             });
+            document.addEventListener('click', function (event) {
+                if (!wrapper.contains(event.target) && !menu.contains(event.target)) {
+                    menu.hidden = true;
+                }
+            });
+            // The menu moves with the toggle on scroll/resize only while
+            // open — closed, there's nothing on screen to keep aligned.
+            window.addEventListener('scroll', function () {
+                if (!menu.hidden) positionMenu();
+            }, true);
+            window.addEventListener('resize', function () {
+                if (!menu.hidden) positionMenu();
+            });
             wrapper.appendChild(toggle);
-            wrapper.appendChild(menu);
             control = {
                 element: wrapper,
                 // Named avbkMatches, not matches — Element.prototype.matches()

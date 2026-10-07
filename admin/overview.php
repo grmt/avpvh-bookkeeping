@@ -6,7 +6,9 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 $review_queue = AVBK_DB::get_review_queue();
 $batches = AVBK_DB::get_import_batches(10);
-$camps_without_rate = AVBK_DB::get_camps_without_rate();
+$closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+$show_all_years = !empty($_GET['show_all_years']);
+$camps_without_rate = AVBK_DB::get_camps_without_rate($show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
 
 global $wpdb;
 $members = AVPVH_DB::get_members(['status' => 'active']);
@@ -68,7 +70,6 @@ unset($activity_amounts);
 $members_without_birth_date = array_values(array_filter($members, fn($m) => empty($m->birth_date) && empty($m->birth_year)));
 $last_payment_dates = AVBK_DB::get_last_payment_dates(wp_list_pluck($members_without_birth_date, 'id'));
 $stale_fee_items = AVBK_Fee_Generation::find_stale_fee_items();
-$closed_through_year = (int) get_option('avbk_closed_through_year', 0);
 $assigned_payment_counts = AVBK_DB::get_assigned_payment_counts_by_year();
 $transaction_date_ranges = AVBK_DB::get_transaction_date_ranges_by_year();
 ?>
@@ -177,6 +178,15 @@ $transaction_date_ranges = AVBK_DB::get_transaction_date_ranges_by_year();
                 <?php echo esc_html(implode(', ', array_map(fn($c) => "{$c->name} ({$c->year})", $camps_without_rate))); ?>
                 &mdash; <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-rates')); ?>">tarief instellen</a>.
                 Kampbijdragen voor deze kampen worden niet gegenereerd totdat dit is ingesteld.
+                <?php if ($closed_through_year) : ?>
+                    <?php if ($show_all_years) : ?>
+                        <br>Toont ook kampen tot en met <?php echo esc_html($closed_through_year); ?> (afgesloten boekjaar).
+                        <a href="<?php echo esc_url(remove_query_arg('show_all_years')); ?>">Verberg afgesloten jaren</a>.
+                    <?php else : ?>
+                        <br>Kampen tot en met <?php echo esc_html($closed_through_year); ?> (afgesloten boekjaar) worden hier niet getoond.
+                        <a href="<?php echo esc_url(add_query_arg('show_all_years', '1')); ?>">Toon oudere jaren</a>.
+                    <?php endif; ?>
+                <?php endif; ?>
             </p>
         </div>
     <?php endif; ?>
