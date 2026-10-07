@@ -244,7 +244,7 @@ class AVBK_Matcher {
         $found = [];
         foreach ($beneficiary_names as $name) {
             // Unlike the one leading fee-type word stripped above, a
-            // trailing reason ("... en Verstreken Fabrice congres
+            // trailing reason ("... en Vries Bram congres
             // archeologieclub") stays attached to whichever split name
             // comes last and dilutes its score the same way — strip any
             // activity-type word from anywhere in each individual name
@@ -275,11 +275,11 @@ class AVBK_Matcher {
         // household (small, so a wrong per-word guess is low-risk) also
         // try every individual word on its own. Only when split_names
         // genuinely couldn't split anything (exactly one "name" back) —
-        // once it already split real names out ("Hasendonckx Sanne en
-        // Verstreken Fabrice <rest>"), this loop would additionally try
-        // bare words like a lone surname ("Hasendonckx") against the
-        // household and happily "match" some unrelated same-surname
-        // household member nobody named.
+        // once it already split real names out ("Jansen Anna en Vries
+        // Bram <rest>"), this loop would additionally try bare words
+        // like a lone surname ("Jansen") against the household and
+        // happily "match" some unrelated same-surname household member
+        // nobody named.
         if ($household_pool && $beneficiary_text !== '' && count($beneficiary_names) <= 1) {
             foreach (preg_split('/\s+/', $beneficiary_text) as $word) {
                 $match = self::best_match($word, $household_pool);
@@ -347,19 +347,19 @@ class AVBK_Matcher {
     /**
      * Pulls out the value of the "Omschrijving"/"Description" field from
      * the bank's flat labelled Mededelingen string — this is where
-     * beneficiary names ("Hasendonckx Sanne en Verstreken Fabrice
-     * congres...") actually live. Previously only recognized the Dutch
-     * label and Dutch terminator labels, so an English-language export
-     * ("Name: ... Description: Sanne en Fabrice ... IBAN: ...") silently
-     * extracted nothing — find_candidates() then fell back to fuzzy-
-     * matching the payer's surname alone, which can't tell apart two
-     * members sharing a surname (e.g. picked an unrelated Hasendonckx
-     * instead of the one actually named in the description). Also reused
-     * as the clean default description text for a manual one-off fee
-     * item (see review-queue.php's "Overig" omschrijving auto-fill) —
-     * the raw labelled string ("Name: Hr S J M Kuppens Description: ...")
-     * is noise to put in the books; just the Omschrijving/Description
-     * value itself is the actual reason for the payment.
+     * beneficiary names ("Jansen Anna en Vries Bram congres...") actually
+     * live. Previously only recognized the Dutch label and Dutch
+     * terminator labels, so an English-language export ("Name: ...
+     * Description: Anna en Bram ... IBAN: ...") silently extracted
+     * nothing — find_candidates() then fell back to fuzzy-matching the
+     * payer's surname alone, which can't tell apart two members sharing a
+     * surname (e.g. picked an unrelated Jansen instead of the one
+     * actually named in the description). Also reused as the clean
+     * default description text for a manual one-off fee item (see
+     * review-queue.php's "Overig" omschrijving auto-fill) — the raw
+     * labelled string ("Name: Hr P J M Jansen Description: ...") is
+     * noise to put in the books; just the Omschrijving/Description value
+     * itself is the actual reason for the payment.
      */
     public static function extract_beneficiary_text(string $description): string {
         if ($description === '') {
