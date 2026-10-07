@@ -749,11 +749,12 @@ class AVBK_Admin {
         $slots = [];
         for ($i = 0; $i < AVBK_Sheet_Import::MAX_SLOTS; $i++) {
             $slots[] = [
-                'name'   => sanitize_text_field(wp_unslash($_POST['slot_name'][$i] ?? '')),
-                'email'  => sanitize_text_field(wp_unslash($_POST['slot_email'][$i] ?? '')),
-                'diet'   => sanitize_text_field(wp_unslash($_POST['slot_diet'][$i] ?? '')),
-                'notes'  => sanitize_text_field(wp_unslash($_POST['slot_notes'][$i] ?? '')),
-                'amount' => sanitize_text_field(wp_unslash($_POST['slot_amount'][$i] ?? '')),
+                'name'       => sanitize_text_field(wp_unslash($_POST['slot_name'][$i] ?? '')),
+                'email'      => sanitize_text_field(wp_unslash($_POST['slot_email'][$i] ?? '')),
+                'diet'       => sanitize_text_field(wp_unslash($_POST['slot_diet'][$i] ?? '')),
+                'notes'      => sanitize_text_field(wp_unslash($_POST['slot_notes'][$i] ?? '')),
+                'amount'     => sanitize_text_field(wp_unslash($_POST['slot_amount'][$i] ?? '')),
+                'newsletter' => sanitize_text_field(wp_unslash($_POST['slot_newsletter'][$i] ?? '')),
             ];
         }
         // Loaded (not overwritten from scratch) so sheet_url/header_cache — saved/updated elsewhere — survive a price/slots save.
@@ -897,6 +898,9 @@ class AVBK_Admin {
                 if ($amount > 0) {
                     AVBK_DB::upsert_event_fee_item($member_id, AVPVH_DB::get_activity($activity_id)->name ?? 'Activiteit', $amount, $activity_id);
                 }
+            }
+            if (isset($_POST['newsletter'])) {
+                AVPVH_DB::set_member_flag_by_slug($member_id, 'nieuwsbrief', $_POST['newsletter'] === '1');
             }
             $linked = true;
             $this->remove_sheet_review_entry($activity_id, $source_name, $source_email, sanitize_text_field(wp_unslash($_POST['source_timestamp'] ?? '')));

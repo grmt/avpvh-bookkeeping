@@ -261,17 +261,18 @@ foreach ($raw_preview_rows as $preview_row) {
                 </tr>
             </table>
             <table class="wp-list-table widefat striped" style="max-width:1200px">
-                <thead><tr><th>Slot</th><th>Naam <em>(of e-mail)</em></th><th>E-mail <em>(of naam)</em></th><th>Allergie/notitie</th><th>Overige notitie</th><th>Bedrag <em>(optioneel)</em></th></tr></thead>
+                <thead><tr><th>Slot</th><th>Naam <em>(of e-mail)</em></th><th>E-mail <em>(of naam)</em></th><th>Allergie/notitie</th><th>Overige notitie</th><th>Bedrag <em>(optioneel)</em></th><th>Nieuwsbrief <em>(optioneel)</em></th></tr></thead>
                 <tbody>
                 <?php for ($i = 0; $i < AVBK_Sheet_Import::MAX_SLOTS; $i++) :
-                    $slot = $config['slots'][$i] ?? ['name' => '', 'email' => '', 'diet' => '', 'notes' => '', 'amount' => ''];
+                    $slot = $config['slots'][$i] ?? ['name' => '', 'email' => '', 'diet' => '', 'notes' => '', 'amount' => '', 'newsletter' => ''];
                     $slot_label = $i === 0 ? 'Persoon 1 (hoofdaanmelder)' : 'Persoon ' . ($i + 1) . ' (optioneel)';
                     $slot_inputs = [
-                        'slot_name'   => $slot['name'] ?? '',
-                        'slot_email'  => $slot['email'] ?? '',
-                        'slot_diet'   => $slot['diet'] ?? '',
-                        'slot_notes'  => $slot['notes'] ?? '',
-                        'slot_amount' => $slot['amount'] ?? '',
+                        'slot_name'       => $slot['name'] ?? '',
+                        'slot_email'      => $slot['email'] ?? '',
+                        'slot_diet'       => $slot['diet'] ?? '',
+                        'slot_notes'      => $slot['notes'] ?? '',
+                        'slot_amount'     => $slot['amount'] ?? '',
+                        'slot_newsletter' => $slot['newsletter'] ?? '',
                     ];
                     ?>
                     <tr>
@@ -299,6 +300,7 @@ foreach ($raw_preview_rows as $preview_row) {
             </table>
             <p class="description">
                 Vul een "Bedrag"-kolom alleen in als het bedrag per persoon verschilt (bijv. een drankrekening) — anders het vaste bedrag hierboven gebruiken.
+                Vul een "Nieuwsbrief"-kolom alleen in als het formulier een nieuwsbrief-vraag bevat &mdash; het antwoord wordt dan rechtstreeks als kenmerk "nieuwsbrief" op het gekoppelde lid gezet.
             </p>
             <?php submit_button($config['sheet_url'] ? 'Instellingen opslaan en Google Sheet opnieuw verwerken' : 'Instellingen opslaan'); ?>
         </form>
@@ -375,6 +377,9 @@ foreach ($raw_preview_rows as $preview_row) {
                             <input type="hidden" name="amount" value="<?php echo esc_attr($person['amount'] ?? 0); ?>">
                             <input type="hidden" name="registered_at" value="<?php echo esc_attr($person['registered_at'] ?? ''); ?>">
                             <input type="hidden" name="source_timestamp" value="<?php echo esc_attr($person['source_timestamp'] ?? ''); ?>">
+                            <?php if (array_key_exists('newsletter', $person) && $person['newsletter'] !== null) : ?>
+                                <input type="hidden" name="newsletter" value="<?php echo $person['newsletter'] ? '1' : '0'; ?>">
+                            <?php endif; ?>
                             <?php if (isset($person['camp_days'])) : ?>
                                 <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
                                 <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
