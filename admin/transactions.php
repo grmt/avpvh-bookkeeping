@@ -112,6 +112,8 @@ $ignore_reason_label = [
                 <td data-filter-value="<?php echo esc_attr($tag_label); ?>">
                     <?php if ($allocations) : ?>
                         <?php echo esc_html($tag_label); ?>
+                    <?php elseif ($tx->direction !== 'in') : ?>
+                        &mdash;
                     <?php else : ?>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:.25rem;align-items:center">
                             <?php wp_nonce_field('avbk_set_transaction_activity'); ?>

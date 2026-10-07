@@ -15,6 +15,7 @@ if (!$activity_id) {
     $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
 }
 $rates = $activity_id ? AVBK_DB::get_activity_rates($activity_id) : [];
+$all_flags = AVPVH_DB::get_all_flags();
 $selected_activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
 $is_contribution = $selected_activity && $selected_activity->type_name === 'Contributie';
 $rate_copy_sources = array_values(array_filter($activities, static function ($activity) use ($activity_id) {
@@ -46,7 +47,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
     <?php endif; ?>
 
     <h2>Activiteittarieven</h2>
-    <p class="description">Leeftijd wordt bepaald op 1 januari van het jaar (contributie) of op de startdatum (kamp/activiteit met datum). Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd.</p>
+    <p class="description">Leeftijd wordt bepaald op 1 januari van het jaar (contributie) of op de startdatum (kamp/activiteit met datum). Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd. Een rij aan een <strong>kenmerk</strong> koppelen (i.p.v. leeftijd/student) wint over alles &mdash; zet dan geen leeftijd/studentvinkje, die worden genegeerd.</p>
     <form method="get" style="margin-bottom:1rem">
         <input type="hidden" name="page" value="avbk-rates">
         <label>Activiteit:
@@ -84,7 +85,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
         </form>
     <?php endif; ?>
     <table class="wp-list-table widefat striped" style="max-width:800px">
-        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Tarief</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Kenmerk</th><th>Tarief</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($rates as $rate) : ?>
             <tr>
@@ -97,6 +98,14 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
                     <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
                     <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
+                    <td>
+                        <select name="flag_id">
+                            <option value="">&mdash; geen &mdash;</option>
+                            <?php foreach ($all_flags as $flag) : ?>
+                                <option value="<?php echo esc_attr($flag->id); ?>" <?php selected((int) ($rate->flag_id ?? 0), (int) $flag->id); ?>><?php echo esc_html($flag->label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
                     <td>&euro; <input type="text" name="rate" value="<?php echo esc_attr(number_format((float) $rate->rate, 2, ',', '')); ?>" style="width:6em"></td>
                     <td>
                         <button type="submit" class="button button-small">Opslaan</button>
@@ -121,6 +130,14 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <td><input type="number" name="min_age" style="width:5em"></td>
                 <td><input type="number" name="max_age" style="width:5em"></td>
                 <td style="text-align:center"><input type="checkbox" name="for_students" value="1"></td>
+                <td>
+                    <select name="flag_id">
+                        <option value="">&mdash; geen &mdash;</option>
+                        <?php foreach ($all_flags as $flag) : ?>
+                            <option value="<?php echo esc_attr($flag->id); ?>"><?php echo esc_html($flag->label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </td>
                 <td>&euro; <input type="text" name="rate" placeholder="0,00" style="width:6em"></td>
                 <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
             </form>

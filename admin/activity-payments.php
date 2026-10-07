@@ -102,6 +102,14 @@ foreach ($raw_preview_rows as $preview_row) {
                 </p>
                 <?php submit_button('Kampbestand verwerken', 'primary', 'submit', false); ?>
             </form>
+            <p class="description">Of gebruik een Google Sheets-link (moet op "Anyone with the link can view" staan):</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0 0 1.5rem">
+                <?php wp_nonce_field('avbk_camp_sheet_import_from_url'); ?>
+                <input type="hidden" name="action" value="avbk_camp_sheet_import_from_url">
+                <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+                <input type="url" name="camp_sheet_url" class="regular-text" style="width:32em" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <?php submit_button('Ophalen en verwerken', 'secondary', 'submit', false); ?>
+            </form>
         <?php else : ?>
         <p class="description">
             De aanmeldingen komen ofwel uit een <strong>live Google Sheet-link</strong> (kies dit als het Google
@@ -224,6 +232,16 @@ foreach ($raw_preview_rows as $preview_row) {
                     </td>
                 </tr>
                 <tr>
+                    <th><label for="timestamp_format">Datumformaat inschrijfdatum</label></th>
+                    <td>
+                        <select id="timestamp_format" name="timestamp_format">
+                            <option value="mdy" <?php selected($config['timestamp_format'] ?? 'mdy', 'mdy'); ?>>Maand/dag/jaar (Google Forms-standaard)</option>
+                            <option value="dmy" <?php selected($config['timestamp_format'] ?? 'mdy', 'dmy'); ?>>Dag/maand/jaar</option>
+                        </select>
+                        <p class="description">Google Forms schrijft de tijdstempel altijd als maand/dag/jaar, ongeacht de taal van het formulier — laat dit op de standaard staan tenzij de bron iets anders is. Bij een datum als 9/11 kan de code dit niet zelf aan losse rijen zien (9 en 11 zijn allebei een geldige dag én maand), vandaar deze instelling in plaats van gokken.</p>
+                    </td>
+                </tr>
+                <tr>
                     <th><label for="match_activity_id">Koppelen via deelnemers van</label></th>
                     <td>
                         <select id="match_activity_id" name="match_activity_id" style="max-width:28em">
@@ -326,6 +344,17 @@ foreach ($raw_preview_rows as $preview_row) {
                     <?php if (!empty($import_result['camp'])) : ?>
                         <p>Kampperiode: <?php echo esc_html($import_result['camp']['start_date']); ?> t/m <?php echo esc_html($import_result['camp']['end_date']); ?>.</p>
                     <?php endif; ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($import_result['date_warnings'])) : ?>
+                <div class="notice notice-warning">
+                    <p><strong>Controleer deze inschrijfdatums</strong> — mogelijk staat het datumformaat (hierboven, "Datumformaat inschrijfdatum") verkeerd:</p>
+                    <ul style="list-style:disc; margin-left:1.5em">
+                        <?php foreach ($import_result['date_warnings'] as $warning) : ?>
+                            <li><?php echo esc_html($warning); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
                 </div>
             <?php endif; ?>
 
