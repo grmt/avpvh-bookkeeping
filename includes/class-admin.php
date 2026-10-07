@@ -5,6 +5,7 @@ class AVBK_Admin {
 
     public const DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT = "Inloggen: gebruik als gebruikersnaam je e-mailadres. Als je nog niet eerder bent ingelogd of je je wachtwoord niet weet, klik dan [wachtwoord-link].\n\nAls je met je browser al bent ingelogd bij Google (Gmail) of Microsoft (Outlook/Hotmail), kun je ook de knop Inloggen met Google respectievelijk Inloggen met Microsoft proberen. Dan heb je geen (nieuw) wachtwoord nodig. Het e-mailadres moet wel overeenkomen met het adres dat bij de vereniging bekend is.";
     public const DEFAULT_QR_CAPTION_TEXT = 'Scan deze QR-code met je bankieren-app:';
+    public const DEFAULT_GENERIC_PAYMENT_LINK_TEXT = 'Je kan betalen via deze betaallink: [link]';
 
     public function __construct() {
         add_action('admin_menu', [$this, 'register_menus'], 5);
@@ -1267,6 +1268,7 @@ class AVBK_Admin {
                 var defaultQrHtml = <?php echo wp_json_encode($default_qr_html); ?>;
                 var genericQrDataUrl = <?php echo wp_json_encode($generic_qr_data_url); ?>;
                 var genericPaymentUrl = <?php echo wp_json_encode($generic_payment_url); ?>;
+                var genericPaymentLinkText = <?php echo wp_json_encode((string) get_option('avbk_generic_payment_link_text', '') ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT); ?>;
                 var textarea = document.getElementById('avbk-extra-message');
                 var frame = document.getElementById('avbk-preview-frame');
                 var qrActive = false;
@@ -1423,7 +1425,7 @@ class AVBK_Admin {
                     var genericLinkBtn = document.getElementById('avbk-add-generic-link');
                     if (genericLinkBtn) {
                         genericLinkBtn.addEventListener('click', function () {
-                            var addition = 'Of gebruik deze betaalverzoeklink: ' + genericPaymentUrl;
+                            var addition = genericPaymentLinkText.replace('[link]', genericPaymentUrl);
                             textarea.value = textarea.value.trim() ? textarea.value.trim() + '\n\n' + addition : addition;
                             updateExtra();
                         });
@@ -2003,6 +2005,7 @@ class AVBK_Admin {
         update_option('avbk_payment_email_login_help', !empty($_POST['payment_email_login_help']) ? 1 : 0);
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
+        update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }
