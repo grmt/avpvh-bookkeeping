@@ -875,6 +875,17 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.36');
         }
+        if (version_compare($version, '1.37', '<')) {
+            // "Markeer rest als schenking" (review-queue.js) can send the
+            // overpayer a courtesy e-mail — recorded here so the
+            // ledenoverzicht can show "mail verzonden" instead of a
+            // treasurer wondering later whether that actually went out.
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_fee_items LIKE 'donation_email_sent_at'");
+            if (!$column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_fee_items ADD COLUMN donation_email_sent_at DATETIME NULL AFTER description");
+            }
+            update_option('avbk_db_version', '1.37');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -1035,12 +1046,15 @@ class AVBK_DB {
     }
 
     /** Camps (from avpvh-members, type "Kamp" only — contribution/other activities auto-generate differently and aren't flagged here) with no rate brackets configured yet — camp fee items can't generate for these. */
-    public static function get_camps_without_rate(): array {
+    /** $min_year: skip camps from already-closed boekjaren (0 = no cutoff) — a closed year's kampbijdragen are settled history, not something still needing a tarief set up. */
+    public static function get_camps_without_rate(int $min_year = 0): array {
         global $wpdb;
         $rated_activity_ids = array_unique(array_map('intval', $wpdb->get_col("SELECT DISTINCT activity_id FROM {$wpdb->prefix}avb_activity_rates")));
         return array_values(array_filter(
             AVPVH_DB::get_activities(),
-            fn($camp) => ($camp->type_name ?? '') === 'Kamp' && !in_array((int) $camp->id, $rated_activity_ids, true)
+            fn($camp) => ($camp->type_name ?? '') === 'Kamp'
+                && !in_array((int) $camp->id, $rated_activity_ids, true)
+                && (!$min_year || (int) $camp->year >= $min_year)
         ));
     }
 
@@ -1523,6 +1537,31 @@ class AVBK_DB {
     public static function waive_fee_item(int $id): void {
         global $wpdb;
         $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $id]);
+    }
+
+    /** Records that the "overpaid, now treated as a donation" courtesy e-mail actually went out for this fee item — see AVBK_Admin::maybe_send_donation_emails(). */
+    public static function mark_donation_email_sent(int $fee_item_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_fee_items", ['donation_email_sent_at' => current_time('mysql')], ['id' => $fee_item_id]);
+    }
+
+    /**
+     * The fee item "Markeer rest als schenking" (review-queue.js) just
+     * created for $member_id in this very confirm — created_other_fee_item()
+     * doesn't hand its new id back up through confirm_transaction(), so
+     * this looks it up the same way a human would recognize it: the
+     * newest "Anders (Schenking)" row for this member, created moments
+     * ago. Null if nothing matches (e.g. confirm_transaction() silently
+     * dropped the row for some other reason) — caller just skips the mail.
+     */
+    public static function find_recent_donation_fee_item(int $member_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items
+             WHERE member_id = %d AND description = 'Anders (Schenking)' AND created_at >= %s
+             ORDER BY id DESC LIMIT 1",
+            $member_id, gmdate('Y-m-d H:i:s', time() - 60)
+        )) ?: null;
     }
 
     /**

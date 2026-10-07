@@ -204,17 +204,69 @@ class AVBK_Admin {
         $activities = array_map('sanitize_text_field', wp_unslash((array) ($_POST['activity'] ?? [])));
         $descriptions = array_map('sanitize_text_field', wp_unslash((array) ($_POST['description'] ?? [])));
         $amounts_raw = array_map('sanitize_text_field', wp_unslash((array) ($_POST['amount'] ?? [])));
+        $donation_emails = (array) ($_POST['donation_email'] ?? []);
 
         $rows = [];
         foreach ($member_ids as $i => $member_id) {
             $rows[] = [
-                'member_id'   => $member_id,
-                'activity'    => $activities[$i] ?? '',
-                'description' => $descriptions[$i] ?? '',
-                'amount'      => (float) str_replace(',', '.', (string) ($amounts_raw[$i] ?? '')),
+                'member_id'      => $member_id,
+                'activity'       => $activities[$i] ?? '',
+                'description'    => $descriptions[$i] ?? '',
+                'amount'         => (float) str_replace(',', '.', (string) ($amounts_raw[$i] ?? '')),
+                // "Markeer rest als schenking" (review-queue.js) checks a
+                // box next to the row it auto-fills — set when the
+                // treasurer wants the overpayer notified by e-mail once
+                // this row is actually confirmed (see
+                // maybe_send_donation_emails()).
+                'donation_email' => !empty($donation_emails[$i]),
             ];
         }
         return $rows;
+    }
+
+    /**
+     * Fires only for rows the treasurer explicitly opted into via
+     * "Markeer rest als schenking"'s own checkbox — a courtesy heads-up
+     * that an overpayment is being kept as a donation, never sent
+     * silently just because a row happens to be named "Schenking".
+     * $context_label is every other confirmed row's activiteit on this
+     * same transaction (what the member actually overpaid for);
+     * "jouw betaling" is the fallback when that's empty/ambiguous.
+     */
+    private function maybe_send_donation_emails(array $rows, string $transaction_date, string $context_label): void {
+        $context_label = $context_label !== '' ? $context_label : 'jouw betaling';
+        $penningmeester_name = get_option('avbk_penningmeester_name', 'de penningmeester');
+        $penningmeester_email = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
+
+        foreach ($rows as $row) {
+            if (empty($row['donation_email']) || (int) $row['member_id'] <= 0 || (float) $row['amount'] <= 0) {
+                continue;
+            }
+            $member = AVPVH_DB::get_member((int) $row['member_id']);
+            if (!$member || $member->email === '' || str_ends_with(strtolower($member->email), '@avpvh.local')) {
+                continue; // no real adres on file to mail this to
+            }
+            $body = sprintf(
+                "Beste %s,\n\nJe hebt op %s € %s teveel betaald voor %s. Ik heb dit bedrag nu als schenking aan de vereniging beschouwd.\n\nMail gerust terug als je dit liever anders zou zien.\n\nMet vriendelijke groet,\n%s",
+                $member->first_name,
+                wp_date('d-m-Y', strtotime($transaction_date)),
+                number_format((float) $row['amount'], 2, ',', '.'),
+                $context_label,
+                $penningmeester_name
+            );
+            $sent = wp_mail(
+                $member->email,
+                'Overbetaling als schenking verwerkt',
+                $body,
+                ['Reply-To: ' . $penningmeester_name . ' <' . $penningmeester_email . '>']
+            );
+            if ($sent) {
+                $fee_item = AVBK_DB::find_recent_donation_fee_item((int) $row['member_id']);
+                if ($fee_item) {
+                    AVBK_DB::mark_donation_email_sent((int) $fee_item->id);
+                }
+            }
+        }
     }
 
     public function handle_confirm_transaction(): void {
@@ -251,6 +303,27 @@ class AVBK_Admin {
                 wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'confirm_failed' => '1', 'confirm_failed_tx' => $transaction_id], admin_url('admin.php')) . '#tx-' . $transaction_id);
                 exit;
             }
+
+            $context_labels = [];
+            foreach ($rows as $row) {
+                if (!empty($row['donation_email'])) {
+                    continue; // the schenking row itself isn't "what was overpaid for"
+                }
+                if (preg_match('/^a(\d+)$/', (string) $row['activity'], $m)) {
+                    $activity = AVPVH_DB::get_activity((int) $m[1]);
+                    if ($activity) {
+                        $context_labels[] = $activity->name;
+                    }
+                } elseif ($row['activity'] !== '') {
+                    $context_labels[] = $row['activity'];
+                }
+            }
+            $tx = AVBK_DB::get_transaction($transaction_id);
+            $this->maybe_send_donation_emails(
+                $rows,
+                $tx ? $tx->transaction_date : current_time('mysql'),
+                implode(' en ', array_unique($context_labels))
+            );
         }
 
         $redirect_args = ['page' => 'avbk-review', 'confirmed' => '1'];
@@ -1821,10 +1894,14 @@ class AVBK_Admin {
             wp_send_json_error('Ontbrekende activiteit.', 400);
         }
         $rows = AVPVH_DB::get_participation_for_activity($activity_id);
-        wp_send_json_success(array_map(fn($p) => [
-            'id'    => (int) $p->member_id,
-            'label' => avpvh_format_name($p, 'list'),
-        ], $rows));
+        wp_send_json_success(array_map(function ($p) use ($activity_id) {
+            $detail = AVBK_DB::get_member_fee_detail_for_activity((int) $p->member_id, $activity_id);
+            return [
+                'id'    => (int) $p->member_id,
+                'label' => avpvh_format_name($p, 'list'),
+                'paid'  => $detail['found'] && $detail['share'] <= 0.005,
+            ];
+        }, $rows));
     }
 
     public function handle_recompute_suggestions(): void {

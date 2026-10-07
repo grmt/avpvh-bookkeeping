@@ -48,6 +48,8 @@
     padding: .1rem .5rem;
     border-radius: 3px;
     margin-left: .5rem;
+    border: none;
+    font-family: inherit;
 }
 
 .avbk-badge-warn {
@@ -58,10 +60,20 @@
 .avbk-badge-draft {
     background: #d7e8fc;
     color: #0a4b8a;
+    cursor: pointer;
+}
+.avbk-badge-draft:hover {
+    background: #bcd9f7;
 }
 
 .avbk-review-split {
     margin: .5rem 0;
+}
+
+.avbk-review-split th,
+.avbk-review-split td {
+    text-align: left;
+    vertical-align: top;
 }
 
 .avbk-review-split td {
@@ -81,12 +93,69 @@
     font-size: .85em;
 }
 
-.avbk-member-filter {
-    width: 9em;
-    margin-left: .3rem;
-    font-size: .85em;
-    padding: .1rem .3rem;
+.avbk-member-combo,
+.avbk-duplicate-combo {
+    position: relative;
+    display: inline-block;
+    width: 14em;
+    max-width: 100%;
+    vertical-align: top;
+}
+.avbk-duplicate-combo {
+    width: 20em;
+}
+.avbk-member-combo-input,
+.avbk-duplicate-combo-input {
+    width: 100%;
     box-sizing: border-box;
+}
+.avbk-member-combo-list,
+.avbk-duplicate-combo-list {
+    position: absolute;
+    z-index: 100;
+    top: 100%;
+    left: 0;
+    width: 22em;
+    max-width: 90vw;
+    max-height: 16em;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.15);
+    margin-top: 2px;
+}
+.avbk-duplicate-combo-list {
+    width: 32em;
+}
+.avbk-member-combo-heading {
+    padding: .3rem .6rem .1rem;
+    font-size: .75em;
+    font-weight: 600;
+    color: #646970;
+    text-transform: uppercase;
+}
+.avbk-member-combo-item,
+.avbk-duplicate-combo-item {
+    padding: .3rem .6rem;
+    cursor: pointer;
+    font-size: .9em;
+}
+.avbk-member-combo-item:hover,
+.avbk-member-combo-item.is-active,
+.avbk-duplicate-combo-item:hover,
+.avbk-duplicate-combo-item.is-active {
+    background: #2271b1;
+    color: #fff;
+}
+.avbk-member-combo-item-paid {
+    color: #a7aaad;
+    font-style: italic;
+}
+.avbk-member-combo-item-paid:hover,
+.avbk-member-combo-item-paid.is-active {
+    background: #dcdcde;
+    color: #50575e;
 }
 
 .avbk-remove-row {
@@ -101,12 +170,20 @@
     color: #7e1f1f;
 }
 
-.avbk-review-form,
+.avbk-review-form {
+    margin-bottom: .75rem;
+}
+
 .avbk-review-ignore-form,
 .avbk-review-clear-draft-form {
-    display: inline-block;
-    vertical-align: top;
-    margin-right: 1rem;
+    display: block;
+    margin: 0 0 .75rem;
+}
+
+.avbk-review-ignore-form .description {
+    display: block;
+    max-width: 600px;
+    margin-top: .3rem;
 }
 
 .avbk-detail-estimated {
@@ -140,6 +217,18 @@
 .avbk-review-total-diff.avbk-diff-mismatch {
     color: #b32d2e;
     font-weight: 600;
+}
+
+.avbk-review-donation {
+    margin: .5rem 0 .75rem;
+}
+.avbk-review-donation label {
+    margin-left: .75rem;
+    font-size: .9em;
+}
+.avbk-donation-email-label.is-set {
+    color: #646970;
+    font-style: italic;
 }
 
 .avbk-reimbursement-card {

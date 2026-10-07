@@ -354,9 +354,14 @@ class AVBK_Matcher {
      * extracted nothing — find_candidates() then fell back to fuzzy-
      * matching the payer's surname alone, which can't tell apart two
      * members sharing a surname (e.g. picked an unrelated Jansen
-     * instead of the one actually named in the description).
+     * instead of the one actually named in the description). Also reused
+     * as the clean default description text for a manual one-off fee
+     * item (see review-queue.php's "Overig" omschrijving auto-fill) —
+     * the raw labelled string ("Name: Hr P J M Jansen Description: ...")
+     * is noise to put in the books; just the Omschrijving/Description
+     * value itself is the actual reason for the payment.
      */
-    private static function extract_beneficiary_text(string $description): string {
+    public static function extract_beneficiary_text(string $description): string {
         if ($description === '') {
             return '';
         }
