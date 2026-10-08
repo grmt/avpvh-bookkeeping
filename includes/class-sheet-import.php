@@ -191,6 +191,7 @@ class AVBK_Sheet_Import {
 
         $matched = [];
         $unmatched = [];
+        $conflicts = [];
         $date_warnings = [];
         $description = self::fee_description($activity_id);
         $timestamp_format = $config['timestamp_format'] ?? 'mdy';
@@ -210,12 +211,36 @@ class AVBK_Sheet_Import {
                     $unmatched[] = $attendee;
                     continue;
                 }
+                $resolved = self::resolve_participation_fields($activity_id, (int) $member->id, $attendee['allergies'], $attendee['notes']);
+                if ($resolved['conflicts']) {
+                    foreach ($resolved['conflicts'] as $field) {
+                        $conflicts[] = [
+                            'activity_id'  => $activity_id,
+                            'member_id'    => (int) $member->id,
+                            'member_name'  => avpvh_format_name($member, 'list'),
+                            'field'        => $field,
+                            'field_label'  => $field === 'diet' ? 'Allergie/notitie' : 'Overige notitie',
+                            'sheet_value'  => $field === 'diet' ? $attendee['allergies'] : $attendee['notes'],
+                            'current_value' => $field === 'diet' ? $resolved['current']->diet : $resolved['current']->notes,
+                        ];
+                    }
+                }
                 AVPVH_DB::save_participation((int) $member->id, $activity_id, [
-                    'nights'  => null,
-                    'nawacht' => false,
-                    'diet'    => $attendee['allergies'],
-                    'notes'   => $attendee['notes'],
+                    // Niets in het sheet-formulier levert deze twee op — een
+                    // reeds handmatig ingevulde waarde (via de kampspecifieke
+                    // route of de detailpagina) mag een generieke import dus
+                    // nooit resetten naar leeg/onwaar.
+                    'nights'  => $resolved['current']->nights ?? null,
+                    'nawacht' => $resolved['current']->nawacht ?? false,
+                    'diet'    => $resolved['diet'],
+                    'notes'   => $resolved['notes'],
                 ]);
+                AVBK_DB::update_sheet_participation_snapshot(
+                    $activity_id,
+                    (int) $member->id,
+                    in_array('diet', $resolved['conflicts'], true) ? null : $resolved['diet'],
+                    in_array('notes', $resolved['conflicts'], true) ? null : $resolved['notes']
+                );
                 AVBK_DB::save_sheet_participation_meta(
                     $activity_id,
                     (int) $member->id,
@@ -248,7 +273,46 @@ class AVBK_Sheet_Import {
             }
         }
 
-        return ['matched' => $matched, 'unmatched' => $unmatched, 'errors' => [], 'date_warnings' => $date_warnings, 'preview' => $preview];
+        return ['matched' => $matched, 'unmatched' => $unmatched, 'conflicts' => $conflicts, 'errors' => [], 'date_warnings' => $date_warnings, 'preview' => $preview];
+    }
+
+    /**
+     * Decides, per field (diet/notes), whether the sheet's new value can be
+     * applied or must be held back because someone edited it by hand since
+     * the last import. "Manually edited" means the current DB value no
+     * longer matches the snapshot this importer itself wrote last time —
+     * not simply "differs from the sheet", since the sheet changing is the
+     * normal case this whole importer exists to apply.
+     *
+     * A held-back field is never silently resynced on a later import
+     * either, even if by then it happens to match the sheet again — the
+     * snapshot only advances once accepted, by this import or by the
+     * explicit "Neem sheet-waarde over" action, never by import() alone.
+     *
+     * @return array{diet: string, notes: string, conflicts: string[], current: object}
+     */
+    private static function resolve_participation_fields(int $activity_id, int $member_id, string $sheet_diet, string $sheet_notes): array {
+        $current = AVPVH_DB::get_participation($member_id, $activity_id);
+        if (!$current) {
+            // Brand new participation row — nothing to conflict with yet.
+            return ['diet' => $sheet_diet, 'notes' => $sheet_notes, 'conflicts' => [], 'current' => (object) ['diet' => '', 'notes' => '', 'nights' => null, 'nawacht' => false]];
+        }
+        $meta = AVBK_DB::get_sheet_participation_meta($activity_id, $member_id);
+        $conflicts = [];
+        $diet = $sheet_diet;
+        $notes = $sheet_notes;
+        // No snapshot yet (row predates this feature, or was only ever
+        // touched by hand) — nothing to compare against, so trust the
+        // sheet once and start tracking from here.
+        if ($meta && $meta->last_diet !== null && (string) $current->diet !== (string) $meta->last_diet && $sheet_diet !== (string) $current->diet) {
+            $conflicts[] = 'diet';
+            $diet = (string) $current->diet;
+        }
+        if ($meta && $meta->last_notes !== null && (string) $current->notes !== (string) $meta->last_notes && $sheet_notes !== (string) $current->notes) {
+            $conflicts[] = 'notes';
+            $notes = (string) $current->notes;
+        }
+        return ['diet' => $diet, 'notes' => $notes, 'conflicts' => $conflicts, 'current' => $current];
     }
 
     /**

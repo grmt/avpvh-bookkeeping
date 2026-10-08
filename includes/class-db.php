@@ -898,6 +898,22 @@ class AVBK_DB {
             $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions MODIFY COLUMN suggested_type VARCHAR(190) NOT NULL DEFAULT ''");
             update_option('avbk_db_version', '1.38');
         }
+        if (version_compare($version, '1.39', '<')) {
+            // Snapshot of the diet/notes value this importer itself last
+            // wrote for this attendee — lets a re-import tell "the sheet
+            // changed" apart from "someone edited this by hand since the
+            // last import" (AVBK_Sheet_Import::import() compares the
+            // current avm_activity_participation row against this
+            // snapshot; a mismatch means a manual edit happened, and the
+            // sheet's new value is held back for review instead of
+            // silently overwriting it).
+            $column_exists = $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_sheet_participation_meta LIKE 'last_diet'");
+            if (!$column_exists) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_sheet_participation_meta ADD COLUMN last_diet TEXT NULL AFTER source_timestamp");
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_sheet_participation_meta ADD COLUMN last_notes TEXT NULL AFTER last_diet");
+            }
+            update_option('avbk_db_version', '1.39');
+        }
     }
 
     // -------------------------------------------------------------------
@@ -1699,6 +1715,46 @@ class AVBK_DB {
             "{$wpdb->prefix}avb_sheet_participation_meta",
             $data,
             ['%d', '%d', '%s', '%s']
+        );
+    }
+
+    /**
+     * Records the diet/notes value the importer itself just wrote, so the
+     * next import can tell its own earlier write apart from a manual edit
+     * made since (see AVBK_Sheet_Import::import()). Unlike
+     * save_sheet_participation_meta()'s registered_at, which deliberately
+     * keeps the first value, this snapshot must track the latest accepted
+     * write or a real manual edit would look unchanged forever.
+     *
+     * $diet/$notes is null when that field was held back as a conflict
+     * instead of applied — the snapshot then deliberately stays exactly as
+     * it was, so the same conflict keeps surfacing on every later import
+     * until someone explicitly accepts the sheet's value.
+     */
+    public static function update_sheet_participation_snapshot(int $activity_id, int $member_id, ?string $diet, ?string $notes): void {
+        global $wpdb;
+        if ($diet === null && $notes === null) {
+            return;
+        }
+        $existing = self::get_sheet_participation_meta($activity_id, $member_id);
+        $data = [];
+        $formats = [];
+        if ($diet !== null) {
+            $data['last_diet'] = $diet;
+            $formats[] = '%s';
+        }
+        if ($notes !== null) {
+            $data['last_notes'] = $notes;
+            $formats[] = '%s';
+        }
+        if ($existing) {
+            $wpdb->update("{$wpdb->prefix}avb_sheet_participation_meta", $data, ['id' => (int) $existing->id], $formats, ['%d']);
+            return;
+        }
+        $wpdb->insert(
+            "{$wpdb->prefix}avb_sheet_participation_meta",
+            ['activity_id' => $activity_id, 'member_id' => $member_id] + $data,
+            array_merge(['%d', '%d'], $formats)
         );
     }
 
