@@ -217,6 +217,7 @@ class AVBK_DB {
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_disputes (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NOT NULL,
+            submitted_by_member_id INT UNSIGNED NULL,
             message TEXT NOT NULL,
             status ENUM('open','resolved') NOT NULL DEFAULT 'open',
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -226,6 +227,7 @@ class AVBK_DB {
             KEY member_id (member_id),
             KEY status (status)
         ) $charset;");
+        self::install_dispute_history_schema();
 
         // One row per public congress/reunion sign-up (see AVBK_Congress).
         // member_id starts NULL until find_or_create_member_for_registration()
@@ -914,6 +916,45 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.39');
         }
+        if (version_compare($version, '1.40', '<')) {
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_disputes LIKE 'submitted_by_member_id'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_disputes ADD COLUMN submitted_by_member_id INT UNSIGNED NULL AFTER member_id");
+            }
+            if (self::install_dispute_history_schema()
+                && $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_disputes LIKE 'submitted_by_member_id'")) {
+                // Preserve the known historical closure before a later reopen
+                // clears resolved_at/resolved_by on the parent record.
+                $backfilled = $wpdb->query("INSERT INTO {$wpdb->prefix}avb_dispute_events
+                    (dispute_id, event_type, message, actor_id, request_key, created_at)
+                    SELECT d.id, 'resolved', '', COALESCE(d.resolved_by, 0), UUID(), d.resolved_at
+                    FROM {$wpdb->prefix}avb_disputes d
+                    WHERE d.status = 'resolved' AND d.resolved_at IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_dispute_events e
+                        WHERE e.dispute_id = d.id AND e.event_type = 'resolved')");
+                if ($backfilled !== false) update_option('avbk_db_version', '1.40');
+            }
+        }
+    }
+
+    private static function install_dispute_history_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_dispute_events (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            dispute_id INT UNSIGNED NOT NULL,
+            event_type VARCHAR(24) NOT NULL,
+            message TEXT NOT NULL,
+            actor_id BIGINT UNSIGNED NOT NULL,
+            recipient_email VARCHAR(255) NOT NULL DEFAULT '',
+            delivery_status VARCHAR(24) NOT NULL DEFAULT '',
+            request_key CHAR(36) NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY request_key (request_key),
+            KEY dispute_history (dispute_id, id)
+        ) {$wpdb->get_charset_collate()};");
+        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_dispute_events')))
+            === $wpdb->prefix . 'avb_dispute_events';
     }
 
     // -------------------------------------------------------------------
@@ -2039,13 +2080,53 @@ class AVBK_DB {
     // when it's submitted (AVBK_Balance_Shortcode::handle_dispute()).
     // -------------------------------------------------------------------
 
-    public static function create_dispute(int $member_id, string $message): int {
+    public static function create_dispute(int $member_id, string $message, ?int $submitted_by_member_id = null): int {
         global $wpdb;
-        $wpdb->insert("{$wpdb->prefix}avb_disputes", [
+        $result = $wpdb->insert("{$wpdb->prefix}avb_disputes", [
             'member_id' => $member_id,
+            'submitted_by_member_id' => $submitted_by_member_id,
             'message'   => $message,
         ]);
-        return (int) $wpdb->insert_id;
+        return $result === false ? 0 : (int) $wpdb->insert_id;
+    }
+
+    public static function get_dispute(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_disputes WHERE id = %d", $id));
+    }
+
+    public static function get_dispute_events(int $id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_dispute_events WHERE dispute_id = %d ORDER BY id ASC", $id
+        )) ?: [];
+    }
+
+    public static function add_dispute_event(int $id, string $type, string $message, int $actor_id, string $request_key, string $recipient = '', string $delivery = ''): int {
+        global $wpdb;
+        $result = $wpdb->insert("{$wpdb->prefix}avb_dispute_events", [
+            'dispute_id' => $id,
+            'event_type' => $type,
+            'message' => $message,
+            'actor_id' => $actor_id,
+            'request_key' => $request_key,
+            'recipient_email' => $recipient,
+            'delivery_status' => $delivery,
+            'created_at' => current_time('mysql'),
+        ]);
+        return $result === false ? 0 : (int) $wpdb->insert_id;
+    }
+
+    public static function has_dispute_request(string $request_key): bool {
+        global $wpdb;
+        return (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}avb_dispute_events WHERE request_key = %s", $request_key
+        ));
+    }
+
+    public static function set_dispute_delivery(int $event_id, string $status): bool {
+        global $wpdb;
+        return $wpdb->update("{$wpdb->prefix}avb_dispute_events", ['delivery_status' => $status], ['id' => $event_id]) !== false;
     }
 
     public static function get_disputes(string $status = 'open'): array {
@@ -2063,13 +2144,32 @@ class AVBK_DB {
         );
     }
 
-    public static function resolve_dispute(int $id, int $resolved_by): void {
+    /** Change the status and append its audit entry atomically. */
+    public static function change_dispute_status(int $id, string $status, int $actor_id, string $request_key, string $message = ''): bool {
         global $wpdb;
-        $wpdb->update(
-            "{$wpdb->prefix}avb_disputes",
-            ['status' => 'resolved', 'resolved_at' => current_time('mysql'), 'resolved_by' => $resolved_by],
-            ['id' => $id]
-        );
+        if (!in_array($status, ['open', 'resolved'], true) || $wpdb->query('START TRANSACTION') === false) return false;
+        $dispute = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE id = %d FOR UPDATE", $id
+        ));
+        if (!$dispute || $dispute->status === $status) {
+            $wpdb->query('ROLLBACK');
+            return false;
+        }
+        $event_id = self::add_dispute_event($id, $status === 'resolved' ? 'resolved' : 'reopened', $message, $actor_id, $request_key);
+        $updated = $event_id ? $wpdb->update("{$wpdb->prefix}avb_disputes", [
+            'status' => $status,
+            'resolved_at' => $status === 'resolved' ? current_time('mysql') : null,
+            'resolved_by' => $status === 'resolved' ? $actor_id : null,
+        ], ['id' => $id]) : false;
+        if ($updated === false || $wpdb->query('COMMIT') === false) {
+            $wpdb->query('ROLLBACK');
+            return false;
+        }
+        return true;
+    }
+
+    public static function resolve_dispute(int $id, int $resolved_by): bool {
+        return self::change_dispute_status($id, 'resolved', $resolved_by, wp_generate_uuid4());
     }
 
     // -------------------------------------------------------------------

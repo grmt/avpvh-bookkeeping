@@ -6,65 +6,44 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 
 $open = AVBK_DB::get_disputes('open');
 $resolved = AVBK_DB::get_disputes('resolved');
+$result = sanitize_key(wp_unslash($_GET['dispute_result'] ?? ''));
+$focused_id = absint(wp_unslash($_GET['dispute_id'] ?? 0));
+$show_resolved = in_array($focused_id, array_map(fn($item) => (int) $item->id, $resolved), true);
+$notices = [
+    'reply_sent' => ['success', 'Het antwoord is aangeboden aan de mailserver en opgeslagen in de historie. Het bezwaar blijft open totdat je het afhandelt.'],
+    'note_saved' => ['success', 'Interne notitie opgeslagen. Er is geen e-mail verstuurd.'],
+    'resolved' => ['success', 'Bezwaar afgehandeld. De actie staat in de historie.'],
+    'reopened' => ['success', 'Bezwaar heropend. De eerdere historie blijft bewaard.'],
+    'duplicate' => ['info', 'Deze actie is al verwerkt. Er is geen tweede antwoord verstuurd.'],
+    'unchanged' => ['info', 'Dit bezwaar had deze status al.'],
+    'reply_failed' => ['error', 'Verzenden is mislukt. Het antwoord staat in de historie en als concept klaar om opnieuw te proberen.'],
+    'tracking_failed' => ['error', 'De verzendstatus kon niet worden opgeslagen. Controleer de verzending voordat je opnieuw verstuurt.'],
+    'save_failed' => ['error', 'De actie kon niet worden opgeslagen. Er is geen nieuw antwoord verstuurd. Je tekst staat nog als concept klaar.'],
+    'missing_email' => ['error', 'Er is geen geldig e-mailadres voor de ontvanger. Het antwoord is niet verstuurd.'],
+    'empty_message' => ['error', 'Vul eerst een antwoord of interne notitie in.'],
+    'invalid_action' => ['error', 'Ongeldige actie. Herlaad de pagina en probeer opnieuw.'],
+    'not_found' => ['error', 'Dit bezwaar bestaat niet meer.'],
+];
 ?>
-<div class="wrap">
+<div class="wrap avbk-disputes">
     <h1>Bezwaren</h1>
-    <p class="description">Berichten die leden via hun overzicht (&ldquo;Klopt dit niet?&rdquo;) hebben gestuurd — dezelfde melding is ook per e-mail verstuurd, dit is de doorlopende todo-lijst.</p>
-
-    <?php if (isset($_GET['resolved'])) : ?>
-        <div class="notice notice-success is-dismissible"><p>Afgehandeld.</p></div>
+    <p class="description">Behandel berichten over het ledenoverzicht. Antwoorden gaan per e-mail naar de indiener; interne notities blijven alleen zichtbaar voor de penningmeester en beheerders.</p>
+    <?php if (isset($notices[$result])) : ?>
+        <div class="notice notice-<?php echo esc_attr($notices[$result][0]); ?> is-dismissible"><p><?php echo esc_html($notices[$result][1]); ?></p></div>
     <?php endif; ?>
 
     <h2>Open (<?php echo esc_html(count($open)); ?>)</h2>
-    <?php if (!$open) : ?>
-        <p>Niets openstaand.</p>
-    <?php else : ?>
-        <table class="wp-list-table widefat striped">
-            <thead><tr><th>Datum</th><th>Lid</th><th>Bericht</th><th></th></tr></thead>
-            <tbody>
-            <?php foreach ($open as $dispute) :
-                $member = AVPVH_DB::get_member((int) $dispute->member_id); ?>
-                <tr>
-                    <td style="white-space:nowrap"><?php echo esc_html(wp_date('D d M Y H:i', strtotime($dispute->created_at))); ?></td>
-                    <td>
-                        <?php if ($member) : ?>
-                            <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member->id], admin_url('admin.php'))); ?>">
-                                <?php echo esc_html(avpvh_format_name($member, 'list')); ?>
-                            </a>
-                        <?php else : ?>
-                            &mdash;
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo nl2br(esc_html($dispute->message)); ?></td>
-                    <td>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                            <?php wp_nonce_field('avbk_resolve_dispute'); ?>
-                            <input type="hidden" name="action" value="avbk_resolve_dispute">
-                            <input type="hidden" name="id" value="<?php echo esc_attr($dispute->id); ?>">
-                            <?php submit_button('Afgehandeld', 'secondary', 'submit', false); ?>
-                        </form>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    <?php endif; ?>
+    <?php if (!$open) : ?><p>Niets openstaand.</p><?php endif; ?>
+    <?php foreach ($open as $dispute) : ?>
+        <?php require AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; ?>
+    <?php endforeach; ?>
 
     <?php if ($resolved) : ?>
-        <h2>Afgehandeld</h2>
-        <table class="wp-list-table widefat striped">
-            <thead><tr><th>Datum</th><th>Lid</th><th>Bericht</th><th>Afgehandeld op</th></tr></thead>
-            <tbody>
-            <?php foreach ($resolved as $dispute) :
-                $member = AVPVH_DB::get_member((int) $dispute->member_id); ?>
-                <tr>
-                    <td style="white-space:nowrap"><?php echo esc_html(wp_date('D d M Y H:i', strtotime($dispute->created_at))); ?></td>
-                    <td><?php echo $member ? esc_html(avpvh_format_name($member, 'list')) : '&mdash;'; ?></td>
-                    <td><?php echo nl2br(esc_html($dispute->message)); ?></td>
-                    <td style="white-space:nowrap"><?php echo $dispute->resolved_at ? esc_html(mysql2date('D d M Y', $dispute->resolved_at)) : '&mdash;'; ?></td>
-                </tr>
+        <details class="avbk-disputes-resolved" <?php echo $show_resolved ? 'open' : ''; ?>>
+            <summary>Afgehandeld (<?php echo esc_html(count($resolved)); ?>)</summary>
+            <?php foreach ($resolved as $dispute) : ?>
+                <?php require AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; ?>
             <?php endforeach; ?>
-            </tbody>
-        </table>
+        </details>
     <?php endif; ?>
 </div>

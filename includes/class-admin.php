@@ -48,6 +48,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
         add_action('admin_post_avbk_save_review_order',              [$this, 'handle_save_review_order']);
         add_action('admin_post_avbk_resolve_dispute',                [$this, 'handle_resolve_dispute']);
+        add_action('admin_post_avbk_update_dispute',                 [$this, 'handle_update_dispute']);
         add_action('admin_post_avbk_second_approve_transaction',     [$this, 'handle_second_approve_transaction']);
         add_action('admin_post_avbk_revert_transaction_to_review',   [$this, 'handle_revert_transaction_to_review']);
         add_action('admin_post_avbk_revert_year_payments_to_review', [$this, 'handle_revert_year_payments_to_review']);
@@ -1995,10 +1996,32 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $id = (int) ($_POST['id'] ?? 0);
-        if ($id) {
-            AVBK_DB::resolve_dispute($id, get_current_user_id());
+        $saved = $id && AVBK_DB::resolve_dispute($id, get_current_user_id());
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-disputes', 'dispute_result' => $saved ? 'resolved' : 'save_failed'], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_update_dispute(): void {
+        if (!$this->can_manage()) wp_die('Geen toegang.', 'Fout', ['response' => 403]);
+        $id = absint(wp_unslash($_POST['id'] ?? 0));
+        check_admin_referer('avbk_update_dispute_' . $id);
+        $action = sanitize_key(wp_unslash($_POST['dispute_action'] ?? ''));
+        $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+        $request_key = sanitize_text_field(wp_unslash($_POST['request_key'] ?? ''));
+        $result = AVBK_Disputes::act($id, $action, $message, $request_key);
+        $draft_key = 'avbk_dispute_draft_' . get_current_user_id() . '_' . $id;
+        if (is_wp_error($result)) {
+            if ($message !== '' && in_array($action, ['reply', 'note', 'resolve', 'reopen'], true)) {
+                set_transient($draft_key, ['action' => $action, 'message' => $message], 30 * MINUTE_IN_SECONDS);
+            }
+            $notice = $result->get_error_code();
+        } else {
+            delete_transient($draft_key);
+            $notice = $result;
         }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-disputes', 'resolved' => '1'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-disputes', 'dispute_id' => $id, 'dispute_result' => $notice,
+        ], admin_url('admin.php')) . '#avbk-dispute-' . $id);
         exit;
     }
 
