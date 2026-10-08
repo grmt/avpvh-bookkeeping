@@ -40,6 +40,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_camp_sheet_import_from_url',     [$this, 'handle_camp_sheet_import_from_url']);
         add_action('admin_post_avbk_sheet_import_link_attendee',     [$this, 'handle_sheet_import_link_attendee']);
         add_action('admin_post_avbk_sheet_import_ignore_attendee',   [$this, 'handle_sheet_import_ignore_attendee']);
+        add_action('admin_post_avbk_sheet_import_apply_sheet_value', [$this, 'handle_sheet_import_apply_sheet_value']);
         add_action('admin_post_avbk_request_payment',                [$this, 'handle_request_payment']);
         add_action('admin_post_avbk_preview_request_payment_email',  [$this, 'handle_preview_request_payment_email']);
         add_action('admin_post_avbk_preview_payment_request',        [$this, 'handle_preview_payment_request']);
@@ -935,6 +936,62 @@ class AVBK_Admin {
             'source_ignored' => '1',
         ], admin_url('admin.php')) . '#avbk-unmatched');
         exit;
+    }
+
+    /**
+     * Explicit override for a diet/notes conflict AVBK_Sheet_Import::import()
+     * held back (see resolve_participation_fields()) — applies the sheet's
+     * value the treasurer chose to accept and advances the snapshot for
+     * just that one field, so it stops being flagged on later imports.
+     */
+    public function handle_sheet_import_apply_sheet_value(): void {
+        check_admin_referer('avbk_sheet_import_apply_sheet_value');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $field = sanitize_key(wp_unslash($_POST['field'] ?? ''));
+        $value = sanitize_textarea_field(wp_unslash($_POST['value'] ?? ''));
+        if ($activity_id > 0 && $member_id > 0 && in_array($field, ['diet', 'notes'], true)) {
+            $current = AVPVH_DB::get_participation($member_id, $activity_id);
+            if ($current) {
+                AVPVH_DB::save_participation($member_id, $activity_id, [
+                    'nights'  => $current->nights,
+                    'nawacht' => $current->nawacht,
+                    'diet'    => $field === 'diet' ? $value : $current->diet,
+                    'notes'   => $field === 'notes' ? $value : $current->notes,
+                ]);
+                AVBK_DB::update_sheet_participation_snapshot(
+                    $activity_id,
+                    $member_id,
+                    $field === 'diet' ? $value : null,
+                    $field === 'notes' ? $value : null
+                );
+                $this->remove_sheet_import_conflict($activity_id, $member_id, $field);
+            }
+        }
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-activity-payments',
+            'activity_id' => $activity_id,
+        ], admin_url('admin.php')) . '#avbk-conflicts');
+        exit;
+    }
+
+    /** Removes exactly one resolved conflict entry from the stored import result, retaining the rest. */
+    private function remove_sheet_import_conflict(int $activity_id, int $member_id, string $field): void {
+        $result_key = AVBK_Sheet_Import::result_transient_key($activity_id);
+        $result = get_transient($result_key);
+        if (!is_array($result) || empty($result['conflicts']) || !is_array($result['conflicts'])) {
+            return;
+        }
+        foreach ($result['conflicts'] as $index => $conflict) {
+            if ((int) ($conflict['member_id'] ?? 0) === $member_id && ($conflict['field'] ?? '') === $field) {
+                unset($result['conflicts'][$index]);
+            }
+        }
+        $result['conflicts'] = array_values($result['conflicts']);
+        set_transient($result_key, $result, 12 * HOUR_IN_SECONDS);
     }
 
     /** Removes exactly one reviewed source person while retaining the rest. */

@@ -583,6 +583,32 @@ sort($activity_types);
             </script>
         <?php endif; ?>
 
+        <?php if (!empty($import_result['conflicts'])) : ?>
+            <h3 id="avbk-conflicts">Handmatige wijzigingen afwijkend van bronbestand</h3>
+            <p class="description">
+                Deze velden zijn sinds de vorige import handmatig aangepast en wijken nu af van wat het bronbestand zegt &mdash; de handmatige waarde is behouden. Kies hieronder zelf of het bronbestand alsnog moet overnemen.
+            </p>
+            <?php foreach ($import_result['conflicts'] as $conflict) : ?>
+                <div class="avbk-review-row">
+                    <p>
+                        <strong><?php echo esc_html($conflict['member_name']); ?></strong>
+                        &mdash; <?php echo esc_html($conflict['field_label']); ?>:
+                        huidig <em>&ldquo;<?php echo esc_html($conflict['current_value'] ?: '(leeg)'); ?>&rdquo;</em>,
+                        bronbestand zegt <em>&ldquo;<?php echo esc_html($conflict['sheet_value'] ?: '(leeg)'); ?>&rdquo;</em>
+                    </p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block">
+                        <?php wp_nonce_field('avbk_sheet_import_apply_sheet_value'); ?>
+                        <input type="hidden" name="action" value="avbk_sheet_import_apply_sheet_value">
+                        <input type="hidden" name="activity_id" value="<?php echo esc_attr($conflict['activity_id']); ?>">
+                        <input type="hidden" name="member_id" value="<?php echo esc_attr($conflict['member_id']); ?>">
+                        <input type="hidden" name="field" value="<?php echo esc_attr($conflict['field']); ?>">
+                        <input type="hidden" name="value" value="<?php echo esc_attr($conflict['sheet_value']); ?>">
+                        <button type="submit" class="button">Neem bronbestand-waarde over</button>
+                    </form>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+
         <h2>Deelnemers <?php echo esc_html($activity->name); ?> (<?php echo esc_html(count($participants)); ?>)</h2>
         <p class="description">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
         <p class="description"><strong>Ingeschreven op</strong> is uitsluitend de oorspronkelijke formulierdatum van een daadwerkelijke deelname aan deze activiteit. Er wordt geen datum uit een betaling, ledenrecord of koppelactiviteit afgeleid.</p>
