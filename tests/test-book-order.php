@@ -331,7 +331,7 @@ function reset_test_env(): void {
         'avbk_book_title' => 'Doorgraven! - 50 jaar AV Philips van Horne',
         'avbk_book_price' => 35.00,
         'avbk_book_price_note' => 'Richtprijs circa € 35,- (definitieve prijs wordt nader vastgesteld)',
-        'avbk_book_distribution_notice' => 'Let op: boeken worden niet per post verzonden, maar kunnen worden opgehaald of worden uitgereikt.',
+        'avbk_book_distribution_notice' => AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE,
         'avbk_book_presentation_notice' => 'Begin 2027 organiseren we ergens een feestelijke boekpresentatie.',
         'avbk_book_flaptekst' => AVBK_Book_Order::DEFAULT_FLAPTEKST,
     ];
@@ -478,7 +478,7 @@ $book_order = new AVBK_Book_Order();
 $form_html = $book_order->render();
 check(str_contains($form_html, 'Over het boek'), 'Order form contains book flaptekst heading');
 check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contains 2027 presentation section');
-check(str_contains($form_html, 'boeken worden niet per post verzonden'), 'Order form includes distribution notice');
+check(str_contains($form_html, 'in principe niet per post verzonden'), 'Order form includes distribution notice');
 check(str_contains($form_html, '35,00'), 'Order form displays 35,00 price');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
 
