@@ -43,24 +43,159 @@ foreach ($raw_preview_rows as $preview_row) {
     }
     $preview_header_candidates[(int) ($preview_row['row_number'] ?? 0)] = $candidate_headers;
 }
+$activity_years = array_values(array_unique(array_map(fn($a) => (int) $a->year, $activities)));
+rsort($activity_years);
+$activity_types = array_values(array_unique(array_map(fn($a) => (string) ($a->type_name ?? ''), $activities)));
+sort($activity_types);
 ?>
+<script type="application/json" id="avbk-activity-picker-config"><?php echo wp_json_encode([
+    'activities' => array_map(fn($a) => [
+        'id'    => (int) $a->id,
+        'year'  => (int) $a->year,
+        'type'  => (string) ($a->type_name ?? ''),
+        'label' => $a->name . ' (' . $a->year . ')',
+    ], $activities),
+]); ?></script>
 <div class="wrap">
     <h1>Activiteit betalingen</h1>
     <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
-    <form method="get" style="margin-bottom:1rem">
+    <form method="get" style="margin-bottom:1rem" id="avbk-activity-picker-form">
         <input type="hidden" name="page" value="avbk-activity-payments">
-        <label>Activiteit:
-            <select name="activity_id" onchange="this.form.submit()">
-                <?php foreach ($activities as $a) : ?>
-                    <option value="<?php echo esc_attr($a->id); ?>" <?php selected($activity_id, (int) $a->id); ?>>
-                        <?php echo esc_html($a->name . ' (' . $a->year . ')'); ?>
+        <label>Jaar:
+            <select id="avbk-activity-year-filter">
+                <option value="">&mdash; alle jaren &mdash;</option>
+                <?php foreach ($activity_years as $year) : ?>
+                    <option value="<?php echo esc_attr($year); ?>" <?php selected($activity && (int) $activity->year === $year); ?>>
+                        <?php echo esc_html((string) $year); ?>
                     </option>
                 <?php endforeach; ?>
             </select>
         </label>
+        <label>Type:
+            <select id="avbk-activity-type-filter">
+                <option value="">&mdash; alle types &mdash;</option>
+                <?php foreach ($activity_types as $type) : ?>
+                    <option value="<?php echo esc_attr($type); ?>" <?php selected($activity && ($activity->type_name ?? '') === $type); ?>>
+                        <?php echo esc_html($type !== '' ? $type : '(geen type)'); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>Activiteit:
+            <div class="avbk-activity-combo">
+                <input type="hidden" name="activity_id" id="avbk-activity-combo-value" value="<?php echo esc_attr($activity_id ?: ''); ?>">
+                <input type="text" class="avbk-activity-combo-input" autocomplete="off" placeholder="&mdash; kies activiteit &mdash;" value="<?php echo esc_attr($activity ? $activity->name . ' (' . $activity->year . ')' : ''); ?>">
+                <div class="avbk-activity-combo-list" hidden></div>
+            </div>
+        </label>
         <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
     </form>
+    <script>
+    (function () {
+        var cfg = JSON.parse(document.getElementById('avbk-activity-picker-config').textContent);
+        var form = document.getElementById('avbk-activity-picker-form');
+        var yearFilter = document.getElementById('avbk-activity-year-filter');
+        var typeFilter = document.getElementById('avbk-activity-type-filter');
+        var wrapper = form.querySelector('.avbk-activity-combo');
+        var hidden = document.getElementById('avbk-activity-combo-value');
+        var input = wrapper.querySelector('.avbk-activity-combo-input');
+        var list = wrapper.querySelector('.avbk-activity-combo-list');
+        var activeIndex = -1;
+        var renderedItems = [];
+
+        function labelFor(id) {
+            var a = cfg.activities.filter(function (x) { return String(x.id) === String(id); })[0];
+            return a ? a.label : '';
+        }
+
+        function closeList() {
+            list.hidden = true;
+            activeIndex = -1;
+        }
+
+        function selectActivity(id, label) {
+            hidden.value = id;
+            input.value = label;
+            closeList();
+            form.submit();
+        }
+
+        function setActive(index) {
+            var children = Array.prototype.slice.call(list.querySelectorAll('.avbk-activity-combo-item'));
+            children.forEach(function (el, i) { el.classList.toggle('is-active', i === index); });
+            if (children[index]) children[index].scrollIntoView({ block: 'nearest' });
+            activeIndex = index;
+        }
+
+        function render(forceEmptyTerm) {
+            var term = forceEmptyTerm ? '' : input.value.trim().toLowerCase();
+            var year = yearFilter.value;
+            var type = typeFilter.value;
+            list.innerHTML = '';
+            renderedItems = [];
+            cfg.activities.forEach(function (a) {
+                if (year !== '' && String(a.year) !== year) return;
+                if (type !== '' && a.type !== type) return;
+                if (term !== '' && a.label.toLowerCase().indexOf(term) === -1) return;
+                var item = document.createElement('div');
+                item.className = 'avbk-activity-combo-item';
+                item.textContent = a.label;
+                item.dataset.id = a.id;
+                item.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    selectActivity(a.id, a.label);
+                });
+                list.appendChild(item);
+                renderedItems.push(item);
+            });
+            list.hidden = renderedItems.length === 0;
+            activeIndex = -1;
+        }
+
+        input.addEventListener('input', function () { render(false); });
+        input.addEventListener('focus', function () {
+            input.select();
+            render(true);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (list.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                render(true);
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActive(Math.min(activeIndex + 1, renderedItems.length - 1));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActive(Math.max(activeIndex - 1, 0));
+            } else if (e.key === 'Enter') {
+                if (!list.hidden && activeIndex >= 0 && renderedItems[activeIndex]) {
+                    e.preventDefault();
+                    var item = renderedItems[activeIndex];
+                    selectActivity(item.dataset.id, item.textContent);
+                }
+            } else if (e.key === 'Escape') {
+                closeList();
+            }
+        });
+        input.addEventListener('blur', function () {
+            setTimeout(function () {
+                closeList();
+                input.value = hidden.value ? labelFor(hidden.value) : '';
+            }, 150);
+        });
+        // Kiezen van een jaar/type is zelf geen keuze van activiteit —
+        // alleen de kandidatenlijst versmallen, direct zichtbaar als die
+        // al open staat.
+        yearFilter.addEventListener('change', function () {
+            if (!list.hidden) render(false);
+        });
+        typeFilter.addEventListener('change', function () {
+            if (!list.hidden) render(false);
+        });
+    })();
+    </script>
 
     <?php if (!$activity) : ?>
         <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
