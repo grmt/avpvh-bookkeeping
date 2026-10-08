@@ -57,7 +57,7 @@ sort($activity_types);
     ], $activities),
 ]); ?></script>
 <div class="wrap">
-    <h1>Activiteit betalingen</h1>
+    <h1>Deelname en betalingen</h1>
     <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
     <form method="get" style="margin-bottom:1rem" id="avbk-activity-picker-form">
