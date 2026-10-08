@@ -533,13 +533,15 @@ class AVBK_Import {
                     }
                     $category = $activity_obj->name ?? "Activiteit #{$activity_id}";
                     $amount_due = max($amount, (float) ($row['requested_amount'] ?? 0));
-                    $fee_item_id = AVBK_DB::create_other_fee_item($member_id, $category, '', $amount_due, $activity_id);
+                    $existing = AVBK_DB::get_open_other_fee_item($member_id, $category, $activity_id);
+                    $fee_item_id = $existing ? (int) $existing->id : AVBK_DB::create_other_fee_item($member_id, $category, '', $amount_due, $activity_id);
                     AVBK_DB::allocate($transaction_id, $fee_item_id, $member_id, $amount);
                 }
             } else {
                 $description = (string) ($row['description'] ?? '');
                 $amount_due = max($amount, (float) ($row['requested_amount'] ?? 0));
-                $fee_item_id = AVBK_DB::create_other_fee_item($member_id, $activity, $description, $amount_due);
+                $existing = AVBK_DB::get_open_other_fee_item($member_id, $activity);
+                $fee_item_id = $existing ? (int) $existing->id : AVBK_DB::create_other_fee_item($member_id, $activity, $description, $amount_due);
                 AVBK_DB::allocate($transaction_id, $fee_item_id, $member_id, $amount);
             }
             $paid_member_ids[] = $member_id;
