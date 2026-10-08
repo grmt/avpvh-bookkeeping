@@ -100,7 +100,7 @@ class AVBK_Admin {
         $reimbursements_label = 'Declaraties' . ($pending_reimbursements ? " <span class=\"awaiting-mod count-{$pending_reimbursements}\"><span class=\"pending-count\">{$pending_reimbursements}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Declaraties', $reimbursements_label, 'read', 'avbk-reimbursements', [$this, 'render_reimbursements']);
 
-        add_submenu_page('avbk-overview', 'Activiteit betalingen', 'Activiteit betalingen', 'read', 'avbk-activity-payments', [$this, 'render_activity_payments']);
+        add_submenu_page('avbk-overview', 'Deelname en betalingen', 'Deelname en betalingen', 'read', 'avbk-activity-payments', [$this, 'render_activity_payments']);
     }
 
     public function enqueue_assets(string $hook): void {

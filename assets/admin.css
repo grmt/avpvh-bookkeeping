@@ -158,6 +158,44 @@
     color: #50575e;
 }
 
+/* Filterable activiteit-picker (Activiteit betalingen) — same combobox
+   idea as .avbk-member-combo/.avbk-duplicate-combo above. */
+.avbk-activity-combo {
+    position: relative;
+    display: inline-block;
+    width: 22em;
+    max-width: 100%;
+    vertical-align: top;
+}
+.avbk-activity-combo-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+.avbk-activity-combo-list {
+    position: absolute;
+    z-index: 100;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    max-height: 16em;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.15);
+    margin-top: 2px;
+}
+.avbk-activity-combo-item {
+    padding: .3rem .6rem;
+    cursor: pointer;
+    font-size: .9em;
+}
+.avbk-activity-combo-item:hover,
+.avbk-activity-combo-item.is-active {
+    background: #2271b1;
+    color: #fff;
+}
+
 .avbk-remove-row {
     color: #b32d2e;
     font-size: 1.1em;
