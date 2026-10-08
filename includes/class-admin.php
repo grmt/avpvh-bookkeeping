@@ -57,6 +57,8 @@ class AVBK_Admin {
         add_action('admin_post_avbk_save_activity_payment_qr',       [$this, 'handle_save_activity_payment_qr']);
         add_action('admin_post_avbk_delete_activity_payment_url',    [$this, 'handle_delete_activity_payment_url']);
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
+        add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_book_distribution']);
+        add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
         add_action('wp_ajax_avbk_activity_participants', [$this, 'ajax_activity_participants']);
@@ -103,6 +105,10 @@ class AVBK_Admin {
         add_submenu_page('avbk-overview', 'Declaraties', $reimbursements_label, 'read', 'avbk-reimbursements', [$this, 'render_reimbursements']);
 
         add_submenu_page('avbk-overview', 'Deelname en betalingen', 'Deelname en betalingen', 'read', 'avbk-activity-payments', [$this, 'render_activity_payments']);
+
+        $pending_book_orders = AVBK_DB::count_pending_distribution_book_orders();
+        $book_orders_label = 'Boekbestellingen' . ($pending_book_orders ? " <span class=\"awaiting-mod count-{$pending_book_orders}\"><span class=\"pending-count\">{$pending_book_orders}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Boekbestellingen', $book_orders_label, 'read', 'avbk-book-orders', [$this, 'render_book_orders']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -151,6 +157,7 @@ class AVBK_Admin {
     public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
     public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
     public function render_iban_bank_codes(): void { require AVBK_PLUGIN_DIR . 'admin/iban-bank-codes.php'; }
+    public function render_book_orders(): void { require AVBK_PLUGIN_DIR . 'admin/book-orders.php'; }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
@@ -2090,6 +2097,24 @@ class AVBK_Admin {
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);
+        if (isset($_POST['book_title'])) {
+            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
+        }
+        if (isset($_POST['book_price'])) {
+            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
+        }
+        if (isset($_POST['book_price_note'])) {
+            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
+        }
+        if (isset($_POST['book_flaptekst'])) {
+            update_option('avbk_book_flaptekst', sanitize_textarea_field(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
+        }
+        if (isset($_POST['book_distribution_notice'])) {
+            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
+        }
+        if (isset($_POST['book_presentation_notice'])) {
+            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
+        }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }
@@ -2159,6 +2184,127 @@ class AVBK_Admin {
             'country' => $country_code,
             'bank_deleted' => '1',
         ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_update_book_distribution(): void {
+        check_admin_referer('avbk_update_book_distribution');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $order_id = (int) ($_POST['order_id'] ?? 0);
+        $status = sanitize_key(wp_unslash($_POST['distribution_status'] ?? 'pending'));
+        $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-book-orders');
+
+        if ($order_id) {
+            AVBK_DB::update_book_order_distribution($order_id, $status);
+        }
+        wp_safe_redirect(add_query_arg('distribution_updated', '1', $redirect));
+        exit;
+    }
+
+    public function handle_export_book_orders(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $filter_args = [];
+        $status_filter = sanitize_key(wp_unslash($_GET['status'] ?? ''));
+        $dist_filter   = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
+        $pay_filter    = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
+        $pres_filter   = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
+        $search        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+
+        if ($status_filter !== '' && $status_filter !== 'all') {
+            $filter_args['status'] = $status_filter;
+        }
+        if ($dist_filter !== '' && $dist_filter !== 'all') {
+            $filter_args['distribution_status'] = $dist_filter;
+        }
+        if ($pay_filter !== '' && $pay_filter !== 'all') {
+            $filter_args['payment_status'] = $pay_filter;
+        }
+        if ($pres_filter !== '' && $pres_filter !== 'all') {
+            $filter_args['presentation'] = $pres_filter;
+        }
+        if ($search !== '') {
+            $filter_args['search'] = $search;
+        }
+
+        $orders = AVBK_DB::get_book_orders($filter_args);
+
+        $filename = 'boekbestellingen-' . gmdate('Ymd-His') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+        fputcsv($out, [
+            'Bestelnummer',
+            'Datum',
+            'Status bestelling',
+            'Lidnummer',
+            'Voornaam',
+            'Tussenvoegsel',
+            'Achternaam',
+            'E-mailadres',
+            'Telefoonnummer',
+            'Straat',
+            'Huisnummer',
+            'Postcode',
+            'Woonplaats',
+            'Land',
+            'Aantal exemplaren',
+            'Stukprijs',
+            'Totaalbedrag',
+            'Betaald bedrag',
+            'Betaalstatus',
+            'Uitreiking',
+            'Aanwezig bij presentatie',
+            'Op de hoogte houden',
+            'Opmerkingen',
+        ], ';');
+
+        foreach ($orders as $order) {
+            $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
+            $pay_status_label = $order->fee_status === 'waived' ? 'Kwijtgescholden' : ($is_paid ? 'Betaald' : 'Open');
+            $dist_label = match ($order->distribution_status) {
+                'collected'   => 'Opgehaald',
+                'distributed' => 'Uitgereikt',
+                default       => 'In afwachting',
+            };
+
+            fputcsv($out, [
+                $order->id,
+                $order->created_at,
+                $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
+                $order->member_id ?: '',
+                $order->first_name,
+                $order->suffix,
+                $order->last_name,
+                $order->email,
+                $order->phone,
+                $order->street,
+                $order->house_number,
+                $order->postal_code,
+                $order->city,
+                $order->country,
+                $order->quantity,
+                number_format((float) $order->unit_price, 2, ',', ''),
+                number_format((float) $order->total_amount, 2, ',', ''),
+                number_format((float) $order->fee_paid, 2, ',', ''),
+                $pay_status_label,
+                $dist_label,
+                !empty($order->attend_presentation) ? 'Ja' : 'Nee',
+                !empty($order->keep_updated) ? 'Ja' : 'Nee',
+                $order->notes ?: '',
+            ], ';');
+        }
+
+        fclose($out);
         exit;
     }
 }

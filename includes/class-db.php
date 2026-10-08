@@ -260,6 +260,41 @@ class AVBK_DB {
             KEY member_id (member_id)
         ) $charset;");
 
+        // Public book orders (see AVBK_Book_Order).
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_book_orders (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id INT UNSIGNED NULL,
+            fee_item_id INT UNSIGNED NULL,
+            first_name VARCHAR(100) NOT NULL DEFAULT '',
+            suffix VARCHAR(50) NOT NULL DEFAULT '',
+            last_name VARCHAR(100) NOT NULL DEFAULT '',
+            email VARCHAR(255) NOT NULL DEFAULT '',
+            phone VARCHAR(50) NOT NULL DEFAULT '',
+            street VARCHAR(255) NOT NULL DEFAULT '',
+            house_number VARCHAR(50) NOT NULL DEFAULT '',
+            postal_code VARCHAR(20) NOT NULL DEFAULT '',
+            city VARCHAR(100) NOT NULL DEFAULT '',
+            country VARCHAR(100) NOT NULL DEFAULT 'Nederland',
+            quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+            unit_price DECIMAL(8,2) NOT NULL DEFAULT 35.00,
+            total_amount DECIMAL(8,2) NOT NULL DEFAULT 35.00,
+            attend_presentation TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            keep_updated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            notes TEXT NULL,
+            confirm_token CHAR(43) NOT NULL,
+            status ENUM('pending_confirmation','confirmed','cancelled') NOT NULL DEFAULT 'pending_confirmation',
+            email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            email_error VARCHAR(255) NOT NULL DEFAULT '',
+            distribution_status ENUM('pending','collected','distributed') NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY confirm_token (confirm_token),
+            KEY member_id (member_id),
+            KEY fee_item_id (fee_item_id),
+            KEY status (status)
+        ) $charset;");
+
         update_option('avbk_db_version', '1.0');
     }
 
@@ -933,6 +968,43 @@ class AVBK_DB {
                         WHERE e.dispute_id = d.id AND e.event_type = 'resolved')");
                 if ($backfilled !== false) update_option('avbk_db_version', '1.40');
             }
+        }
+        if (version_compare($version, '1.41', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_book_orders (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                member_id INT UNSIGNED NULL,
+                fee_item_id INT UNSIGNED NULL,
+                first_name VARCHAR(100) NOT NULL DEFAULT '',
+                suffix VARCHAR(50) NOT NULL DEFAULT '',
+                last_name VARCHAR(100) NOT NULL DEFAULT '',
+                email VARCHAR(255) NOT NULL DEFAULT '',
+                phone VARCHAR(50) NOT NULL DEFAULT '',
+                street VARCHAR(255) NOT NULL DEFAULT '',
+                house_number VARCHAR(50) NOT NULL DEFAULT '',
+                postal_code VARCHAR(20) NOT NULL DEFAULT '',
+                city VARCHAR(100) NOT NULL DEFAULT '',
+                country VARCHAR(100) NOT NULL DEFAULT 'Nederland',
+                quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                unit_price DECIMAL(8,2) NOT NULL DEFAULT 35.00,
+                total_amount DECIMAL(8,2) NOT NULL DEFAULT 35.00,
+                attend_presentation TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                keep_updated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                notes TEXT NULL,
+                confirm_token CHAR(43) NOT NULL,
+                status ENUM('pending_confirmation','confirmed','cancelled') NOT NULL DEFAULT 'pending_confirmation',
+                email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                email_error VARCHAR(255) NOT NULL DEFAULT '',
+                distribution_status ENUM('pending','collected','distributed') NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                confirmed_at DATETIME NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY confirm_token (confirm_token),
+                KEY member_id (member_id),
+                KEY fee_item_id (fee_item_id),
+                KEY status (status)
+            ) {$wpdb->get_charset_collate()};");
+            update_option('avbk_db_version', '1.41');
         }
     }
 
@@ -1965,6 +2037,17 @@ class AVBK_DB {
             if ($participation && $participation->nights) {
                 $n = (int) $participation->nights;
                 return $n . ' nacht' . ($n === 1 ? '' : 'en');
+            }
+        }
+        if (($item->category ?? '') === 'book') {
+            global $wpdb;
+            $quantity = $wpdb->get_var($wpdb->prepare(
+                "SELECT quantity FROM {$wpdb->prefix}avb_book_orders WHERE fee_item_id = %d LIMIT 1",
+                (int) $item->id
+            ));
+            if ($quantity) {
+                $q = (int) $quantity;
+                return $q . ' ' . ($q === 1 ? 'exemplaar' : 'exemplaren');
             }
         }
         return '';
@@ -3673,6 +3756,232 @@ class AVBK_DB {
             'email_sent'  => (int) $sent,
             'email_error' => $error,
         ], ['id' => $id]);
+    }
+
+    // -------------------------------------------------------------------
+    // Book orders (Jubileumboek)
+    // -------------------------------------------------------------------
+
+    public static function create_book_order(array $data): array {
+        global $wpdb;
+        $token = wp_generate_password(43, false, false);
+        $wpdb->insert("{$wpdb->prefix}avb_book_orders", [
+            'member_id'           => !empty($data['member_id']) ? (int) $data['member_id'] : null,
+            'fee_item_id'         => !empty($data['fee_item_id']) ? (int) $data['fee_item_id'] : null,
+            'first_name'          => $data['first_name'] ?? '',
+            'suffix'              => $data['suffix'] ?? '',
+            'last_name'           => $data['last_name'] ?? '',
+            'email'               => $data['email'] ?? '',
+            'phone'               => $data['phone'] ?? '',
+            'street'              => $data['street'] ?? '',
+            'house_number'        => $data['house_number'] ?? '',
+            'postal_code'         => $data['postal_code'] ?? '',
+            'city'                => $data['city'] ?? '',
+            'country'             => !empty($data['country']) ? $data['country'] : 'Nederland',
+            'quantity'            => max(1, (int) ($data['quantity'] ?? 1)),
+            'unit_price'          => (float) ($data['unit_price'] ?? 35.00),
+            'total_amount'        => (float) ($data['total_amount'] ?? 35.00),
+            'attend_presentation' => !empty($data['attend_presentation']) ? 1 : 0,
+            'keep_updated'        => !empty($data['keep_updated']) ? 1 : 0,
+            'notes'               => $data['notes'] ?? null,
+            'confirm_token'       => $token,
+            'status'              => $data['status'] ?? 'pending_confirmation',
+            'distribution_status' => $data['distribution_status'] ?? 'pending',
+            'confirmed_at'        => ($data['status'] ?? '') === 'confirmed' ? current_time('mysql') : null,
+        ]);
+        return ['id' => (int) $wpdb->insert_id, 'token' => $token];
+    }
+
+    public static function get_book_order(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE id = %d", $id
+        )) ?: null;
+    }
+
+    public static function get_book_order_by_token(string $token): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE confirm_token = %s", $token
+        )) ?: null;
+    }
+
+    public static function confirm_book_order(int $id): void {
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}avb_book_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
+            current_time('mysql'), $id
+        ));
+    }
+
+    public static function mark_book_order_email_result(int $id, bool $sent, string $error = ''): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_book_orders", [
+            'email_sent'  => (int) $sent,
+            'email_error' => $error,
+        ], ['id' => $id]);
+    }
+
+    public static function update_book_order_distribution(int $id, string $distribution_status): bool {
+        global $wpdb;
+        if (!in_array($distribution_status, ['pending', 'collected', 'distributed'], true)) {
+            return false;
+        }
+        $updated = $wpdb->update("{$wpdb->prefix}avb_book_orders", [
+            'distribution_status' => $distribution_status,
+        ], ['id' => $id]);
+        return $updated !== false;
+    }
+
+    public static function count_pending_distribution_book_orders(): int {
+        global $wpdb;
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_book_orders WHERE status = 'confirmed' AND distribution_status = 'pending'"
+        );
+    }
+
+    public static function get_book_orders_for_member(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE member_id = %d ORDER BY created_at DESC", $member_id
+        )) ?: [];
+    }
+
+    public static function create_book_fee_item(int $member_id, int $quantity, float $amount, string $book_title = ''): int {
+        global $wpdb;
+        $title = $book_title !== '' ? $book_title : (get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!');
+        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+            'member_id'   => $member_id,
+            'type'        => 'other',
+            'year'        => (int) current_time('Y'),
+            'activity_id' => null,
+            'category'    => 'book',
+            'description' => $title,
+            'amount_due'  => $amount,
+            'status'      => 'open',
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function get_member_active_address(int $member_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avm_addresses
+             WHERE member_id = %d AND (valid_until IS NULL OR valid_until >= %s)
+             ORDER BY valid_from DESC, id DESC LIMIT 1",
+            $member_id, current_time('Y-m-d')
+        )) ?: null;
+    }
+
+    public static function save_member_address(int $member_id, array $address_data): void {
+        global $wpdb;
+        $street       = trim((string) ($address_data['street'] ?? ''));
+        $house_number = trim((string) ($address_data['house_number'] ?? ''));
+        $postal_code  = trim((string) ($address_data['postal_code'] ?? ''));
+        $city         = trim((string) ($address_data['city'] ?? ''));
+        $country      = trim((string) ($address_data['country'] ?? 'Nederland')) ?: 'Nederland';
+
+        if ($street === '' && $postal_code === '' && $city === '') {
+            return;
+        }
+
+        $current = self::get_member_active_address($member_id);
+        if ($current) {
+            $same = (
+                strcasecmp($current->street, $street) === 0 &&
+                strcasecmp($current->house_number, $house_number) === 0 &&
+                strcasecmp(str_replace(' ', '', $current->postal_code), str_replace(' ', '', $postal_code)) === 0 &&
+                strcasecmp($current->city, $city) === 0 &&
+                strcasecmp($current->country, $country) === 0
+            );
+            if ($same) {
+                return;
+            }
+
+            // Close existing active address
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}avm_addresses
+                 SET valid_until = %s
+                 WHERE member_id = %d AND (valid_until IS NULL OR valid_until > %s)",
+                current_time('Y-m-d'), $member_id, current_time('Y-m-d')
+            ));
+        }
+
+        $wpdb->insert("{$wpdb->prefix}avm_addresses", [
+            'member_id'    => $member_id,
+            'street'       => $street,
+            'house_number' => $house_number,
+            'postal_code'  => $postal_code,
+            'city'         => $city,
+            'country'      => $country,
+            'valid_from'   => current_time('Y-m-d'),
+            'valid_until'  => null,
+        ]);
+    }
+
+    /**
+     * Get book orders with joined fee item and payment information.
+     */
+    public static function get_book_orders(array $args = []): array {
+        global $wpdb;
+        $where = ['1=1'];
+        $params = [];
+
+        if (!empty($args['status'])) {
+            $where[] = "o.status = %s";
+            $params[] = $args['status'];
+        }
+        if (!empty($args['distribution_status']) && $args['distribution_status'] !== 'all') {
+            $where[] = "o.distribution_status = %s";
+            $params[] = $args['distribution_status'];
+        }
+        if (!empty($args['presentation']) && $args['presentation'] === 'attend') {
+            $where[] = "o.attend_presentation = 1";
+        } elseif (!empty($args['presentation']) && $args['presentation'] === 'update') {
+            $where[] = "o.keep_updated = 1";
+        }
+        if (!empty($args['search'])) {
+            $like = '%' . $wpdb->esc_like(trim($args['search'])) . '%';
+            $where[] = "(o.first_name LIKE %s OR o.last_name LIKE %s OR o.email LIKE %s OR o.city LIKE %s)";
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $where_sql = implode(' AND ', $where);
+
+        $sql = "SELECT o.*,
+                       f.amount_due AS fee_amount_due,
+                       f.status AS fee_status,
+                       COALESCE(SUM(a.amount), 0) AS fee_paid
+                FROM {$wpdb->prefix}avb_book_orders o
+                LEFT JOIN {$wpdb->prefix}avb_fee_items f ON f.id = o.fee_item_id
+                LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.fee_item_id = f.id
+                WHERE {$where_sql}
+                GROUP BY o.id
+                ORDER BY o.created_at DESC";
+
+        if (!empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+
+        $results = $wpdb->get_results($sql) ?: [];
+
+        // Post-filter by payment status if requested
+        if (!empty($args['payment_status'])) {
+            $results = array_values(array_filter($results, function ($row) use ($args) {
+                $is_paid = $row->fee_status === 'waived' || ((float) $row->fee_paid >= (float) $row->total_amount - 0.005);
+                if ($args['payment_status'] === 'paid') {
+                    return $is_paid;
+                } elseif ($args['payment_status'] === 'open') {
+                    return !$is_paid;
+                }
+                return true;
+            }));
+        }
+
+        return $results;
     }
 
 }

@@ -1,0 +1,305 @@
+/* Styling for [avpvh_bk_book_order] flow */
+.avbk-book-order {
+    max-width: 860px;
+    margin: 1.5rem auto;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.avbk-book-intro-card {
+    background: #fdfaf5;
+    border: 1px solid #ebd8c1;
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-book-intro-card h3 {
+    margin-top: 0;
+    margin-bottom: .75rem;
+    color: #4a3525;
+}
+
+.avbk-book-flaptekst {
+    font-style: italic;
+    color: #333;
+    line-height: 1.6;
+}
+
+.avbk-book-notice {
+    padding: .85rem 1.15rem;
+    margin-bottom: 1.25rem;
+    border-radius: 4px;
+}
+
+.avbk-book-notice-info {
+    background: #eef5fa;
+    border-left: 4px solid #2271b1;
+    color: #1a3c5a;
+}
+
+.avbk-book-notice-price {
+    background: #fcf9e8;
+    border-left: 4px solid #d4af37;
+    color: #53450e;
+    font-size: 1.05rem;
+}
+
+.avbk-book-price-note {
+    font-size: .95rem;
+    font-weight: normal;
+    color: #6c5a17;
+    margin-left: .5rem;
+}
+
+.avbk-book-notice-success {
+    background: #edfaef;
+    border-left: 4px solid #00a32a;
+    color: #14521e;
+}
+
+.avbk-book-error {
+    background: #fbeaea;
+    border-left: 4px solid #d63638;
+    color: #721c24;
+}
+
+.avbk-book-warning {
+    background: #fff8e5;
+    border-left: 4px solid #dba617;
+    color: #614700;
+}
+
+.avbk-book-login-banner {
+    background: #f0f6fc;
+    border: 1px solid #c8d7e1;
+    border-radius: 6px;
+    padding: .85rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-book-member-box {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: .85rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.avbk-book-member-identity {
+    margin: 0 0 .25rem;
+    font-size: 1.05rem;
+}
+
+.avbk-book-subtext {
+    margin: 0;
+    font-size: .9rem;
+    color: #555;
+}
+
+.avbk-book-fieldset {
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    background: #fff;
+}
+
+.avbk-book-fieldset legend {
+    font-weight: 600;
+    padding: 0 .5rem;
+    color: #1d2327;
+}
+
+.avbk-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: .75rem;
+}
+
+.avbk-form-row-2 .avbk-form-field {
+    flex: 1 1 240px;
+}
+
+.avbk-form-row-3 .avbk-form-field {
+    flex: 1 1 180px;
+}
+
+.avbk-form-field {
+    margin: 0 0 .75rem;
+}
+
+.avbk-form-field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: .3rem;
+    font-size: .95rem;
+}
+
+.avbk-form-field input[type="text"],
+.avbk-form-field input[type="email"],
+.avbk-form-field input[type="tel"],
+.avbk-form-field select,
+.avbk-form-field textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: .5rem .65rem;
+    font-size: 1rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+.avbk-form-field select {
+    max-width: 340px;
+}
+
+.avbk-book-presentation-box {
+    background: #fbfbfb;
+    border: 1px solid #e2e4e7;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+}
+
+.avbk-book-presentation-box h4 {
+    margin: 0 0 .5rem;
+    color: #1d2327;
+}
+
+.avbk-book-presentation-desc {
+    margin: 0 0 .75rem;
+    font-size: .95rem;
+    color: #555;
+}
+
+.avbk-checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    margin-bottom: .6rem;
+    cursor: pointer;
+    font-size: .95rem;
+}
+
+.avbk-checkbox-row input[type="checkbox"] {
+    margin-top: .25rem;
+}
+
+.avbk-book-submit-wrap {
+    margin-top: 1.5rem;
+}
+
+.avbk-book-submit-btn {
+    font-size: 1.1rem;
+    padding: .65rem 1.75rem;
+    cursor: pointer;
+}
+
+/* Confirmation and Summary views */
+.avbk-book-summary-box {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+}
+
+.avbk-book-summary-box h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.avbk-book-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.avbk-book-summary-table th,
+.avbk-book-summary-table td {
+    padding: .5rem .75rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.avbk-book-summary-table th {
+    width: 220px;
+    color: #50575e;
+    font-weight: 600;
+}
+
+.avbk-book-payment-box {
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.avbk-book-payment-box h3 {
+    margin-top: 0;
+}
+
+.avbk-book-amount-due {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.avbk-book-qr-render {
+    max-width: 200px;
+    margin: 1rem auto;
+}
+
+.avbk-book-qr-render svg {
+    width: 100%;
+    height: auto;
+}
+
+.avbk-book-qr-hint {
+    max-width: 500px;
+    margin: .5rem auto;
+    font-size: .95rem;
+    color: #444;
+}
+
+.avbk-book-qr-ref {
+    max-width: 540px;
+    margin: 1rem auto 0;
+    font-size: .9rem;
+    color: #555;
+    background: #fff;
+    padding: .75rem 1rem;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.avbk-book-paid-badge {
+    background: #edfaef;
+    border: 1px solid #68de7c;
+    border-radius: 6px;
+    padding: 1rem;
+    color: #14521e;
+    font-size: 1.1rem;
+}
+
+.avbk-book-profile-section {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin-top: 1.5rem;
+}
+
+.avbk-book-profile-section h3 {
+    margin-top: 0;
+}
+
+.avbk-book-oauth-providers {
+    margin-top: .75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
