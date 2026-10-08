@@ -72,7 +72,11 @@
    selector outweighs a class), so it silently overrode our padding/height
    here even though this rule appears later in the cascade — that's what
    made the "Filter…" box render taller than the "Alle" button next to it
-   despite both declaring the same height. */
+   despite both declaring the same height.
+   A later WP core update added input[type="text"] { min-height: 40px; }
+   (forms.min.css) — min-height isn't the same property as height, so
+   !important on height alone doesn't stop it clamping the box back up to
+   40px regardless; min-height must be overridden explicitly too. */
 input.avbk-filter-control,
 .avbk-checklist-toggle {
     box-sizing: border-box !important;
@@ -82,6 +86,7 @@ input.avbk-filter-control,
        to fit its data, just no longer its filter control too. */
     width: 9em !important;
     height: 1.7rem !important;
+    min-height: 0 !important;
     line-height: 1.7rem !important;
     margin: 0 !important;
     padding: 0 .3rem !important;
