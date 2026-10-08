@@ -306,6 +306,13 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <p class="description">Tekst boven de QR-code in de "Vraag om betaling"-e-mail.</p>
                 </td>
             </tr>
+            <tr>
+                <th><label for="generic_payment_link_text">Tekst bij generieke betaalverzoeklink</label></th>
+                <td>
+                    <textarea id="generic_payment_link_text" name="generic_payment_link_text" rows="3" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_generic_payment_link_text', '') ?: AVBK_Admin::DEFAULT_GENERIC_PAYMENT_LINK_TEXT); ?></textarea>
+                    <p class="description">Gebruik <code>[link]</code> voor de betaalverzoeklink zelf. Wordt toegevoegd via de knop "Betaalverzoeklink toevoegen" bij het opstellen van een "Vraag om betaling"-e-mail.</p>
+                </td>
+            </tr>
         </table>
         <?php submit_button('Instellingen opslaan'); ?>
     </form>
