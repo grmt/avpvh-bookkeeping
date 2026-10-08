@@ -39,6 +39,16 @@ defined('ABSPATH') || exit;
  *                   attendee, for a bill where every person owes a
  *                   different amount (e.g. a drankrekening: each camper's
  *                   own drink total) rather than one shared ticket price
+ *       'newsletter' => column letter for a nieuwsbrief-opt-in question
+ *                   (optional) — when set, every matched attendee's
+ *                   answer is written straight onto their member record
+ *                   as the existing 'nieuwsbrief' kenmerk (see
+ *                   AVPVH_DB::set_member_flag_by_slug()), the same flag
+ *                   the self-service profile-page checkbox uses. Left
+ *                   blank (not configured) never touches the flag at
+ *                   all — only set it when the Form actually asked the
+ *                   question, never defaulted to "no" for every other
+ *                   activity's sign-ups.
  *   'header_cache'      => [letter => header text, ...] from the most recent
  *                          successful fetch/upload — lets the settings page
  *                          show real column headings even for a file-upload
@@ -239,6 +249,9 @@ class AVBK_Sheet_Import {
                 if ($amount > 0) {
                     AVBK_DB::upsert_event_fee_item((int) $member->id, $description, $amount, $activity_id);
                 }
+                if ($attendee['newsletter'] !== null) {
+                    AVPVH_DB::set_member_flag_by_slug((int) $member->id, 'nieuwsbrief', $attendee['newsletter']);
+                }
                 $matched[] = [
                     'name'        => $attendee['name'],
                     'email'       => $attendee['email'],
@@ -424,17 +437,37 @@ class AVBK_Sheet_Import {
             if ($name === '' && $email === '') {
                 continue;
             }
+            $newsletter_column = $slot['newsletter'] ?? '';
             $attendees[] = [
                 'name'      => $name,
                 'email'     => $email,
                 'allergies' => self::cell($cells, $slot['diet'] ?? ''),
                 'notes'     => self::cell($cells, $slot['notes'] ?? ''),
                 'amount'    => AVBK_Matcher::parse_amount(self::cell($cells, $slot['amount'] ?? '')),
+                // null (column not configured for this slot) must stay
+                // distinct from false (configured, and this person said
+                // no) — only the former means "don't touch the flag".
+                'newsletter' => $newsletter_column !== '' ? self::parse_newsletter_answer(self::cell($cells, $newsletter_column)) : null,
                 'registered_at'   => $registered_at,
                 'source_timestamp' => $source_timestamp,
             ];
         }
         return $attendees;
+    }
+
+    /**
+     * A Google Forms nieuwsbrief-question can be a Ja/Nee multiple-choice
+     * (cell always holds one of those two literal words) or a single
+     * checkbox with no "Nee" option at all (an unchecked box exports as an
+     * empty cell, a checked one exports its own label text verbatim, e.g.
+     * "Stuur mij de nieuwsbrief"). Both are handled the same way: anything
+     * that isn't blank or an explicit negative counts as "yes", so a
+     * checkbox's own custom label is never mistaken for "no".
+     */
+    private static function parse_newsletter_answer(string $raw): bool {
+        $normalized = strtolower(remove_accents(trim($raw)));
+        $negative = ['', 'nee', 'no', 'n', 'nvt', 'n.v.t.', '0', 'false'];
+        return !in_array($normalized, $negative, true);
     }
 
     /**
