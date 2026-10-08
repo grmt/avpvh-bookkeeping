@@ -137,6 +137,10 @@ class AVBK_Admin {
         if (str_contains($hook, 'avbk-import') || str_contains($hook, 'avbk-activity-payments')) {
             wp_enqueue_script('avbk-import', AVBK_PLUGIN_URL . 'assets/import.js', [], avbk_asset_version('assets/import.js'), true);
         }
+        if (str_contains($hook, 'avbk-activity-payments')) {
+            wp_enqueue_style('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.css', [], avbk_asset_version('assets/activity-picker.css'));
+            wp_enqueue_script('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.js', [], avbk_asset_version('assets/activity-picker.js'), true);
+        }
     }
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
