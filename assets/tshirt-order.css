@@ -145,13 +145,25 @@
 }
 
 .avbk-tshirt-design-select,
+.avbk-tshirt-color-select,
 .avbk-tshirt-size-select {
     width: 100%;
-    max-width: 260px;
     padding: 6px 10px;
     font-size: .95rem;
     border: 1px solid #8c8f94;
     border-radius: 4px;
+}
+
+.avbk-tshirt-design-select {
+    max-width: 240px;
+}
+
+.avbk-tshirt-color-select {
+    max-width: 140px;
+}
+
+.avbk-tshirt-size-select {
+    max-width: 110px;
 }
 
 .avbk-tshirt-qty-input {

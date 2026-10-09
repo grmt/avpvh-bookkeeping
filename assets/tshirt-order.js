@@ -22,11 +22,28 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function getRowUnitPrice(row) {
+        const designSelect = row.querySelector('.avbk-tshirt-design-select');
+        if (designSelect && designSelect.selectedOptions && designSelect.selectedOptions[0]) {
+            const opt = designSelect.selectedOptions[0];
+            const p = parseFloat(opt.getAttribute('data-price'));
+            if (!isNaN(p) && p > 0) {
+                return p;
+            }
+        }
+        return unitPrice;
+    }
+
     function updateRowSubtotal(row) {
         const qtyInput = row.querySelector('.avbk-tshirt-qty-input');
+        const priceSpan = row.querySelector('.avbk-price-val');
         const subtotalSpan = row.querySelector('.avbk-subtotal-val');
         const qty = Math.max(1, parseInt(qtyInput ? qtyInput.value : 1, 10) || 1);
-        const subtotal = qty * unitPrice;
+        const rowUnitPrice = getRowUnitPrice(row);
+        if (priceSpan) {
+            priceSpan.textContent = formatEur(rowUnitPrice);
+        }
+        const subtotal = qty * rowUnitPrice;
         if (subtotalSpan) {
             subtotalSpan.textContent = formatEur(subtotal);
         }
@@ -38,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function () {
         rows.forEach(function (row) {
             const qtyInput = row.querySelector('.avbk-tshirt-qty-input');
             const qty = Math.max(1, parseInt(qtyInput ? qtyInput.value : 1, 10) || 1);
-            total += qty * unitPrice;
+            total += qty * getRowUnitPrice(row);
         });
         grandTotalVal.textContent = formatEur(total);
         updateRemoveButtonsVisibility();
@@ -55,6 +72,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function attachRowEvents(row) {
+        const designSelect = row.querySelector('.avbk-tshirt-design-select');
+        if (designSelect) {
+            designSelect.addEventListener('change', function () {
+                updateRowSubtotal(row);
+                updateGrandTotal();
+            });
+        }
+
         const qtyInput = row.querySelector('.avbk-tshirt-qty-input');
         if (qtyInput) {
             qtyInput.addEventListener('input', function () {

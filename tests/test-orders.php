@@ -549,13 +549,16 @@ $html = $controller->render();
 
 check(str_contains($html, 'Lustrum T-shirts 50 jaar'), 'Form contains title heading');
 check(str_contains($html, 'Beschikbare designs'), 'Form displays designs gallery');
-check(str_contains($html, 'Jubileumlogo 50 jaar (Zwart)'), 'Form lists active design 1');
+check(str_contains($html, 'Jubileumlogo 50 jaar (T-shirt)'), 'Form lists active design 1');
 check(str_contains($html, 'avbk-tshirt-items-table'), 'Form renders line items table repeater');
 check(str_contains($html, 'avbk-add-shirt-btn'), 'Form contains "+ Extra T-shirt toevoegen" button');
 check(str_contains($html, 'avbk-book-check-email-box'), 'Form contains email check banner for guests');
+check(str_contains($html, 'bestellen verplicht tot betaling'), 'Form mentions payment obligation');
+check(str_contains($html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
+check(str_contains($html, 'avbk-tshirt-color-select'), 'Form contains color selection column');
 
 // -------------------------------------------------------------
-// Test 5: Guest checkout with line items
+// Test 5: Guest checkout with line items (with colors and per-design prices)
 // -------------------------------------------------------------
 $_POST = [
     '_wpnonce'     => 'test-nonce',
@@ -572,11 +575,13 @@ $_POST = [
     'items'        => [
         [
             'design'   => 'jubileum_zwart',
+            'color'    => 'Zwart',
             'size'     => 'M',
             'quantity' => '1',
         ],
         [
             'design'   => 'pvh_navy',
+            'color'    => 'Donkergroen',
             'size'     => 'S',
             'quantity' => '2',
         ],
@@ -594,12 +599,13 @@ check(count($GLOBALS['sent_mails']) === 1, 'Verification email sent to guest');
 $mail = end($GLOBALS['sent_mails']);
 check($mail['to'] === 'emma@example.test', 'Email sent to correct guest address');
 check(str_contains($mail['body'], 'tshirt_token='), 'Email contains unique confirmation link with tshirt_token');
-check(str_contains($mail['body'], '3 T-shirt(s)'), 'Email mentions 3 T-shirt(s)');
+check(str_contains($mail['body'], '3 kledingstuk(ken)'), 'Email mentions 3 kledingstuk(ken)');
+check(str_contains($mail['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
 
 $last_order = end($GLOBALS['wpdb']->orders);
 check($last_order->status === 'pending_confirmation', 'Guest order starts as pending_confirmation');
 check((int) $last_order->quantity === 3, 'Guest order quantity is 3');
-check((float) $last_order->total_amount === 52.50, 'Guest order total amount is 52.50');
+check((float) $last_order->total_amount === 63.00, 'Guest order total amount is 63.00 (1x21 + 2x21)');
 
 // -------------------------------------------------------------
 // Test 6: Confirming order via token
@@ -611,8 +617,9 @@ unset($_GET['tshirt_token']);
 check(str_contains($confirm_html, 'Bestelling bevestigd'), 'Confirmation screen rendered');
 check(str_contains($confirm_html, 'Emma'), 'Confirmation greets customer');
 check(str_contains($confirm_html, 'Beekstraat 5'), 'Registered address displayed');
-check(str_contains($confirm_html, 'Jubileumlogo 50 jaar (Zwart)'), 'Summary table shows item 1');
-check(str_contains($confirm_html, 'Archeologie Philips van Horne (Navy)'), 'Summary table shows item 2');
+check(str_contains($confirm_html, 'Jubileumlogo 50 jaar (T-shirt) (Zwart)'), 'Summary table shows item 1 with color');
+check(str_contains($confirm_html, 'Archeologie Philips van Horne (T-shirt) (Donkergroen)'), 'Summary table shows item 2 with color');
+check(str_contains($confirm_html, 'Bestellen betekent betalen'), 'Confirmation states payment commitment');
 check($last_order->status === 'confirmed', 'Visiting confirmation link confirms order in database');
 
 // -------------------------------------------------------------
@@ -631,6 +638,7 @@ $_POST = [
     'items'        => [
         [
             'design'   => 'dgeen_wit',
+            'color'    => 'Wit',
             'size'     => 'XL',
             'quantity' => '2',
         ],
@@ -647,7 +655,7 @@ try {
 $member_order = end($GLOBALS['wpdb']->orders);
 check($member_order->status === 'confirmed', 'Member order confirmed immediately');
 check((int) $member_order->quantity === 2, 'Member order quantity is 2');
-check((float) $member_order->total_amount === 35.00, 'Member order total amount is 35.00');
+check((float) $member_order->total_amount === 35.00, 'Member order total amount is 35.00 (fallback unit price)');
 check((int) $member_order->member_id === 1, 'Order linked to member ID 1');
 
 // -------------------------------------------------------------
@@ -671,4 +679,76 @@ try {
 }
 check($member_order->distribution_status === 'collected', 'Order distribution status updated to collected');
 
+// -------------------------------------------------------------
+// Test 9: Guest order with empty address succeeds (address is optional)
+// -------------------------------------------------------------
+$GLOBALS['current_user_id'] = 0;
+$_POST = [
+    '_wpnonce'     => 'test-nonce',
+    'first_name'   => 'Fleur',
+    'suffix'       => '',
+    'last_name'    => 'Willems',
+    'email'        => 'fleur@example.test',
+    'street'       => '',
+    'house_number' => '',
+    'postal_code'  => '',
+    'city'         => '',
+    'items'        => [
+        [
+            'design'   => 'jubileum_hoodie',
+            'color'    => 'Beige',
+            'size'     => 'L',
+            'quantity' => '1',
+        ],
+    ],
+];
+
+try {
+    $controller->handle_order();
+    check(false, 'Expected redirect after guest order without address');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'tshirt_ordered=1'), 'Guest order without address succeeds');
+}
+
+$no_addr_order = end($GLOBALS['wpdb']->orders);
+check(empty($no_addr_order->street), 'Order has empty street');
+check((float) $no_addr_order->total_amount === 35.00, 'Hoodie price is 35.00');
+
+// Confirmation view without address does not render address row
+$_GET['tshirt_token'] = $no_addr_order->confirm_token;
+$no_addr_confirm = $controller->render();
+unset($_GET['tshirt_token']);
+check(!str_contains($no_addr_confirm, 'Geregistreerd adres:'), 'Confirmation view omits address row when address is empty');
+
+// -------------------------------------------------------------
+// Test 10: Guest order fails when name or email is missing
+// -------------------------------------------------------------
+$_POST = [
+    '_wpnonce'     => 'test-nonce',
+    'first_name'   => '',
+    'last_name'    => 'Willems',
+    'email'        => 'fleur@example.test',
+    'items'        => [
+        ['design' => 'jubileum_zwart', 'size' => 'M', 'quantity' => '1'],
+    ],
+];
+
+try {
+    $controller->handle_order();
+    check(false, 'Expected redirect on missing first_name');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'tshirt_error=missing_fields'), 'Guest order fails when first_name is empty');
+}
+
+$_POST['first_name'] = 'Fleur';
+$_POST['email'] = 'invalid-email';
+
+try {
+    $controller->handle_order();
+    check(false, 'Expected redirect on invalid email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'tshirt_error=invalid_email'), 'Guest order fails when email is invalid');
+}
+
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
+

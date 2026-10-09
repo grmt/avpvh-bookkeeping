@@ -2502,17 +2502,22 @@ class AVBK_Admin {
         if (isset($_POST['tshirt_sizes'])) {
             update_option('avbk_tshirt_sizes', sanitize_text_field(wp_unslash($_POST['tshirt_sizes'] ?? '')));
         }
+        if (isset($_POST['tshirt_colors'])) {
+            update_option('avbk_tshirt_colors', sanitize_text_field(wp_unslash($_POST['tshirt_colors'] ?? '')));
+        }
         if (isset($_POST['tshirt_designs']) && is_array($_POST['tshirt_designs'])) {
             $sanitized_designs = [];
             foreach ($_POST['tshirt_designs'] as $d) {
                 $id = sanitize_key($d['id'] ?? '');
                 $name = sanitize_text_field(wp_unslash($d['name'] ?? ''));
                 if ($name === '') continue;
+                $p = isset($d['price']) && $d['price'] !== '' ? (float) $d['price'] : null;
                 $sanitized_designs[] = [
                     'id'          => $id ?: sanitize_key($name),
                     'name'        => $name,
                     'description' => sanitize_text_field(wp_unslash($d['description'] ?? '')),
                     'image'       => esc_url_raw(wp_unslash($d['image'] ?? '')),
+                    'price'       => $p,
                     'active'      => !empty($d['active']) ? 1 : 0,
                 ];
             }

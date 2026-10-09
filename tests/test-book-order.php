@@ -595,6 +595,8 @@ check(str_contains($form_html, 'Over het boek'), 'Order form contains book flapt
 check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contains 2027 presentation section');
 check(str_contains($form_html, 'in principe niet per post verzonden'), 'Order form includes distribution notice');
 check(str_contains($form_html, '35,00'), 'Order form displays 35,00 price');
+check(str_contains($form_html, 'bestellen verplicht tot betaling'), 'Order form mentions payment obligation');
+check(str_contains($form_html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
 check(str_contains($form_html, 'Weet je niet of je al bekend bent'), 'Order form contains email check banner prompt');
 check(str_contains($form_html, 'name="check_email"'), 'Order form contains check_email input field');
@@ -639,6 +641,7 @@ try {
 check(count($GLOBALS['sent_mails']) === 1, 'Confirmation email dispatched to guest');
 check(str_contains($GLOBALS['sent_mails'][0]['to'], 'cas@example.test'), 'Email sent to correct guest recipient');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'book_token='), 'Email contains unique token confirmation link');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
 
 $_GET = ['book_ordered' => '1'];
 $thanks_html = $book_order->render();
@@ -654,10 +657,71 @@ $conf_html = $book_order->render();
 check(str_contains($conf_html, 'Bestelling bevestigd'), 'Confirmation view displayed');
 check(str_contains($conf_html, 'Molenweg 5'), 'Confirmation view shows registered address');
 check(str_contains($conf_html, 'Cas'), 'Confirmation view greets customer');
+check(str_contains($conf_html, 'Bestellen betekent betalen'), 'Confirmation view states payment commitment');
 check(!str_contains($conf_html, 'Zowel leden als bezoekers hebben een eigen profiel'), 'Confirmation view does NOT contain profile explanation');
 check(!str_contains($conf_html, 'Profiel en overzicht'), 'Confirmation view does NOT contain Profiel en overzicht heading');
 $refreshed_guest_order = AVBK_DB::get_book_order($guest_order->id);
 check($refreshed_guest_order->status === 'confirmed', 'Viewing confirmation page marks order as confirmed');
+
+// 11b. Guest order with empty address succeeds (address is optional)
+$GLOBALS['current_user_id'] = 0;
+$_POST = [
+    'action' => 'avbk_book_order',
+    '_wpnonce' => 'test-nonce',
+    'page_url' => 'https://example.test/jubileumboek/',
+    'website' => '',
+    'first_name' => 'Lisa',
+    'suffix' => '',
+    'last_name' => 'Bakker',
+    'email' => 'lisa@example.test',
+    'street' => '',
+    'house_number' => '',
+    'postal_code' => '',
+    'city' => '',
+    'quantity' => '1',
+];
+
+try {
+    $book_order->handle_order();
+    check(false, 'Expected redirect after guest order without address');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'book_ordered=1'), 'Guest order without address succeeds');
+}
+
+$no_addr_book = end($GLOBALS['wpdb']->book_orders);
+check(empty($no_addr_book->street), 'Book order has empty street');
+
+$_GET = ['book_token' => $no_addr_book->confirm_token];
+$no_addr_conf = $book_order->render();
+unset($_GET['book_token']);
+check(!str_contains($no_addr_conf, 'Geregistreerd adres:'), 'Confirmation view omits address row when address is empty');
+
+// 11c. Guest order fails when first_name or last_name or email is invalid
+$_POST = [
+    'action' => 'avbk_book_order',
+    '_wpnonce' => 'test-nonce',
+    'first_name' => '',
+    'last_name' => 'Bakker',
+    'email' => 'lisa@example.test',
+    'quantity' => '1',
+];
+
+try {
+    $book_order->handle_order();
+    check(false, 'Expected redirect on missing first_name');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'book_error=missing_fields'), 'Guest book order fails when first_name is empty');
+}
+
+$_POST['first_name'] = 'Lisa';
+$_POST['email'] = 'bad-email';
+
+try {
+    $book_order->handle_order();
+    check(false, 'Expected redirect on invalid email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'book_error=invalid_email'), 'Guest book order fails when email is invalid');
+}
 
 // 12. Logged-in member order submission flow
 reset_test_env();

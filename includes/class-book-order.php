@@ -79,7 +79,7 @@ class AVBK_Book_Order {
 
             <?php if ($error === 'missing_fields') : ?>
                 <div class="avbk-book-notice avbk-book-error">
-                    Vul alle verplichte velden in (inclusief je adres).
+                    Vul alle verplichte velden in: voornaam, achternaam en een geldig e-mailadres.
                 </div>
             <?php elseif ($error === 'invalid_email') : ?>
                 <div class="avbk-book-notice avbk-book-error">
@@ -105,6 +105,7 @@ class AVBK_Book_Order {
             <div class="avbk-book-notice avbk-book-notice-price">
                 <strong>Prijs:</strong> &euro;&nbsp;<?php echo esc_html(number_format($price, 2, ',', '.')); ?> per exemplaar.
                 <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
+                <span class="avbk-book-price-note" style="display:block; margin-top:.35rem; font-weight:600; color:#856404;">Let op: bestellen verplicht tot betaling.</span>
             </div>
 
             <?php if (!$member) : ?>
@@ -202,29 +203,30 @@ class AVBK_Book_Order {
                 <?php endif; ?>
 
                 <fieldset class="avbk-book-fieldset">
-                    <legend>Adresgegevens *</legend>
+                    <legend>Adresgegevens (optioneel)</legend>
+                    <p class="description" style="margin: 0 0 1rem; color: #646970;">Optioneel: alleen nodig indien het boek per post verzonden moet worden omdat afhalen of uitreiken niet mogelijk is.</p>
                     <div class="avbk-form-row avbk-form-row-2">
                         <p class="avbk-form-field avbk-form-field-street">
-                            <label for="avbk_street">Straat *</label>
-                            <input type="text" id="avbk_street" name="street" value="<?php echo esc_attr($existing_address->street ?? ''); ?>" required>
+                            <label for="avbk_street">Straat</label>
+                            <input type="text" id="avbk_street" name="street" value="<?php echo esc_attr($existing_address->street ?? ''); ?>">
                         </p>
                         <p class="avbk-form-field avbk-form-field-housenr">
-                            <label for="avbk_house_number">Huisnummer *</label>
-                            <input type="text" id="avbk_house_number" name="house_number" value="<?php echo esc_attr($existing_address->house_number ?? ''); ?>" required>
+                            <label for="avbk_house_number">Huisnummer</label>
+                            <input type="text" id="avbk_house_number" name="house_number" value="<?php echo esc_attr($existing_address->house_number ?? ''); ?>">
                         </p>
                     </div>
                     <div class="avbk-form-row avbk-form-row-3">
                         <p class="avbk-form-field">
-                            <label for="avbk_postal_code">Postcode *</label>
-                            <input type="text" id="avbk_postal_code" name="postal_code" value="<?php echo esc_attr($existing_address->postal_code ?? ''); ?>" required>
+                            <label for="avbk_postal_code">Postcode</label>
+                            <input type="text" id="avbk_postal_code" name="postal_code" value="<?php echo esc_attr($existing_address->postal_code ?? ''); ?>">
                         </p>
                         <p class="avbk-form-field">
-                            <label for="avbk_city">Woonplaats *</label>
-                            <input type="text" id="avbk_city" name="city" value="<?php echo esc_attr($existing_address->city ?? ''); ?>" required>
+                            <label for="avbk_city">Woonplaats</label>
+                            <input type="text" id="avbk_city" name="city" value="<?php echo esc_attr($existing_address->city ?? ''); ?>">
                         </p>
                         <p class="avbk-form-field">
                             <label for="avbk_country">Land</label>
-                            <input type="text" id="avbk_country" name="country" value="<?php echo esc_attr($existing_address->country ?? 'Nederland'); ?>" required>
+                            <input type="text" id="avbk_country" name="country" value="<?php echo esc_attr($existing_address->country ?? 'Nederland'); ?>">
                         </p>
                     </div>
                 </fieldset>
@@ -259,8 +261,13 @@ class AVBK_Book_Order {
                     </p>
                 </fieldset>
 
+                <div class="avbk-order-commitment-box">
+                    <strong>Let op: Bestellen betekent betalen!</strong><br>
+                    Met het afronden van je bestelling ga je een betalingsverplichting aan. Na het plaatsen ontvang je direct de betaalinstructies (via bankoverschrijving of iDEAL QR-code) om het bedrag over te maken.
+                </div>
+
                 <div class="avbk-book-submit-wrap">
-                    <button type="submit" class="button button-primary avbk-book-submit-btn">Bestelling plaatsen</button>
+                    <button type="submit" class="button button-primary avbk-book-submit-btn">Bestelling plaatsen (met betaalverplichting) &rarr;</button>
                 </div>
             </form>
             <?php if (!$member) : ?>
@@ -391,10 +398,12 @@ class AVBK_Book_Order {
                         <th>Totaalbedrag:</th>
                         <td><strong>&euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></strong></td>
                     </tr>
-                    <tr>
-                        <th>Geregistreerd adres:</th>
-                        <td><?php echo esc_html($order->street . ' ' . $order->house_number . ', ' . $order->postal_code . ' ' . $order->city . ', ' . $order->country); ?></td>
-                    </tr>
+                    <?php if (!empty($order->street) || !empty($order->city)) : ?>
+                        <tr>
+                            <th>Geregistreerd adres:</th>
+                            <td><?php echo esc_html(trim($order->street . ' ' . $order->house_number . ', ' . $order->postal_code . ' ' . $order->city . ', ' . $order->country, ', ')); ?></td>
+                        </tr>
+                    <?php endif; ?>
                     <tr>
                         <th>Bezorging / Distributie:</th>
                         <td><em><?php echo esc_html($distribution_notice); ?></em></td>
@@ -421,20 +430,26 @@ class AVBK_Book_Order {
                     <div class="avbk-book-paid-badge">
                         <p><strong>&#10004; Betaald!</strong> Deze bestelling is voldaan. Bedankt voor je betaling.</p>
                     </div>
-                <?php elseif ($qr) : ?>
-                    <p class="avbk-book-amount-due">Nog te betalen: <strong>&euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></strong></p>
-                    <div class="avbk-book-qr-render">
-                        <?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode ?>
-                    </div>
-                    <p class="avbk-book-qr-hint">Gebruik de scanfunctie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling direct klaar te zetten.</p>
-                    <p class="avbk-book-qr-ref">
-                        Bij een handmatige overschrijving:<br>
-                        IBAN: <code><?php echo esc_html(get_option('avbk_club_iban', '')); ?></code> t.n.v. <code><?php echo esc_html(get_option('avbk_club_name', '')); ?></code><br>
-                        Referentie: <strong><code><?php echo esc_html((class_exists('AVBK_QR') ? AVBK_QR::fee_reference_code((int) $order->member_id, [(int) $fee_item->id]) : ('PVH-' . $order->member_id)) . ': ' . $fee_item->description); ?></code></strong>
-                    </p>
                 <?php else : ?>
-                    <p>Bedrag: &euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></p>
-                    <p>Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) voor betalingsinstructies.</p>
+                    <div class="avbk-book-notice avbk-book-warning" style="margin-bottom: 1.25rem;">
+                        <p><strong>Let op: Bestellen betekent betalen.</strong> Met deze bestelling is een betalingsverplichting ontstaan. Voldoe het openstaande bedrag van &euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?> z.s.m. via onderstaande instructies.</p>
+                    </div>
+
+                    <?php if ($qr) : ?>
+                        <p class="avbk-book-amount-due">Nog te betalen: <strong>&euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></strong></p>
+                        <div class="avbk-book-qr-render">
+                            <?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode ?>
+                        </div>
+                        <p class="avbk-book-qr-hint">Gebruik de scanfunctie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling direct klaar te zetten.</p>
+                        <p class="avbk-book-qr-ref">
+                            Bij een handmatige overschrijving:<br>
+                            IBAN: <code><?php echo esc_html(get_option('avbk_club_iban', '')); ?></code> t.n.v. <code><?php echo esc_html(get_option('avbk_club_name', '')); ?></code><br>
+                            Referentie: <strong><code><?php echo esc_html((class_exists('AVBK_QR') ? AVBK_QR::fee_reference_code((int) $order->member_id, [(int) $fee_item->id]) : ('PVH-' . $order->member_id)) . ': ' . $fee_item->description); ?></code></strong>
+                        </p>
+                    <?php else : ?>
+                        <p>Bedrag: &euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></p>
+                        <p>Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) voor betalingsinstructies.</p>
+                    <?php endif; ?>
                 <?php endif; ?>
             <?php if (is_user_logged_in()) : ?>
                 <p class="avbk-book-back-profile" style="margin-top:2rem;">
@@ -474,11 +489,6 @@ class AVBK_Book_Order {
         $keep_updated        = !empty($_POST['keep_updated']) ? 1 : 0;
         $notes               = sanitize_textarea_field(wp_unslash($_POST['notes'] ?? ''));
 
-        if ($street === '' || $house_number === '' || $postal_code === '' || $city === '') {
-            wp_safe_redirect(add_query_arg('book_error', 'missing_fields', $page_url));
-            exit;
-        }
-
         $member_id = 0;
         $first_name = '';
         $suffix = '';
@@ -511,8 +521,8 @@ class AVBK_Book_Order {
             $member_id = (int) ($match['member_id'] ?? 0);
         }
 
-        // Save member address to avm_addresses
-        if ($member_id > 0) {
+        // Save member address to avm_addresses only if provided
+        if ($member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
             AVBK_DB::save_member_address($member_id, [
                 'street'       => $street,
                 'house_number' => $house_number,
@@ -562,7 +572,12 @@ class AVBK_Book_Order {
         if ($member) {
             // Send courtesy confirmation mail
             $subject = "Bevestiging bestelling {$book_title}";
-            $body = "Beste {$first_name},\n\nBedankt voor je bestelling van {$quantity} exemplaar/exemplaren van '{$book_title}'.\n\nJe bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\nMet vriendelijke groet,\nAV Philips van Horne";
+            $body = "Beste {$first_name},\n\n"
+                . "Bedankt voor je bestelling van {$quantity} exemplaar/exemplaren van '{$book_title}'.\n\n"
+                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+                . "Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).\n"
+                . "Je bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\n"
+                . "Met vriendelijke groet,\nAV Philips van Horne";
             wp_mail($email, $subject, $body);
 
             wp_safe_redirect($confirm_link);
@@ -571,7 +586,12 @@ class AVBK_Book_Order {
 
         // For non-logged-in visitors: send confirmation email with token
         $subject = "Bevestig je bestelling &mdash; {$book_title}";
-        $body = "Beste {$first_name},\n\nBedankt voor je bestelling van '{$book_title}'.\n\nKlik op onderstaande link om je bestelling te bevestigen en de QR-code voor betaling te openen:\n{$confirm_link}\n\nMet vriendelijke groet,\nAV Philips van Horne";
+        $body = "Beste {$first_name},\n\n"
+            . "Bedankt voor je bestelling van '{$book_title}'.\n\n"
+            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+            . "Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).\n"
+            . "Klik op onderstaande link om je bestelling definitief te bevestigen en de QR-code voor betaling te openen:\n{$confirm_link}\n\n"
+            . "Met vriendelijke groet,\nAV Philips van Horne";
 
         $mail_error = '';
         $capture_error = function ($wp_error) use (&$mail_error) {

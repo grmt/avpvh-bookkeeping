@@ -572,13 +572,14 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <?php
         $designs = AVBK_Tshirt_Order::get_available_designs();
         $sizes_str = get_option('avbk_tshirt_sizes', implode(', ', AVBK_Tshirt_Order::DEFAULT_SIZES));
+        $colors_str = get_option('avbk_tshirt_colors', implode(', ', AVBK_Tshirt_Order::DEFAULT_COLORS));
         ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <?php wp_nonce_field('avbk_save_order_settings'); ?>
             <input type="hidden" name="action" value="avbk_save_order_settings">
             <input type="hidden" name="redirect_url" value="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'settings'], admin_url('admin.php'))); ?>">
 
-            <h2>T-shirt instellingen ([avpvh_bk_tshirt_order])</h2>
+            <h2>Kleding instellingen ([avpvh_bk_tshirt_order])</h2>
             <table class="form-table">
                 <tr>
                     <th scope="row"><label for="tshirt_title">Titel</label></th>
@@ -587,7 +588,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="tshirt_price">Prijs per stuk (&euro;)</label></th>
+                    <th scope="row"><label for="tshirt_price">Standaardprijs per stuk (&euro;)</label></th>
                     <td>
                         <input type="number" step="0.50" id="tshirt_price" name="tshirt_price" class="small-text" value="<?php echo esc_attr(number_format((float) get_option('avbk_tshirt_price', AVBK_Tshirt_Order::DEFAULT_PRICE), 2, '.', '')); ?>">
                     </td>
@@ -614,22 +615,30 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th scope="row"><label for="tshirt_sizes">Beschikbare maten</label></th>
                     <td>
                         <input type="text" id="tshirt_sizes" name="tshirt_sizes" class="regular-text" style="width:100%; max-width:600px;" value="<?php echo esc_attr($sizes_str); ?>">
-                        <p class="description">Komma-gescheiden lijst van beschikbare kledingmaten (bijv. <code>S, M, L, XL, XXL, 3XL</code>).</p>
+                        <p class="description">Komma-gescheiden lijst van beschikbare kledingmaten (bijv. <code>XS, S, M, L, XL, XXL, 3XL</code>).</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="tshirt_colors">Beschikbare kleuren</label></th>
+                    <td>
+                        <input type="text" id="tshirt_colors" name="tshirt_colors" class="regular-text" style="width:100%; max-width:600px;" value="<?php echo esc_attr($colors_str); ?>">
+                        <p class="description">Komma-gescheiden lijst van beschikbare kleuren (bijv. <code>Zwart, Wit, Beige, Donkergroen</code>).</p>
                     </td>
                 </tr>
             </table>
 
-            <h3>T-shirt designs &amp; foto's</h3>
-            <p class="description">Beheer hier de beschikbare T-shirt modellen. Je kunt per design een naam, omschrijving en een afbeeldings-URL (foto/mockup) opgeven.</p>
+            <h3>Kleding designs, modellen &amp; foto's</h3>
+            <p class="description">Beheer hier de beschikbare modellen en designs. Je kunt per item een naam, omschrijving, afbeeldings-URL (foto/mockup) en optioneel een afwijkende stukprijs opgeven.</p>
 
-            <table class="widefat striped" style="max-width: 900px; margin-bottom: 1.5rem;" id="avbk_designs_editor_table">
+            <table class="widefat striped" style="max-width: 960px; margin-bottom: 1.5rem;" id="avbk_designs_editor_table">
                 <thead>
                     <tr>
-                        <th style="width: 140px;">ID / Code</th>
-                        <th style="width: 200px;">Naam design</th>
+                        <th style="width: 130px;">ID / Code</th>
+                        <th style="width: 190px;">Naam design / model</th>
                         <th>Omschrijving</th>
-                        <th style="width: 220px;">Foto URL</th>
-                        <th style="width: 60px; text-align: center;">Actief</th>
+                        <th style="width: 190px;">Foto URL</th>
+                        <th style="width: 85px;">Prijs (&euro;)</th>
+                        <th style="width: 55px; text-align: center;">Actief</th>
                     </tr>
                 </thead>
                 <tbody id="avbk_designs_editor_body">
@@ -646,6 +655,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                             </td>
                             <td>
                                 <input type="url" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="https://..." style="width:100%;">
+                            </td>
+                            <td>
+                                <input type="number" step="0.50" name="tshirt_designs[<?php echo $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;">
                             </td>
                             <td style="text-align: center;">
                                 <input type="checkbox" name="tshirt_designs[<?php echo $idx; ?>][active]" value="1" <?php checked(!empty($d['active'])); ?>>
