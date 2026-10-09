@@ -269,7 +269,7 @@ class AVBK_Book_Order {
 
                     <p class="avbk-form-field">
                         <label for="avbk_notes">Eventuele opmerking (optioneel)</label>
-                        <textarea id="avbk_notes" name="notes" rows="3"></textarea>
+                        <textarea id="avbk_notes" name="notes" rows="4" style="min-height: 110px;"></textarea>
                     </p>
                 </fieldset>
 

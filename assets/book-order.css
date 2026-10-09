@@ -201,8 +201,7 @@
 .avbk-form-field input[type="text"],
 .avbk-form-field input[type="email"],
 .avbk-form-field input[type="tel"],
-.avbk-form-field select,
-.avbk-form-field textarea {
+.avbk-form-field select {
     display: block;
     width: 100%;
     box-sizing: border-box;
@@ -210,6 +209,24 @@
     font-size: 1rem;
     border: 1px solid #8c8f94;
     border-radius: 4px;
+}
+
+.avbk-form-field textarea,
+#avbk_notes,
+#notes,
+.avbk-book-order textarea {
+    display: block !important;
+    width: 100% !important;
+    min-height: 110px !important;
+    height: auto !important;
+    padding: .65rem .75rem !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+    font-family: inherit !important;
+    box-sizing: border-box !important;
+    border: 1px solid #8c8f94 !important;
+    border-radius: 4px !important;
+    resize: vertical !important;
 }
 
 .avbk-form-field select {
@@ -330,16 +347,65 @@
 
 .avbk-book-summary-table th,
 .avbk-book-summary-table td {
-    padding: .5rem .75rem;
+    padding: .65rem .75rem;
     text-align: left;
     vertical-align: top;
     border-bottom: 1px solid #f0f0f1;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .avbk-book-summary-table th {
-    width: 220px;
+    width: 32%;
+    max-width: 220px;
     color: #50575e;
     font-weight: 600;
+}
+
+@media (max-width: 640px) {
+    .avbk-book-summary-box {
+        padding: 1rem .85rem;
+    }
+
+    .avbk-book-summary-table,
+    .avbk-book-summary-table tbody,
+    .avbk-book-summary-table tr,
+    .avbk-book-summary-table th,
+    .avbk-book-summary-table td {
+        display: block;
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+
+    .avbk-book-summary-table tr {
+        padding: .65rem 0;
+        border-bottom: 1px solid #e5e5e7;
+    }
+
+    .avbk-book-summary-table tr:last-child {
+        border-bottom: none;
+    }
+
+    .avbk-book-summary-table th {
+        width: 100% !important;
+        max-width: none !important;
+        padding: 0 0 .25rem 0 !important;
+        font-size: .82rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: .5px !important;
+        color: #646970 !important;
+        border: none !important;
+    }
+
+    .avbk-book-summary-table td {
+        width: 100% !important;
+        padding: 0 !important;
+        font-size: 1rem !important;
+        line-height: 1.45 !important;
+        color: #1d2327 !important;
+        border: none !important;
+    }
 }
 
 .avbk-book-payment-box {

@@ -555,7 +555,7 @@ class AVBK_Tshirt_Order {
                     <legend>Opmerkingen</legend>
                     <p class="avbk-form-field">
                         <label for="notes">Heb je specifieke wensen of opmerkingen?</label>
-                        <textarea id="notes" name="notes" rows="3" placeholder="Bijv. opmerking over levering, afhalen of maat..."></textarea>
+                        <textarea id="notes" name="notes" rows="4" placeholder="Bijv. opmerking over levering, afhalen of maat..." style="min-height: 110px;"></textarea>
                     </p>
                 </fieldset>
 
