@@ -74,8 +74,62 @@
     background: #f0f6fc;
     border: 1px solid #c8d7e1;
     border-radius: 6px;
-    padding: .85rem 1.25rem;
+    padding: 1.1rem 1.25rem;
     margin-bottom: 1.5rem;
+}
+
+.avbk-book-login-intro {
+    margin: 0 0 .75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.avbk-book-login-intro a {
+    font-weight: 600;
+}
+
+.avbk-book-check-email-box {
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid #d8e2eb;
+}
+
+.avbk-book-check-email-prompt {
+    margin: 0 0 .5rem;
+    font-size: .95rem;
+    color: #2c3338;
+}
+
+.avbk-book-check-email-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+}
+
+.avbk-check-email-input {
+    flex: 1 1 240px;
+    max-width: 320px;
+    padding: .45rem .65rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: .95rem;
+}
+
+.avbk-check-email-btn {
+    padding: .4rem .9rem;
+    font-size: .9rem;
+}
+
+.avbk-check-email-result-container {
+    margin-top: .75rem;
+}
+
+.avbk-check-email-loading {
+    margin: .5rem 0 0;
+    color: #666;
+    font-style: italic;
+    font-size: .9rem;
 }
 
 .avbk-book-member-box {
@@ -284,22 +338,11 @@
     color: #14521e;
     font-size: 1.1rem;
 }
-
-.avbk-book-profile-section {
-    background: #fff;
-    border: 1px solid #dcdcde;
-    border-radius: 6px;
-    padding: 1.25rem;
-    margin-top: 1.5rem;
+.avbk-book-back-profile {
+    margin-top: 2rem;
 }
 
-.avbk-book-profile-section h3 {
-    margin-top: 0;
-}
-
-.avbk-book-oauth-providers {
-    margin-top: .75rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: .5rem;
+.avbk-book-back-profile a {
+    text-decoration: none;
+    font-weight: 600;
 }

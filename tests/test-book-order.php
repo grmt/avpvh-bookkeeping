@@ -29,6 +29,14 @@ class AVPVH_DB {
         }
         return null;
     }
+    public static function get_identity_by_email(string $email): ?object {
+        return null;
+    }
+    public static function get_login_stats_for_email(string $email): object {
+        $first = $GLOBALS['login_stats'][$email]['first_login'] ?? null;
+        $last  = $GLOBALS['login_stats'][$email]['last_login'] ?? null;
+        return (object) ['first_login' => $first, 'last_login' => $last];
+    }
     public static function find_members_by_name(string $first, string $last): array {
         $found = [];
         foreach ($GLOBALS['members'] as $m) {
@@ -106,6 +114,17 @@ function is_email(string $val): bool { return (bool) filter_var($val, FILTER_VAL
 function is_wp_error($val): bool { return $val instanceof WP_Error; }
 function wp_generate_password(int $len = 12, bool $special = false, bool $extra = false): string {
     return substr(bin2hex(random_bytes(ceil($len / 2))), 0, $len);
+}
+function get_transient(string $key) { return $GLOBALS['transients'][$key] ?? false; }
+function set_transient(string $key, $val, int $ttl = 0): bool { $GLOBALS['transients'][$key] = $val; return true; }
+function delete_transient(string $key): bool { unset($GLOBALS['transients'][$key]); return true; }
+function wp_send_json_success($data = null): void {
+    $GLOBALS['json_response'] = ['success' => true, 'data' => $data];
+    throw new RuntimeException("JSON success: " . json_encode($data));
+}
+function wp_send_json_error($data = null): void {
+    $GLOBALS['json_response'] = ['success' => false, 'data' => $data];
+    throw new RuntimeException("JSON error: " . json_encode($data));
 }
 function check_admin_referer(string $action): void {
     if (empty($GLOBALS['valid_nonce'])) throw new RuntimeException("Invalid nonce for $action");
@@ -356,6 +375,9 @@ function reset_test_env(): void {
     $GLOBALS['mail_success'] = true;
     $GLOBALS['sent_mails'] = [];
     $GLOBALS['last_redirect'] = '';
+    $GLOBALS['transients'] = [];
+    $GLOBALS['json_response'] = null;
+    $GLOBALS['login_stats'] = [];
 }
 
 // -------------------------------------------------------------------------
@@ -481,6 +503,8 @@ check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contai
 check(str_contains($form_html, 'in principe niet per post verzonden'), 'Order form includes distribution notice');
 check(str_contains($form_html, '35,00'), 'Order form displays 35,00 price');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
+check(str_contains($form_html, 'Weet je niet of je al bekend bent'), 'Order form contains email check banner prompt');
+check(str_contains($form_html, 'name="check_email"'), 'Order form contains check_email input field');
 
 // 9. Logged-in member rendering pre-fills address
 $GLOBALS['current_user_id'] = 42; // Member Anna
@@ -523,6 +547,11 @@ check(count($GLOBALS['sent_mails']) === 1, 'Confirmation email dispatched to gue
 check(str_contains($GLOBALS['sent_mails'][0]['to'], 'cas@example.test'), 'Email sent to correct guest recipient');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'book_token='), 'Email contains unique token confirmation link');
 
+$_GET = ['book_ordered' => '1'];
+$thanks_html = $book_order->render();
+check(!str_contains($thanks_html, 'zoals het congres en boeken'), 'Thank-you page does not contain congres and books text');
+$_GET = [];
+
 // 11. Confirmation view with token
 $guest_order = end($GLOBALS['wpdb']->book_orders);
 check($guest_order->status === 'pending_confirmation', 'Guest order starts as pending_confirmation');
@@ -532,6 +561,8 @@ $conf_html = $book_order->render();
 check(str_contains($conf_html, 'Bestelling bevestigd'), 'Confirmation view displayed');
 check(str_contains($conf_html, 'Molenweg 5'), 'Confirmation view shows registered address');
 check(str_contains($conf_html, 'Cas'), 'Confirmation view greets customer');
+check(!str_contains($conf_html, 'Zowel leden als bezoekers hebben een eigen profiel'), 'Confirmation view does NOT contain profile explanation');
+check(!str_contains($conf_html, 'Profiel en overzicht'), 'Confirmation view does NOT contain Profiel en overzicht heading');
 $refreshed_guest_order = AVBK_DB::get_book_order($guest_order->id);
 check($refreshed_guest_order->status === 'confirmed', 'Viewing confirmation page marks order as confirmed');
 
@@ -606,6 +637,76 @@ try {
 }
 $updated_member_order = AVBK_DB::get_book_order($member_order->id);
 check($updated_member_order->distribution_status === 'distributed', 'Order distribution status updated to distributed');
+
+// 16. Email check: unknown email
+reset_test_env();
+$_POST = [
+    'action'      => 'avbk_check_book_email',
+    '_wpnonce'    => 'test-nonce',
+    'check_email' => 'onbekend@example.test',
+    'page_url'    => 'https://example.test/jubileumboek/',
+];
+try {
+    $book_order->handle_check_email();
+    check(false, 'Expected redirect after check_email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'email_check=not_found'), 'Unknown email redirects with email_check=not_found');
+}
+
+// 17. Email check: known member who has never logged in
+$GLOBALS['members'][2] = (object) [
+    'id' => 2,
+    'first_name' => 'Dirk',
+    'suffix' => '',
+    'last_name' => 'Kramer',
+    'email' => 'dirk@example.test',
+    'wp_user_id' => null,
+    'status' => 'active',
+];
+$_POST['check_email'] = 'dirk@example.test';
+try {
+    $book_order->handle_check_email();
+    check(false, 'Expected redirect after check_email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'email_check=reset_sent'), 'Unactivated member redirects with email_check=reset_sent');
+}
+check(count($GLOBALS['sent_mails']) === 1, 'Password setup email sent to unactivated member');
+check(str_contains($GLOBALS['sent_mails'][0]['to'], 'dirk@example.test'), 'Email sent to dirk@example.test');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'reset-password/step1'), 'Email contains reset-password link');
+
+// 18. Email check: known member who has already logged in
+$GLOBALS['members'][3] = (object) [
+    'id' => 3,
+    'first_name' => 'Emma',
+    'suffix' => '',
+    'last_name' => 'Visser',
+    'email' => 'emma@example.test',
+    'wp_user_id' => 99,
+    'status' => 'active',
+];
+$_POST['check_email'] = 'emma@example.test';
+try {
+    $book_order->handle_check_email();
+    check(false, 'Expected redirect after check_email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'email_check=already_active'), 'Active member redirects with email_check=already_active');
+}
+
+// 19. Email check: AJAX request returns JSON
+$_POST = [
+    'action'      => 'avbk_check_book_email',
+    '_wpnonce'    => 'test-nonce',
+    'check_email' => 'onbekend2@example.test',
+    'page_url'    => 'https://example.test/jubileumboek/',
+    'ajax'        => '1',
+];
+try {
+    $book_order->handle_check_email();
+    check(false, 'Expected json response after check_email');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'JSON success'), 'AJAX request triggers wp_send_json_success');
+    check($GLOBALS['json_response']['data']['status'] === 'not_found', 'AJAX response returns status=not_found');
+}
 
 echo "\nAll book order tests passed cleanly!\n";
 

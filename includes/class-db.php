@@ -3984,4 +3984,63 @@ class AVBK_DB {
         return $results;
     }
 
+    /**
+     * Looks up an existing member by primary or secondary email address.
+     */
+    public static function find_member_by_email(string $email): ?object {
+        $email = trim(sanitize_email($email));
+        if ($email === '') {
+            return null;
+        }
+
+        if (class_exists('AVPVH_DB')) {
+            if (method_exists('AVPVH_DB', 'get_member_by_email')) {
+                $member = AVPVH_DB::get_member_by_email($email);
+                if ($member) {
+                    return $member;
+                }
+            }
+            if (method_exists('AVPVH_DB', 'get_identity_by_email') && method_exists('AVPVH_DB', 'get_member')) {
+                $ident = AVPVH_DB::get_identity_by_email($email);
+                if ($ident && !empty($ident->member_id)) {
+                    $member = AVPVH_DB::get_member((int) $ident->member_id);
+                    if ($member) {
+                        return $member;
+                    }
+                }
+            }
+        }
+
+        if (function_exists('avpvh_get_member_by_email')) {
+            $member = avpvh_get_member_by_email($email);
+            if ($member) {
+                return $member;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks whether a member has ever logged in before.
+     */
+    public static function member_has_logged_in(object $member, string $email = ''): bool {
+        if (!empty($member->wp_user_id)) {
+            return true;
+        }
+
+        if ($email === '' && !empty($member->email)) {
+            $email = (string) $member->email;
+        }
+
+        if ($email !== '' && class_exists('AVPVH_DB') && method_exists('AVPVH_DB', 'get_login_stats_for_email')) {
+            $stats = AVPVH_DB::get_login_stats_for_email($email);
+            if (!empty($stats->first_login)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 }

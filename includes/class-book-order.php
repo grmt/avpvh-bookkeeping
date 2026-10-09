@@ -28,6 +28,10 @@ class AVBK_Book_Order {
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('admin_post_avbk_book_order',        [$this, 'handle_order']);
         add_action('admin_post_nopriv_avbk_book_order', [$this, 'handle_order']);
+        add_action('admin_post_avbk_check_book_email',        [$this, 'handle_check_email']);
+        add_action('admin_post_nopriv_avbk_check_book_email', [$this, 'handle_check_email']);
+        add_action('wp_ajax_avbk_check_book_email',           [$this, 'handle_check_email']);
+        add_action('wp_ajax_nopriv_avbk_check_book_email',    [$this, 'handle_check_email']);
     }
 
     public function enqueue_assets(): void {
@@ -65,6 +69,8 @@ class AVBK_Book_Order {
         $existing_address = ($member && !empty($member->id)) ? AVBK_DB::get_member_active_address((int) $member->id) : null;
 
         $error = sanitize_key(wp_unslash($_GET['book_error'] ?? ''));
+        $email_check   = sanitize_key(wp_unslash($_GET['email_check'] ?? ''));
+        $checked_email = sanitize_email(wp_unslash($_GET['checked_email'] ?? ''));
 
         ob_start();
         ?>
@@ -102,12 +108,49 @@ class AVBK_Book_Order {
             </div>
 
             <?php if (!$member) : ?>
-                <div class="avbk-book-login-banner">
-                    <p>
-                        Heb je al een account als lid of bezoeker?
+                <div class="avbk-book-login-banner" id="avbk-login-banner">
+                    <p class="avbk-book-login-intro">
+                        <strong>Heb je al een account als lid of bezoeker?</strong>
                         <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">Log hier in</a>
                         om direct te bestellen en je bestelling aan je profiel te koppelen.
                     </p>
+                    <div class="avbk-book-check-email-box">
+                        <p class="avbk-book-check-email-prompt">
+                            Weet je niet of je al bekend bent? Vul dan eerst hier je e-mailadres in. Als dat e-mailadres bekend is, maar je bent nog nooit ingelogd, dan krijg je een mailtje met een link om een wachtwoord aan te maken:
+                        </p>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form">
+                            <?php wp_nonce_field('avbk_check_book_email'); ?>
+                            <input type="hidden" name="action" value="avbk_check_book_email">
+                            <input type="hidden" name="page_url" value="<?php echo esc_url(get_permalink()); ?>">
+                            <div class="avbk-book-check-email-row">
+                                <input type="email" id="avbk_check_email_input" name="check_email" class="avbk-check-email-input" placeholder="jouw.email@example.nl" value="<?php echo esc_attr($checked_email); ?>" required>
+                                <button type="submit" id="avbk_check_email_btn" class="button avbk-check-email-btn">Controleren</button>
+                            </div>
+                        </form>
+                        <div id="avbk-check-email-result" class="avbk-check-email-result-container">
+                            <?php if ($email_check === 'reset_sent') : ?>
+                                <div class="avbk-book-notice avbk-book-notice-success">
+                                    <p><strong>E-mail verzonden!</strong> Je e-mailadres (<?php echo esc_html($checked_email); ?>) is bekend in onze administratie, maar je bent nog niet eerder ingelogd. We hebben je een e-mail gestuurd met een link om een wachtwoord aan te maken. Zodra je een wachtwoord hebt aangemaakt, kun je <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">inloggen</a> en bestellen.</p>
+                                </div>
+                            <?php elseif ($email_check === 'already_active') : ?>
+                                <?php
+                                $authelia_url = (class_exists('AVPVH_Nav_Auth') && defined('AVPVH_Nav_Auth::AUTHELIA_URL')) ? AVPVH_Nav_Auth::AUTHELIA_URL : 'https://auth.avphilipsvanhorne.nl';
+                                $reset_url = add_query_arg('username', rawurlencode($checked_email), rtrim($authelia_url, '/') . '/reset-password/step1');
+                                ?>
+                                <div class="avbk-book-notice avbk-book-notice-info">
+                                    <p>Dit e-mailadres is bekend en je account is al actief. <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="<?php echo esc_url($reset_url); ?>" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>
+                                </div>
+                            <?php elseif ($email_check === 'not_found') : ?>
+                                <div class="avbk-book-notice avbk-book-notice-neutral">
+                                    <p>Dit e-mailadres is nog niet bekend bij ons. Je hoeft niet eerst in te loggen: vul hieronder je gegevens in om te bestellen. Er wordt dan automatisch een account voor je aangemaakt.</p>
+                                </div>
+                            <?php elseif ($email_check === 'invalid_email') : ?>
+                                <div class="avbk-book-notice avbk-book-error">
+                                    <p>Vul een geldig e-mailadres in om te controleren.</p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 </div>
             <?php endif; ?>
 
@@ -148,7 +191,7 @@ class AVBK_Book_Order {
                         <div class="avbk-form-row avbk-form-row-2">
                             <p class="avbk-form-field">
                                 <label for="avbk_email">E-mailadres *</label>
-                                <input type="email" id="avbk_email" name="email" required>
+                                <input type="email" id="avbk_email" name="email" value="<?php echo esc_attr($checked_email); ?>" required>
                             </p>
                             <p class="avbk-form-field">
                                 <label for="avbk_phone">Telefoonnummer</label>
@@ -220,6 +263,54 @@ class AVBK_Book_Order {
                     <button type="submit" class="button button-primary avbk-book-submit-btn">Bestelling plaatsen</button>
                 </div>
             </form>
+            <?php if (!$member) : ?>
+                <script>
+                (function() {
+                    var form = document.getElementById('avbk-check-email-form');
+                    if (!form) return;
+                    form.addEventListener('submit', function(e) {
+                        if (!window.fetch || !window.FormData) return;
+                        e.preventDefault();
+                        var btn = document.getElementById('avbk_check_email_btn');
+                        var resBox = document.getElementById('avbk-check-email-result');
+                        var input = document.getElementById('avbk_check_email_input');
+                        if (btn) btn.disabled = true;
+                        if (resBox) resBox.innerHTML = '<p class="avbk-check-email-loading">Controleren...</p>';
+                        var data = new FormData(form);
+                        data.append('ajax', '1');
+                        fetch(form.action, {
+                            method: 'POST',
+                            body: data
+                        }).then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            if (btn) btn.disabled = false;
+                            if (!resBox) return;
+                            if (res.success && res.data) {
+                                var d = res.data;
+                                if (d.status === 'reset_sent') {
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success"><p><strong>E-mail verzonden!</strong> ' + d.message + '</p></div>';
+                                } else if (d.status === 'already_active') {
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info"><p>' + d.message + ' <a href="' + d.login_url + '">Log hier in</a>. Weet je je wachtwoord niet meer? <a href="' + d.reset_url + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p></div>';
+                                } else if (d.status === 'not_found') {
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-neutral"><p>' + d.message + '</p></div>';
+                                    var orderEmail = document.getElementById('avbk_email');
+                                    if (orderEmail && (!orderEmail.value || orderEmail.value === input.value)) {
+                                        orderEmail.value = d.email;
+                                        orderEmail.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                }
+                            } else {
+                                var msg = (res.data && res.data.message) ? res.data.message : 'Er is een fout opgetreden bij het controleren.';
+                                resBox.innerHTML = '<div class="avbk-book-notice avbk-book-error"><p>' + msg + '</p></div>';
+                            }
+                        }).catch(function() {
+                            if (btn) btn.disabled = false;
+                            form.submit();
+                        });
+                    });
+                })();
+                </script>
+            <?php endif; ?>
         </div>
         <?php
         return ob_get_clean();
@@ -234,7 +325,6 @@ class AVBK_Book_Order {
             <div class="avbk-book-notice avbk-book-notice-success">
                 <p>We hebben een bevestigingsmail naar je verzonden. Klik op de link in die e-mail om je bestelling te bevestigen en de QR-code voor betaling te bekijken.</p>
             </div>
-            <p>Heb je al een account of ben je geregistreerd als bezoeker? Je kunt ook <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">inloggen</a> om je bestellingen en je volledige overzicht (zoals het congres en boeken) op je <a href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">profielpagina</a> te bekijken.</p>
         </div>
         <?php
         return ob_get_clean();
@@ -266,8 +356,6 @@ class AVBK_Book_Order {
 
         $title = get_option('avbk_book_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $distribution_notice = get_option('avbk_book_distribution_notice', self::DEFAULT_DISTRIBUTION_NOTICE) ?: self::DEFAULT_DISTRIBUTION_NOTICE;
-
-        $providers = ($order->member_id && class_exists('AVPVH_OAuth')) ? AVPVH_OAuth::configured_providers() : [];
 
         ob_start();
         ?>
@@ -348,32 +436,11 @@ class AVBK_Book_Order {
                     <p>Bedrag: &euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></p>
                     <p>Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) voor betalingsinstructies.</p>
                 <?php endif; ?>
-            </div>
-
-            <div class="avbk-book-profile-section">
-                <h3>Profiel en overzicht</h3>
-                <p>Zowel leden als bezoekers hebben een eigen profiel waarop alle bijdragen (zoals de congresfee en boeken) bij elkaar staan.</p>
-                <?php if (is_user_logged_in()) : ?>
-                    <p>
-                        <a class="button button-primary" href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">
-                            Bekijk je saldo en profiel &rarr;
-                        </a>
-                    </p>
-                <?php else : ?>
-                    <p>
-                        <a class="button button-primary" href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">
-                            Inloggen om je profiel en saldo te bekijken &rarr;
-                        </a>
-                    </p>
-                    <?php if ($providers) : ?>
-                        <div class="avbk-book-oauth-providers">
-                            <?php foreach ($providers as $key => $config) : ?>
-                                <a class="button" href="<?php echo esc_url(AVPVH_OAuth::login_url($key)); ?>">Inloggen met <?php echo esc_html($config['label']); ?></a>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                <?php endif; ?>
-            </div>
+            <?php if (is_user_logged_in()) : ?>
+                <p class="avbk-book-back-profile" style="margin-top:2rem;">
+                    <a href="<?php echo esc_url(home_url('/member-profile/#bijdrage')); ?>">&larr; Terug naar je profiel</a>
+                </p>
+            <?php endif; ?>
         </div>
         <?php
         return ob_get_clean();
@@ -495,7 +562,7 @@ class AVBK_Book_Order {
         if ($member) {
             // Send courtesy confirmation mail
             $subject = "Bevestiging bestelling {$book_title}";
-            $body = "Beste {$first_name},\n\nBedankt voor je bestelling van {$quantity} exemplaar/exemplaren van '{$book_title}'.\n\nJe bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\nOf bekijk je actuele saldo direct op je profiel:\n" . home_url('/member-profile/#bijdrage') . "\n\nMet vriendelijke groet,\nAV Philips van Horne";
+            $body = "Beste {$first_name},\n\nBedankt voor je bestelling van {$quantity} exemplaar/exemplaren van '{$book_title}'.\n\nJe bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\nMet vriendelijke groet,\nAV Philips van Horne";
             wp_mail($email, $subject, $body);
 
             wp_safe_redirect($confirm_link);
@@ -523,6 +590,90 @@ class AVBK_Book_Order {
             AVBK_DB::confirm_book_order((int) $order_result['id']);
             wp_safe_redirect(add_query_arg(['book_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
         }
+        exit;
+    }
+
+    public function handle_check_email(): void {
+        check_admin_referer('avbk_check_book_email');
+
+        $email    = sanitize_email(wp_unslash($_POST['check_email'] ?? ''));
+        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/boek/');
+        $is_ajax  = !empty($_POST['ajax']) || (defined('DOING_AJAX') && DOING_AJAX);
+
+        if (!is_email($email)) {
+            if ($is_ajax) {
+                wp_send_json_error(['message' => 'Vul een geldig e-mailadres in om te controleren.', 'status' => 'invalid_email']);
+            }
+            wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url));
+            exit;
+        }
+
+        $member = AVBK_DB::find_member_by_email($email);
+        $authelia_url = (class_exists('AVPVH_Nav_Auth') && defined('AVPVH_Nav_Auth::AUTHELIA_URL'))
+            ? AVPVH_Nav_Auth::AUTHELIA_URL
+            : 'https://auth.avphilipsvanhorne.nl';
+        $reset_url = add_query_arg('username', rawurlencode($email), rtrim($authelia_url, '/') . '/reset-password/step1');
+        $login_url = home_url('/avpvh-login/');
+
+        if (!$member) {
+            if ($is_ajax) {
+                wp_send_json_success([
+                    'status'  => 'not_found',
+                    'email'   => $email,
+                    'message' => 'Dit e-mailadres is nog niet bekend bij ons. Je hoeft niet eerst in te loggen: vul hieronder je gegevens in om het boek te bestellen. Er wordt dan automatisch een account voor je aangemaakt.',
+                ]);
+            }
+            wp_safe_redirect(add_query_arg(['email_check' => 'not_found', 'checked_email' => rawurlencode($email)], $page_url));
+            exit;
+        }
+
+        $has_logged_in = AVBK_DB::member_has_logged_in($member, $email);
+
+        if ($has_logged_in) {
+            if ($is_ajax) {
+                wp_send_json_success([
+                    'status'    => 'already_active',
+                    'email'     => $email,
+                    'login_url' => $login_url,
+                    'reset_url' => $reset_url,
+                    'message'   => 'Dit e-mailadres is bekend en je account is al actief.',
+                ]);
+            }
+            wp_safe_redirect(add_query_arg(['email_check' => 'already_active', 'checked_email' => rawurlencode($email)], $page_url));
+            exit;
+        }
+
+        // Member exists but has never logged in yet. Send email with password creation link.
+        $transient_key = 'avbk_reset_sent_' . md5(strtolower($email));
+        $already_sent = (bool) get_transient($transient_key);
+
+        if (!$already_sent) {
+            $first_name = !empty($member->first_name) ? (string) $member->first_name : 'lid';
+            $book_title = get_option('avbk_book_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
+            $subject = 'AV Philips van Horne — Wachtwoord aanmaken';
+            $body = "Beste {$first_name},\n\n"
+                . "Je e-mailadres ({$email}) is bekend bij AV Philips van Horne, maar je bent nog niet eerder ingelogd.\n\n"
+                . "Via onderstaande link kun je een wachtwoord aanmaken:\n"
+                . "{$reset_url}\n\n"
+                . "Zodra je een wachtwoord hebt aangemaakt, kun je inloggen om direct het jubileumboek te bestellen en je bestelling aan je profiel te koppelen:\n"
+                . "{$page_url}\n\n"
+                . "Met vriendelijke groet,\n"
+                . "AV Philips van Horne";
+
+            wp_mail($email, $subject, $body);
+            set_transient($transient_key, 1, 600);
+        }
+
+        if ($is_ajax) {
+            wp_send_json_success([
+                'status'    => 'reset_sent',
+                'email'     => $email,
+                'login_url' => $login_url,
+                'message'   => 'Je e-mailadres is bekend in onze administratie, maar je bent nog niet eerder ingelogd. We hebben je een e-mail gestuurd met een link om een wachtwoord aan te maken. Zodra je een wachtwoord hebt aangemaakt, kun je inloggen en direct bestellen.',
+            ]);
+        }
+
+        wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url));
         exit;
     }
 }
