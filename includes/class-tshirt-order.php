@@ -18,8 +18,8 @@ defined('ABSPATH') || exit;
 class AVBK_Tshirt_Order {
 
     public const DEFAULT_TITLE = 'Lustrum T-shirts 50 jaar AV Philips van Horne';
-    public const DEFAULT_PRICE = 17.50;
-    public const DEFAULT_PRICE_NOTE = 'Richtprijs circa € 17,50 per stuk (definitieve prijs wordt nader vastgesteld)';
+    public const DEFAULT_PRICE = 21.00;
+    public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn inclusief btw.';
     public const DEFAULT_DISTRIBUTION_NOTICE = 'T-shirts worden in principe niet per post verzonden, maar kunnen worden opgehaald of worden uitgereikt tijdens de jubileumactiviteiten. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
     public const DEFAULT_INTRO = 'Ter ere van het 50-jarig jubileum van de Archeologische Vereniging Philips van Horne brengen we speciale jubileum T-shirts uit! Kies hieronder je favoriete design en maat.';
 
@@ -147,6 +147,14 @@ class AVBK_Tshirt_Order {
         $first_d = reset($active_designs);
         $first_price = isset($first_d['price']) && (float) $first_d['price'] > 0 ? (float) $first_d['price'] : $price;
 
+        $min_design_price = null;
+        foreach ($active_designs as $d) {
+            if (isset($d['price']) && (float) $d['price'] > 0) {
+                $min_design_price = $min_design_price === null ? (float) $d['price'] : min($min_design_price, (float) $d['price']);
+            }
+        }
+        $starting_price = $min_design_price !== null ? $min_design_price : $price;
+
         ob_start();
         ?>
         <div class="avbk-book-order avbk-tshirt-order">
@@ -192,7 +200,9 @@ class AVBK_Tshirt_Order {
                             </div>
                             <div class="avbk-tshirt-card-body">
                                 <h4 class="avbk-tshirt-card-title"><?php echo esc_html($design['name']); ?></h4>
-                                <div style="font-weight:600; color:#1d2327; margin-bottom:.35rem;">&euro;&nbsp;<?php echo esc_html(number_format($d_price, 2, ',', '.')); ?></div>
+                                <div style="font-weight:600; color:#1d2327; margin-bottom:.35rem;">
+                                    &euro;&nbsp;<?php echo esc_html(number_format($d_price, 2, ',', '.')); ?> <span style="font-size:0.85em; font-weight:normal; color:#646970;">(incl. btw)</span>
+                                </div>
                                 <?php if (!empty($design['description'])) : ?>
                                     <p class="avbk-tshirt-card-desc"><?php echo esc_html($design['description']); ?></p>
                                 <?php endif; ?>
@@ -210,8 +220,10 @@ class AVBK_Tshirt_Order {
             </div>
 
             <div class="avbk-book-notice avbk-book-notice-price">
-                <strong>Prijs:</strong> Vanaf &euro;&nbsp;<?php echo esc_html(number_format($price, 2, ',', '.')); ?> per kledingstuk.
-                <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
+                <strong>Prijs:</strong> Vanaf &euro;&nbsp;<?php echo esc_html(number_format($starting_price, 2, ',', '.')); ?> per kledingstuk.
+                <?php if (!empty($price_note)) : ?>
+                    <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
+                <?php endif; ?>
                 <span class="avbk-book-price-note" style="display:block; margin-top:.35rem; font-weight:600; color:#856404;">Let op: bestellen verplicht tot betaling.</span>
             </div>
 
@@ -286,8 +298,8 @@ class AVBK_Tshirt_Order {
                                     <th>Kleur</th>
                                     <th>Maat</th>
                                     <th style="width: 80px;">Aantal</th>
-                                    <th style="width: 90px;">Stukprijs</th>
-                                    <th style="width: 100px;">Subtotaal</th>
+                                    <th style="width: 105px;">Stukprijs (incl. btw)</th>
+                                    <th style="width: 110px;">Subtotaal (incl. btw)</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
@@ -331,7 +343,7 @@ class AVBK_Tshirt_Order {
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="5" style="text-align: right; font-weight: bold;">Totaalbedrag:</td>
+                                    <td colspan="5" style="text-align: right; font-weight: bold;">Totaalbedrag (incl. btw):</td>
                                     <td colspan="2"><strong class="avbk-tshirt-grand-total">&euro;&nbsp;<span id="avbk-grand-total-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></td>
                                 </tr>
                             </tfoot>
@@ -532,8 +544,8 @@ class AVBK_Tshirt_Order {
                                 <th>Design</th>
                                 <th>Maat</th>
                                 <th style="width: 80px;">Aantal</th>
-                                <th style="width: 90px;">Stukprijs</th>
-                                <th style="width: 100px;">Totaal</th>
+                                <th style="width: 110px;">Stukprijs (incl. btw)</th>
+                                <th style="width: 110px;">Totaal (incl. btw)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -549,7 +561,7 @@ class AVBK_Tshirt_Order {
                         </tbody>
                         <tfoot>
                             <tr>
-                                <th colspan="4" style="text-align: right;">Totaalbedrag:</th>
+                                <th colspan="4" style="text-align: right;">Totaalbedrag (incl. btw):</th>
                                 <th>&euro;&nbsp;<?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></th>
                             </tr>
                         </tfoot>
@@ -778,7 +790,7 @@ class AVBK_Tshirt_Order {
             $body = "Beste {$first_name},\n\n"
                 . "Bedankt voor je bestelling van {$total_quantity} kledingstuk(ken) van '{$title_opt}':\n\n"
                 . "{$items_text}\n"
-                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . " (inclusief btw)\n\n"
                 . "Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).\n"
                 . "Je bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\n"
                 . "Met vriendelijke groet,\nAV Philips van Horne";
@@ -793,7 +805,7 @@ class AVBK_Tshirt_Order {
         $body = "Beste {$first_name},\n\n"
             . "Bedankt voor je bestelling van {$total_quantity} kledingstuk(ken) van '{$title_opt}':\n\n"
             . "{$items_text}\n"
-            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . " (inclusief btw)\n\n"
             . "Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).\n"
             . "Klik op onderstaande link om je bestelling definitief te bevestigen en de QR-code voor betaling te openen:\n{$confirm_link}\n\n"
             . "Met vriendelijke groet,\nAV Philips van Horne";

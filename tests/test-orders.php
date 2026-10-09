@@ -398,8 +398,8 @@ function reset_test_env(): void {
     $GLOBALS['wpdb'] = new Mock_Orders_WPDB();
     $GLOBALS['options'] = [
         'avbk_tshirt_title'               => 'Lustrum T-shirts 50 jaar AV Philips van Horne',
-        'avbk_tshirt_price'               => 17.50,
-        'avbk_tshirt_price_note'          => 'Richtprijs circa € 17,50 per stuk',
+        'avbk_tshirt_price'               => 21.00,
+        'avbk_tshirt_price_note'          => 'Alle prijzen zijn inclusief btw.',
         'avbk_tshirt_intro'               => 'Kies je model en maat.',
         'avbk_tshirt_distribution_notice' => 'T-shirts worden uitgereikt tijdens het lustrum.',
         'avbk_tshirt_sizes'               => 'S, M, L, XL, XXL, 3XL',
@@ -556,6 +556,9 @@ check(str_contains($html, 'avbk-book-check-email-box'), 'Form contains email che
 check(str_contains($html, 'bestellen verplicht tot betaling'), 'Form mentions payment obligation');
 check(str_contains($html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($html, 'avbk-tshirt-color-select'), 'Form contains color selection column');
+check(str_contains($html, 'Vanaf &euro;&nbsp;21,00 per kledingstuk'), 'Form contains correct starting price');
+check(str_contains($html, 'inclusief btw'), 'Form mentions VAT (inclusief btw)');
+check(str_contains($html, 'Stukprijs (incl. btw)'), 'Repeater table header mentions incl. btw');
 
 // -------------------------------------------------------------
 // Test 5: Guest checkout with line items (with colors and per-design prices)
@@ -601,6 +604,7 @@ check($mail['to'] === 'emma@example.test', 'Email sent to correct guest address'
 check(str_contains($mail['body'], 'tshirt_token='), 'Email contains unique confirmation link with tshirt_token');
 check(str_contains($mail['body'], '3 kledingstuk(ken)'), 'Email mentions 3 kledingstuk(ken)');
 check(str_contains($mail['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
+check(str_contains($mail['body'], '(inclusief btw)'), 'Email mentions inclusief btw');
 
 $last_order = end($GLOBALS['wpdb']->orders);
 check($last_order->status === 'pending_confirmation', 'Guest order starts as pending_confirmation');
@@ -620,6 +624,7 @@ check(str_contains($confirm_html, 'Beekstraat 5'), 'Registered address displayed
 check(str_contains($confirm_html, 'Jubileumlogo 50 jaar (T-shirt) (Zwart)'), 'Summary table shows item 1 with color');
 check(str_contains($confirm_html, 'Archeologie Philips van Horne (T-shirt) (Donkergroen)'), 'Summary table shows item 2 with color');
 check(str_contains($confirm_html, 'Bestellen betekent betalen'), 'Confirmation states payment commitment');
+check(str_contains($confirm_html, 'Totaalbedrag (incl. btw):'), 'Confirmation summary shows total incl. btw');
 check($last_order->status === 'confirmed', 'Visiting confirmation link confirms order in database');
 
 // -------------------------------------------------------------
@@ -655,7 +660,7 @@ try {
 $member_order = end($GLOBALS['wpdb']->orders);
 check($member_order->status === 'confirmed', 'Member order confirmed immediately');
 check((int) $member_order->quantity === 2, 'Member order quantity is 2');
-check((float) $member_order->total_amount === 35.00, 'Member order total amount is 35.00 (fallback unit price)');
+check((float) $member_order->total_amount === 42.00, 'Member order total amount is 42.00 (fallback unit price)');
 check((int) $member_order->member_id === 1, 'Order linked to member ID 1');
 
 // -------------------------------------------------------------

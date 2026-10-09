@@ -16,7 +16,7 @@ class AVBK_Book_Order {
 
     public const DEFAULT_TITLE = 'Doorgraven! - 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 35.00;
-    public const DEFAULT_PRICE_NOTE = 'Richtprijs circa € 35,- (definitieve prijs wordt nader vastgesteld)';
+    public const DEFAULT_PRICE_NOTE = 'Inclusief btw.';
     public const DEFAULT_DISTRIBUTION_NOTICE = 'Het boek wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
     public const DEFAULT_PRESENTATION_NOTICE = 'Begin 2027 organiseren we ergens een feestelijke boekpresentatie.';
     public const DEFAULT_FLAPTEKST = "Vijftig jaar archeologie, vriendschap en plezier: dat is het verhaal van de Werkgroep Archeologie / Archeologische Vereniging Philips van Horne. In dit boek blikken we terug op de tweede vijfentwintig jaar. Een periode waarin de werkgroep Philips van Horne, verbonden aan de gelijknamige school, transformeerde tot een volwaardige vereniging. Daarbij bleven de kernwaarden overeind: met enthousiasme en doorzettingsvermogen meewerken aan opgravingen om zo bij te dragen aan behoud en waardering van archeologisch erfgoed en ondertussen genieten van cultuur, de mooie dingen van het leven en vooral ook van elkaar. Zongen de jongeren, zoals gedocumenteerd in het eerste jubileumboek Graven!, “Samen hier, veel plezier / Graven, schaven, potje bier / Kampvuur en een vuile plee: / Ga je ook mee?”, inmiddels rappen de jongeren “Misschien dat mijn sleuf weer volloopt / Je ruikt dixi en zweet als ik langsloop / Als je bitch wil graven is het geen probleem, dan ga ik er heen. Ik kom niet alleen / Want ik heb trek en stek. / Ik heb trek en stek”. Over de trekstek en meer lees je in Doorgraven!, dat herinneringen oproept aan het roemruchte lijfblad DGéén - door graven één -. In opvolging van Graven! geeft dit boek een unieke kijk op een halve eeuw samen ontdekken, beleven en (door)graven.";
@@ -104,7 +104,9 @@ class AVBK_Book_Order {
 
             <div class="avbk-book-notice avbk-book-notice-price">
                 <strong>Prijs:</strong> &euro;&nbsp;<?php echo esc_html(number_format($price, 2, ',', '.')); ?> per exemplaar.
-                <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
+                <?php if (!empty($price_note)) : ?>
+                    <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
+                <?php endif; ?>
                 <span class="avbk-book-price-note" style="display:block; margin-top:.35rem; font-weight:600; color:#856404;">Let op: bestellen verplicht tot betaling.</span>
             </div>
 
@@ -392,11 +394,11 @@ class AVBK_Book_Order {
                     </tr>
                     <tr>
                         <th>Stukprijs:</th>
-                        <td>&euro; <?php echo esc_html(number_format((float) $order->unit_price, 2, ',', '.')); ?> <span class="avbk-book-sub">(richtprijs)</span></td>
+                        <td>&euro; <?php echo esc_html(number_format((float) $order->unit_price, 2, ',', '.')); ?> <span class="avbk-book-sub">(incl. btw)</span></td>
                     </tr>
                     <tr>
                         <th>Totaalbedrag:</th>
-                        <td><strong>&euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></strong></td>
+                        <td><strong>&euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></strong> <span class="avbk-book-sub">(incl. btw)</span></td>
                     </tr>
                     <?php if (!empty($order->street) || !empty($order->city)) : ?>
                         <tr>
@@ -574,7 +576,7 @@ class AVBK_Book_Order {
             $subject = "Bevestiging bestelling {$book_title}";
             $body = "Beste {$first_name},\n\n"
                 . "Bedankt voor je bestelling van {$quantity} exemplaar/exemplaren van '{$book_title}'.\n\n"
-                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . " (inclusief btw)\n\n"
                 . "Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).\n"
                 . "Je bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\n"
                 . "Met vriendelijke groet,\nAV Philips van Horne";
@@ -588,7 +590,7 @@ class AVBK_Book_Order {
         $subject = "Bevestig je bestelling &mdash; {$book_title}";
         $body = "Beste {$first_name},\n\n"
             . "Bedankt voor je bestelling van '{$book_title}'.\n\n"
-            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n\n"
+            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . " (inclusief btw)\n\n"
             . "Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).\n"
             . "Klik op onderstaande link om je bestelling definitief te bevestigen en de QR-code voor betaling te openen:\n{$confirm_link}\n\n"
             . "Met vriendelijke groet,\nAV Philips van Horne";

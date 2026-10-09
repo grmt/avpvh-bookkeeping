@@ -329,10 +329,10 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 </td>
             </tr>
             <tr>
-                <th><label for="book_price_note">Toelichting richtprijs</label></th>
+                <th><label for="book_price_note">Prijsnotitie (bijv. BTW)</label></th>
                 <td>
                     <input type="text" id="book_price_note" name="book_price_note" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_price_note', AVBK_Book_Order::DEFAULT_PRICE_NOTE)); ?>">
-                    <p class="description">Zichtbaar op de bestelpagina bij de prijs.</p>
+                    <p class="description">Zichtbaar op de bestelpagina bij de prijs (bijv. <code>Inclusief btw.</code>).</p>
                 </td>
             </tr>
             <tr>

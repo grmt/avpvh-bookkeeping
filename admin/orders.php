@@ -594,9 +594,10 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="tshirt_price_note">Toelichting richtprijs</label></th>
+                    <th scope="row"><label for="tshirt_price_note">Prijsnotitie (bijv. BTW)</label></th>
                     <td>
                         <input type="text" id="tshirt_price_note" name="tshirt_price_note" class="regular-text" style="width:100%; max-width:600px;" value="<?php echo esc_attr(get_option('avbk_tshirt_price_note', AVBK_Tshirt_Order::DEFAULT_PRICE_NOTE)); ?>">
+                        <p class="description">Bijv. <code>Alle prijzen zijn inclusief btw.</code></p>
                     </td>
                 </tr>
                 <tr>
@@ -684,9 +685,10 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="book_price_note">Toelichting richtprijs</label></th>
+                    <th scope="row"><label for="book_price_note">Prijsnotitie (bijv. BTW)</label></th>
                     <td>
                         <input type="text" id="book_price_note" name="book_price_note" class="regular-text" style="width:100%; max-width:600px;" value="<?php echo esc_attr(get_option('avbk_book_price_note', AVBK_Book_Order::DEFAULT_PRICE_NOTE)); ?>">
+                        <p class="description">Bijv. <code>Inclusief btw.</code></p>
                     </td>
                 </tr>
                 <tr>
