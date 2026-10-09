@@ -559,13 +559,13 @@ class AVBK_Tshirt_Order {
                     </p>
                 </fieldset>
 
+                <div class="avbk-book-submit-wrap">
+                    <button type="submit" class="button button-primary avbk-submit-btn">Bestelling plaatsen (met betaalverplichting) &rarr;</button>
+                </div>
+
                 <div class="avbk-order-commitment-box">
                     <strong>Let op: Bestellen betekent betalen!</strong><br>
                     Met het afronden van je bestelling ga je een betalingsverplichting aan. Na het plaatsen ontvang je direct de betaalinstructies (via bankoverschrijving of iDEAL QR-code) om het bedrag over te maken.
-                </div>
-
-                <div class="avbk-book-submit-wrap" style="text-align: center; margin: 2rem 0 1.5rem;">
-                    <button type="submit" class="button button-primary avbk-submit-btn">Bestelling plaatsen (met betaalverplichting) &rarr;</button>
                 </div>
             </form>
         </div>
