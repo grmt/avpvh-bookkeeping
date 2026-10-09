@@ -153,7 +153,11 @@ class AVBK_Matcher {
      * literally say "contributie".
      */
     public static function classify_types(string $description): array {
-        $d = mb_strtolower($description);
+        // Only the actual memo describes purchases. Name/IBAN metadata
+        // must not turn an account holder's surname into a "Boek" charge.
+        $memo = self::extract_beneficiary_text($description);
+        $has_bank_fields = (bool) preg_match('/(?:^|\s)(?:Naam|Name|Omschrijving|Description):/', $description);
+        $d = mb_strtolower($memo !== '' || $has_bank_fields ? $memo : $description);
         $types = [];
 
         foreach (AVPVH_DB::get_activity_types() as $activity_type) {
