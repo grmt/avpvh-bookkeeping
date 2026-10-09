@@ -399,7 +399,7 @@ function reset_test_env(): void {
     $GLOBALS['options'] = [
         'avbk_tshirt_title'               => 'Lustrum T-shirts 50 jaar AV Philips van Horne',
         'avbk_tshirt_price'               => 21.00,
-        'avbk_tshirt_price_note'          => 'Alle prijzen zijn inclusief btw.',
+        'avbk_tshirt_price_note'          => AVBK_Tshirt_Order::DEFAULT_PRICE_NOTE,
         'avbk_tshirt_intro'               => 'Kies je model en maat.',
         'avbk_tshirt_distribution_notice' => 'T-shirts worden uitgereikt tijdens het lustrum.',
         'avbk_tshirt_sizes'               => 'S, M, L, XL, XXL, 3XL',
@@ -559,8 +559,9 @@ check(str_contains($html, 'avbk-tshirt-type-select'), 'Form contains garment typ
 check(str_contains($html, 'avbk-tshirt-color-select'), 'Form contains color selection column');
 check(str_contains($html, 'avbk-tshirt-size-select'), 'Form contains size selection column');
 check(str_contains($html, 'Vanaf &euro;&nbsp;21,00 per kledingstuk'), 'Form contains correct starting price');
-check(str_contains($html, 'inclusief btw'), 'Form mentions VAT (inclusief btw)');
-check(str_contains($html, 'Stukprijs (incl. btw)'), 'Repeater table header mentions incl. btw');
+check(str_contains($html, 'zonder btw') && str_contains($html, '21% btw'), 'Form mentions VAT notice (zonder btw / 21% btw)');
+check(str_contains($html, 'Stukprijs'), 'Repeater table header has Stukprijs');
+check(!str_contains($html, 'Stukprijs (incl. btw)'), 'Repeater table header does not mention incl. btw');
 check(str_contains($html, '1. Kies design *'), 'Repeater table header has step 1 Kies design');
 check(str_contains($html, '2. Kledingstuk *'), 'Repeater table header has step 2 Kledingstuk');
 check(str_contains($html, '3. Kleur *'), 'Repeater table header has step 3 Kleur');
@@ -612,7 +613,7 @@ check($mail['to'] === 'emma@example.test', 'Email sent to correct guest address'
 check(str_contains($mail['body'], 'tshirt_token='), 'Email contains unique confirmation link with tshirt_token');
 check(str_contains($mail['body'], '3 kledingstuk(ken)'), 'Email mentions 3 kledingstuk(ken)');
 check(str_contains($mail['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
-check(str_contains($mail['body'], '(inclusief btw)'), 'Email mentions inclusief btw');
+check(str_contains($mail['body'], 'zonder btw') && str_contains($mail['body'], '21% btw'), 'Email mentions VAT notice (zonder btw / 21% btw)');
 
 $last_order = end($GLOBALS['wpdb']->orders);
 check($last_order->status === 'pending_confirmation', 'Guest order starts as pending_confirmation');
@@ -632,7 +633,8 @@ check(str_contains($confirm_html, 'Beekstraat 5'), 'Registered address displayed
 check(str_contains($confirm_html, 'Design 1 (Kampenlijst) — T-shirt (Zwart)'), 'Summary table shows item 1 with color');
 check(str_contains($confirm_html, 'Design 2') && str_contains($confirm_html, 'T-shirt (Donkergroen)'), 'Summary table shows item 2 with color');
 check(str_contains($confirm_html, 'Bestellen betekent betalen'), 'Confirmation states payment commitment');
-check(str_contains($confirm_html, 'Totaalbedrag (incl. btw):'), 'Confirmation summary shows total incl. btw');
+check(str_contains($confirm_html, 'Totaalbedrag:'), 'Confirmation summary shows total');
+check(str_contains($confirm_html, 'zonder btw'), 'Confirmation summary shows VAT notice');
 check($last_order->status === 'confirmed', 'Visiting confirmation link confirms order in database');
 
 // -------------------------------------------------------------

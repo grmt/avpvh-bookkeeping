@@ -598,7 +598,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th scope="row"><label for="tshirt_price_note">Prijsnotitie (bijv. BTW)</label></th>
                     <td>
                         <input type="text" id="tshirt_price_note" name="tshirt_price_note" class="regular-text" style="width:100%; max-width:600px;" value="<?php echo esc_attr(get_option('avbk_tshirt_price_note', AVBK_Tshirt_Order::DEFAULT_PRICE_NOTE)); ?>">
-                        <p class="description">Bijv. <code>Alle prijzen zijn inclusief btw.</code></p>
+                        <p class="description">Bijv. <code>Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.</code></p>
                     </td>
                 </tr>
                 <tr>
@@ -630,7 +630,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </table>
 
             <h3>Kledingstuk types &amp; prijzen</h3>
-            <p class="description">Beheer de beschikbare types kledingstukken en hun vaste prijzen (inclusief btw).</p>
+            <p class="description">Beheer de beschikbare types kledingstukken en hun vaste prijzen.</p>
 
             <table class="widefat striped" style="max-width: 600px; margin-bottom: 1.5rem;" id="avbk_types_editor_table">
                 <thead>
