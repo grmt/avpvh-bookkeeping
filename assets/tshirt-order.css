@@ -1,0 +1,257 @@
+/* Styling for [avpvh_bk_tshirt_order] */
+
+.avbk-tshirt-order .avbk-tshirt-intro-text {
+    font-size: 1.05rem;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* Design gallery cards */
+.avbk-tshirt-gallery {
+    margin: 1.75rem 0;
+}
+
+.avbk-tshirt-gallery h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+    color: #1d2327;
+}
+
+.avbk-tshirt-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-tshirt-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    transition: box-shadow .2s ease, border-color .2s ease, transform .15s ease;
+}
+
+.avbk-tshirt-card:hover {
+    border-color: #2271b1;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+}
+
+.avbk-tshirt-card-media {
+    background: #f6f7f7;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.avbk-tshirt-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.avbk-tshirt-card-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: #f0f2f4;
+}
+
+.avbk-tshirt-icon {
+    font-size: 4rem;
+    opacity: 0.8;
+}
+
+.avbk-tshirt-card-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.avbk-tshirt-card-title {
+    margin: 0 0 .5rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.avbk-tshirt-card-desc {
+    margin: 0 0 1rem;
+    font-size: .88rem;
+    color: #646970;
+    line-height: 1.45;
+    flex: 1;
+}
+
+.avbk-select-design-btn {
+    align-self: flex-start;
+    font-size: .88rem;
+    padding: 4px 12px;
+    cursor: pointer;
+}
+
+/* Line items repeater section */
+.avbk-tshirt-items-section {
+    background: #fafafa;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-tshirt-items-section h3 {
+    margin-top: 0;
+    margin-bottom: .25rem;
+}
+
+.avbk-tshirt-table-responsive {
+    overflow-x: auto;
+    margin-top: 1rem;
+}
+
+.avbk-tshirt-items-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.avbk-tshirt-items-table th,
+.avbk-tshirt-items-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f0f0f1;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.avbk-tshirt-items-table th {
+    background: #f6f7f7;
+    font-size: .88rem;
+    font-weight: 600;
+    color: #50575e;
+}
+
+.avbk-tshirt-design-select,
+.avbk-tshirt-size-select {
+    width: 100%;
+    max-width: 260px;
+    padding: 6px 10px;
+    font-size: .95rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+.avbk-tshirt-qty-input {
+    width: 65px;
+    padding: 6px 8px;
+    font-size: .95rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.avbk-tshirt-unit-price,
+.avbk-tshirt-subtotal {
+    white-space: nowrap;
+    font-size: .95rem;
+}
+
+.avbk-tshirt-subtotal {
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.avbk-remove-item-btn {
+    background: #d63638;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    line-height: 24px;
+    text-align: center;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0;
+    transition: background .15s ease;
+}
+
+.avbk-remove-item-btn:hover {
+    background: #b32d2e;
+}
+
+.avbk-tshirt-items-table tfoot td {
+    background: #f6f7f7;
+    border-top: 2px solid #dcdcde;
+    border-bottom: none;
+    padding: 12px;
+}
+
+.avbk-tshirt-grand-total {
+    font-size: 1.15rem;
+    color: #2271b1;
+}
+
+.avbk-add-shirt-btn {
+    font-size: .95rem;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
+/* Confirmation Summary Table */
+.avbk-tshirt-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    margin: 1rem 0;
+}
+
+.avbk-tshirt-summary-table th,
+.avbk-tshirt-summary-table td {
+    padding: 8px 12px;
+    border: 1px solid #dcdcde;
+}
+
+.avbk-tshirt-summary-table th {
+    background: #f0f0f1;
+    font-size: .88rem;
+}
+
+.avbk-tshirt-summary-table .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    background: #2271b1;
+    color: #fff;
+    border-radius: 3px;
+    font-size: .8rem;
+    font-weight: 600;
+}
+
+@media (max-width: 640px) {
+    .avbk-tshirt-cards-grid {
+        grid-template-columns: 1fr;
+    }
+    .avbk-tshirt-items-table th,
+    .avbk-tshirt-items-table td {
+        padding: 8px 6px;
+    }
+    .avbk-tshirt-design-select,
+    .avbk-tshirt-size-select {
+        max-width: 150px;
+        font-size: .88rem;
+    }
+}

@@ -193,6 +193,8 @@ function wp_die(string $msg = '', int $code = 403): void {
 class Mock_WPDB {
     public string $prefix = 'wp_';
     public int $insert_id = 0;
+    public array $orders = [];
+    public array $order_items = [];
     public array $book_orders = [];
     public array $fee_items = [];
     public array $addresses = [];
@@ -215,7 +217,12 @@ class Mock_WPDB {
         $id = $this->insert_id;
         $row = array_merge(['id' => $id, 'created_at' => current_time('mysql')], $data);
 
-        if (str_contains($table, 'avb_book_orders')) {
+        if (str_contains($table, 'avb_orders') && !str_contains($table, 'order_items')) {
+            $this->orders[$id] = (object) $row;
+            $this->book_orders[$id] = &$this->orders[$id];
+        } elseif (str_contains($table, 'avb_order_items')) {
+            $this->order_items[$id] = (object) $row;
+        } elseif (str_contains($table, 'avb_book_orders')) {
             $this->book_orders[$id] = (object) $row;
         } elseif (str_contains($table, 'avb_fee_items')) {
             $this->fee_items[$id] = (object) $row;
@@ -226,7 +233,13 @@ class Mock_WPDB {
     }
 
     public function update(string $table, array $data, array $where): int {
-        if (str_contains($table, 'avb_book_orders')) {
+        if (str_contains($table, 'avb_orders') && !str_contains($table, 'order_items')) {
+            $id = (int) ($where['id'] ?? 0);
+            if (isset($this->orders[$id])) {
+                foreach ($data as $k => $v) $this->orders[$id]->$k = $v;
+                return 1;
+            }
+        } elseif (str_contains($table, 'avb_book_orders')) {
             $id = (int) ($where['id'] ?? 0);
             if (isset($this->book_orders[$id])) {
                 foreach ($data as $k => $v) $this->book_orders[$id]->$k = $v;
@@ -243,7 +256,17 @@ class Mock_WPDB {
     }
 
     public function query(string $query): int {
-        // Handle confirm_book_order
+        // Handle confirm_order
+        if (preg_match('/UPDATE .*avb_orders SET status = \'confirmed\'.*WHERE id = (\d+)/', $query, $m)) {
+            $id = (int) $m[1];
+            if (isset($this->orders[$id])) {
+                $this->orders[$id]->status = 'confirmed';
+                if (empty($this->orders[$id]->confirmed_at)) {
+                    $this->orders[$id]->confirmed_at = current_time('mysql');
+                }
+                return 1;
+            }
+        }
         if (preg_match('/UPDATE .*avb_book_orders SET status = \'confirmed\'.*WHERE id = (\d+)/', $query, $m)) {
             $id = (int) $m[1];
             if (isset($this->book_orders[$id])) {
@@ -269,6 +292,16 @@ class Mock_WPDB {
     }
 
     public function get_row(string $query): ?object {
+        if (str_contains($query, 'avb_orders') && !str_contains($query, 'order_items')) {
+            if (preg_match('/WHERE id = (\d+)/', $query, $m)) {
+                return $this->orders[(int) $m[1]] ?? null;
+            }
+            if (preg_match('/WHERE confirm_token = \'([^\']+)\'/', $query, $m)) {
+                foreach ($this->orders as $o) {
+                    if ($o->confirm_token === $m[1]) return $o;
+                }
+            }
+        }
         if (str_contains($query, 'avb_book_orders')) {
             if (preg_match('/WHERE id = (\d+)/', $query, $m)) {
                 return $this->book_orders[(int) $m[1]] ?? null;
@@ -300,6 +333,21 @@ class Mock_WPDB {
     }
 
     public function get_var(string $query) {
+        if (str_contains($query, 'COUNT(*)') && str_contains($query, 'avb_orders')) {
+            $count = 0;
+            $type_match = null;
+            if (preg_match('/order_type = \'([^\']+)\'/', $query, $tm)) {
+                $type_match = $tm[1];
+            }
+            foreach ($this->orders as $o) {
+                if ($o->status === 'confirmed' && $o->distribution_status === 'pending') {
+                    if ($type_match === null || $o->order_type === $type_match) {
+                        $count++;
+                    }
+                }
+            }
+            return $count;
+        }
         if (str_contains($query, 'COUNT(*)') && str_contains($query, 'avb_book_orders')) {
             $count = 0;
             foreach ($this->book_orders as $o) {
@@ -308,6 +356,22 @@ class Mock_WPDB {
                 }
             }
             return $count;
+        }
+        if (str_contains($query, 'SELECT SUM(i.quantity)') || str_contains($query, 'SELECT SUM(quantity)')) {
+            if (preg_match('/fee_item_id = (\d+)/', $query, $m)) {
+                $fid = (int) $m[1];
+                $sum = 0;
+                foreach ($this->orders as $o) {
+                    if ((int) ($o->fee_item_id ?? 0) === $fid) {
+                        foreach ($this->order_items as $item) {
+                            if ((int) $item->order_id === (int) $o->id) {
+                                $sum += (int) $item->quantity;
+                            }
+                        }
+                    }
+                }
+                return $sum > 0 ? $sum : null;
+            }
         }
         if (str_contains($query, 'SELECT quantity FROM') && str_contains($query, 'avb_book_orders')) {
             if (preg_match('/fee_item_id = (\d+)/', $query, $m)) {
@@ -321,6 +385,35 @@ class Mock_WPDB {
     }
 
     public function get_results(string $query): array {
+        if (str_contains($query, 'avb_order_items')) {
+            if (preg_match('/WHERE order_id = (\d+)/', $query, $m)) {
+                $oid = (int) $m[1];
+                $res = [];
+                foreach ($this->order_items as $item) {
+                    if ((int) $item->order_id === $oid) $res[] = $item;
+                }
+                return $res;
+            }
+            if (preg_match('/WHERE order_id IN \(([^)]+)\)/', $query, $m)) {
+                $oids = array_map('intval', explode(',', $m[1]));
+                $res = [];
+                foreach ($this->order_items as $item) {
+                    if (in_array((int) $item->order_id, $oids, true)) $res[] = $item;
+                }
+                return $res;
+            }
+        }
+        if (str_contains($query, 'avb_orders') && !str_contains($query, 'order_items')) {
+            $list = [];
+            foreach ($this->orders as $o) {
+                $row = clone $o;
+                $row->fee_amount_due = $this->fee_items[$o->fee_item_id]->amount_due ?? $o->total_amount;
+                $row->fee_status = $this->fee_items[$o->fee_item_id]->status ?? 'open';
+                $row->fee_paid = 0.0;
+                $list[] = $row;
+            }
+            return $list;
+        }
         if (str_contains($query, 'avb_book_orders')) {
             $list = [];
             foreach ($this->book_orders as $o) {

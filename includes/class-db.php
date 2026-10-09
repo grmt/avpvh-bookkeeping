@@ -260,7 +260,7 @@ class AVBK_DB {
             KEY member_id (member_id)
         ) $charset;");
 
-        // Public book orders (see AVBK_Book_Order).
+        // Public book orders (legacy table, see AVBK_Book_Order).
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_book_orders (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             member_id INT UNSIGNED NULL,
@@ -293,6 +293,62 @@ class AVBK_DB {
             KEY member_id (member_id),
             KEY fee_item_id (fee_item_id),
             KEY status (status)
+        ) $charset;");
+
+        // Unified orders (book, tshirt, etc.)
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_orders (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            order_type VARCHAR(50) NOT NULL DEFAULT 'book',
+            member_id INT UNSIGNED NULL,
+            fee_item_id INT UNSIGNED NULL,
+            first_name VARCHAR(100) NOT NULL DEFAULT '',
+            suffix VARCHAR(50) NOT NULL DEFAULT '',
+            last_name VARCHAR(100) NOT NULL DEFAULT '',
+            email VARCHAR(255) NOT NULL DEFAULT '',
+            phone VARCHAR(50) NOT NULL DEFAULT '',
+            street VARCHAR(255) NOT NULL DEFAULT '',
+            house_number VARCHAR(50) NOT NULL DEFAULT '',
+            postal_code VARCHAR(20) NOT NULL DEFAULT '',
+            city VARCHAR(100) NOT NULL DEFAULT '',
+            country VARCHAR(100) NOT NULL DEFAULT 'Nederland',
+            quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+            unit_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+            total_amount DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+            attend_presentation TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            keep_updated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            notes TEXT NULL,
+            confirm_token CHAR(43) NOT NULL,
+            status ENUM('pending_confirmation','confirmed','cancelled') NOT NULL DEFAULT 'pending_confirmation',
+            email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            email_error VARCHAR(255) NOT NULL DEFAULT '',
+            distribution_status ENUM('pending','collected','distributed') NOT NULL DEFAULT 'pending',
+            metadata LONGTEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY confirm_token (confirm_token),
+            KEY order_type (order_type),
+            KEY member_id (member_id),
+            KEY fee_item_id (fee_item_id),
+            KEY status (status)
+        ) $charset;");
+
+        // Line items for orders
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_order_items (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            order_id INT UNSIGNED NOT NULL,
+            item_key VARCHAR(100) NOT NULL DEFAULT '',
+            title VARCHAR(255) NOT NULL DEFAULT '',
+            variant VARCHAR(100) NOT NULL DEFAULT '',
+            quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+            unit_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+            total_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+            metadata LONGTEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY order_id (order_id),
+            KEY item_key (item_key),
+            KEY variant (variant)
         ) $charset;");
 
         update_option('avbk_db_version', '1.0');
@@ -1005,6 +1061,82 @@ class AVBK_DB {
                 KEY status (status)
             ) {$wpdb->get_charset_collate()};");
             update_option('avbk_db_version', '1.41');
+        }
+        if (version_compare($version, '1.42', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset = $wpdb->get_charset_collate();
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_orders (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                order_type VARCHAR(50) NOT NULL DEFAULT 'book',
+                member_id INT UNSIGNED NULL,
+                fee_item_id INT UNSIGNED NULL,
+                first_name VARCHAR(100) NOT NULL DEFAULT '',
+                suffix VARCHAR(50) NOT NULL DEFAULT '',
+                last_name VARCHAR(100) NOT NULL DEFAULT '',
+                email VARCHAR(255) NOT NULL DEFAULT '',
+                phone VARCHAR(50) NOT NULL DEFAULT '',
+                street VARCHAR(255) NOT NULL DEFAULT '',
+                house_number VARCHAR(50) NOT NULL DEFAULT '',
+                postal_code VARCHAR(20) NOT NULL DEFAULT '',
+                city VARCHAR(100) NOT NULL DEFAULT '',
+                country VARCHAR(100) NOT NULL DEFAULT 'Nederland',
+                quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                unit_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+                total_amount DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+                attend_presentation TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                keep_updated TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                notes TEXT NULL,
+                confirm_token CHAR(43) NOT NULL,
+                status ENUM('pending_confirmation','confirmed','cancelled') NOT NULL DEFAULT 'pending_confirmation',
+                email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                email_error VARCHAR(255) NOT NULL DEFAULT '',
+                distribution_status ENUM('pending','collected','distributed') NOT NULL DEFAULT 'pending',
+                metadata LONGTEXT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                confirmed_at DATETIME NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY confirm_token (confirm_token),
+                KEY order_type (order_type),
+                KEY member_id (member_id),
+                KEY fee_item_id (fee_item_id),
+                KEY status (status)
+            ) $charset;");
+
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_order_items (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                order_id INT UNSIGNED NOT NULL,
+                item_key VARCHAR(100) NOT NULL DEFAULT '',
+                title VARCHAR(255) NOT NULL DEFAULT '',
+                variant VARCHAR(100) NOT NULL DEFAULT '',
+                quantity SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                unit_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+                total_price DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+                metadata LONGTEXT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY order_id (order_id),
+                KEY item_key (item_key),
+                KEY variant (variant)
+            ) $charset;");
+
+            // Migrate existing book orders if avb_book_orders exists
+            $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$wpdb->prefix}avb_book_orders'");
+            if ($table_exists === "{$wpdb->prefix}avb_book_orders") {
+                $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}avb_orders
+                    (id, order_type, member_id, fee_item_id, first_name, suffix, last_name, email, phone, street, house_number, postal_code, city, country, quantity, unit_price, total_amount, attend_presentation, keep_updated, notes, confirm_token, status, email_sent, email_error, distribution_status, created_at, confirmed_at)
+                    SELECT
+                    id, 'book', member_id, fee_item_id, first_name, suffix, last_name, email, phone, street, house_number, postal_code, city, country, quantity, unit_price, total_amount, attend_presentation, keep_updated, notes, confirm_token, status, email_sent, email_error, distribution_status, created_at, confirmed_at
+                    FROM {$wpdb->prefix}avb_book_orders");
+
+                $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}avb_order_items
+                    (order_id, item_key, title, variant, quantity, unit_price, total_price, created_at)
+                    SELECT
+                    o.id, 'book', COALESCE((SELECT description FROM {$wpdb->prefix}avb_fee_items f WHERE f.id = o.fee_item_id), 'Jubileumboek Doorgraven!'), '', o.quantity, o.unit_price, o.total_amount, o.created_at
+                    FROM {$wpdb->prefix}avb_book_orders o
+                    WHERE NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_order_items i WHERE i.order_id = o.id)");
+            }
+
+            update_option('avbk_db_version', '1.42');
         }
     }
 
@@ -2042,12 +2174,29 @@ class AVBK_DB {
         if (($item->category ?? '') === 'book') {
             global $wpdb;
             $quantity = $wpdb->get_var($wpdb->prepare(
-                "SELECT quantity FROM {$wpdb->prefix}avb_book_orders WHERE fee_item_id = %d LIMIT 1",
+                "SELECT SUM(i.quantity) FROM {$wpdb->prefix}avb_orders o JOIN {$wpdb->prefix}avb_order_items i ON i.order_id = o.id WHERE o.fee_item_id = %d",
+                (int) $item->id
+            ));
+            if (!$quantity) {
+                $quantity = $wpdb->get_var($wpdb->prepare(
+                    "SELECT quantity FROM {$wpdb->prefix}avb_book_orders WHERE fee_item_id = %d LIMIT 1",
+                    (int) $item->id
+                ));
+            }
+            if ($quantity) {
+                $q = (int) $quantity;
+                return $q . ' ' . ($q === 1 ? 'exemplaar' : 'exemplaren');
+            }
+        }
+        if (($item->category ?? '') === 'tshirt') {
+            global $wpdb;
+            $quantity = $wpdb->get_var($wpdb->prepare(
+                "SELECT SUM(i.quantity) FROM {$wpdb->prefix}avb_orders o JOIN {$wpdb->prefix}avb_order_items i ON i.order_id = o.id WHERE o.fee_item_id = %d",
                 (int) $item->id
             ));
             if ($quantity) {
                 $q = (int) $quantity;
-                return $q . ' ' . ($q === 1 ? 'exemplaar' : 'exemplaren');
+                return $q . ' ' . ($q === 1 ? 'shirt' : 'shirts');
             }
         }
         return '';
@@ -3759,92 +3908,348 @@ class AVBK_DB {
     }
 
     // -------------------------------------------------------------------
-    // Book orders (Jubileumboek)
+    // -------------------------------------------------------------------
+    // Orders (Jubileumboek, T-shirts, etc.)
     // -------------------------------------------------------------------
 
-    public static function create_book_order(array $data): array {
+    public static function create_order(array $order_data, array $items = []): array {
         global $wpdb;
         $token = wp_generate_password(43, false, false);
-        $wpdb->insert("{$wpdb->prefix}avb_book_orders", [
-            'member_id'           => !empty($data['member_id']) ? (int) $data['member_id'] : null,
-            'fee_item_id'         => !empty($data['fee_item_id']) ? (int) $data['fee_item_id'] : null,
-            'first_name'          => $data['first_name'] ?? '',
-            'suffix'              => $data['suffix'] ?? '',
-            'last_name'           => $data['last_name'] ?? '',
-            'email'               => $data['email'] ?? '',
-            'phone'               => $data['phone'] ?? '',
-            'street'              => $data['street'] ?? '',
-            'house_number'        => $data['house_number'] ?? '',
-            'postal_code'         => $data['postal_code'] ?? '',
-            'city'                => $data['city'] ?? '',
-            'country'             => !empty($data['country']) ? $data['country'] : 'Nederland',
-            'quantity'            => max(1, (int) ($data['quantity'] ?? 1)),
-            'unit_price'          => (float) ($data['unit_price'] ?? 35.00),
-            'total_amount'        => (float) ($data['total_amount'] ?? 35.00),
-            'attend_presentation' => !empty($data['attend_presentation']) ? 1 : 0,
-            'keep_updated'        => !empty($data['keep_updated']) ? 1 : 0,
-            'notes'               => $data['notes'] ?? null,
+        $order_type = sanitize_key($order_data['order_type'] ?? 'book') ?: 'book';
+
+        $total_amount = 0.0;
+        $total_qty = 0;
+        $unit_price = 0.0;
+        if (isset($order_data['total_amount'])) {
+            $total_amount = (float) $order_data['total_amount'];
+        }
+        if (isset($order_data['quantity'])) {
+            $total_qty = (int) $order_data['quantity'];
+        }
+        if (isset($order_data['unit_price'])) {
+            $unit_price = (float) $order_data['unit_price'];
+        }
+
+        foreach ($items as $it) {
+            $q = max(1, (int) ($it['quantity'] ?? 1));
+            $p = (float) ($it['unit_price'] ?? 0.0);
+            if (!isset($order_data['total_amount'])) {
+                $total_amount += round($q * $p, 2);
+            }
+            if (!isset($order_data['quantity'])) {
+                $total_qty += $q;
+            }
+            if ($unit_price === 0.0) {
+                $unit_price = $p;
+            }
+        }
+        if ($total_qty === 0) {
+            $total_qty = 1;
+        }
+
+        $wpdb->insert("{$wpdb->prefix}avb_orders", [
+            'order_type'          => $order_type,
+            'member_id'           => !empty($order_data['member_id']) ? (int) $order_data['member_id'] : null,
+            'fee_item_id'         => !empty($order_data['fee_item_id']) ? (int) $order_data['fee_item_id'] : null,
+            'first_name'          => $order_data['first_name'] ?? '',
+            'suffix'              => $order_data['suffix'] ?? '',
+            'last_name'           => $order_data['last_name'] ?? '',
+            'email'               => $order_data['email'] ?? '',
+            'phone'               => $order_data['phone'] ?? '',
+            'street'              => $order_data['street'] ?? '',
+            'house_number'        => $order_data['house_number'] ?? '',
+            'postal_code'         => $order_data['postal_code'] ?? '',
+            'city'                => $order_data['city'] ?? '',
+            'country'             => !empty($order_data['country']) ? $order_data['country'] : 'Nederland',
+            'quantity'            => $total_qty,
+            'unit_price'          => $unit_price,
+            'total_amount'        => $total_amount,
+            'attend_presentation' => !empty($order_data['attend_presentation']) ? 1 : 0,
+            'keep_updated'        => !empty($order_data['keep_updated']) ? 1 : 0,
+            'notes'               => $order_data['notes'] ?? null,
             'confirm_token'       => $token,
-            'status'              => $data['status'] ?? 'pending_confirmation',
-            'distribution_status' => $data['distribution_status'] ?? 'pending',
-            'confirmed_at'        => ($data['status'] ?? '') === 'confirmed' ? current_time('mysql') : null,
+            'status'              => $order_data['status'] ?? 'pending_confirmation',
+            'distribution_status' => $order_data['distribution_status'] ?? 'pending',
+            'metadata'            => !empty($order_data['metadata']) ? (is_array($order_data['metadata']) ? wp_json_encode($order_data['metadata']) : $order_data['metadata']) : null,
+            'confirmed_at'        => ($order_data['status'] ?? '') === 'confirmed' ? current_time('mysql') : null,
         ]);
-        return ['id' => (int) $wpdb->insert_id, 'token' => $token];
+        $order_id = (int) $wpdb->insert_id;
+
+        foreach ($items as $item) {
+            $qty = max(1, (int) ($item['quantity'] ?? 1));
+            $unit_price = (float) ($item['unit_price'] ?? 0.0);
+            $line_total = isset($item['total_price']) ? (float) $item['total_price'] : round($qty * $unit_price, 2);
+            $wpdb->insert("{$wpdb->prefix}avb_order_items", [
+                'order_id'    => $order_id,
+                'item_key'    => sanitize_key($item['item_key'] ?? ''),
+                'title'       => $item['title'] ?? '',
+                'variant'     => $item['variant'] ?? '',
+                'quantity'    => $qty,
+                'unit_price'  => $unit_price,
+                'total_price' => $line_total,
+                'metadata'    => !empty($item['metadata']) ? (is_array($item['metadata']) ? wp_json_encode($item['metadata']) : $item['metadata']) : null,
+            ]);
+        }
+
+        return ['id' => $order_id, 'token' => $token];
     }
 
-    public static function get_book_order(int $id): ?object {
+    public static function get_order_items(int $order_id): array {
         global $wpdb;
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE id = %d", $id
-        )) ?: null;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_order_items WHERE order_id = %d ORDER BY id ASC", $order_id
+        )) ?: [];
     }
 
-    public static function get_book_order_by_token(string $token): ?object {
+    public static function get_order(int $id): ?object {
         global $wpdb;
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE confirm_token = %s", $token
-        )) ?: null;
+        $order = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_orders WHERE id = %d", $id
+        ));
+        if (!$order) {
+            return null;
+        }
+        $order->items = self::get_order_items((int) $order->id);
+        $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
+        $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
+        return $order;
     }
 
-    public static function confirm_book_order(int $id): void {
+    public static function get_order_by_token(string $token): ?object {
+        global $wpdb;
+        $order = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_orders WHERE confirm_token = %s", $token
+        ));
+        if (!$order) {
+            return null;
+        }
+        $order->items = self::get_order_items((int) $order->id);
+        $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
+        $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
+        return $order;
+    }
+
+    public static function confirm_order(int $id): void {
         global $wpdb;
         $wpdb->query($wpdb->prepare(
-            "UPDATE {$wpdb->prefix}avb_book_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
+            "UPDATE {$wpdb->prefix}avb_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
             current_time('mysql'), $id
         ));
     }
 
-    public static function mark_book_order_email_result(int $id, bool $sent, string $error = ''): void {
+    public static function mark_order_email_result(int $id, bool $sent, string $error = ''): void {
         global $wpdb;
-        $wpdb->update("{$wpdb->prefix}avb_book_orders", [
+        $wpdb->update("{$wpdb->prefix}avb_orders", [
             'email_sent'  => (int) $sent,
             'email_error' => $error,
         ], ['id' => $id]);
     }
 
-    public static function update_book_order_distribution(int $id, string $distribution_status): bool {
+    public static function update_order_distribution(int $id, string $distribution_status): bool {
         global $wpdb;
         if (!in_array($distribution_status, ['pending', 'collected', 'distributed'], true)) {
             return false;
         }
-        $updated = $wpdb->update("{$wpdb->prefix}avb_book_orders", [
+        $updated = $wpdb->update("{$wpdb->prefix}avb_orders", [
             'distribution_status' => $distribution_status,
         ], ['id' => $id]);
         return $updated !== false;
     }
 
-    public static function count_pending_distribution_book_orders(): int {
+    public static function count_pending_distribution_orders(string $order_type = ''): int {
         global $wpdb;
+        if ($order_type !== '') {
+            return (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status = 'confirmed' AND distribution_status = 'pending' AND order_type = %s",
+                $order_type
+            ));
+        }
         return (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_book_orders WHERE status = 'confirmed' AND distribution_status = 'pending'"
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status = 'confirmed' AND distribution_status = 'pending'"
         );
     }
 
-    public static function get_book_orders_for_member(int $member_id): array {
+    public static function get_orders_for_member(int $member_id, string $order_type = ''): array {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_book_orders WHERE member_id = %d ORDER BY created_at DESC", $member_id
+        if ($order_type !== '') {
+            $orders = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_orders WHERE member_id = %d AND order_type = %s ORDER BY created_at DESC",
+                $member_id, $order_type
+            )) ?: [];
+        } else {
+            $orders = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}avb_orders WHERE member_id = %d ORDER BY created_at DESC",
+                $member_id
+            )) ?: [];
+        }
+        foreach ($orders as $ord) {
+            $ord->items = self::get_order_items((int) $ord->id);
+            $ord->quantity = !empty($ord->items) ? array_sum(array_column($ord->items, 'quantity')) : 1;
+            $ord->unit_price = !empty($ord->items) ? (float) $ord->items[0]->unit_price : (float) $ord->total_amount;
+        }
+        return $orders;
+    }
+
+    /**
+     * Get orders with joined fee item and payment information, attaching line items.
+     */
+    public static function get_orders(array $args = []): array {
+        global $wpdb;
+        $where = ['1=1'];
+        $params = [];
+
+        if (!empty($args['order_type']) && $args['order_type'] !== 'all') {
+            $where[] = "o.order_type = %s";
+            $params[] = $args['order_type'];
+        }
+        if (!empty($args['status'])) {
+            $where[] = "o.status = %s";
+            $params[] = $args['status'];
+        }
+        if (!empty($args['distribution_status']) && $args['distribution_status'] !== 'all') {
+            $where[] = "o.distribution_status = %s";
+            $params[] = $args['distribution_status'];
+        }
+        if (!empty($args['presentation']) && $args['presentation'] === 'attend') {
+            $where[] = "o.attend_presentation = 1";
+        } elseif (!empty($args['presentation']) && $args['presentation'] === 'update') {
+            $where[] = "o.keep_updated = 1";
+        }
+        if (!empty($args['search'])) {
+            $like = '%' . $wpdb->esc_like(trim($args['search'])) . '%';
+            $where[] = "(o.first_name LIKE %s OR o.last_name LIKE %s OR o.email LIKE %s OR o.city LIKE %s)";
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $where_sql = implode(' AND ', $where);
+
+        $sql = "SELECT o.*,
+                       f.amount_due AS fee_amount_due,
+                       f.status AS fee_status,
+                       COALESCE(SUM(a.amount), 0) AS fee_paid
+                FROM {$wpdb->prefix}avb_orders o
+                LEFT JOIN {$wpdb->prefix}avb_fee_items f ON f.id = o.fee_item_id
+                LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.fee_item_id = f.id
+                WHERE {$where_sql}
+                GROUP BY o.id
+                ORDER BY o.created_at DESC";
+
+        if (!empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+
+        $results = $wpdb->get_results($sql) ?: [];
+
+        // Pre-fetch line items for all retrieved orders
+        if (!empty($results)) {
+            $order_ids = array_map(fn($r) => (int) $r->id, $results);
+            $in_ids = implode(',', $order_ids);
+            $all_items = $wpdb->get_results(
+                "SELECT * FROM {$wpdb->prefix}avb_order_items WHERE order_id IN ({$in_ids}) ORDER BY id ASC"
+            ) ?: [];
+
+            $items_by_order = [];
+            foreach ($all_items as $it) {
+                $items_by_order[(int) $it->order_id][] = $it;
+            }
+
+            foreach ($results as $row) {
+                $row->items = $items_by_order[(int) $row->id] ?? [];
+                $row->quantity = !empty($row->items) ? array_sum(array_column($row->items, 'quantity')) : 1;
+                $row->unit_price = !empty($row->items) ? (float) $row->items[0]->unit_price : (float) $row->total_amount;
+            }
+        }
+
+        // Post-filter by payment status if requested
+        if (!empty($args['payment_status'])) {
+            $results = array_values(array_filter($results, function ($row) use ($args) {
+                $is_paid = $row->fee_status === 'waived' || ((float) $row->fee_paid >= (float) $row->total_amount - 0.005);
+                if ($args['payment_status'] === 'paid') {
+                    return $is_paid;
+                } elseif ($args['payment_status'] === 'open') {
+                    return !$is_paid;
+                }
+                return true;
+            }));
+        }
+
+        return $results;
+    }
+
+    /**
+     * Aggregated inkoopmatrix for merchandise (e.g. T-shirts).
+     * Returns structured matrix: designs as rows, variants (sizes) as columns,
+     * cell counts, row totals, column totals, grand total and revenue.
+     */
+    public static function get_order_matrix(string $order_type = 'tshirt'): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT i.title, i.variant, SUM(i.quantity) AS qty, SUM(i.total_price) AS eur
+             FROM {$wpdb->prefix}avb_order_items i
+             JOIN {$wpdb->prefix}avb_orders o ON o.id = i.order_id
+             WHERE o.order_type = %s AND o.status = 'confirmed'
+             GROUP BY i.title, i.variant
+             ORDER BY i.title ASC, i.variant ASC",
+            $order_type
         )) ?: [];
+
+        $configured_sizes_str = get_option('avbk_tshirt_sizes', 'S, M, L, XL, XXL, 3XL');
+        $variants = array_filter(array_map('trim', explode(',', $configured_sizes_str)));
+
+        // Preload active configured designs if tshirt
+        $designs = [];
+        if ($order_type === 'tshirt') {
+            $configured_designs = get_option('avbk_tshirt_designs', []);
+            if (is_array($configured_designs)) {
+                foreach ($configured_designs as $d) {
+                    if (!empty($d['name']) && !in_array($d['name'], $designs, true) && !empty($d['active'])) {
+                        $designs[] = $d['name'];
+                    }
+                }
+            }
+        }
+
+        $matrix = [];
+        $totals_by_design = [];
+        $totals_by_variant = [];
+        $grand_total = 0;
+        $total_revenue = 0.0;
+
+        foreach ($rows as $row) {
+            $design  = $row->title ?: 'Standaard';
+            $variant = $row->variant ?: '-';
+            $qty     = (int) $row->qty;
+            $eur     = (float) $row->eur;
+
+            if (!in_array($design, $designs, true)) {
+                $designs[] = $design;
+            }
+            if (!in_array($variant, $variants, true) && $variant !== '-') {
+                $variants[] = $variant;
+            }
+
+            if (!isset($matrix[$design])) {
+                $matrix[$design] = [];
+            }
+            $matrix[$design][$variant] = ($matrix[$design][$variant] ?? 0) + $qty;
+            $totals_by_design[$design] = ($totals_by_design[$design] ?? 0) + $qty;
+            $totals_by_variant[$variant] = ($totals_by_variant[$variant] ?? 0) + $qty;
+            $grand_total += $qty;
+            $total_revenue += $eur;
+        }
+
+        return [
+            'designs'           => $designs,
+            'variants'          => array_values($variants),
+            'cells'             => $matrix,
+            'totals_by_design'  => $totals_by_design,
+            'totals_by_variant' => $totals_by_variant,
+            'grand_total'       => $grand_total,
+            'total_revenue'     => $total_revenue,
+        ];
     }
 
     public static function create_book_fee_item(int $member_id, int $quantity, float $amount, string $book_title = ''): int {
@@ -3856,6 +4261,22 @@ class AVBK_DB {
             'year'        => (int) current_time('Y'),
             'activity_id' => null,
             'category'    => 'book',
+            'description' => $title,
+            'amount_due'  => $amount,
+            'status'      => 'open',
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function create_tshirt_fee_item(int $member_id, int $quantity, float $amount, string $description = ''): int {
+        global $wpdb;
+        $title = $description !== '' ? $description : (get_option('avbk_tshirt_title', '') ?: 'Lustrum T-shirt(s)');
+        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+            'member_id'   => $member_id,
+            'type'        => 'other',
+            'year'        => (int) current_time('Y'),
+            'activity_id' => null,
+            'category'    => 'tshirt',
             'description' => $title,
             'amount_due'  => $amount,
             'status'      => 'open',
@@ -3919,69 +4340,63 @@ class AVBK_DB {
         ]);
     }
 
-    /**
-     * Get book orders with joined fee item and payment information.
-     */
+    // -------------------------------------------------------------------
+    // Backward-compatible wrappers for Book orders
+    // -------------------------------------------------------------------
+
+    public static function create_book_order(array $data): array {
+        $quantity   = max(1, (int) ($data['quantity'] ?? 1));
+        $unit_price = (float) ($data['unit_price'] ?? 35.00);
+        $total      = (float) ($data['total_amount'] ?? round($quantity * $unit_price, 2));
+        $title      = get_option('avbk_book_title', 'Doorgraven! - 50 jaar AV Philips van Horne') ?: 'Doorgraven! - 50 jaar AV Philips van Horne';
+
+        $order_data = array_merge($data, [
+            'order_type'   => 'book',
+            'total_amount' => $total,
+        ]);
+
+        $item = [
+            'item_key'    => 'book',
+            'title'       => $title,
+            'variant'     => '',
+            'quantity'    => $quantity,
+            'unit_price'  => $unit_price,
+            'total_price' => $total,
+        ];
+
+        return self::create_order($order_data, [$item]);
+    }
+
+    public static function get_book_order(int $id): ?object {
+        return self::get_order($id);
+    }
+
+    public static function get_book_order_by_token(string $token): ?object {
+        return self::get_order_by_token($token);
+    }
+
+    public static function confirm_book_order(int $id): void {
+        self::confirm_order($id);
+    }
+
+    public static function mark_book_order_email_result(int $id, bool $sent, string $error = ''): void {
+        self::mark_order_email_result($id, $sent, $error);
+    }
+
+    public static function update_book_order_distribution(int $id, string $distribution_status): bool {
+        return self::update_order_distribution($id, $distribution_status);
+    }
+
+    public static function count_pending_distribution_book_orders(): int {
+        return self::count_pending_distribution_orders('book');
+    }
+
+    public static function get_book_orders_for_member(int $member_id): array {
+        return self::get_orders_for_member($member_id, 'book');
+    }
+
     public static function get_book_orders(array $args = []): array {
-        global $wpdb;
-        $where = ['1=1'];
-        $params = [];
-
-        if (!empty($args['status'])) {
-            $where[] = "o.status = %s";
-            $params[] = $args['status'];
-        }
-        if (!empty($args['distribution_status']) && $args['distribution_status'] !== 'all') {
-            $where[] = "o.distribution_status = %s";
-            $params[] = $args['distribution_status'];
-        }
-        if (!empty($args['presentation']) && $args['presentation'] === 'attend') {
-            $where[] = "o.attend_presentation = 1";
-        } elseif (!empty($args['presentation']) && $args['presentation'] === 'update') {
-            $where[] = "o.keep_updated = 1";
-        }
-        if (!empty($args['search'])) {
-            $like = '%' . $wpdb->esc_like(trim($args['search'])) . '%';
-            $where[] = "(o.first_name LIKE %s OR o.last_name LIKE %s OR o.email LIKE %s OR o.city LIKE %s)";
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-        }
-
-        $where_sql = implode(' AND ', $where);
-
-        $sql = "SELECT o.*,
-                       f.amount_due AS fee_amount_due,
-                       f.status AS fee_status,
-                       COALESCE(SUM(a.amount), 0) AS fee_paid
-                FROM {$wpdb->prefix}avb_book_orders o
-                LEFT JOIN {$wpdb->prefix}avb_fee_items f ON f.id = o.fee_item_id
-                LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.fee_item_id = f.id
-                WHERE {$where_sql}
-                GROUP BY o.id
-                ORDER BY o.created_at DESC";
-
-        if (!empty($params)) {
-            $sql = $wpdb->prepare($sql, ...$params);
-        }
-
-        $results = $wpdb->get_results($sql) ?: [];
-
-        // Post-filter by payment status if requested
-        if (!empty($args['payment_status'])) {
-            $results = array_values(array_filter($results, function ($row) use ($args) {
-                $is_paid = $row->fee_status === 'waived' || ((float) $row->fee_paid >= (float) $row->total_amount - 0.005);
-                if ($args['payment_status'] === 'paid') {
-                    return $is_paid;
-                } elseif ($args['payment_status'] === 'open') {
-                    return !$is_paid;
-                }
-                return true;
-            }));
-        }
-
-        return $results;
+        return self::get_orders(array_merge($args, ['order_type' => 'book']));
     }
 
     /**
