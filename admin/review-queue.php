@@ -88,6 +88,13 @@ function avbk_activity_select(string $name, array $recent_activities, array $oth
     ?>
     <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select">
         <option value="">&mdash; activiteit &mdash;</option>
+        <?php if (preg_match('/^f(\d+)$/', $selected, $fee_match)) :
+            $exact_item = AVBK_DB::get_fee_item((int) $fee_match[1]);
+            ?>
+            <option value="<?php echo esc_attr($selected); ?>" selected>
+                <?php echo esc_html('Post #' . $fee_match[1] . ' — ' . ($exact_item->description ?? 'Ontbrekende post')); ?>
+            </option>
+        <?php endif; ?>
         <?php if ($recent_activities) : ?>
         <optgroup label="Activiteiten">
             <?php foreach ($recent_activities as $a) :
@@ -124,6 +131,18 @@ function avbk_row_detail(array $row): ?array {
         return null;
     }
     $activity = (string) ($row['activity'] ?? '');
+    if (preg_match('/^f(\d+)$/', $activity, $m)) {
+        $item = AVBK_DB::get_fee_item((int) $m[1]);
+        $closed_year = (int) get_option('avbk_closed_through_year', 0);
+        $payable = $item && (int) $item->member_id === $member_id && $item->status === 'open'
+            && (!$closed_year || AVBK_DB::fee_item_book_year($item) > $closed_year);
+        return [
+            'share' => $payable ? max(0, AVBK_DB::get_fee_item_remaining($item)) : 0.0,
+            'found' => true,
+            'fragments_html' => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — bestaande post #' . $item->id : 'Post bestaat niet meer.'),
+            'estimated_text' => '', 'estimated_warning' => false,
+        ];
+    }
     if (preg_match('/^a(\d+)$/', $activity, $m)) {
         return AVBK_DB::get_member_fee_detail_for_activity($member_id, (int) $m[1]);
     }
@@ -252,11 +271,14 @@ function avbk_row_detail(array $row): ?array {
         $suggested_ids = array_filter(array_map('intval', explode(',', $tx->suggested_member_ids)));
         $suggested_types = array_values(array_filter(explode(',', $tx->suggested_type))); // activiteit-namen, bijv. ['Kamp','Contributie']
         $draft = AVBK_DB::get_transaction_draft((int) $tx->id);
+        $exact_review = AVBK_Import::get_exact_reference_review((string) $tx->description);
 
         if ($draft !== null) {
             // A saved concept is a deliberate choice — never silently
             // replaced by a fresh suggestion computation.
             $rows = $draft;
+        } elseif ($exact_review['ids']) {
+            $rows = $exact_review['rows'];
         } else {
             // Activity names and the matching rules can change after a
             // transaction was imported. Re-evaluate the description when
@@ -329,8 +351,11 @@ function avbk_row_detail(array $row): ?array {
             if ($unknown_indexes) {
                 $remaining = max(0, round((float) $tx->amount - $known_amount_sum, 2));
                 $even_share = round($remaining / count($unknown_indexes), 2);
-                foreach ($unknown_indexes as $i) {
-                    $rows[$i]['amount'] = $even_share;
+                $distributed = 0.0;
+                foreach ($unknown_indexes as $position => $i) {
+                    $share = $position === count($unknown_indexes) - 1 ? round($remaining - $distributed, 2) : min($even_share, max(0, round($remaining - $distributed, 2)));
+                    $rows[$i]['amount'] = $share;
+                    $distributed += $share;
                 }
             }
         }
@@ -371,13 +396,29 @@ function avbk_row_detail(array $row): ?array {
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-form" data-tx-amount="<?php echo esc_attr(number_format((float) $tx->amount, 2, '.', '')); ?>" data-tx-description="<?php echo esc_attr($clean_tx_description); ?>">
                 <?php wp_nonce_field('avbk_transaction_row'); ?>
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                <?php if ($exact_review['ids']) :
+                    $reference_difference = round((float) $tx->amount - $exact_review['remaining'], 2);
+                    ?>
+                    <div class="notice notice-warning inline">
+                        <p><strong>Exact betalingskenmerk herkend.</strong>
+                            De genoemde personen en bestaande posten blijven behouden; er wordt niet opnieuw op namen of activiteitwoorden gegokt.
+                            Nog open op deze posten: &euro; <?php echo esc_html(number_format($exact_review['remaining'], 2, ',', '.')); ?>.
+                            <?php if (abs($reference_difference) > 0.005) : ?>
+                                <?php echo $reference_difference > 0 ? 'Meer ontvangen dan hier nog openstaat:' : 'Minder ontvangen dan hier nog openstaat:'; ?>
+                                &euro; <?php echo esc_html(number_format(abs($reference_difference), 2, ',', '.')); ?>. Controleer de verdeling en eerdere betalingen.
+                            <?php endif; ?>
+                            <?php if ($draft !== null) : ?>Je opgeslagen concept is behouden.<?php endif; ?>
+                        </p>
+                        <?php foreach ($exact_review['warnings'] as $warning) : ?><p><?php echo esc_html($warning); ?></p><?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
 
                 <table class="avbk-review-split">
                     <thead><tr><th>Persoon</th><th>Activiteit</th><th>Bedrag</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) :
                         $d = avbk_row_detail($row);
-                        $is_matched_activity = (bool) preg_match('/^a\d+$/', (string) ($row['activity'] ?? ''));
+                        $is_matched_activity = (bool) preg_match('/^[af]\d+$/', (string) ($row['activity'] ?? ''));
                         $row_amount = (float) ($row['amount'] ?? 0);
                         $open_amount = !empty($d['found']) ? (float) $d['share'] : 0.0;
                         $row_shortfall = max(0, round($open_amount - $row_amount, 2));
