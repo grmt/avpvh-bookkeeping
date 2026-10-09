@@ -23,6 +23,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function getRowUnitPrice(row) {
+        const typeSelect = row.querySelector('.avbk-tshirt-type-select');
+        if (typeSelect && typeSelect.selectedOptions && typeSelect.selectedOptions[0]) {
+            const opt = typeSelect.selectedOptions[0];
+            const p = parseFloat(opt.getAttribute('data-price'));
+            if (!isNaN(p) && p > 0) {
+                return p;
+            }
+        }
         const designSelect = row.querySelector('.avbk-tshirt-design-select');
         if (designSelect && designSelect.selectedOptions && designSelect.selectedOptions[0]) {
             const opt = designSelect.selectedOptions[0];
@@ -72,21 +80,47 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function attachRowEvents(row) {
+        const markTouched = function () {
+            row.dataset.userTouched = '1';
+        };
+
         const designSelect = row.querySelector('.avbk-tshirt-design-select');
         if (designSelect) {
             designSelect.addEventListener('change', function () {
+                markTouched();
                 updateRowSubtotal(row);
                 updateGrandTotal();
             });
         }
 
+        const typeSelect = row.querySelector('.avbk-tshirt-type-select');
+        if (typeSelect) {
+            typeSelect.addEventListener('change', function () {
+                markTouched();
+                updateRowSubtotal(row);
+                updateGrandTotal();
+            });
+        }
+
+        const colorSelect = row.querySelector('.avbk-tshirt-color-select');
+        if (colorSelect) {
+            colorSelect.addEventListener('change', markTouched);
+        }
+
+        const sizeSelect = row.querySelector('.avbk-tshirt-size-select');
+        if (sizeSelect) {
+            sizeSelect.addEventListener('change', markTouched);
+        }
+
         const qtyInput = row.querySelector('.avbk-tshirt-qty-input');
         if (qtyInput) {
             qtyInput.addEventListener('input', function () {
+                markTouched();
                 updateRowSubtotal(row);
                 updateGrandTotal();
             });
             qtyInput.addEventListener('change', function () {
+                markTouched();
                 if (parseInt(this.value, 10) < 1 || isNaN(parseInt(this.value, 10))) {
                     this.value = 1;
                 }
@@ -107,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function addRow(preselectedDesignId) {
+    function addRow(preselectedDesignId, preselectedType) {
         if (!template) return;
         const index = rowIndexCounter++;
         const cloneHtml = template.innerHTML.replace(/__INDEX__/g, index);
@@ -119,6 +153,13 @@ document.addEventListener('DOMContentLoaded', function () {
             const select = newRow.querySelector('.avbk-tshirt-design-select');
             if (select) {
                 select.value = preselectedDesignId;
+            }
+        }
+
+        if (preselectedType) {
+            const typeSelect = newRow.querySelector('.avbk-tshirt-type-select');
+            if (typeSelect) {
+                typeSelect.value = preselectedType;
             }
         }
 
@@ -142,30 +183,53 @@ document.addEventListener('DOMContentLoaded', function () {
         addRow();
     });
 
-    // Gallery cards "Kies dit design" buttons
+    function selectDesignAndType(designId, productType) {
+        const rows = tableBody.querySelectorAll('.avbk-tshirt-item-row');
+        let targetRow = null;
+
+        if (rows.length === 1 && !rows[0].dataset.userTouched) {
+            const dSelect = rows[0].querySelector('.avbk-tshirt-design-select');
+            const tSelect = rows[0].querySelector('.avbk-tshirt-type-select');
+            if (dSelect && designId) dSelect.value = designId;
+            if (tSelect && productType) tSelect.value = productType;
+            rows[0].dataset.userTouched = '1';
+            updateRowSubtotal(rows[0]);
+            updateGrandTotal();
+            targetRow = rows[0];
+        } else {
+            targetRow = addRow(designId, productType);
+            if (targetRow) targetRow.dataset.userTouched = '1';
+        }
+
+        // Scroll down to selector section
+        const selectorSection = document.getElementById('avbk-tshirt-selector-section');
+        if (selectorSection) {
+            selectorSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        if (targetRow) {
+            targetRow.style.transition = 'background-color 0.4s ease';
+            targetRow.style.backgroundColor = '#e7f1fb';
+            setTimeout(function () {
+                targetRow.style.backgroundColor = '';
+            }, 1200);
+        }
+    }
+
+    // Gallery cards "+ Bestel T-shirt / Hoodie" buttons
+    document.querySelectorAll('.avbk-select-design-type-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const designId = this.dataset.designId;
+            const productType = this.dataset.productType || 'tshirt';
+            selectDesignAndType(designId, productType);
+        });
+    });
+
+    // Gallery cards "Kies dit design" legacy buttons
     document.querySelectorAll('.avbk-select-design-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const designId = this.dataset.designId;
-            if (!designId) return;
-
-            // Check if first row has default value or is already chosen
-            const rows = tableBody.querySelectorAll('.avbk-tshirt-item-row');
-            if (rows.length === 1) {
-                const select = rows[0].querySelector('.avbk-tshirt-design-select');
-                if (select) {
-                    select.value = designId;
-                    updateRowSubtotal(rows[0]);
-                    updateGrandTotal();
-                }
-            } else {
-                addRow(designId);
-            }
-
-            // Scroll down to selector section
-            const selectorSection = document.getElementById('avbk-tshirt-selector-section');
-            if (selectorSection) {
-                selectorSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
+            selectDesignAndType(designId, 'tshirt');
         });
     });
 

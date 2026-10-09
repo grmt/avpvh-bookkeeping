@@ -571,6 +571,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
     <?php elseif ($active_tab === 'settings') : ?>
         <?php
         $designs = AVBK_Tshirt_Order::get_available_designs();
+        $types = AVBK_Tshirt_Order::get_available_types();
         $sizes_str = get_option('avbk_tshirt_sizes', implode(', ', AVBK_Tshirt_Order::DEFAULT_SIZES));
         $colors_str = get_option('avbk_tshirt_colors', implode(', ', AVBK_Tshirt_Order::DEFAULT_COLORS));
         ?>
@@ -628,16 +629,44 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 </tr>
             </table>
 
-            <h3>Kleding designs, modellen &amp; foto's</h3>
-            <p class="description">Beheer hier de beschikbare modellen en designs. Je kunt per item een naam, omschrijving, afbeeldings-URL (foto/mockup) en optioneel een afwijkende stukprijs opgeven.</p>
+            <h3>Kledingstuk types &amp; prijzen</h3>
+            <p class="description">Beheer de beschikbare types kledingstukken en hun vaste prijzen (inclusief btw).</p>
+
+            <table class="widefat striped" style="max-width: 600px; margin-bottom: 1.5rem;" id="avbk_types_editor_table">
+                <thead>
+                    <tr>
+                        <th style="width: 140px;">Type code</th>
+                        <th style="width: 200px;">Naam</th>
+                        <th style="width: 120px;">Prijs (&euro;)</th>
+                    </tr>
+                </thead>
+                <tbody id="avbk_types_editor_body">
+                    <?php foreach ($types as $idx => $t) : ?>
+                        <tr>
+                            <td>
+                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($t['id'] ?? ''); ?>" style="width:100%;" required>
+                            </td>
+                            <td>
+                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($t['name'] ?? ''); ?>" style="width:100%;" required>
+                            </td>
+                            <td>
+                                <input type="number" step="0.50" name="tshirt_types[<?php echo $idx; ?>][price]" value="<?php echo esc_attr(number_format((float) ($t['price'] ?? 21.00), 2, '.', '')); ?>" style="width:100%;" required>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <h3>Kleding designs &amp; illustraties</h3>
+            <p class="description">Beheer hier de beschikbare designs. Je kunt per item een naam, omschrijving, afbeeldings-URL (of relatief plugin-pad) opgeven.</p>
 
             <table class="widefat striped" style="max-width: 960px; margin-bottom: 1.5rem;" id="avbk_designs_editor_table">
                 <thead>
                     <tr>
                         <th style="width: 130px;">ID / Code</th>
-                        <th style="width: 190px;">Naam design / model</th>
+                        <th style="width: 200px;">Naam design</th>
                         <th>Omschrijving</th>
-                        <th style="width: 190px;">Foto URL</th>
+                        <th style="width: 220px;">Foto URL / Pad</th>
                         <th style="width: 85px;">Prijs (&euro;)</th>
                         <th style="width: 55px; text-align: center;">Actief</th>
                     </tr>
@@ -655,7 +684,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <input type="text" name="tshirt_designs[<?php echo $idx; ?>][description]" value="<?php echo esc_attr($d['description'] ?? ''); ?>" style="width:100%;">
                             </td>
                             <td>
-                                <input type="url" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="https://..." style="width:100%;">
+                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="assets/images/design-1.png" style="width:100%;">
                             </td>
                             <td>
                                 <input type="number" step="0.50" name="tshirt_designs[<?php echo $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;">

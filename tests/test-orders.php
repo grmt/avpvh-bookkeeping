@@ -548,17 +548,23 @@ $controller = new AVBK_Tshirt_Order();
 $html = $controller->render();
 
 check(str_contains($html, 'Lustrum T-shirts 50 jaar'), 'Form contains title heading');
-check(str_contains($html, 'Beschikbare designs'), 'Form displays designs gallery');
-check(str_contains($html, 'Jubileumlogo 50 jaar (T-shirt)'), 'Form lists active design 1');
+check(str_contains($html, 'Bekijk de designs'), 'Form displays designs gallery');
+check(str_contains($html, 'Design 1 (Kampenlijst)'), 'Form lists active design 1');
 check(str_contains($html, 'avbk-tshirt-items-table'), 'Form renders line items table repeater');
-check(str_contains($html, 'avbk-add-shirt-btn'), 'Form contains "+ Extra T-shirt toevoegen" button');
+check(str_contains($html, 'avbk-add-shirt-btn'), 'Form contains "+ Extra kledingstuk toevoegen" button');
 check(str_contains($html, 'avbk-book-check-email-box'), 'Form contains email check banner for guests');
 check(str_contains($html, 'bestellen verplicht tot betaling'), 'Form mentions payment obligation');
 check(str_contains($html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
+check(str_contains($html, 'avbk-tshirt-type-select'), 'Form contains garment type selection column');
 check(str_contains($html, 'avbk-tshirt-color-select'), 'Form contains color selection column');
+check(str_contains($html, 'avbk-tshirt-size-select'), 'Form contains size selection column');
 check(str_contains($html, 'Vanaf &euro;&nbsp;21,00 per kledingstuk'), 'Form contains correct starting price');
 check(str_contains($html, 'inclusief btw'), 'Form mentions VAT (inclusief btw)');
 check(str_contains($html, 'Stukprijs (incl. btw)'), 'Repeater table header mentions incl. btw');
+check(str_contains($html, '1. Kies design *'), 'Repeater table header has step 1 Kies design');
+check(str_contains($html, '2. Kledingstuk *'), 'Repeater table header has step 2 Kledingstuk');
+check(str_contains($html, '3. Kleur *'), 'Repeater table header has step 3 Kleur');
+check(str_contains($html, '4. Maat *'), 'Repeater table header has step 4 Maat');
 
 // -------------------------------------------------------------
 // Test 5: Guest checkout with line items (with colors and per-design prices)
@@ -577,16 +583,18 @@ $_POST = [
     'country'      => 'Nederland',
     'items'        => [
         [
-            'design'   => 'jubileum_zwart',
-            'color'    => 'Zwart',
-            'size'     => 'M',
-            'quantity' => '1',
+            'design'       => 'design_1',
+            'product_type' => 'tshirt',
+            'color'        => 'Zwart',
+            'size'         => 'M',
+            'quantity'     => '1',
         ],
         [
-            'design'   => 'pvh_navy',
-            'color'    => 'Donkergroen',
-            'size'     => 'S',
-            'quantity' => '2',
+            'design'       => 'design_2',
+            'product_type' => 'tshirt',
+            'color'        => 'Donkergroen',
+            'size'         => 'S',
+            'quantity'     => '2',
         ],
     ],
 ];
@@ -621,8 +629,8 @@ unset($_GET['tshirt_token']);
 check(str_contains($confirm_html, 'Bestelling bevestigd'), 'Confirmation screen rendered');
 check(str_contains($confirm_html, 'Emma'), 'Confirmation greets customer');
 check(str_contains($confirm_html, 'Beekstraat 5'), 'Registered address displayed');
-check(str_contains($confirm_html, 'Jubileumlogo 50 jaar (T-shirt) (Zwart)'), 'Summary table shows item 1 with color');
-check(str_contains($confirm_html, 'Archeologie Philips van Horne (T-shirt) (Donkergroen)'), 'Summary table shows item 2 with color');
+check(str_contains($confirm_html, 'Design 1 (Kampenlijst) — T-shirt (Zwart)'), 'Summary table shows item 1 with color');
+check(str_contains($confirm_html, 'Design 2') && str_contains($confirm_html, 'T-shirt (Donkergroen)'), 'Summary table shows item 2 with color');
 check(str_contains($confirm_html, 'Bestellen betekent betalen'), 'Confirmation states payment commitment');
 check(str_contains($confirm_html, 'Totaalbedrag (incl. btw):'), 'Confirmation summary shows total incl. btw');
 check($last_order->status === 'confirmed', 'Visiting confirmation link confirms order in database');
@@ -642,10 +650,11 @@ $_POST = [
     'country'      => 'Nederland',
     'items'        => [
         [
-            'design'   => 'dgeen_wit',
-            'color'    => 'Wit',
-            'size'     => 'XL',
-            'quantity' => '2',
+            'design'       => 'design_1',
+            'product_type' => 'tshirt',
+            'color'        => 'Wit',
+            'size'         => 'XL',
+            'quantity'     => '2',
         ],
     ],
 ];
@@ -700,10 +709,11 @@ $_POST = [
     'city'         => '',
     'items'        => [
         [
-            'design'   => 'jubileum_hoodie',
-            'color'    => 'Beige',
-            'size'     => 'L',
-            'quantity' => '1',
+            'design'       => 'design_1',
+            'product_type' => 'hoodie',
+            'color'        => 'Beige',
+            'size'         => 'L',
+            'quantity'     => '1',
         ],
     ],
 ];
@@ -724,6 +734,7 @@ $_GET['tshirt_token'] = $no_addr_order->confirm_token;
 $no_addr_confirm = $controller->render();
 unset($_GET['tshirt_token']);
 check(!str_contains($no_addr_confirm, 'Geregistreerd adres:'), 'Confirmation view omits address row when address is empty');
+check(str_contains($no_addr_confirm, 'Design 1 (Kampenlijst) — Hoodie (Beige)'), 'Confirmation summary shows Hoodie title');
 
 // -------------------------------------------------------------
 // Test 10: Guest order fails when name or email is missing

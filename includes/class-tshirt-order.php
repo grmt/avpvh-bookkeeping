@@ -17,38 +17,41 @@ defined('ABSPATH') || exit;
  */
 class AVBK_Tshirt_Order {
 
-    public const DEFAULT_TITLE = 'Lustrum T-shirts 50 jaar AV Philips van Horne';
+    public const DEFAULT_TITLE = 'Lustrumkleding 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 21.00;
     public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn inclusief btw.';
-    public const DEFAULT_DISTRIBUTION_NOTICE = 'T-shirts worden in principe niet per post verzonden, maar kunnen worden opgehaald of worden uitgereikt tijdens de jubileumactiviteiten. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
-    public const DEFAULT_INTRO = 'Ter ere van het 50-jarig jubileum van de Archeologische Vereniging Philips van Horne brengen we speciale jubileum T-shirts uit! Kies hieronder je favoriete design en maat.';
+    public const DEFAULT_DISTRIBUTION_NOTICE = 'Kleding wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt tijdens de jubileumactiviteiten. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
+    public const DEFAULT_INTRO = 'Voor het 50-jarig jubileum van de vereniging is er nieuwe jubileumkleding ontworpen! Kies hieronder je favoriete design, het gewenste kledingstuk (T-shirt of Hoodie), de gewenste kleur en maat.';
 
     public const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
     public const DEFAULT_COLORS = ['Zwart', 'Wit', 'Beige', 'Donkergroen'];
 
+    public const DEFAULT_TYPES = [
+        [
+            'id'    => 'tshirt',
+            'name'  => 'T-shirt',
+            'price' => 21.00,
+        ],
+        [
+            'id'    => 'hoodie',
+            'name'  => 'Hoodie',
+            'price' => 35.00,
+        ],
+    ];
+
     public const DEFAULT_DESIGNS = [
         [
-            'id'          => 'jubileum_zwart',
-            'name'        => 'Jubileumlogo 50 jaar (T-shirt)',
-            'description' => 'Unisex shirt van hoge kwaliteit met goudkleurige opdruk van het 50 jaar jubileumlogo.',
-            'image'       => '',
-            'price'       => 21.00,
+            'id'          => 'design_1',
+            'name'        => 'Design 1 (Kampenlijst)',
+            'description' => 'Unisex kledingstuk met op de rug de chronologische lijst van historische opgravingskampen en op de borst het herkenbare verenigingskruiwagentje.',
+            'image'       => 'assets/images/design-1.png',
             'active'      => 1,
         ],
         [
-            'id'          => 'pvh_navy',
-            'name'        => 'Archeologie Philips van Horne (T-shirt)',
-            'description' => 'Unisex shirt met subtiel verenigingslogo op de borst.',
-            'image'       => '',
-            'price'       => 21.00,
-            'active'      => 1,
-        ],
-        [
-            'id'          => 'jubileum_hoodie',
-            'name'        => 'Lustrum Hoodie 50 jaar',
-            'description' => 'Comfortabele warme hoodie met jubileumopdruk.',
-            'image'       => '',
-            'price'       => 35.00,
+            'id'          => 'design_2',
+            'name'        => 'Design 2 (Ceci n\'est pas une tjoepkesbak)',
+            'description' => 'Unisex kledingstuk met de \'Ceci n\'est pas une tjoepkesbak\' illustratie op de rug en het verenigingskruiwagentje op de borst.',
+            'image'       => 'assets/images/design-2.png',
             'active'      => 1,
         ],
     ];
@@ -66,12 +69,30 @@ class AVBK_Tshirt_Order {
         add_action('wp_ajax_nopriv_avbk_check_tshirt_email',    [$this, 'handle_check_email']);
     }
 
+    public static function get_available_types(): array {
+        $saved = get_option('avbk_tshirt_types', null);
+        if (is_array($saved) && !empty($saved)) {
+            return $saved;
+        }
+        return self::DEFAULT_TYPES;
+    }
+
     public static function get_available_designs(): array {
         $saved = get_option('avbk_tshirt_designs', null);
         if (is_array($saved) && !empty($saved)) {
             return $saved;
         }
         return self::DEFAULT_DESIGNS;
+    }
+
+    public static function get_design_image_url(string $image): string {
+        if ($image === '') {
+            return '';
+        }
+        if (preg_match('#^https?://#i', $image)) {
+            return $image;
+        }
+        return AVBK_PLUGIN_URL . ltrim($image, '/');
     }
 
     public static function get_available_sizes(): array {
@@ -130,6 +151,7 @@ class AVBK_Tshirt_Order {
         if (empty($active_designs)) {
             $active_designs = $designs;
         }
+        $types = self::get_available_types();
         $sizes = self::get_available_sizes();
         $colors = self::get_available_colors();
 
@@ -144,16 +166,16 @@ class AVBK_Tshirt_Order {
         $email_check   = sanitize_key(wp_unslash($_GET['email_check'] ?? ''));
         $checked_email = sanitize_email(wp_unslash($_GET['checked_email'] ?? ''));
 
-        $first_d = reset($active_designs);
-        $first_price = isset($first_d['price']) && (float) $first_d['price'] > 0 ? (float) $first_d['price'] : $price;
+        $first_t = reset($types);
+        $first_price = isset($first_t['price']) && (float) $first_t['price'] > 0 ? (float) $first_t['price'] : $price;
 
-        $min_design_price = null;
-        foreach ($active_designs as $d) {
-            if (isset($d['price']) && (float) $d['price'] > 0) {
-                $min_design_price = $min_design_price === null ? (float) $d['price'] : min($min_design_price, (float) $d['price']);
+        $min_type_price = null;
+        foreach ($types as $t) {
+            if (isset($t['price']) && (float) $t['price'] > 0) {
+                $min_type_price = $min_type_price === null ? (float) $t['price'] : min($min_type_price, (float) $t['price']);
             }
         }
-        $starting_price = $min_design_price !== null ? $min_design_price : $price;
+        $starting_price = $min_type_price !== null ? $min_type_price : $price;
 
         ob_start();
         ?>
@@ -182,16 +204,17 @@ class AVBK_Tshirt_Order {
 
             <!-- Design Showcase Gallery -->
             <div class="avbk-tshirt-gallery">
-                <h3>Beschikbare designs</h3>
+                <h3>1. Bekijk de designs</h3>
                 <div class="avbk-tshirt-cards-grid">
                     <?php foreach ($active_designs as $design) : ?>
                         <?php
-                        $d_price = isset($design['price']) && (float) $design['price'] > 0 ? (float) $design['price'] : $price;
+                        $img_url = self::get_design_image_url($design['image'] ?? '');
                         ?>
                         <div class="avbk-tshirt-card" data-design-id="<?php echo esc_attr($design['id']); ?>" data-design-name="<?php echo esc_attr($design['name']); ?>">
                             <div class="avbk-tshirt-card-media">
-                                <?php if (!empty($design['image'])) : ?>
-                                    <img src="<?php echo esc_url($design['image']); ?>" alt="<?php echo esc_attr($design['name']); ?>" loading="lazy" class="avbk-tshirt-card-img">
+                                <?php if (!empty($img_url)) : ?>
+                                    <img src="<?php echo esc_url($img_url); ?>" alt="<?php echo esc_attr($design['name']); ?>" loading="lazy" class="avbk-tshirt-card-img">
+                                    <a href="<?php echo esc_url($img_url); ?>" target="_blank" rel="noopener" class="avbk-tshirt-zoom-link" title="Bekijk afbeelding op ware grootte">&#128269; Vergroten</a>
                                 <?php else : ?>
                                     <div class="avbk-tshirt-card-placeholder">
                                         <span class="avbk-tshirt-icon">&#128085;</span>
@@ -200,15 +223,22 @@ class AVBK_Tshirt_Order {
                             </div>
                             <div class="avbk-tshirt-card-body">
                                 <h4 class="avbk-tshirt-card-title"><?php echo esc_html($design['name']); ?></h4>
-                                <div style="font-weight:600; color:#1d2327; margin-bottom:.35rem;">
-                                    &euro;&nbsp;<?php echo esc_html(number_format($d_price, 2, ',', '.')); ?> <span style="font-size:0.85em; font-weight:normal; color:#646970;">(incl. btw)</span>
-                                </div>
                                 <?php if (!empty($design['description'])) : ?>
                                     <p class="avbk-tshirt-card-desc"><?php echo esc_html($design['description']); ?></p>
                                 <?php endif; ?>
-                                <button type="button" class="button button-secondary avbk-select-design-btn" data-design-id="<?php echo esc_attr($design['id']); ?>">
-                                    Kies dit design
-                                </button>
+                                <div class="avbk-tshirt-card-pricing">
+                                    <?php foreach ($types as $t) : ?>
+                                        <span class="avbk-price-badge"><?php echo esc_html($t['name']); ?>: &euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?></span>
+                                    <?php endforeach; ?>
+                                    <span class="avbk-price-vat">(incl. btw)</span>
+                                </div>
+                                <div class="avbk-tshirt-card-buttons">
+                                    <?php foreach ($types as $t) : ?>
+                                        <button type="button" class="button <?php echo $t['id'] === 'tshirt' ? 'button-primary' : 'button-secondary'; ?> avbk-select-design-type-btn" data-design-id="<?php echo esc_attr($design['id']); ?>" data-product-type="<?php echo esc_attr($t['id']); ?>">
+                                            ＋ Bestel <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 0, ',', '.'); ?>,-)
+                                        </button>
+                                    <?php endforeach; ?>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -287,56 +317,63 @@ class AVBK_Tshirt_Order {
 
                 <!-- Clothing selection repeater -->
                 <div class="avbk-form-section avbk-tshirt-items-section" id="avbk-tshirt-selector-section">
-                    <h3>Jouw bestelling</h3>
-                    <p class="description">Kies per kledingstuk het design, de gewenste kleur, maat en het aantal. Je kunt eenvoudig meerdere kledingstukken toevoegen.</p>
+                    <h3>2. Stel je bestelling samen</h3>
+                    <p class="description">Kies per kledingstuk het gewenste design, type (T-shirt of Hoodie), kleur, maat en aantal. Je kunt eenvoudig meerdere kledingstukken toevoegen.</p>
 
                     <div class="avbk-tshirt-table-responsive">
                         <table class="avbk-tshirt-items-table" id="avbk-tshirt-items-table">
                             <thead>
                                 <tr>
-                                    <th>Kledingstuk / Design</th>
-                                    <th>Kleur</th>
-                                    <th>Maat</th>
-                                    <th style="width: 80px;">Aantal</th>
-                                    <th style="width: 105px;">Stukprijs (incl. btw)</th>
-                                    <th style="width: 110px;">Subtotaal (incl. btw)</th>
-                                    <th style="width: 40px;"></th>
+                                    <th class="avbk-col-design">1. Kies design *</th>
+                                    <th class="avbk-col-type">2. Kledingstuk *</th>
+                                    <th class="avbk-col-color">3. Kleur *</th>
+                                    <th class="avbk-col-size">4. Maat *</th>
+                                    <th class="avbk-col-qty">Aantal *</th>
+                                    <th class="avbk-col-unit-price">Stukprijs (incl. btw)</th>
+                                    <th class="avbk-col-subtotal">Subtotaal (incl. btw)</th>
+                                    <th class="avbk-col-action"></th>
                                 </tr>
                             </thead>
                             <tbody id="avbk-tshirt-items-body">
                                 <tr class="avbk-tshirt-item-row" data-row-index="0">
-                                    <td>
+                                    <td class="avbk-col-design">
                                         <select name="items[0][design]" class="avbk-tshirt-design-select" required>
                                             <?php foreach ($active_designs as $design) : ?>
-                                                <?php
-                                                $d_price = isset($design['price']) && (float) $design['price'] > 0 ? (float) $design['price'] : $price;
-                                                ?>
-                                                <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>" data-price="<?php echo esc_attr(number_format($d_price, 2, '.', '')); ?>">
-                                                    <?php echo esc_html($design['name']); ?><?php if ($d_price !== $price) echo ' (€ ' . number_format($d_price, 2, ',', '.') . ')'; ?>
+                                                <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
+                                                    <?php echo esc_html($design['name']); ?>
                                                 </option>
                                             <?php endforeach; ?>
                                         </select>
                                     </td>
-                                    <td>
+                                    <td class="avbk-col-type">
+                                        <select name="items[0][product_type]" class="avbk-tshirt-type-select" required>
+                                            <?php foreach ($types as $t) : ?>
+                                                <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
+                                                    <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </td>
+                                    <td class="avbk-col-color">
                                         <select name="items[0][color]" class="avbk-tshirt-color-select">
                                             <?php foreach ($colors as $color) : ?>
                                                 <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
                                             <?php endforeach; ?>
                                         </select>
                                     </td>
-                                    <td>
+                                    <td class="avbk-col-size">
                                         <select name="items[0][size]" class="avbk-tshirt-size-select" required>
                                             <?php foreach ($sizes as $size) : ?>
                                                 <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
                                             <?php endforeach; ?>
                                         </select>
                                     </td>
-                                    <td>
+                                    <td class="avbk-col-qty">
                                         <input type="number" name="items[0][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
                                     </td>
-                                    <td class="avbk-tshirt-unit-price">&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
-                                    <td class="avbk-tshirt-subtotal">&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
-                                    <td style="text-align: center;">
+                                    <td class="avbk-col-unit-price avbk-tshirt-unit-price">&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
+                                    <td class="avbk-col-subtotal avbk-tshirt-subtotal">&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
+                                    <td class="avbk-col-action" style="text-align: center;">
                                         <button type="button" class="avbk-remove-item-btn" title="Verwijder dit kledingstuk" style="display:none;">&times;</button>
                                     </td>
                                 </tr>
@@ -344,7 +381,8 @@ class AVBK_Tshirt_Order {
                             <tfoot>
                                 <tr>
                                     <td colspan="5" style="text-align: right; font-weight: bold;">Totaalbedrag (incl. btw):</td>
-                                    <td colspan="2"><strong class="avbk-tshirt-grand-total">&euro;&nbsp;<span id="avbk-grand-total-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></td>
+                                    <td colspan="2" style="text-align: right;"><strong class="avbk-tshirt-grand-total">&euro;&nbsp;<span id="avbk-grand-total-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></td>
+                                    <td></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -360,38 +398,44 @@ class AVBK_Tshirt_Order {
                 <!-- Template for Javascript row cloning -->
                 <template id="avbk-tshirt-row-template">
                     <tr class="avbk-tshirt-item-row" data-row-index="__INDEX__">
-                        <td>
+                        <td class="avbk-col-design">
                             <select name="items[__INDEX__][design]" class="avbk-tshirt-design-select" required>
                                 <?php foreach ($active_designs as $design) : ?>
-                                    <?php
-                                    $d_price = isset($design['price']) && (float) $design['price'] > 0 ? (float) $design['price'] : $price;
-                                    ?>
-                                    <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>" data-price="<?php echo esc_attr(number_format($d_price, 2, '.', '')); ?>">
-                                        <?php echo esc_html($design['name']); ?><?php if ($d_price !== $price) echo ' (€ ' . number_format($d_price, 2, ',', '.') . ')'; ?>
+                                    <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
+                                        <?php echo esc_html($design['name']); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </td>
-                        <td>
+                        <td class="avbk-col-type">
+                            <select name="items[__INDEX__][product_type]" class="avbk-tshirt-type-select" required>
+                                <?php foreach ($types as $t) : ?>
+                                    <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
+                                        <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                        <td class="avbk-col-color">
                             <select name="items[__INDEX__][color]" class="avbk-tshirt-color-select">
                                 <?php foreach ($colors as $color) : ?>
                                     <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </td>
-                        <td>
+                        <td class="avbk-col-size">
                             <select name="items[__INDEX__][size]" class="avbk-tshirt-size-select" required>
                                 <?php foreach ($sizes as $size) : ?>
                                     <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </td>
-                        <td>
+                        <td class="avbk-col-qty">
                             <input type="number" name="items[__INDEX__][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
                         </td>
-                        <td class="avbk-tshirt-unit-price">&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
-                        <td class="avbk-tshirt-subtotal">&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
-                        <td style="text-align: center;">
+                        <td class="avbk-col-unit-price avbk-tshirt-unit-price">&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
+                        <td class="avbk-col-subtotal avbk-tshirt-subtotal">&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></td>
+                        <td class="avbk-col-action" style="text-align: center;">
                             <button type="button" class="avbk-remove-item-btn" title="Verwijder dit kledingstuk">&times;</button>
                         </td>
                     </tr>
@@ -668,6 +712,14 @@ class AVBK_Tshirt_Order {
             }
         }
 
+        $types_map = [];
+        foreach (self::get_available_types() as $t) {
+            $types_map[$t['id']] = [
+                'name'  => $t['name'],
+                'price' => (float) ($t['price'] ?? $unit_price),
+            ];
+        }
+
         $items = [];
         $total_quantity = 0;
         $total_amount   = 0.0;
@@ -677,17 +729,29 @@ class AVBK_Tshirt_Order {
             if ($qty <= 0) {
                 continue;
             }
-            $design_id  = sanitize_key($raw_item['design'] ?? '');
-            $size       = sanitize_text_field(wp_unslash($raw_item['size'] ?? ''));
-            $color      = sanitize_text_field(wp_unslash($raw_item['color'] ?? ''));
-            $base_title = $designs_map[$design_id] ?? ($design_id ?: 'Jubileumkleding');
-            $full_title = $color !== '' ? "{$base_title} ({$color})" : $base_title;
+            $design_id   = sanitize_key($raw_item['design'] ?? '');
+            $type_id     = sanitize_key($raw_item['product_type'] ?? 'tshirt');
+            $size        = sanitize_text_field(wp_unslash($raw_item['size'] ?? ''));
+            $color       = sanitize_text_field(wp_unslash($raw_item['color'] ?? ''));
 
-            $item_price = $designs_price_map[$design_id] ?? $unit_price;
+            $design_name = $designs_map[$design_id] ?? ($design_id ?: 'Design 1');
+            $type_info   = $types_map[$type_id] ?? ['name' => 'T-shirt', 'price' => $unit_price];
+            $type_name   = $type_info['name'];
+            $item_price  = (float) $type_info['price'];
+
+            if (isset($designs_price_map[$design_id]) && (float) $designs_price_map[$design_id] > 0) {
+                $item_price = (float) $designs_price_map[$design_id];
+            }
+
+            $full_title = "{$design_name} — {$type_name}";
+            if ($color !== '') {
+                $full_title .= " ({$color})";
+            }
+
             $line_total = round($qty * $item_price, 2);
 
             $items[] = [
-                'item_key'    => $design_id,
+                'item_key'    => $design_id . ($type_id !== '' ? '_' . $type_id : ''),
                 'title'       => $full_title,
                 'variant'     => $size,
                 'quantity'    => $qty,

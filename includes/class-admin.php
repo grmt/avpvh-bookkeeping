@@ -2505,6 +2505,23 @@ class AVBK_Admin {
         if (isset($_POST['tshirt_colors'])) {
             update_option('avbk_tshirt_colors', sanitize_text_field(wp_unslash($_POST['tshirt_colors'] ?? '')));
         }
+        if (isset($_POST['tshirt_types']) && is_array($_POST['tshirt_types'])) {
+            $sanitized_types = [];
+            foreach ($_POST['tshirt_types'] as $t) {
+                $id = sanitize_key($t['id'] ?? '');
+                $name = sanitize_text_field(wp_unslash($t['name'] ?? ''));
+                if ($name === '') continue;
+                $p = isset($t['price']) && $t['price'] !== '' ? (float) $t['price'] : AVBK_Tshirt_Order::DEFAULT_PRICE;
+                $sanitized_types[] = [
+                    'id'    => $id ?: sanitize_key($name),
+                    'name'  => $name,
+                    'price' => $p,
+                ];
+            }
+            if (!empty($sanitized_types)) {
+                update_option('avbk_tshirt_types', $sanitized_types);
+            }
+        }
         if (isset($_POST['tshirt_designs']) && is_array($_POST['tshirt_designs'])) {
             $sanitized_designs = [];
             foreach ($_POST['tshirt_designs'] as $d) {
@@ -2512,11 +2529,13 @@ class AVBK_Admin {
                 $name = sanitize_text_field(wp_unslash($d['name'] ?? ''));
                 if ($name === '') continue;
                 $p = isset($d['price']) && $d['price'] !== '' ? (float) $d['price'] : null;
+                $img_input = trim(sanitize_text_field(wp_unslash($d['image'] ?? '')));
+                $img_clean = preg_match('#^https?://#i', $img_input) ? esc_url_raw($img_input) : ltrim($img_input, '/');
                 $sanitized_designs[] = [
                     'id'          => $id ?: sanitize_key($name),
                     'name'        => $name,
                     'description' => sanitize_text_field(wp_unslash($d['description'] ?? '')),
-                    'image'       => esc_url_raw(wp_unslash($d['image'] ?? '')),
+                    'image'       => $img_clean,
                     'price'       => $p,
                     'active'      => !empty($d['active']) ? 1 : 0,
                 ];
