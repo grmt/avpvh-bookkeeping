@@ -351,6 +351,33 @@ class AVBK_DB {
             KEY variant (variant)
         ) $charset;");
 
+        // Photo shares for 50-year anniversary
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_photo_shares (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id INT UNSIGNED NULL,
+            wp_user_id INT UNSIGNED NULL,
+            first_name VARCHAR(100) NOT NULL DEFAULT '',
+            suffix VARCHAR(50) NOT NULL DEFAULT '',
+            last_name VARCHAR(100) NOT NULL DEFAULT '',
+            email VARCHAR(255) NOT NULL DEFAULT '',
+            confirm_token CHAR(43) NOT NULL,
+            status ENUM('pending_confirmation','confirmed','expired') NOT NULL DEFAULT 'pending_confirmation',
+            drive_folder_id VARCHAR(255) NOT NULL DEFAULT '',
+            drive_folder_url VARCHAR(500) NOT NULL DEFAULT '',
+            drive_folder_name VARCHAR(255) NOT NULL DEFAULT '',
+            email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            email_error VARCHAR(255) NOT NULL DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at TIMESTAMP NULL,
+            expires_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY confirm_token (confirm_token),
+            KEY email (email),
+            KEY member_id (member_id),
+            KEY wp_user_id (wp_user_id),
+            KEY status (status)
+        ) $charset;");
+
         update_option('avbk_db_version', '1.0');
     }
 
@@ -1137,6 +1164,36 @@ class AVBK_DB {
             }
 
             update_option('avbk_db_version', '1.42');
+        }
+        if (version_compare($version, '1.43', '<')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset = $wpdb->get_charset_collate();
+            dbDelta("CREATE TABLE {$wpdb->prefix}avb_photo_shares (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                member_id INT UNSIGNED NULL,
+                wp_user_id INT UNSIGNED NULL,
+                first_name VARCHAR(100) NOT NULL DEFAULT '',
+                suffix VARCHAR(50) NOT NULL DEFAULT '',
+                last_name VARCHAR(100) NOT NULL DEFAULT '',
+                email VARCHAR(255) NOT NULL DEFAULT '',
+                confirm_token CHAR(43) NOT NULL,
+                status ENUM('pending_confirmation','confirmed','expired') NOT NULL DEFAULT 'pending_confirmation',
+                drive_folder_id VARCHAR(255) NOT NULL DEFAULT '',
+                drive_folder_url VARCHAR(500) NOT NULL DEFAULT '',
+                drive_folder_name VARCHAR(255) NOT NULL DEFAULT '',
+                email_sent TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                email_error VARCHAR(255) NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                confirmed_at TIMESTAMP NULL,
+                expires_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY confirm_token (confirm_token),
+                KEY email (email),
+                KEY member_id (member_id),
+                KEY wp_user_id (wp_user_id),
+                KEY status (status)
+            ) $charset;");
+            update_option('avbk_db_version', '1.43');
         }
     }
 
@@ -4456,6 +4513,112 @@ class AVBK_DB {
         }
 
         return false;
+    }
+
+    public static function create_photo_share_request(array $data): ?object {
+        global $wpdb;
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $expires = gmdate('Y-m-d H:i:s', time() + 5 * DAY_IN_SECONDS);
+
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_photo_shares", [
+            'member_id'     => !empty($data['member_id']) ? (int) $data['member_id'] : null,
+            'wp_user_id'    => !empty($data['wp_user_id']) ? (int) $data['wp_user_id'] : null,
+            'first_name'    => sanitize_text_field($data['first_name'] ?? ''),
+            'suffix'        => sanitize_text_field($data['suffix'] ?? ''),
+            'last_name'     => sanitize_text_field($data['last_name'] ?? ''),
+            'email'         => sanitize_email($data['email'] ?? ''),
+            'confirm_token' => $token,
+            'status'        => 'pending_confirmation',
+            'expires_at'    => $expires,
+        ]);
+
+        if (!$inserted) {
+            return null;
+        }
+
+        return self::get_photo_share_by_id((int) $wpdb->insert_id);
+    }
+
+    public static function get_photo_share_by_id(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares WHERE id = %d", $id
+        )) ?: null;
+    }
+
+    public static function get_photo_share_by_token(string $token): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares WHERE confirm_token = %s", $token
+        )) ?: null;
+    }
+
+    public static function get_photo_share_by_email(string $email): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares WHERE email = %s ORDER BY (status = 'confirmed') DESC, id DESC LIMIT 1",
+            $email
+        )) ?: null;
+    }
+
+    public static function get_photo_share_by_user_id(int $user_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares WHERE wp_user_id = %d ORDER BY (status = 'confirmed') DESC, id DESC LIMIT 1",
+            $user_id
+        )) ?: null;
+    }
+
+    public static function confirm_photo_share(int $id, string $folder_id, string $folder_url, string $folder_name): bool {
+        global $wpdb;
+        return false !== $wpdb->update(
+            "{$wpdb->prefix}avb_photo_shares",
+            [
+                'status'            => 'confirmed',
+                'confirmed_at'      => current_time('mysql', 1),
+                'drive_folder_id'   => $folder_id,
+                'drive_folder_url'  => $folder_url,
+                'drive_folder_name' => $folder_name,
+            ],
+            ['id' => $id]
+        );
+    }
+
+    public static function expire_photo_share(int $id): bool {
+        global $wpdb;
+        return false !== $wpdb->update(
+            "{$wpdb->prefix}avb_photo_shares",
+            ['status' => 'expired'],
+            ['id' => $id]
+        );
+    }
+
+    public static function cleanup_expired_photo_shares(): int {
+        global $wpdb;
+        $now = gmdate('Y-m-d H:i:s');
+        $expired = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares WHERE status = 'pending_confirmation' AND expires_at < %s",
+            $now
+        ));
+
+        $count = 0;
+        foreach ($expired as $share) {
+            if (!empty($share->drive_folder_id) && class_exists('\Avpvh\Frontend\Share_Drive')) {
+                try {
+                    \Avpvh\Frontend\Share_Drive::remove($share->drive_folder_id);
+                } catch (\Throwable $e) {}
+            }
+            self::expire_photo_share((int) $share->id);
+            $count++;
+        }
+        return $count;
+    }
+
+    public static function get_all_photo_shares(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}avb_photo_shares ORDER BY id DESC"
+        ) ?: [];
     }
 
 }

@@ -1,7 +1,8 @@
 <?php
 /**
  * Standalone test suite for AVBK_Photo_Share.
- * Verifies guest prompt, logged-in member resolution (meta, gallery, pending),
+ * Verifies email invitation flow, 5-day expiration, confirmation link handling,
+ * Google Drive subfolder naming (YYYYMMDD-firstname-lastname),
  * QR code SVG generation, hot link, and direct link display.
  *
  * Strictly fictitious names only (see AGENTS.md).
@@ -11,6 +12,9 @@ namespace {
     define('ABSPATH', __DIR__ . '/');
     define('AVBK_PLUGIN_DIR', dirname(__DIR__) . '/');
     define('AVBK_PLUGIN_URL', 'https://example.test/wp-content/plugins/avpvh-bookkeeping/');
+    define('DAY_IN_SECONDS', 86400);
+    define('HOUR_IN_SECONDS', 3600);
+    define('MINUTE_IN_SECONDS', 60);
 
 // Mock WordPress environment
 $GLOBALS['current_user_id'] = 0;
@@ -18,20 +22,122 @@ $GLOBALS['users']           = [];
 $GLOBALS['usermeta']        = [];
 $GLOBALS['shortcodes']      = [];
 $GLOBALS['enqueued_styles'] = [];
+$GLOBALS['sent_mails']      = [];
+$GLOBALS['mail_success']    = true;
+$GLOBALS['last_redirect']   = '';
+$GLOBALS['transients']      = [];
 
 class WP_User {
     public int $ID;
     public string $user_email;
     public string $user_login;
     public string $display_name;
+    public string $first_name;
+    public string $last_name;
 
-    public function __construct(int $id, string $login, string $email, string $display_name) {
+    public function __construct(int $id, string $login, string $email, string $display_name, string $first = '', string $last = '') {
         $this->ID           = $id;
         $this->user_login   = $login;
         $this->user_email   = $email;
         $this->display_name = $display_name;
+        $this->first_name   = $first ?: $display_name;
+        $this->last_name    = $last;
     }
 }
+
+class Mock_Photo_Shares_WPDB {
+    public string $prefix = 'wp_';
+    public int $insert_id = 0;
+    public array $photo_shares = [];
+
+    public function prepare(string $query, ...$args): string {
+        $replaced = $query;
+        foreach ($args as $arg) {
+            $val = is_numeric($arg) ? $arg : "'" . addslashes((string) $arg) . "'";
+            $replaced = preg_replace('/%[sdf]/', (string) $val, $replaced, 1);
+        }
+        return $replaced;
+    }
+
+    public function get_charset_collate(): string {
+        return 'DEFAULT CHARACTER SET utf8mb4';
+    }
+
+    public function insert(string $table, array $data): int {
+        $this->insert_id++;
+        $id = $this->insert_id;
+        $row = array_merge([
+            'id'                => $id,
+            'status'            => 'pending_confirmation',
+            'drive_folder_id'   => '',
+            'drive_folder_url'  => '',
+            'drive_folder_name' => '',
+            'email_sent'        => 0,
+            'email_error'       => '',
+            'created_at'        => gmdate('Y-m-d H:i:s'),
+            'confirmed_at'      => null,
+        ], $data);
+
+        $this->photo_shares[$id] = (object) $row;
+        return 1;
+    }
+
+    public function update(string $table, array $data, array $where): int {
+        $id = $where['id'] ?? 0;
+        if (isset($this->photo_shares[$id])) {
+            foreach ($data as $k => $v) {
+                $this->photo_shares[$id]->$k = $v;
+            }
+            return 1;
+        }
+        return 0;
+    }
+
+    public function get_row(string $query): ?object {
+        if (preg_match("/WHERE id = (\d+)/", $query, $m)) {
+            return $this->photo_shares[(int) $m[1]] ?? null;
+        }
+        if (preg_match("/WHERE confirm_token = '([^']+)'/", $query, $m)) {
+            foreach ($this->photo_shares as $s) {
+                if ($s->confirm_token === $m[1]) {
+                    return $s;
+                }
+            }
+        }
+        if (preg_match("/WHERE email = '([^']+)'/", $query, $m)) {
+            foreach ($this->photo_shares as $s) {
+                if (strcasecmp($s->email, $m[1]) === 0) {
+                    return $s;
+                }
+            }
+        }
+        if (preg_match("/WHERE wp_user_id = (\d+)/", $query, $m)) {
+            foreach ($this->photo_shares as $s) {
+                if ((int) ($s->wp_user_id ?? 0) === (int) $m[1]) {
+                    return $s;
+                }
+            }
+        }
+        return null;
+    }
+
+    public function get_results(string $query): array {
+        if (str_contains($query, "status = 'pending_confirmation' AND expires_at <")) {
+            preg_match("/expires_at < '([^']+)'/", $query, $m);
+            $cutoff = $m[1] ?? gmdate('Y-m-d H:i:s');
+            $res = [];
+            foreach ($this->photo_shares as $s) {
+                if ($s->status === 'pending_confirmation' && $s->expires_at < $cutoff) {
+                    $res[] = $s;
+                }
+            }
+            return $res;
+        }
+        return array_values($this->photo_shares);
+    }
+}
+
+$GLOBALS['wpdb'] = new Mock_Photo_Shares_WPDB();
 
 function is_user_logged_in(): bool {
     return ($GLOBALS['current_user_id'] ?? 0) > 0;
@@ -48,6 +154,15 @@ function wp_get_current_user(): ?WP_User {
 
 function get_userdata(int $user_id): ?WP_User {
     return $GLOBALS['users'][$user_id] ?? null;
+}
+
+function get_user_by(string $field, $val): ?WP_User {
+    if ($field === 'email') {
+        foreach ($GLOBALS['users'] as $u) {
+            if (strcasecmp($u->user_email, (string) $val) === 0) return $u;
+        }
+    }
+    return null;
 }
 
 function get_user_meta(int $user_id, string $key, bool $single = false) {
@@ -113,8 +228,108 @@ function wp_unslash($val) {
     return is_string($val) ? stripslashes($val) : $val;
 }
 
+function sanitize_text_field(string $val): string {
+    return trim(strip_tags($val));
+}
+
+function sanitize_email(string $val): string {
+    return trim($val);
+}
+
+function sanitize_key(string $val): string {
+    return preg_replace('/[^a-z0-9_\-]/', '', strtolower($val));
+}
+
+function sanitize_title(string $val): string {
+    $val = strtolower(trim($val));
+    $val = preg_replace('/[^a-z0-9_\-\s]/', '', $val);
+    return preg_replace('/[\s_]+/', '-', $val);
+}
+
+function is_email(string $val): bool {
+    return (bool) filter_var($val, FILTER_VALIDATE_EMAIL);
+}
+
+function wp_mail(string $to, string $subject, string $body, $headers = []): bool {
+    $GLOBALS['sent_mails'][] = compact('to', 'subject', 'body');
+    return !empty($GLOBALS['mail_success']);
+}
+
+function wp_safe_redirect(string $url): void {
+    $GLOBALS['last_redirect'] = $url;
+    throw new RuntimeException("Redirect: $url");
+}
+
+function check_admin_referer(string $action = '', string $query_arg = ''): void {
+    if (empty($GLOBALS['valid_nonce'])) {
+        throw new RuntimeException("Invalid nonce for $action");
+    }
+}
+
+function wp_nonce_field(string $action, string $name = '_wpnonce'): void {
+    echo '<input type="hidden" name="' . esc_attr($name) . '" value="test-nonce">';
+}
+
+function add_query_arg(...$args): string {
+    if (count($args) === 1) return '?' . http_build_query($args[0]);
+    if (count($args) === 2) {
+        $url = $args[1];
+        $sep = str_contains($url, '?') ? '&' : '?';
+        return $url . $sep . http_build_query($args[0]);
+    }
+    return '';
+}
+
+function remove_query_arg($keys, string $url = ''): string {
+    if (!$url) return '';
+    $parts = parse_url($url);
+    if (!isset($parts['query'])) return $url;
+    parse_str($parts['query'], $query);
+    foreach ((array) $keys as $k) unset($query[$k]);
+    $new_query = http_build_query($query);
+    $res = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
+    return $new_query ? $res . '?' . $new_query : $res;
+}
+
+function current_time(string $type, int $gmt = 0): string {
+    return gmdate('Y-m-d H:i:s');
+}
+
+function date_i18n(string $fmt, int $ts): string {
+    return date($fmt, $ts);
+}
+
+function get_bloginfo(string $show = ''): string {
+    return 'AV Philips van Horne';
+}
+
+function wp_specialchars_decode(string $str, int $quote_style = ENT_NOQUOTES): string {
+    return htmlspecialchars_decode($str, $quote_style);
+}
+
+function get_transient(string $key) {
+    return $GLOBALS['transients'][$key] ?? false;
+}
+
+function set_transient(string $key, $val, int $ttl = 0): bool {
+    $GLOBALS['transients'][$key] = $val;
+    return true;
+}
+
 function avbk_asset_version(string $path): string {
     return '1.0';
+}
+
+class AVPVH_DB {
+    public static function get_member_by_wp_user(int $user_id): ?object {
+        return $GLOBALS['members'][$user_id] ?? null;
+    }
+    public static function get_member_by_email(string $email): ?object {
+        foreach ($GLOBALS['members'] ?? [] as $m) {
+            if (strcasecmp($m->email, $email) === 0) return $m;
+        }
+        return null;
+    }
 }
 }
 
@@ -135,6 +350,7 @@ namespace {
         require_once AVBK_PLUGIN_DIR . 'vendor/autoload.php';
     }
 
+    require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-qr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-photo-share.php';
 
@@ -163,94 +379,139 @@ namespace {
         echo "PASS {$msg}\n";
     }
 
-    // Set up fictitious test users
-    $GLOBALS['users'][1] = new WP_User(1, 'anna.jansen', 'anna@example.test', 'Anna Jansen');
-    $GLOBALS['users'][2] = new WP_User(2, 'bram.bakker', 'bram@example.test', 'Bram Bakker');
-    $GLOBALS['users'][3] = new WP_User(3, 'cas.de.vries', 'cas@example.test', 'Cas de Vries');
+    // Set up fictitious test users (see AGENTS.md)
+    $GLOBALS['users'][1] = new WP_User(1, 'anna.jansen', 'anna@example.test', 'Anna Jansen', 'Anna', 'Jansen');
+    $GLOBALS['users'][2] = new WP_User(2, 'bram.bakker', 'bram@example.test', 'Bram Bakker', 'Bram', 'Bakker');
+    $GLOBALS['users'][3] = new WP_User(3, 'cas.de.vries', 'cas@example.test', 'Cas de Vries', 'Cas', 'de Vries');
+
+    $GLOBALS['members'][1] = (object) ['id' => 10, 'first_name' => 'Anna', 'suffix' => '', 'last_name' => 'Jansen', 'email' => 'anna@example.test', 'status' => 'active', 'wp_user_id' => 1];
+    $GLOBALS['members'][2] = (object) ['id' => 20, 'first_name' => 'Bram', 'suffix' => 'van', 'last_name' => 'Bakker', 'email' => 'bram@example.test', 'status' => 'active', 'wp_user_id' => 2];
 
     $service = new AVBK_Photo_Share();
 
-    // Test 1: Shortcodes registered
+    // 1. Shortcode registration
     assert_true(isset($GLOBALS['shortcodes']['avpvh_bk_photo_share']), 'Shortcode avpvh_bk_photo_share registered');
-    assert_true(isset($GLOBALS['shortcodes']['avpvh_photo_share']), 'Shortcode avpvh_photo_share registered');
 
-    // Test 2: Guest user (not logged in)
-    $GLOBALS['current_user_id'] = 0;
-    $guest_html = $service->render_shortcode();
-    assert_contains('avbk-photo-share-auth-box', $guest_html, 'Guest sees auth prompt box');
-    assert_contains('redirect_to=', $guest_html, 'Login URL includes redirect_to parameter');
-    assert_not_contains('avbk-photo-share-qr-frame', $guest_html, 'Guest does not see QR code');
+    // 2. Request creation with 5-day expiration token
+    $req = AVBK_DB::create_photo_share_request([
+        'member_id'  => 10,
+        'wp_user_id' => 1,
+        'first_name' => 'Anna',
+        'suffix'     => '',
+        'last_name'  => 'Jansen',
+        'email'      => 'anna@example.test',
+    ]);
+    assert_true($req !== null, 'Photo share request created');
+    assert_true(strlen($req->confirm_token) === 43, 'Generated 43-character confirmation token');
+    assert_true($req->status === 'pending_confirmation', 'Initial status is pending_confirmation');
 
-    // Test 3: Logged-in member with explicit user_meta 'photo_share_url'
+    // Verify 5-day expiration
+    $diff_seconds = strtotime($req->expires_at) - strtotime($req->created_at);
+    assert_true($diff_seconds === 5 * 86400, 'Expiration date is exactly 5 days (432000s) from creation');
+
+    // 3. Email sending
+    $sent = AVBK_Photo_Share::send_confirmation_email($req);
+    assert_true($sent === true, 'Confirmation email dispatched');
+    assert_true(count($GLOBALS['sent_mails']) === 1, 'One email recorded in sent_mails');
+    $mail = $GLOBALS['sent_mails'][0];
+    assert_contains('anna@example.test', $mail['to'], 'Email addressed to Anna');
+    assert_contains('Activeer jouw persoonlijke fotomap', $mail['subject'], 'Subject mentions fotomap activation');
+    assert_contains($req->confirm_token, $mail['body'], 'Email body contains unique confirmation token link');
+    assert_contains('5 dagen geldig', $mail['body'], 'Email body warns link is 5 days valid');
+
+    // 4. Folder naming format: YYYYMMDD-firstname-lastname
+    $folder_data = AVBK_Photo_Share::create_drive_folder_for_share($req);
+    $expected_folder_name = date('Ymd') . '-anna-jansen';
+    assert_true($folder_data['folder_name'] === $expected_folder_name, 'Subfolder name matches YYYYMMDD-firstname-lastname format (' . $folder_data['folder_name'] . ')');
+
+    // With suffix:
+    $req_suffix = (object) ['id' => 2, 'first_name' => 'Bram', 'suffix' => 'van', 'last_name' => 'Bakker', 'email' => 'bram@example.test', 'confirm_token' => 'abc'];
+    $folder_data_suffix = AVBK_Photo_Share::create_drive_folder_for_share($req_suffix);
+    $expected_suffix_name = date('Ymd') . '-bram-van-bakker';
+    assert_true($folder_data_suffix['folder_name'] === $expected_suffix_name, 'Subfolder with suffix matches (' . $folder_data_suffix['folder_name'] . ')');
+
+    // 5. Confirmation link processing within 5 days
+    $_GET['confirm_photo_share'] = $req->confirm_token;
+    try {
+        $service->handle_actions();
+        assert_true(false, 'Expected redirect on confirmation');
+    } catch (RuntimeException $e) {
+        assert_contains('photo_share_confirmed=1', $e->getMessage(), 'Redirected to confirmation view');
+    }
+    unset($_GET['confirm_photo_share']);
+
+    // Check confirmed status in database
+    $confirmed_share = AVBK_DB::get_photo_share_by_id((int) $req->id);
+    assert_true($confirmed_share->status === 'confirmed', 'Share status updated to confirmed');
+    assert_true($confirmed_share->confirmed_at !== null, 'confirmed_at timestamp recorded');
+    assert_true(!empty($confirmed_share->drive_folder_url), 'drive_folder_url stored on share row');
+    assert_true(get_user_meta(1, 'photo_share_url', true) === $confirmed_share->drive_folder_url, 'User meta photo_share_url updated for user 1');
+
+    // 6. Confirmed member view renders QR code SVG, hotlink, and link
     $GLOBALS['current_user_id'] = 1;
-    $test_url = 'https://drive.google.com/drive/folders/1TEST_ANNA_FOLDER_XYZ';
-    update_user_meta(1, 'photo_share_url', $test_url);
+    $confirmed_html = $service->render_shortcode();
+    assert_contains('avbk-photo-share-card', $confirmed_html, 'Confirmed member sees share card');
+    assert_contains('<svg', $confirmed_html, 'Confirmed member sees inline SVG QR code');
+    assert_contains('avbk-qr', $confirmed_html, 'QR code has avbk-qr class');
+    assert_contains('Open je persoonlijke Google Drive map', $confirmed_html, 'Hotlink button present');
+    assert_contains('Kopieer link', $confirmed_html, 'Copy link button present');
 
-    $share = AVBK_Photo_Share::get_user_share(1);
-    assert_true($share !== null, 'User 1 share resolved from meta');
-    assert_true($share['url'] === $test_url, 'Share URL matches meta value');
-    assert_true($share['source'] === 'meta', 'Share source identified as meta');
+    // 7. Expired link handling (after 5 days)
+    $expired_req = AVBK_DB::create_photo_share_request([
+        'member_id'  => 20,
+        'wp_user_id' => 2,
+        'first_name' => 'Bram',
+        'suffix'     => 'van',
+        'last_name'  => 'Bakker',
+        'email'      => 'bram@example.test',
+    ]);
+    // Force expiration in past
+    $GLOBALS['wpdb']->photo_shares[(int) $expired_req->id]->expires_at = gmdate('Y-m-d H:i:s', time() - 3600);
 
-    $member_html = $service->render_shortcode();
-    assert_contains('avbk-photo-share-card', $member_html, 'Member with share sees share card');
-    assert_contains('<svg', $member_html, 'Share card includes inline SVG QR code');
-    assert_contains('avbk-qr', $member_html, 'QR code has avbk-qr class');
-    assert_contains($test_url, $member_html, 'Share card includes direct URL');
-    assert_contains('target="_blank"', $member_html, 'Hot link opens in new tab');
-    assert_contains('rel="noopener noreferrer"', $member_html, 'Hot link has secure rel attribute');
-    assert_contains('Kopieer link', $member_html, 'Share card includes copy link button');
-    assert_contains('Scan met je smartphone', $member_html, 'Share card includes smartphone scan instruction');
+    $_GET['confirm_photo_share'] = $expired_req->confirm_token;
+    try {
+        $service->handle_actions();
+        assert_true(false, 'Expected redirect on expired token');
+    } catch (RuntimeException $e) {
+        assert_contains('photo_share_expired=1', $e->getMessage(), 'Expired token redirected with photo_share_expired=1');
+    }
+    unset($_GET['confirm_photo_share']);
 
-    // Test 4: Logged-in member with user_meta 'photo_share_folder_id'
-    $GLOBALS['current_user_id'] = 2;
-    update_user_meta(2, 'photo_share_folder_id', '1TEST_BRAM_ID_999');
+    $check_expired = AVBK_DB::get_photo_share_by_id((int) $expired_req->id);
+    assert_true($check_expired->status === 'expired', 'Expired share marked as expired');
 
-    $share2 = AVBK_Photo_Share::get_user_share(2);
-    assert_true($share2 !== null, 'User 2 share resolved from folder_id');
-    assert_true($share2['url'] === 'https://drive.google.com/drive/folders/1TEST_BRAM_ID_999', 'Share URL constructed correctly from folder ID');
+    // Expired alert rendering
+    $_GET['photo_share_expired'] = 1;
+    $expired_html = $service->render_shortcode();
+    assert_contains('Verificatielink verlopen', $expired_html, 'Renders expired alert message');
+    unset($_GET['photo_share_expired']);
 
-    // Test 5: Logged-in member with ready share in Gallery Photo_Shares_DB
-    $GLOBALS['current_user_id'] = 3;
-    \Avpvh\Frontend\Photo_Shares_DB::$test_shares[3] = [
-        (object) [
-            'id'              => 42,
-            'status'          => 'ready',
-            'drive_folder_id' => '1TEST_CAS_GALLERY_123',
-            'description'     => '✓ Cas Jubileum selectie',
-        ],
-    ];
+    // 8. Cron cleanup of expired unconfirmed shares
+    $old_pending = AVBK_DB::create_photo_share_request([
+        'member_id'  => 30,
+        'first_name' => 'Cas',
+        'last_name'  => 'de Vries',
+        'email'      => 'cas@example.test',
+    ]);
+    $GLOBALS['wpdb']->photo_shares[(int) $old_pending->id]->expires_at = gmdate('Y-m-d H:i:s', time() - 7200);
 
-    $share3 = AVBK_Photo_Share::get_user_share(3);
-    assert_true($share3 !== null, 'User 3 share resolved from gallery Photo_Shares_DB');
-    assert_true($share3['url'] === 'https://drive.google.com/drive/folders/1TEST_CAS_GALLERY_123', 'Gallery share URL matches drive_folder_id');
-    assert_true($share3['source'] === 'gallery', 'Share source identified as gallery');
+    $cleaned = AVBK_DB::cleanup_expired_photo_shares();
+    assert_true($cleaned >= 1, 'Cleanup expired unconfirmed shares cleaned up at least 1 share');
+    assert_true(AVBK_DB::get_photo_share_by_id((int) $old_pending->id)->status === 'expired', 'Old pending share status is expired after cleanup');
 
-    $cas_html = $service->render_shortcode();
-    assert_contains('1TEST_CAS_GALLERY_123', $cas_html, 'Cas sees his gallery share folder link');
-    assert_contains('<svg', $cas_html, 'Cas sees QR code SVG');
+    // 9. Guest form submission
+    $GLOBALS['current_user_id'] = 0;
+    $GLOBALS['valid_nonce']     = true;
+    $_POST['avbk_photo_share_submit'] = '1';
+    $_POST['photo_share_email']       = 'anna@example.test';
 
-    // Test 6: Logged-in member with NO share
-    $GLOBALS['users'][4]        = new WP_User(4, 'daan.meijer', 'daan@example.test', 'Daan Meijer');
-    $GLOBALS['current_user_id'] = 4;
-
-    $share4 = AVBK_Photo_Share::get_user_share(4);
-    assert_true($share4 === null, 'User 4 has no share');
-
-    $daan_html = $service->render_shortcode();
-    assert_contains('avbk-photo-share-pending-box', $daan_html, 'User without share sees pending box');
-    assert_contains('Daan Meijer', $daan_html, 'Pending box addresses member by display name');
-    assert_contains(AVBK_Photo_Share::ROOT_FOLDER_URL, $daan_html, 'Pending box links to central Google Drive folder');
-    assert_not_contains('avbk-photo-share-qr-frame', $daan_html, 'Pending box does not display QR code frame');
-
-    // Test 7: Admin profile saving
-    $_POST['avbk_photo_share_url'] = 'https://drive.google.com/drive/folders/1MANUAL_OVERRIDE_URL';
-    $service->save_user_profile_field(4);
-    assert_true(get_user_meta(4, 'photo_share_url', true) === 'https://drive.google.com/drive/folders/1MANUAL_OVERRIDE_URL', 'Admin save stores photo_share_url in user meta');
-
-    // Clearing field deletes user meta
-    $_POST['avbk_photo_share_url'] = '';
-    $service->save_user_profile_field(4);
-    assert_true(get_user_meta(4, 'photo_share_url', true) === '', 'Admin save with empty input removes user meta');
+    try {
+        $service->handle_actions();
+        assert_true(false, 'Expected redirect on guest submission');
+    } catch (RuntimeException $e) {
+        assert_contains('photo_share_sent=1', $e->getMessage(), 'Guest redirected with photo_share_sent=1');
+    }
+    unset($_POST['avbk_photo_share_submit'], $_POST['photo_share_email']);
 
     echo "\nAll AVBK_Photo_Share tests passed cleanly!\n";
 }
