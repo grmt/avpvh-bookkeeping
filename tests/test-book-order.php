@@ -442,7 +442,7 @@ function reset_test_env(): void {
     $GLOBALS['options'] = [
         'avbk_book_title' => 'Doorgraven! - 50 jaar AV Philips van Horne',
         'avbk_book_price' => 35.00,
-        'avbk_book_price_note' => 'Inclusief btw.',
+        'avbk_book_price_note' => AVBK_Book_Order::DEFAULT_PRICE_NOTE,
         'avbk_book_distribution_notice' => AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE,
         'avbk_book_presentation_notice' => 'Begin 2027 organiseren we ergens een feestelijke boekpresentatie.',
         'avbk_book_flaptekst' => AVBK_Book_Order::DEFAULT_FLAPTEKST,
@@ -595,7 +595,7 @@ check(str_contains($form_html, 'Over het boek'), 'Order form contains book flapt
 check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contains 2027 presentation section');
 check(str_contains($form_html, 'in principe niet per post verzonden'), 'Order form includes distribution notice');
 check(str_contains($form_html, '35,00'), 'Order form displays 35,00 price');
-check(str_contains($form_html, 'Inclusief btw.'), 'Order form displays Inclusief btw.');
+check(str_contains($form_html, 'zonder btw') && str_contains($form_html, '21% btw'), 'Order form displays VAT notice (zonder btw / 21% btw)');
 check(str_contains($form_html, 'bestellen verplicht tot betaling'), 'Order form mentions payment obligation');
 check(str_contains($form_html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
@@ -643,7 +643,7 @@ check(count($GLOBALS['sent_mails']) === 1, 'Confirmation email dispatched to gue
 check(str_contains($GLOBALS['sent_mails'][0]['to'], 'cas@example.test'), 'Email sent to correct guest recipient');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'book_token='), 'Email contains unique token confirmation link');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
-check(str_contains($GLOBALS['sent_mails'][0]['body'], '(inclusief btw)'), 'Email mentions (inclusief btw)');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'zonder btw') && str_contains($GLOBALS['sent_mails'][0]['body'], '21% btw'), 'Email mentions VAT notice (zonder btw / 21% btw)');
 
 $_GET = ['book_ordered' => '1'];
 $thanks_html = $book_order->render();
@@ -660,7 +660,8 @@ check(str_contains($conf_html, 'Bestelling bevestigd'), 'Confirmation view displ
 check(str_contains($conf_html, 'Molenweg 5'), 'Confirmation view shows registered address');
 check(str_contains($conf_html, 'Cas'), 'Confirmation view greets customer');
 check(str_contains($conf_html, 'Bestellen betekent betalen'), 'Confirmation view states payment commitment');
-check(str_contains($conf_html, '(incl. btw)'), 'Confirmation view mentions (incl. btw)');
+check(!str_contains($conf_html, '(incl. btw)'), 'Confirmation view does NOT mention (incl. btw)');
+check(str_contains($conf_html, 'zonder btw'), 'Confirmation view mentions VAT notice');
 check(!str_contains($conf_html, 'Zowel leden als bezoekers hebben een eigen profiel'), 'Confirmation view does NOT contain profile explanation');
 check(!str_contains($conf_html, 'Profiel en overzicht'), 'Confirmation view does NOT contain Profiel en overzicht heading');
 $refreshed_guest_order = AVBK_DB::get_book_order($guest_order->id);

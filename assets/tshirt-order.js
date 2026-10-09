@@ -57,6 +57,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function updateRowNumbers() {
+        const rows = tableBody.querySelectorAll('.avbk-tshirt-item-row');
+        rows.forEach(function (row, idx) {
+            const numSpan = row.querySelector('.avbk-tshirt-item-idx');
+            if (numSpan) {
+                numSpan.textContent = (idx + 1).toString();
+            }
+        });
+    }
+
     function updateGrandTotal() {
         const rows = tableBody.querySelectorAll('.avbk-tshirt-item-row');
         let total = 0;
@@ -67,6 +77,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         grandTotalVal.textContent = formatEur(total);
         updateRemoveButtonsVisibility();
+        updateRowNumbers();
     }
 
     function updateRemoveButtonsVisibility() {
@@ -74,7 +85,7 @@ document.addEventListener('DOMContentLoaded', function () {
         rows.forEach(function (row) {
             const btn = row.querySelector('.avbk-remove-item-btn');
             if (btn) {
-                btn.style.display = rows.length > 1 ? 'inline-block' : 'none';
+                btn.style.display = rows.length > 1 ? 'inline-flex' : 'none';
             }
         });
     }
@@ -143,10 +154,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function addRow(preselectedDesignId, preselectedType) {
         if (!template) return;
+        const currentCount = tableBody.querySelectorAll('.avbk-tshirt-item-row').length;
         const index = rowIndexCounter++;
-        const cloneHtml = template.innerHTML.replace(/__INDEX__/g, index);
-        const tempDiv = document.createElement('tbody');
-        tempDiv.innerHTML = cloneHtml;
+        let cloneHtml = template.innerHTML.replace(/__INDEX__/g, index);
+        cloneHtml = cloneHtml.replace(/__INDEX_PLUS_1__/g, (currentCount + 1));
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cloneHtml.trim();
         const newRow = tempDiv.firstElementChild;
 
         if (preselectedDesignId) {

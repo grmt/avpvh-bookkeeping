@@ -177,175 +177,196 @@
     margin-bottom: .25rem;
 }
 
-.avbk-tshirt-table-responsive {
-    overflow-x: auto;
-    margin-top: 1rem;
+/* Card-based line item repeater */
+.avbk-tshirt-items-repeater {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 1.25rem 0;
 }
 
-.avbk-tshirt-items-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: #fff;
+.avbk-tshirt-item-card {
+    background: #ffffff;
     border: 1px solid #dcdcde;
-    border-radius: 4px;
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    transition: border-color .2s ease, box-shadow .2s ease;
 }
 
-.avbk-tshirt-items-table th,
-.avbk-tshirt-items-table td {
-    padding: 10px 12px;
+.avbk-tshirt-item-card:hover {
+    border-color: #c3c4c7;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.avbk-tshirt-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: .85rem;
+    padding-bottom: .6rem;
     border-bottom: 1px solid #f0f0f1;
-    text-align: left;
-    vertical-align: middle;
 }
 
-.avbk-tshirt-items-table th {
-    background: #f6f7f7;
-    font-size: .88rem;
+.avbk-tshirt-card-badge {
+    font-size: .95rem;
+    font-weight: 700;
+    color: #1d2327;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.avbk-remove-item-btn {
+    background: #fff;
+    color: #d63638;
+    border: 1px solid #d63638;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.avbk-remove-item-btn:hover {
+    background: #d63638;
+    color: #ffffff;
+}
+
+/* Fields grid inside each card */
+.avbk-tshirt-card-grid {
+    display: grid;
+    grid-template-columns: minmax(170px, 2fr) minmax(140px, 1.4fr) minmax(115px, 1.1fr) minmax(85px, 0.9fr) minmax(70px, 0.7fr);
+    gap: .75rem;
+    align-items: start;
+    margin-bottom: .85rem;
+}
+
+.avbk-tshirt-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.avbk-field-label {
+    display: block;
+    font-size: .84rem;
     font-weight: 600;
     color: #50575e;
-}
-
-/* Column specific widths and sizing */
-.avbk-tshirt-items-table th.avbk-col-design,
-.avbk-tshirt-items-table td.avbk-col-design {
-    min-width: 190px;
-}
-
-.avbk-tshirt-items-table th.avbk-col-type,
-.avbk-tshirt-items-table td.avbk-col-type {
-    min-width: 140px;
-}
-
-.avbk-tshirt-items-table th.avbk-col-color,
-.avbk-tshirt-items-table td.avbk-col-color {
-    min-width: 125px;
-}
-
-.avbk-tshirt-items-table th.avbk-col-size,
-.avbk-tshirt-items-table td.avbk-col-size {
-    min-width: 95px;
-    width: 95px;
-}
-
-.avbk-tshirt-items-table th.avbk-col-qty,
-.avbk-tshirt-items-table td.avbk-col-qty {
-    min-width: 75px;
-    width: 75px;
-    text-align: center;
-}
-
-.avbk-tshirt-items-table th.avbk-col-unit-price,
-.avbk-tshirt-items-table td.avbk-col-unit-price {
-    min-width: 110px;
-    width: 115px;
-    text-align: right;
+    margin-bottom: .35rem;
     white-space: nowrap;
-}
-
-.avbk-tshirt-items-table th.avbk-col-subtotal,
-.avbk-tshirt-items-table td.avbk-col-subtotal {
-    min-width: 115px;
-    width: 120px;
-    text-align: right;
-    white-space: nowrap;
-}
-
-.avbk-tshirt-items-table th.avbk-col-action,
-.avbk-tshirt-items-table td.avbk-col-action {
-    width: 40px;
-    text-align: center;
 }
 
 .avbk-tshirt-design-select,
 .avbk-tshirt-type-select,
 .avbk-tshirt-color-select,
-.avbk-tshirt-size-select {
-    width: 100%;
-    font-size: .95rem;
+.avbk-tshirt-size-select,
+.avbk-tshirt-qty-input {
+    width: 100% !important;
+    height: 40px;
+    padding: 6px 10px;
+    font-size: .92rem;
     border: 1px solid #8c8f94;
     border-radius: 4px;
-    box-sizing: border-box;
     background-color: #fff;
     color: #2c3338;
-}
-
-.avbk-tshirt-design-select {
-    min-width: 190px;
-    padding: 6px 24px 6px 10px;
-}
-
-.avbk-tshirt-type-select {
-    min-width: 140px;
-    padding: 6px 24px 6px 10px;
-}
-
-.avbk-tshirt-color-select {
-    min-width: 125px;
-    padding: 6px 24px 6px 10px;
+    box-sizing: border-box;
 }
 
 /* Ensure XS is completely legible and never covered by the native select arrow */
 .avbk-tshirt-size-select {
-    min-width: 95px !important;
-    padding: 6px 28px 6px 12px !important;
+    min-width: 80px;
+    padding-right: 28px !important;
 }
 
 .avbk-tshirt-qty-input {
-    width: 65px;
-    padding: 6px 8px;
-    font-size: .95rem;
-    border: 1px solid #8c8f94;
-    border-radius: 4px;
     text-align: center;
-    box-sizing: border-box;
 }
 
-.avbk-tshirt-unit-price,
-.avbk-tshirt-subtotal {
-    white-space: nowrap;
-    font-size: .95rem;
+/* Pricing bar at bottom of each card */
+.avbk-tshirt-card-footer {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: .6rem .85rem;
 }
 
-.avbk-tshirt-subtotal {
-    font-weight: 600;
+.avbk-tshirt-price-meta {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1.5rem;
+    font-size: .9rem;
+    color: #50575e;
+}
+
+.avbk-tshirt-price-meta strong {
+    color: #1d2327;
+    font-size: .98rem;
+}
+
+/* Totals box below repeater */
+.avbk-tshirt-totals-box {
+    background: #f0f6fc;
+    border: 1px solid #c8d7e1;
+    border-radius: 8px;
+    padding: 1.1rem 1.35rem;
+    margin: 1.25rem 0;
+}
+
+.avbk-tshirt-totals-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.avbk-tshirt-totals-label {
+    font-size: 1.1rem;
+    font-weight: 700;
     color: #1d2327;
 }
 
-.avbk-remove-item-btn {
-    background: #d63638;
-    color: #fff;
-    border: none;
-    border-radius: 50%;
-    width: 26px;
-    height: 26px;
-    line-height: 24px;
-    text-align: center;
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0;
-    transition: background .15s ease;
-}
-
-.avbk-remove-item-btn:hover {
-    background: #b32d2e;
-}
-
-.avbk-tshirt-items-table tfoot td {
-    background: #f6f7f7;
-    border-top: 2px solid #dcdcde;
-    border-bottom: none;
-    padding: 12px;
-}
-
 .avbk-tshirt-grand-total {
-    font-size: 1.15rem;
-    color: #2271b1;
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #135e96;
+}
+
+.avbk-tshirt-price-note-text {
+    margin: .65rem 0 0;
+    padding-top: .65rem;
+    border-top: 1px solid #d8e2eb;
+    color: #50575e;
+    font-size: .88rem;
+    line-height: 1.45;
+}
+
+/* Add clothing button */
+.avbk-tshirt-add-wrap {
+    margin: .75rem 0 1.25rem;
 }
 
 .avbk-add-shirt-btn {
-    font-size: .95rem;
-    padding: 6px 14px;
-    cursor: pointer;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    background: #ffffff !important;
+    border: 1px solid #2271b1 !important;
+    color: #2271b1 !important;
+    font-size: .95rem !important;
+    font-weight: 600 !important;
+    padding: 8px 16px !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    transition: all .15s ease !important;
+}
+
+.avbk-add-shirt-btn:hover {
+    background: #f0f6fc !important;
+    border-color: #135e96 !important;
+    color: #135e96 !important;
 }
 
 /* Confirmation Summary Table */
@@ -378,12 +399,40 @@
     font-weight: 600;
 }
 
-@media (max-width: 768px) {
+/* Responsive adjustments */
+@media (max-width: 820px) {
+    .avbk-tshirt-card-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: .75rem;
+    }
+    .avbk-col-design {
+        grid-column: 1 / -1;
+    }
+    .avbk-field-label {
+        white-space: normal;
+    }
+    .avbk-tshirt-price-meta {
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 480px) {
     .avbk-tshirt-cards-grid {
         grid-template-columns: 1fr;
     }
-    .avbk-tshirt-items-table th,
-    .avbk-tshirt-items-table td {
-        padding: 8px 6px;
+    .avbk-tshirt-card-grid {
+        grid-template-columns: 1fr;
+    }
+    .avbk-tshirt-item-card {
+        padding: .9rem;
+    }
+    .avbk-tshirt-price-meta {
+        flex-direction: column;
+        gap: .35rem;
+        align-items: flex-end;
+    }
+    .avbk-add-shirt-btn {
+        width: 100% !important;
+        justify-content: center !important;
     }
 }
