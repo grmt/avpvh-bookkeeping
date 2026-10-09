@@ -252,6 +252,25 @@ document.addEventListener('DOMContentLoaded', function () {
     const resultContainer = document.getElementById('avbk-check-email-result');
     const emailSubmitBtn = document.getElementById('avbk_check_email_btn');
 
+    function scrollToCheckEmail(el) {
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // On page load, if email was checked (via reload or query param), stay at/scroll to the email box
+    if (window.location.search.indexOf('email_check=') !== -1 || window.location.hash.indexOf('avbk-check-email') !== -1) {
+        const initialTarget = document.getElementById('avbk-check-email-box') || document.getElementById('avbk-login-banner');
+        if (initialTarget) {
+            setTimeout(function () {
+                scrollToCheckEmail(initialTarget);
+                const firstName = document.getElementById('first_name');
+                if (firstName && window.location.search.indexOf('email_check=not_found') !== -1) {
+                    try { firstName.focus({ preventScroll: true }); } catch (e) {}
+                }
+            }, 120);
+        }
+    }
+
     if (emailForm && emailInput && resultContainer && emailSubmitBtn) {
         emailForm.addEventListener('submit', function (e) {
             const email = (emailInput.value || '').trim();
@@ -267,7 +286,13 @@ document.addEventListener('DOMContentLoaded', function () {
             const formData = new FormData(emailForm);
             formData.append('ajax', '1');
 
-            fetch(emailForm.action, {
+            let postUrl = emailForm.getAttribute('action') || '';
+            try {
+                const parsed = new URL(postUrl, window.location.href);
+                postUrl = parsed.pathname + parsed.search;
+            } catch (err) {}
+
+            fetch(postUrl, {
                 method: 'POST',
                 body: formData,
                 credentials: 'same-origin'
@@ -287,28 +312,40 @@ document.addEventListener('DOMContentLoaded', function () {
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success">' +
                             '<p><strong>E-mail verzonden!</strong> ' + escapeHtml(message) + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + escapeHtml(loginUrl) + '">inloggen</a> en bestellen.</p>' +
                             '</div>';
+                        scrollToCheckEmail(resultContainer);
                     } else if (status === 'already_active') {
                         const loginUrl = data.data.login_url || '/avpvh-login/';
                         const resetUrl = data.data.reset_url || '#';
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info">' +
                             '<p>' + escapeHtml(message) + ' <a href="' + escapeHtml(loginUrl) + '">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="' + escapeHtml(resetUrl) + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>' +
                             '</div>';
+                        scrollToCheckEmail(resultContainer);
                     } else if (status === 'not_found') {
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-neutral">' +
                             '<p>' + escapeHtml(message) + '</p>' +
                             '</div>';
-                        if (guestEmailInput && !guestEmailInput.value) {
+                        if (guestEmailInput) {
                             guestEmailInput.value = email;
+                        }
+                        const checkEmailBox = document.getElementById('avbk-check-email-box') || document.getElementById('avbk-login-banner');
+                        scrollToCheckEmail(checkEmailBox || resultContainer);
+                        const firstName = document.getElementById('first_name');
+                        if (firstName) {
+                            try { firstName.focus({ preventScroll: true }); } catch (e) {}
                         }
                     }
                 } else {
                     const errMsg = (data.data && data.data.message) ? data.data.message : 'Er is een fout opgetreden.';
                     resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-error"><p>' + escapeHtml(errMsg) + '</p></div>';
+                    scrollToCheckEmail(resultContainer);
                 }
             })
             .catch(function () {
                 emailSubmitBtn.disabled = false;
                 emailSubmitBtn.textContent = 'Controleren';
+                if (emailForm.action.indexOf('#') === -1) {
+                    emailForm.action = emailForm.action + '#avbk-check-email-box';
+                }
                 emailForm.submit();
             });
         });

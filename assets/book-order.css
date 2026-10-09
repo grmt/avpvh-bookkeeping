@@ -70,6 +70,13 @@
     color: #614700;
 }
 
+.avbk-book-login-banner,
+.avbk-book-check-email-box,
+#avbk-check-email-box,
+#avbk-check-email-result {
+    scroll-margin-top: 100px;
+}
+
 .avbk-book-login-banner {
     background: #f0f6fc;
     border: 1px solid #c8d7e1;

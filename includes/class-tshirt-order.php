@@ -510,7 +510,7 @@ class AVBK_Tshirt_Order {
                         <div class="avbk-form-row avbk-form-row-2">
                             <p class="avbk-form-field">
                                 <label for="email">E-mailadres *</label>
-                                <input type="email" id="email" name="email" required>
+                                <input type="email" id="email" name="email" value="<?php echo esc_attr($checked_email); ?>" required>
                             </p>
                             <p class="avbk-form-field">
                                 <label for="phone">Telefoonnummer</label>
@@ -964,7 +964,7 @@ class AVBK_Tshirt_Order {
             if ($is_ajax) {
                 wp_send_json_error(['message' => 'Vul een geldig e-mailadres in om te controleren.', 'status' => 'invalid_email']);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -983,7 +983,7 @@ class AVBK_Tshirt_Order {
                     'message' => 'Dit e-mailadres is nog niet bekend bij ons. Je hoeft niet eerst in te loggen: vul hieronder je gegevens in om te bestellen. Er wordt dan automatisch een account voor je aangemaakt.',
                 ]);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'not_found', 'checked_email' => rawurlencode($email)], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'not_found', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -999,7 +999,7 @@ class AVBK_Tshirt_Order {
                     'message'   => 'Dit e-mailadres is bekend en je account is al actief.',
                 ]);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'already_active', 'checked_email' => rawurlencode($email)], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'already_active', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -1031,7 +1031,7 @@ class AVBK_Tshirt_Order {
             ]);
         }
 
-        wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url));
+        wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
         exit;
     }
 }

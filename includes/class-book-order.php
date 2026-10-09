@@ -285,6 +285,25 @@ class AVBK_Book_Order {
             <?php if (!$member) : ?>
                 <script>
                 (function() {
+                    function scrollToTarget(el) {
+                        if (!el) return;
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+
+                    // On page load, if email was checked (via reload or query param), stay at/scroll to the email box
+                    if (window.location.search.indexOf('email_check=') !== -1 || window.location.hash.indexOf('avbk-check-email') !== -1) {
+                        var initialTarget = document.getElementById('avbk-check-email-box') || document.getElementById('avbk-login-banner');
+                        if (initialTarget) {
+                            setTimeout(function() {
+                                scrollToTarget(initialTarget);
+                                var firstName = document.getElementById('avbk_first_name');
+                                if (firstName && window.location.search.indexOf('email_check=not_found') !== -1) {
+                                    try { firstName.focus({ preventScroll: true }); } catch (e) {}
+                                }
+                            }, 120);
+                        }
+                    }
+
                     var form = document.getElementById('avbk-check-email-form');
                     if (!form) return;
                     form.addEventListener('submit', function(e) {
@@ -297,9 +316,18 @@ class AVBK_Book_Order {
                         if (resBox) resBox.innerHTML = '<p class="avbk-check-email-loading">Controleren...</p>';
                         var data = new FormData(form);
                         data.append('ajax', '1');
-                        fetch(form.action, {
+
+                        // Ensure postUrl is root-relative to avoid CORS cross-origin issues
+                        var postUrl = form.getAttribute('action') || '';
+                        try {
+                            var parsed = new URL(postUrl, window.location.href);
+                            postUrl = parsed.pathname + parsed.search;
+                        } catch(err) {}
+
+                        fetch(postUrl, {
                             method: 'POST',
-                            body: data
+                            body: data,
+                            credentials: 'same-origin'
                         }).then(function(r) { return r.json(); })
                         .then(function(res) {
                             if (btn) btn.disabled = false;
@@ -308,22 +336,33 @@ class AVBK_Book_Order {
                                 var d = res.data;
                                 if (d.status === 'reset_sent') {
                                     resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success"><p><strong>E-mail verzonden!</strong> ' + d.message + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + (d.login_url || '/avpvh-login/') + '">inloggen</a> en bestellen.</p></div>';
+                                    scrollToTarget(resBox);
                                 } else if (d.status === 'already_active') {
                                     resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info"><p>' + d.message + ' <a href="' + d.login_url + '">Log hier in</a>. Weet je je wachtwoord niet meer? <a href="' + d.reset_url + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p></div>';
+                                    scrollToTarget(resBox);
                                 } else if (d.status === 'not_found') {
                                     resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-neutral"><p>' + d.message + '</p></div>';
                                     var orderEmail = document.getElementById('avbk_email');
-                                    if (orderEmail && (!orderEmail.value || orderEmail.value === input.value)) {
+                                    if (orderEmail) {
                                         orderEmail.value = d.email;
-                                        orderEmail.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                    var checkEmailBox = document.getElementById('avbk-check-email-box') || document.getElementById('avbk-login-banner');
+                                    scrollToTarget(checkEmailBox || resBox);
+                                    var firstName = document.getElementById('avbk_first_name');
+                                    if (firstName) {
+                                        try { firstName.focus({ preventScroll: true }); } catch (e) {}
                                     }
                                 }
                             } else {
                                 var msg = (res.data && res.data.message) ? res.data.message : 'Er is een fout opgetreden bij het controleren.';
                                 resBox.innerHTML = '<div class="avbk-book-notice avbk-book-error"><p>' + msg + '</p></div>';
+                                scrollToTarget(resBox);
                             }
                         }).catch(function() {
                             if (btn) btn.disabled = false;
+                            if (form.action.indexOf('#') === -1) {
+                                form.action = form.action + '#avbk-check-email-box';
+                            }
                             form.submit();
                         });
                     });
@@ -652,7 +691,7 @@ class AVBK_Book_Order {
             if ($is_ajax) {
                 wp_send_json_error(['message' => 'Vul een geldig e-mailadres in om te controleren.', 'status' => 'invalid_email']);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -671,7 +710,7 @@ class AVBK_Book_Order {
                     'message' => 'Dit e-mailadres is nog niet bekend bij ons. Je hoeft niet eerst in te loggen: vul hieronder je gegevens in om het boek te bestellen. Er wordt dan automatisch een account voor je aangemaakt.',
                 ]);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'not_found', 'checked_email' => rawurlencode($email)], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'not_found', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -687,7 +726,7 @@ class AVBK_Book_Order {
                     'message'   => 'Dit e-mailadres is bekend en je account is al actief.',
                 ]);
             }
-            wp_safe_redirect(add_query_arg(['email_check' => 'already_active', 'checked_email' => rawurlencode($email)], $page_url));
+            wp_safe_redirect(add_query_arg(['email_check' => 'already_active', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
             exit;
         }
 
@@ -721,7 +760,7 @@ class AVBK_Book_Order {
             ]);
         }
 
-        wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url));
+        wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
         exit;
     }
 }
