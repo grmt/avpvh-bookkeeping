@@ -43,6 +43,8 @@ $current_book_year = (int) current_time('Y');
                 &nbsp;|&nbsp;
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
             </p>
+            <?php require AVBK_PLUGIN_DIR . 'admin/member-household-balance.php'; ?>
+            <h3>Rekening van dit lid</h3>
             <?php if ($closed_through_year) : ?>
                 <p class="description">
                     <?php if ($show_all_years) : ?>
@@ -187,18 +189,7 @@ $current_book_year = (int) current_time('Y');
                 </tfoot>
             </table>
             <?php if ($shown_total > 0.005) :
-                $household_ids = array_values(array_filter(array_map(
-                    fn($household_member) => (int) $household_member->id,
-                    AVPVH_DB::get_extended_household($detail_member_id)
-                ), fn($household_id) => $household_id !== $detail_member_id));
-                $full_balance_url = add_query_arg(
-                    ['member_id' => $detail_member_id, 'also' => $household_ids],
-                    home_url('/leden/beheer/member-profile/')
-                ) . '#bijdrage';
                 ?>
-                <p>
-                    <a class="button" href="<?php echo esc_url($full_balance_url); ?>">Volledige rekening, huisgenoten en QR</a>
-                </p>
                 <form id="avbk-payment-selection" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('avbk_request_balance_payment'); ?>
                     <input type="hidden" name="action" value="avbk_request_balance_payment">
