@@ -106,6 +106,11 @@ class AVBK_Photo_Share {
      * Matches against user email, login, display name, or member full name.
      */
     private static function find_folder_in_drive(WP_User $user): ?array {
+        $transient_key = 'avbk_drive_check_' . $user->ID;
+        if (false !== ($cached = get_transient($transient_key))) {
+            return is_array($cached) ? $cached : null;
+        }
+
         try {
             $drive = \Avpvh\Frontend\Share_Drive::drive();
             $res = $drive->files->listFiles([
@@ -117,6 +122,7 @@ class AVBK_Photo_Share {
 
             $files = $res->getFiles();
             if (empty($files)) {
+                set_transient($transient_key, 0, 10 * MINUTE_IN_SECONDS);
                 return null;
             }
 
@@ -141,13 +147,16 @@ class AVBK_Photo_Share {
                 $folder_name = strtolower(trim($f->getName()));
                 foreach ($tokens as $token) {
                     if ($token !== '' && (str_contains($folder_name, $token) || str_contains($token, $folder_name))) {
-                        return [
+                        $result = [
                             'folder_id' => (string) $f->getId(),
                             'name'      => (string) $f->getName(),
                         ];
+                        set_transient($transient_key, $result, HOUR_IN_SECONDS);
+                        return $result;
                     }
                 }
             }
+            set_transient($transient_key, 0, 10 * MINUTE_IN_SECONDS);
         } catch (\Throwable $e) {
             // Silently fall through on network or API errors
         }
