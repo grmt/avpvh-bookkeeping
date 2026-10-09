@@ -283,8 +283,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     const guestEmailInput = document.getElementById('email');
 
                     if (status === 'reset_sent') {
+                        const loginUrl = data.data.login_url || '/avpvh-login/';
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success">' +
-                            '<p><strong>E-mail verzonden!</strong> ' + escapeHtml(message) + '</p>' +
+                            '<p><strong>E-mail verzonden!</strong> ' + escapeHtml(message) + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + escapeHtml(loginUrl) + '">inloggen</a> en bestellen.</p>' +
                             '</div>';
                     } else if (status === 'already_active') {
                         const loginUrl = data.data.login_url || '/avpvh-login/';

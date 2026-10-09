@@ -167,6 +167,12 @@ class AVBK_Tshirt_Order {
         $email_check   = sanitize_key(wp_unslash($_GET['email_check'] ?? ''));
         $checked_email = sanitize_email(wp_unslash($_GET['checked_email'] ?? ''));
 
+        $raw_url = get_permalink() ?: home_url('/jubileumkleding/');
+        $page_url = function_exists('remove_query_arg')
+            ? remove_query_arg(['email_check', 'checked_email', 'tshirt_ordered', 'tshirt_token', 'tshirt_error', 'email_failed'], $raw_url)
+            : $raw_url;
+        $login_url = add_query_arg('redirect_to', $page_url, home_url('/avpvh-login/'));
+
         $first_t = reset($types);
         $first_price = isset($first_t['price']) && (float) $first_t['price'] > 0 ? (float) $first_t['price'] : $price;
 
@@ -262,7 +268,7 @@ class AVBK_Tshirt_Order {
                 <div class="avbk-book-login-banner" id="avbk-login-banner">
                     <p class="avbk-book-login-intro">
                         <strong>Heb je al een account als lid of bezoeker?</strong>
-                        <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">Log hier in</a>
+                        <a href="<?php echo esc_url($login_url); ?>">Log hier in</a>
                         om direct te bestellen en je bestelling aan je profiel te koppelen.
                     </p>
                     <div class="avbk-book-check-email-box">
@@ -272,7 +278,7 @@ class AVBK_Tshirt_Order {
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form">
                             <?php wp_nonce_field('avbk_check_tshirt_email'); ?>
                             <input type="hidden" name="action" value="avbk_check_tshirt_email">
-                            <input type="hidden" name="page_url" value="<?php echo esc_url(get_permalink()); ?>">
+                            <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
                             <div class="avbk-book-check-email-row">
                                 <input type="email" id="avbk_check_email_input" name="check_email" class="avbk-check-email-input" placeholder="jouw.email@example.nl" value="<?php echo esc_attr($checked_email); ?>" required>
                                 <button type="submit" id="avbk_check_email_btn" class="button avbk-check-email-btn">Controleren</button>
@@ -281,7 +287,7 @@ class AVBK_Tshirt_Order {
                         <div id="avbk-check-email-result" class="avbk-check-email-result-container">
                             <?php if ($email_check === 'reset_sent') : ?>
                                 <div class="avbk-book-notice avbk-book-notice-success">
-                                    <p><strong>E-mail verzonden!</strong> Je e-mailadres (<?php echo esc_html($checked_email); ?>) is bekend in onze administratie, maar je bent nog niet eerder ingelogd. We hebben je een e-mail gestuurd met een link om een wachtwoord aan te maken. Zodra je een wachtwoord hebt aangemaakt, kun je <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">inloggen</a> en bestellen.</p>
+                                    <p><strong>E-mail verzonden!</strong> Je e-mailadres (<?php echo esc_html($checked_email); ?>) is bekend in onze administratie, maar je bent nog niet eerder ingelogd. We hebben je een e-mail gestuurd met een link om een wachtwoord aan te maken. Zodra je een wachtwoord hebt aangemaakt, kun je <a href="<?php echo esc_url($login_url); ?>">inloggen</a> en bestellen.</p>
                                 </div>
                             <?php elseif ($email_check === 'already_active') : ?>
                                 <?php
@@ -289,7 +295,7 @@ class AVBK_Tshirt_Order {
                                 $reset_url = add_query_arg('username', rawurlencode($checked_email), rtrim($authelia_url, '/') . '/reset-password/step1');
                                 ?>
                                 <div class="avbk-book-notice avbk-book-notice-info">
-                                    <p>Dit e-mailadres is bekend en je account is al actief. <a href="<?php echo esc_url(home_url('/avpvh-login/')); ?>">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="<?php echo esc_url($reset_url); ?>" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>
+                                    <p>Dit e-mailadres is bekend en je account is al actief. <a href="<?php echo esc_url($login_url); ?>">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="<?php echo esc_url($reset_url); ?>" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>
                                 </div>
                             <?php elseif ($email_check === 'not_found') : ?>
                                 <div class="avbk-book-notice avbk-book-notice-neutral">
@@ -967,7 +973,7 @@ class AVBK_Tshirt_Order {
             ? AVPVH_Nav_Auth::AUTHELIA_URL
             : 'https://auth.avphilipsvanhorne.nl';
         $reset_url = add_query_arg('username', rawurlencode($email), rtrim($authelia_url, '/') . '/reset-password/step1');
-        $login_url = home_url('/avpvh-login/');
+        $login_url = add_query_arg('redirect_to', $page_url, home_url('/avpvh-login/'));
 
         if (!$member) {
             if ($is_ajax) {
@@ -1008,7 +1014,7 @@ class AVBK_Tshirt_Order {
                 . "Via onderstaande link kun je een wachtwoord aanmaken:\n"
                 . "{$reset_url}\n\n"
                 . "Zodra je een wachtwoord hebt aangemaakt, kun je inloggen om direct te bestellen en je bestelling aan je profiel te koppelen:\n"
-                . "{$page_url}\n\n"
+                . "{$login_url}\n\n"
                 . "Met vriendelijke groet,\n"
                 . "AV Philips van Horne";
 

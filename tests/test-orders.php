@@ -150,6 +150,16 @@ function add_query_arg(...$args): string {
     }
     return '';
 }
+function remove_query_arg($keys, string $url = ''): string {
+    if (!$url) return '';
+    $parts = parse_url($url);
+    if (!isset($parts['query'])) return $url;
+    parse_str($parts['query'], $query);
+    foreach ((array) $keys as $k) unset($query[$k]);
+    $new_query = http_build_query($query);
+    $res = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
+    return $new_query ? $res . '?' . $new_query : $res;
+}
 function admin_url(string $path = ''): string { return 'https://example.test/wp-admin/' . $path; }
 function home_url(string $path = ''): string { return 'https://example.test' . $path; }
 function get_permalink(): string { return 'https://example.test/tshirt/'; }
@@ -553,6 +563,7 @@ check(str_contains($html, 'Design 1 (Kampenlijst)'), 'Form lists active design 1
 check(str_contains($html, 'avbk-tshirt-items-table'), 'Form renders line items table repeater');
 check(str_contains($html, 'avbk-add-shirt-btn'), 'Form contains "+ Extra kledingstuk toevoegen" button');
 check(str_contains($html, 'avbk-book-check-email-box'), 'Form contains email check banner for guests');
+check(str_contains($html, 'redirect_to='), 'Form login link contains redirect_to parameter');
 check(str_contains($html, 'bestellen verplicht tot betaling'), 'Form mentions payment obligation');
 check(str_contains($html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($html, 'avbk-tshirt-type-select'), 'Form contains garment type selection column');

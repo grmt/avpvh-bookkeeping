@@ -155,6 +155,16 @@ function add_query_arg(...$args): string {
     }
     return '';
 }
+function remove_query_arg($keys, string $url = ''): string {
+    if (!$url) return '';
+    $parts = parse_url($url);
+    if (!isset($parts['query'])) return $url;
+    parse_str($parts['query'], $query);
+    foreach ((array) $keys as $k) unset($query[$k]);
+    $new_query = http_build_query($query);
+    $res = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
+    return $new_query ? $res . '?' . $new_query : $res;
+}
 function admin_url(string $path = ''): string { return 'https://example.test/wp-admin/' . $path; }
 function home_url(string $path = ''): string { return 'https://example.test' . $path; }
 function get_permalink(): string { return 'https://example.test/jubileumboek/'; }
@@ -600,6 +610,7 @@ check(str_contains($form_html, 'bestellen verplicht tot betaling'), 'Order form 
 check(str_contains($form_html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
 check(str_contains($form_html, 'Weet je niet of je al bekend bent'), 'Order form contains email check banner prompt');
+check(str_contains($form_html, 'redirect_to='), 'Book form login link contains redirect_to parameter');
 check(str_contains($form_html, 'name="check_email"'), 'Order form contains check_email input field');
 
 // 9. Logged-in member rendering pre-fills address
