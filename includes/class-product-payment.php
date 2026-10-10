@@ -9,6 +9,7 @@ class AVBK_Product_Payment {
     public function __construct() {
         add_action('admin_post_avbk_save_product_payment', [$this, 'handle_save']);
         add_shortcode('avpvh_bk_product_payment', [$this, 'shortcode']);
+        add_filter('get_attached_file', [self::class, 'public_file_path'], 10, 2);
     }
 
     private static function can_manage(): bool {
@@ -93,6 +94,16 @@ class AVBK_Product_Payment {
         // An earlier upload_dir filter may report a private-path error.
         $dirs['error'] = false;
         return $dirs;
+    }
+
+    /** Keep attachment management on the same volume after upload filters end. */
+    public static function public_file_path($file, int $attachment_id) {
+        $relative = (string) get_post_meta($attachment_id, '_wp_attached_file', true);
+        if (str_starts_with($relative, 'public/payment-requests/') && !str_contains($relative, "\0")
+            && !str_contains($relative, '\\') && !preg_match('#(^|/)\.\.?(/|$)#', $relative)) {
+            return dirname(rtrim(AVBK_PLUGIN_DIR, '/'), 2) . '/uploads/' . $relative;
+        }
+        return $file;
     }
 
     public function handle_save(): void {

@@ -34,9 +34,10 @@ function media_handle_upload($name, $parent, $data, $overrides) {
 }
 function wp_get_attachment_url($id) { return $GLOBALS['attachments'][$id]['url'] ?? false; }
 function get_post_mime_type($id) { return $GLOBALS['attachments'][$id]['mime'] ?? false; }
+function get_post_meta($id, $key, $single) { return $GLOBALS['attachment_paths'][$id] ?? ''; }
 function is_wp_error($value) { return $value instanceof WP_Error; }
 function add_action(...$args) {}
-function add_filter($hook, $callback, $priority) { $GLOBALS['upload_filter'] = $callback; }
+function add_filter($hook, $callback, $priority, $accepted = 1) { if ($hook === 'upload_dir') { $GLOBALS['upload_filter'] = $callback; } }
 function remove_filter($hook, $callback, $priority) { unset($GLOBALS['upload_filter']); }
 function add_shortcode(...$args) {}
 function shortcode_atts($default, $attributes) { return array_merge($default, $attributes); }
@@ -89,6 +90,12 @@ try {
     check($public['path'] === '/var/www/html/wp-content-pvh/uploads/public/payment-requests/2026/10', 'payment uploads use actual public content volume');
     check($public['url'] === 'https://example.test/wp-content/uploads/public/payment-requests/2026/10' && !$public['error'], 'payment URL uses public media route');
     check(AVBK_Product_Payment::public_upload_dir($public) === $public, 'public upload path override is idempotent');
+    $GLOBALS['attachment_paths'][14] = 'public/payment-requests/2026/10/qr.png';
+    check(AVBK_Product_Payment::public_file_path('/incorrect/uploads/qr.png', 14) === '/var/www/html/wp-content-pvh/uploads/public/payment-requests/2026/10/qr.png', 'attachment management resolves actual public file');
+    $GLOBALS['attachment_paths'][14] = 'private/2026/10/photo.png';
+    check(AVBK_Product_Payment::public_file_path('/protected/photo.png', 14) === '/protected/photo.png', 'private attachment path preserved');
+    $GLOBALS['attachment_paths'][14] = 'public/payment-requests/../../private/photo.png';
+    check(AVBK_Product_Payment::public_file_path('/original/photo.png', 14) === '/original/photo.png', 'attachment path traversal rejected');
     $html = AVBK_Product_Payment::render('tshirt', 21.00);
     check(str_contains($html, '/uploads/qr.png') && !str_contains($html, '<svg'), 'uploaded image replaces generated link QR');
     $before_upload_error = AVBK_Product_Payment::get('tshirt');
