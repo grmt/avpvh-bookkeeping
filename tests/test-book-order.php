@@ -110,6 +110,14 @@ function sanitize_text_field(string $val): string { return trim(strip_tags($val)
 function sanitize_textarea_field(string $val): string { return trim(strip_tags($val)); }
 function sanitize_key(string $val): string { return preg_replace('/[^a-z0-9_\-]/', '', strtolower($val)); }
 function wp_unslash($val) { return $val; }
+function wp_kses_post(string $val): string { return strip_tags($val, '<p><br><em><strong><blockquote><i><b><span><hr>'); }
+function wpautop(string $val): string {
+    $trimmed = trim($val);
+    if (str_starts_with($trimmed, '<p>') || str_contains($trimmed, '<p>')) {
+        return $val;
+    }
+    return '<p>' . preg_replace('/\n{2,}/', "</p>\n\n<p>", nl2br($val)) . '</p>';
+}
 function is_email(string $val): bool { return (bool) filter_var($val, FILTER_VALIDATE_EMAIL); }
 function is_wp_error($val): bool { return $val instanceof WP_Error; }
 function wp_generate_password(int $len = 12, bool $special = false, bool $extra = false): string {
@@ -454,7 +462,7 @@ function reset_test_env(): void {
         'avbk_book_price' => 35.00,
         'avbk_book_price_note' => AVBK_Book_Order::DEFAULT_PRICE_NOTE,
         'avbk_book_distribution_notice' => AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE,
-        'avbk_book_presentation_notice' => 'Begin 2027 organiseren we ergens een feestelijke boekpresentatie.',
+        'avbk_book_presentation_notice' => AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE,
         'avbk_book_flaptekst' => AVBK_Book_Order::DEFAULT_FLAPTEKST,
     ];
     $GLOBALS['members'] = [

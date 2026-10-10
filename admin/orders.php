@@ -735,7 +735,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <tr>
                     <th scope="row"><label for="book_flaptekst">Flaptekst</label></th>
                     <td>
-                        <textarea id="book_flaptekst" name="book_flaptekst" rows="6" class="large-text" style="width:100%; max-width:600px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
+                        <textarea id="book_flaptekst" name="book_flaptekst" rows="12" class="large-text" style="width:100%; max-width:600px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
+                        <p class="description">Ondersteunt alinea's, witregels en HTML (zoals <code>&lt;em&gt;</code>, <code>&lt;blockquote&gt;</code>, <code>&lt;br&gt;</code> en <code>&lt;strong&gt;</code>).</p>
                     </td>
                 </tr>
             </table>

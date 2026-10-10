@@ -17,9 +17,16 @@ class AVBK_Book_Order {
     public const DEFAULT_TITLE = 'Doorgraven! - 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 35.00;
     public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.';
-    public const DEFAULT_DISTRIBUTION_NOTICE = 'Het boek wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
-    public const DEFAULT_PRESENTATION_NOTICE = 'Begin 2027 organiseren we ergens een feestelijke boekpresentatie.';
-    public const DEFAULT_FLAPTEKST = "Vijftig jaar archeologie, vriendschap en plezier: dat is het verhaal van de Werkgroep Archeologie / Archeologische Vereniging Philips van Horne. In dit boek blikken we terug op de tweede vijfentwintig jaar. Een periode waarin de werkgroep Philips van Horne, verbonden aan de gelijknamige school, transformeerde tot een volwaardige vereniging. Daarbij bleven de kernwaarden overeind: met enthousiasme en doorzettingsvermogen meewerken aan opgravingen om zo bij te dragen aan behoud en waardering van archeologisch erfgoed en ondertussen genieten van cultuur, de mooie dingen van het leven en vooral ook van elkaar. Zongen de jongeren, zoals gedocumenteerd in het eerste jubileumboek Graven!, “Samen hier, veel plezier / Graven, schaven, potje bier / Kampvuur en een vuile plee: / Ga je ook mee?”, inmiddels rappen de jongeren “Misschien dat mijn sleuf weer volloopt / Je ruikt dixi en zweet als ik langsloop / Als je bitch wil graven is het geen probleem, dan ga ik er heen. Ik kom niet alleen / Want ik heb trek en stek. / Ik heb trek en stek”. Over de trekstek en meer lees je in Doorgraven!, dat herinneringen oproept aan het roemruchte lijfblad DGéén - door graven één -. In opvolging van Graven! geeft dit boek een unieke kijk op een halve eeuw samen ontdekken, beleven en (door)graven.";
+    public const DEFAULT_DISTRIBUTION_NOTICE = 'Het boek wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt tijdens de activiteiten van de vereniging. Bij verzending per post komen er nog verpakkings- en verzendkosten bij (ongeveer €10).';
+    public const DEFAULT_PRESENTATION_NOTICE = 'Begin 2027 organiseren we (waarschijnlijk in Weert) een feestelijke boekpresentatie.';
+    public const DEFAULT_FLAPTEKST = "<p>Vijftig jaar archeologie, vriendschap en plezier: dat is het verhaal van de Werkgroep Archeologie / Archeologische Vereniging Philips van Horne. In dit boek blikken we terug op de tweede vijfentwintig jaar. Een periode waarin de werkgroep Philips van Horne, verbonden aan de gelijknamige school, transformeerde tot een volwaardige vereniging. Daarbij bleven de kernwaarden overeind: met enthousiasme en doorzettingsvermogen meewerken aan opgravingen om zo bij te dragen aan behoud en waardering van archeologisch erfgoed en ondertussen genieten van cultuur, de mooie dingen van het leven en vooral ook van elkaar.</p>\n\n<p>Zongen de jongeren, zoals gedocumenteerd in het eerste jubileumboek <em>Graven!</em>:</p>\n<blockquote>&ldquo;Samen hier, veel plezier<br>Graven, schaven, potje bier<br>Kampvuur en een vuile plee:<br>Ga je ook mee?&rdquo;</blockquote>\n\n<p>Inmiddels rappen de jongeren:</p>\n<blockquote>&ldquo;Misschien dat mijn sleuf weer volloopt<br>Je ruikt dixi en zweet als ik langsloop<br>Als je bitch wil graven is het geen probleem, dan ga ik er heen. Ik kom niet alleen<br>Want ik heb trek en stek.<br>Ik heb trek en stek.&rdquo;</blockquote>\n\n<p>Over de trekstek en meer lees je in <em>Doorgraven!</em>, dat herinneringen oproept aan het roemruchte lijfblad <em>DGéén &ndash; door graven één &ndash;</em>. In opvolging van <em>Graven!</em> geeft dit boek een unieke kijk op een halve eeuw samen ontdekken, beleven en (door)graven.</p>";
+
+    public static function format_flaptekst(string $text): string {
+        if (function_exists('wp_kses_post') && function_exists('wpautop')) {
+            return wpautop(wp_kses_post($text));
+        }
+        return nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
+    }
 
     public function __construct() {
         add_shortcode('avpvh_bk_book_order', [$this, 'render']);
@@ -104,7 +111,7 @@ class AVBK_Book_Order {
             <div class="avbk-book-intro-card">
                 <h3>Over het boek</h3>
                 <div class="avbk-book-flaptekst">
-                    <?php echo nl2br(esc_html($flaptekst)); ?>
+                    <?php echo self::format_flaptekst($flaptekst); ?>
                 </div>
             </div>
 

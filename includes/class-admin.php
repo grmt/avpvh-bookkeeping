@@ -2117,7 +2117,7 @@ class AVBK_Admin {
             update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
         }
         if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', sanitize_textarea_field(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
+            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
         }
         if (isset($_POST['book_distribution_notice'])) {
             update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
@@ -2556,7 +2556,7 @@ class AVBK_Admin {
             update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
         }
         if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', sanitize_textarea_field(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
+            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
         }
         if (isset($_POST['book_distribution_notice'])) {
             update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);

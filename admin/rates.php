@@ -352,8 +352,8 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
             <tr>
                 <th><label for="book_flaptekst">Flaptekst</label></th>
                 <td>
-                    <textarea id="book_flaptekst" name="book_flaptekst" rows="8" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
-                    <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]).</p>
+                    <textarea id="book_flaptekst" name="book_flaptekst" rows="12" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
+                    <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]). Ondersteunt alinea's, witregels en HTML (zoals <code>&lt;em&gt;</code>, <code>&lt;blockquote&gt;</code>, <code>&lt;br&gt;</code> en <code>&lt;strong&gt;</code>).</p>
                 </td>
             </tr>
         </table>
