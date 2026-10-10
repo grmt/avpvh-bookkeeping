@@ -43,6 +43,15 @@ jobs:
       - name: "Exact reference and chronological import regression checks"
         run: php tests/test-exact-reference.php
 
+      - name: "Dispute reply and history regression checks"
+        run: php tests/test-disputes.php
+
+      - name: "Photo upload share regression checks"
+        run: php tests/test-photo-share.php
+
+      - name: "Book order flow regression checks"
+        run: php tests/test-book-order.php
+
   plugin-check:
     name: "WordPress Plugin Check"
     runs-on: ubuntu-latest

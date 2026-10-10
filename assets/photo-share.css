@@ -1,0 +1,288 @@
+/**
+ * Styles for AV-PvH 50-jaar archeo Foto delen shortcode
+ */
+.avbk-photo-share-card {
+    background: #f7fbf6;
+    border: 1px solid #c8d8c6;
+    border-radius: 10px;
+    padding: 24px;
+    margin: 24px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.avbk-photo-share-badge {
+    display: inline-block;
+    background: #e3f2e1;
+    color: #155c2a;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+}
+
+.avbk-photo-share-title {
+    margin: 0 0 8px 0;
+    font-size: 1.3rem;
+    color: #15421c;
+    font-weight: 700;
+}
+
+.avbk-photo-share-desc {
+    margin: 0 0 20px 0;
+    color: #405542;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.avbk-photo-share-content {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 28px;
+}
+
+.avbk-photo-share-qr-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.avbk-photo-share-qr-link {
+    display: block;
+    text-decoration: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.avbk-photo-share-qr-link:hover {
+    transform: scale(1.02);
+}
+
+.avbk-photo-share-qr-frame {
+    background: #ffffff;
+    border: 1px solid #d4ded4;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    width: 170px;
+    height: 170px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.avbk-photo-share-qr-frame svg,
+.avbk-photo-share-qr-frame .avbk-qr {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+.avbk-photo-share-qr-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: #607562;
+    font-weight: 500;
+}
+
+.avbk-photo-share-details-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.avbk-photo-share-btn {
+    background: #155c2a !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 12px 24px !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    text-decoration: none !important;
+    display: inline-block !important;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    box-shadow: 0 2px 5px rgba(21, 92, 42, 0.2);
+}
+
+.avbk-photo-share-btn:hover,
+.avbk-photo-share-btn:focus {
+    background: #1c7a38 !important;
+    color: #ffffff !important;
+}
+
+.avbk-photo-share-outline-btn {
+    background: transparent !important;
+    color: #155c2a !important;
+    border: 1px solid #155c2a !important;
+    border-radius: 6px !important;
+    padding: 10px 20px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    display: inline-block !important;
+}
+
+.avbk-photo-share-outline-btn:hover {
+    background: #155c2a !important;
+    color: #ffffff !important;
+}
+
+.avbk-photo-share-url-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.avbk-photo-share-url-wrap label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334835;
+}
+
+.avbk-photo-share-copy-wrap {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.avbk-photo-share-input {
+    flex-grow: 1;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    font-family: monospace;
+    border: 1px solid #c2d0c1;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #223322;
+}
+
+.avbk-photo-share-copy-btn {
+    padding: 8px 14px !important;
+    font-size: 0.85rem !important;
+    background: #e6eee5 !important;
+    color: #15421c !important;
+    border: 1px solid #b8ccb7 !important;
+    border-radius: 4px !important;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.avbk-photo-share-copy-btn:hover {
+    background: #d9e6d7 !important;
+}
+
+.avbk-photo-share-auth-box,
+.avbk-photo-share-pending-box {
+    background: #fbfbf9;
+    border: 1px solid #e2e2dc;
+    border-radius: 8px;
+    padding: 22px;
+    margin: 24px 0;
+}
+
+.avbk-photo-share-auth-title,
+.avbk-photo-share-pending-title {
+    margin: 0 0 8px 0;
+    font-size: 1.15rem;
+    color: #222222;
+}
+
+.avbk-photo-share-auth-actions,
+.avbk-photo-share-central-wrap {
+    margin-top: 14px;
+}
+
+.avbk-photo-share-alert {
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin: 18px 0;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.avbk-photo-share-alert-success {
+    background: #e8f5e9;
+    border: 1px solid #a5d6a7;
+    color: #1b5e20;
+}
+
+.avbk-photo-share-alert-warning {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    color: #e65100;
+}
+
+.avbk-photo-share-alert-error {
+    background: #ffebee;
+    border: 1px solid #ffcdd2;
+    color: #c62828;
+}
+
+.avbk-photo-share-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+    max-width: 520px;
+}
+
+.avbk-photo-share-input-email {
+    box-sizing: border-box;
+    flex: 1 1 220px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #ccd6cc;
+    border-radius: 6px;
+    font-size: 0.95rem;
+}
+
+.avbk-photo-share-form-row .avbk-photo-share-btn {
+    box-sizing: border-box;
+    max-width: 100%;
+    white-space: normal;
+}
+
+@media (max-width: 640px) {
+    .avbk-photo-share-form-row {
+        flex-direction: column;
+        max-width: none;
+    }
+
+    .avbk-photo-share-input-email {
+        flex: none;
+        width: 100%;
+    }
+
+    .avbk-photo-share-form-row .avbk-photo-share-btn {
+        width: 100%;
+    }
+
+    .avbk-photo-share-content {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .avbk-photo-share-qr-column {
+        order: 2;
+    }
+
+    .avbk-photo-share-details-column {
+        order: 1;
+    }
+
+    .avbk-photo-share-btn {
+        display: block !important;
+        text-align: center;
+    }
+
+    .avbk-photo-share-copy-wrap {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

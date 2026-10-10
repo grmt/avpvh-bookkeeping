@@ -313,6 +313,49 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <p class="description">Gebruik <code>[link]</code> voor de betaalverzoeklink zelf. Wordt toegevoegd via de knop "Betaalverzoeklink toevoegen" bij het opstellen van een "Vraag om betaling"-e-mail.</p>
                 </td>
             </tr>
+            <tr>
+                <th colspan="2" style="padding-top:2rem;"><h3>Jubileumboek</h3></th>
+            </tr>
+            <tr>
+                <th><label for="book_title">Titel jubileumboek</label></th>
+                <td>
+                    <input type="text" id="book_title" name="book_title" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_title', AVBK_Book_Order::DEFAULT_TITLE)); ?>">
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_price">Prijs per exemplaar (&euro;)</label></th>
+                <td>
+                    <input type="number" step="0.50" id="book_price" name="book_price" class="small-text" value="<?php echo esc_attr(number_format((float) get_option('avbk_book_price', AVBK_Book_Order::DEFAULT_PRICE), 2, '.', '')); ?>">
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_price_note">Prijsnotitie (bijv. BTW)</label></th>
+                <td>
+                    <input type="text" id="book_price_note" name="book_price_note" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_price_note', AVBK_Book_Order::DEFAULT_PRICE_NOTE)); ?>">
+                    <p class="description">Zichtbaar op de bestelpagina bij de prijs (bijv. <code>Alle prijzen zijn op dit moment zonder btw...</code>).</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_distribution_notice">Uitleg distributie / afhalen</label></th>
+                <td>
+                    <textarea id="book_distribution_notice" name="book_distribution_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_distribution_notice', AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE)); ?></textarea>
+                    <p class="description">Melding over het niet per post verzenden van boeken.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_presentation_notice">Toelichting boekpresentatie</label></th>
+                <td>
+                    <textarea id="book_presentation_notice" name="book_presentation_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_presentation_notice', AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE)); ?></textarea>
+                    <p class="description">Uitleg boven de presentatie-vinkjes voor begin 2027.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_flaptekst">Flaptekst</label></th>
+                <td>
+                    <textarea id="book_flaptekst" name="book_flaptekst" rows="8" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
+                    <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]).</p>
+                </td>
+            </tr>
         </table>
         <?php submit_button('Instellingen opslaan'); ?>
     </form>
