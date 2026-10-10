@@ -59,6 +59,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('admin_post_avbk_update_order_distribution',      [$this, 'handle_update_order_distribution']);
         add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_order_distribution']);
+        add_action('admin_post_avbk_delete_order',                   [$this, 'handle_delete_order']);
         add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
         add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
         add_action('admin_post_avbk_export_tshirt_matrix',           [$this, 'handle_export_tshirt_matrix']);
@@ -2219,6 +2220,30 @@ class AVBK_Admin {
 
     public function handle_update_book_distribution(): void {
         $this->handle_update_order_distribution();
+    }
+
+    public function handle_delete_order(): void {
+        check_admin_referer('avbk_delete_order');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $order_id   = (int) ($_POST['order_id'] ?? 0);
+        $send_email = !empty($_POST['send_email']);
+        $redirect   = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders');
+
+        $result = AVBK_DB::delete_order($order_id, $send_email);
+        if (!empty($result['success'])) {
+            $redirect = add_query_arg([
+                'order_deleted' => $order_id,
+                'email_sent'    => $send_email ? '1' : '0',
+            ], $redirect);
+        } else {
+            $redirect = add_query_arg([
+                'delete_error' => urlencode($result['error'] ?? 'Fout bij verwijderen.'),
+            ], $redirect);
+        }
+        wp_safe_redirect($redirect);
+        exit;
     }
 
     public function handle_export_book_orders(): void {

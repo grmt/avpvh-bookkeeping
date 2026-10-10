@@ -897,27 +897,44 @@ class AVBK_Tshirt_Order {
 
         $confirm_link = add_query_arg('tshirt_token', $order_result['token'], $page_url);
 
-        // Build item breakdown text for email
-        $items_text = '';
+        // Build item breakdown HTML for email
+        $items_html = '<ul style="margin: 10px 0; padding-left: 20px;">';
         foreach ($items as $it) {
-            $items_text .= "- {$it['quantity']}x {$it['title']} (Maat: {$it['variant']}) — € " . number_format($it['total_price'], 2, ',', '.') . "\n";
+            $items_html .= '<li><strong>' . (int) $it['quantity'] . '&times;</strong> '
+                . esc_html($it['title']) . ' (Maat: ' . esc_html($it['variant']) . ') &mdash; &euro;&nbsp;'
+                . number_format($it['total_price'], 2, ',', '.') . '</li>';
         }
+        $items_html .= '</ul>';
 
         $price_note_opt = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
-        $price_note_email = !empty($price_note_opt) ? "Prijsnotitie: {$price_note_opt}\n\n" : '';
+        $price_note_html = !empty($price_note_opt)
+            ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
+            : '';
 
         // If user was logged in, order is confirmed immediately.
         if ($member) {
-            $subject = "Bevestiging bestelling {$title_opt}";
-            $body = "Beste {$first_name},\n\n"
-                . "Bedankt voor je bestelling van {$total_quantity} kledingstuk(ken) van '{$title_opt}':\n\n"
-                . "{$items_text}\n"
-                . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n"
-                . "{$price_note_email}"
-                . "Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).\n"
-                . "Je bestelling en QR-code om te betalen kun je bekijken via deze link:\n{$confirm_link}\n\n"
-                . "Met vriendelijke groet,\nAV Philips van Horne";
-            wp_mail($email, $subject, $body);
+            $subject = "Bevestiging bestelling — {$title_opt}";
+            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
+                . '<p>Beste ' . esc_html($first_name) . ',</p>'
+                . '<p>Bedankt voor je bestelling van <strong>' . (int) $total_quantity . ' kledingstuk(ken)</strong> van &lsquo;<strong>' . esc_html($title_opt) . '</strong>&rsquo;:</p>'
+                . $items_html
+                . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
+                . $price_note_html
+                . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).</p>'
+                . '<p style="margin: 25px 0;">'
+                . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling en betaal-QR bekijken &rarr;</a>'
+                . '</p>'
+                . '<p style="font-size: 13px; color: #646970;">'
+                . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je besteloverzicht te openen.'
+                . '</p>'
+                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
+                . '<p style="font-size: 13px; color: #646970;">'
+                . 'Met vriendelijke groet,<br>'
+                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
+                . '</p>'
+                . '</body></html>';
+            $headers = ['Content-Type: text/html; charset=UTF-8'];
+            wp_mail($email, $subject, $body, $headers);
 
             wp_safe_redirect($confirm_link);
             exit;
@@ -925,21 +942,33 @@ class AVBK_Tshirt_Order {
 
         // Guest visitor: send verification link
         $subject = "Bevestig je bestelling — {$title_opt}";
-        $body = "Beste {$first_name},\n\n"
-            . "Bedankt voor je bestelling van {$total_quantity} kledingstuk(ken) van '{$title_opt}':\n\n"
-            . "{$items_text}\n"
-            . "Totaalbedrag: € " . number_format($total_amount, 2, ',', '.') . "\n"
-            . "{$price_note_email}"
-            . "Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).\n"
-            . "Klik op onderstaande link om je bestelling definitief te bevestigen en de QR-code voor betaling te openen:\n{$confirm_link}\n\n"
-            . "Met vriendelijke groet,\nAV Philips van Horne";
+        $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
+            . '<p>Beste ' . esc_html($first_name) . ',</p>'
+            . '<p>Bedankt voor je bestelling van <strong>' . (int) $total_quantity . ' kledingstuk(ken)</strong> van &lsquo;<strong>' . esc_html($title_opt) . '</strong>&rsquo;:</p>'
+            . $items_html
+            . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
+            . $price_note_html
+            . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).</p>'
+            . '<p style="margin: 25px 0;">'
+            . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling definitief bevestigen &rarr;</a>'
+            . '</p>'
+            . '<p style="font-size: 13px; color: #646970;">'
+            . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je bestelling te bevestigen en de QR-code voor betaling te openen.'
+            . '</p>'
+            . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
+            . '<p style="font-size: 13px; color: #646970;">'
+            . 'Met vriendelijke groet,<br>'
+            . '<strong>Archeologische Vereniging Philips van Horne</strong>'
+            . '</p>'
+            . '</body></html>';
 
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
         $mail_error = '';
         $capture_error = function ($wp_error) use (&$mail_error) {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($email, $subject, $body);
+        $sent = wp_mail($email, $subject, $body, $headers);
         remove_action('wp_mail_failed', $capture_error);
 
         AVBK_DB::mark_order_email_result((int) $order_result['id'], $sent, $mail_error);
@@ -1009,16 +1038,25 @@ class AVBK_Tshirt_Order {
         if (!$already_sent) {
             $first_name = !empty($member->first_name) ? (string) $member->first_name : 'lid';
             $subject = 'AV Philips van Horne — Wachtwoord aanmaken';
-            $body = "Beste {$first_name},\n\n"
-                . "Je e-mailadres ({$email}) is bekend bij AV Philips van Horne, maar je bent nog niet eerder ingelogd.\n\n"
-                . "Via onderstaande link kun je een wachtwoord aanmaken:\n"
-                . "{$reset_url}\n\n"
-                . "Zodra je een wachtwoord hebt aangemaakt, kun je inloggen om direct te bestellen en je bestelling aan je profiel te koppelen:\n"
-                . "{$login_url}\n\n"
-                . "Met vriendelijke groet,\n"
-                . "AV Philips van Horne";
+            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
+                . '<p>Beste ' . esc_html($first_name) . ',</p>'
+                . '<p>Je e-mailadres (<code>' . esc_html($email) . '</code>) is bekend bij AV Philips van Horne, maar je bent nog niet eerder ingelogd.</p>'
+                . '<p style="margin: 25px 0;">'
+                . '<a href="' . esc_url($reset_url) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Wachtwoord aanmaken &rarr;</a>'
+                . '</p>'
+                . '<p style="font-size: 13px; color: #646970;">'
+                . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($reset_url) . '" style="color: #2271b1; text-decoration: underline;">deze link om je wachtwoord aan te maken</a>.'
+                . '</p>'
+                . '<p>Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' . esc_url($login_url) . '" style="color: #2271b1; font-weight: 600;">direct inloggen</a> om te bestellen en je bestelling aan je profiel te koppelen.</p>'
+                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
+                . '<p style="font-size: 13px; color: #646970;">'
+                . 'Met vriendelijke groet,<br>'
+                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
+                . '</p>'
+                . '</body></html>';
 
-            wp_mail($email, $subject, $body);
+            $headers = ['Content-Type: text/html; charset=UTF-8'];
+            wp_mail($email, $subject, $body, $headers);
             set_transient($transient_key, 1, 600);
         }
 

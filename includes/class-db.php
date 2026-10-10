@@ -4088,10 +4088,99 @@ class AVBK_DB {
 
     public static function confirm_order(int $id): void {
         global $wpdb;
+        $order = self::get_order($id);
+        if (!$order) {
+            return;
+        }
+
+        $member_id = (int) ($order->member_id ?? 0);
+        if ($member_id === 0 && !empty($order->email)) {
+            $matched = self::find_member_by_email($order->email);
+            if ($matched && !empty($matched->id)) {
+                $member_id = (int) $matched->id;
+            } elseif (method_exists(__CLASS__, 'find_or_create_member_for_registration')) {
+                $res = self::find_or_create_member_for_registration(
+                    $order->first_name,
+                    $order->suffix ?? '',
+                    $order->last_name,
+                    $order->email,
+                    $order->phone ?? ''
+                );
+                if (!empty($res['member_id'])) {
+                    $member_id = (int) $res['member_id'];
+                }
+            }
+        }
+
+        $fee_item_id = (int) ($order->fee_item_id ?? 0);
+        if ($fee_item_id === 0 && $member_id > 0) {
+            $total_amount = (float) $order->total_amount;
+            if ($order->order_type === 'tshirt') {
+                $desc = !empty($order->items)
+                    ? implode(', ', array_map(fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", $order->items))
+                    : 'Lustrum T-shirt(s)';
+                $fee_item_id = self::create_tshirt_fee_item($member_id, (int) $order->quantity, $total_amount, $desc);
+            } else {
+                $book_title = get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!';
+                $fee_item_id = self::create_book_fee_item($member_id, (int) $order->quantity, $total_amount, $book_title);
+            }
+        }
+
         $wpdb->query($wpdb->prepare(
-            "UPDATE {$wpdb->prefix}avb_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
-            current_time('mysql'), $id
+            "UPDATE {$wpdb->prefix}avb_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s), member_id = COALESCE(member_id, %s), fee_item_id = COALESCE(fee_item_id, %s) WHERE id = %d",
+            current_time('mysql'),
+            $member_id ?: null,
+            $fee_item_id ?: null,
+            $id
         ));
+    }
+
+    public static function delete_order(int $id, bool $send_email = false): array {
+        global $wpdb;
+        $order = self::get_order($id);
+        if (!$order) {
+            return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
+        }
+
+        // Clean up associated fee item if present
+        if (!empty($order->fee_item_id)) {
+            $fee_item_id = (int) $order->fee_item_id;
+            $allocated = (float) $wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_transaction_allocations WHERE fee_item_id = %d",
+                $fee_item_id
+            ));
+            if ($allocated <= 0.005) {
+                $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $fee_item_id]);
+            } else {
+                $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $fee_item_id]);
+            }
+        }
+
+        // Delete line items
+        $wpdb->delete("{$wpdb->prefix}avb_order_items", ['order_id' => $id]);
+
+        // Delete order row
+        $wpdb->delete("{$wpdb->prefix}avb_orders", ['id' => $id]);
+
+        // Optional notification email to the customer
+        if ($send_email && !empty($order->email) && is_email($order->email)) {
+            $type_label = $order->order_type === 'tshirt' ? 'Jubileumkleding' : 'Jubileumboek';
+            $subject = "Bestelling geannuleerd — {$type_label}";
+            $first_name = trim($order->first_name) ?: 'besteller';
+            $body = "<p>Beste " . esc_html($first_name) . ",</p>"
+                . "<p>Hierbij bevestigen we dat je bestelling (#" . (int) $order->id . ") voor <strong>" . esc_html($type_label) . "</strong> is geannuleerd.</p>"
+                . "<p>Mocht je hier vragen over hebben, neem dan gerust contact op met de penningmeester via <a href='mailto:info@avphilipsvanhorne.nl'>info@avphilipsvanhorne.nl</a>.</p>"
+                . "<p>Met vriendelijke groet,<br>Archeologische Vereniging Philips van Horne</p>";
+
+            $headers = ['Content-Type: text/html; charset=UTF-8'];
+            wp_mail($order->email, $subject, $body, $headers);
+        }
+
+        return ['success' => true];
+    }
+
+    public static function delete_book_order(int $id, bool $send_email = false): array {
+        return self::delete_order($id, $send_email);
     }
 
     public static function mark_order_email_result(int $id, bool $sent, string $error = ''): void {
