@@ -497,7 +497,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!memberSelect || !activitySelect) return;
 
         function updateDescriptionVisibility() {
-            var isMatchedActivity = !!matchedActivityId(activitySelect.value);
+            var isMatchedActivity = !!matchedActivityId(activitySelect.value) || /^f\d+$/.test(activitySelect.value);
             if (descriptionInput) {
                 descriptionInput.style.display = isMatchedActivity ? 'none' : '';
                 if (!isMatchedActivity && activitySelect.value === 'Overig' && !descriptionInput.value) {
@@ -523,6 +523,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function lookupDetail() {
+            // f<id> is one exact existing fee, not a guessed activity.
+            // Preserve its rendered balance and any manually entered partial
+            // amount; a generic activity lookup could overwrite that choice.
+            if (/^f\d+$/.test(activitySelect.value)) return;
             var fragmentsEl = row.querySelector('.avbk-detail-fragments');
             var estimatedEl = row.querySelector('.avbk-detail-estimated');
             var amountInput = row.querySelector('.avbk-amount-input');
@@ -580,7 +584,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         activitySelect.addEventListener('change', function () {
             updateDescriptionVisibility();
-            if (activitySelect.value && !matchedActivityId(activitySelect.value)) {
+            if (activitySelect.value && !matchedActivityId(activitySelect.value) && !/^f\d+$/.test(activitySelect.value)) {
                 fillRemainingAmount(row, form);
             }
             loadActivityParticipants(memberSelect, matchedActivityId(activitySelect.value));

@@ -40,6 +40,9 @@ jobs:
         run: |
           find . -path ./vendor -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l
 
+      - name: "Exact reference and chronological import regression checks"
+        run: php tests/test-exact-reference.php
+
       - name: "Dispute reply and history regression checks"
         run: php tests/test-disputes.php
 
