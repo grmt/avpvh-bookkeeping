@@ -52,6 +52,16 @@ $presets = [
         'instructions' => "Scan de QR-code met je smartphone camera om direct foto's en herinneringen te uploaden.",
         'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
     ],
+    'tshirts-betalen' => [
+        'name'         => 'tshirts-betalen',
+        'title'        => 'T-shirts betalen',
+        'subtitle'     => 'Betaal je huidige bestelling van jubileumkleding eenvoudig via je smartphone',
+        'url'          => 'https://www.ing.nl/payreq/m/aFbdfoIoWem2exURVabPmWck5AoW7WMT',
+        'qr_image'     => __DIR__ . '/../assets/images/tshirts-betalen-qr.png',
+        'display_url'  => 'avpvh.nl/t-shirts-betalen',
+        'instructions' => 'Scan de QR-code met je smartphone camera om je bestaande bestelling via ING te betalen.',
+        'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
+    ],
 ];
 // Alias voor foto-delen
 $presets['share'] = $presets['foto-delen'];
@@ -103,7 +113,7 @@ if (isset($options['preset'])) {
     } elseif (isset($presets[$presetKey])) {
         $itemsToProcess = [$presets[$presetKey]];
     } else {
-        fwrite(STDERR, "Onbekende preset: '{$presetKey}'. Beschikbaar: boek, tshirt, foto-delen, all\n");
+        fwrite(STDERR, "Onbekende preset: '{$presetKey}'. Beschikbaar: boek, tshirt, foto-delen, tshirts-betalen, all\n");
         exit(1);
     }
 } elseif (isset($options['url'])) {
@@ -143,7 +153,16 @@ foreach ($itemsToProcess as $item) {
     echo "  ✔ QR Vector SVG: {$svgFile}\n";
 
     // 2. HTML Flyer samenstellen
-    $htmlContent = renderFlyerHtml($item, $qrSvg, $troffelSvg);
+    $qrMarkup = $qrSvg;
+    if (isset($item['qr_image'])) {
+        $qrImage = file_get_contents($item['qr_image']);
+        if ($qrImage === false) {
+            fwrite(STDERR, "  ✖ QR-afbeelding kon niet worden gelezen.\n");
+            exit(1);
+        }
+        $qrMarkup = '<img src="data:image/png;base64,' . base64_encode($qrImage) . '" alt="QR-code om je bestelling te betalen">';
+    }
+    $htmlContent = renderFlyerHtml($item, $qrMarkup, $troffelSvg);
     $htmlFile = $outputDir . '/' . $item['name'] . '-flyer.html';
     file_put_contents($htmlFile, $htmlContent);
     echo "  ✔ HTML Flyer:    {$htmlFile}\n";
@@ -296,10 +315,14 @@ function renderFlyerHtml(array $item, string $qrSvg, string $troffelSvg): string
     width: 368px;
     height: 368px;
   }
-  .qr-box svg {
+  .qr-box svg,
+  .qr-box img {
     width: 320px;
     height: 320px;
     display: block;
+  }
+  .qr-box img {
+    image-rendering: pixelated;
   }
   .url-label {
     font-size: 22pt;
@@ -388,6 +411,7 @@ Opties voor presets:
   --preset=boek        Genereer flyer voor het Jubileumboek (avpvh.nl/boek)
   --preset=tshirt      Genereer flyer voor Jubileumkleding (avpvh.nl/tshirt)
   --preset=foto-delen  Genereer flyer voor Foto's Delen (avpvh.nl/foto-delen)
+  --preset=tshirts-betalen Genereer betaalflyer voor een bestaande T-shirtbestelling
   --preset=all         Genereer alle drie de flyers in één keer
 
 Opties voor custom flyers:
