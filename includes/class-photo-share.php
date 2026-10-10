@@ -6,7 +6,7 @@ defined('ABSPATH') || exit;
  * Sends confirmation emails with a 5-day expiration link.
  * When confirmed, automatically creates a dedicated subfolder in the anniversary Google Drive root,
  * named YYYYMMDD-firstname-lastname, shares it with the member's email,
- * and displays their personal link, QR code, and hotlink.
+ * and displays only the link to their requested upload folder.
  */
 class AVBK_Photo_Share {
 
@@ -321,12 +321,8 @@ class AVBK_Photo_Share {
     }
 
     /**
-     * Resolves the Google Drive photo upload share URL for a given WordPress user.
-     * Checks in order:
-     * 1. Confirmed record in avb_photo_shares
-     * 2. Explicit user_meta ('photo_share_url' or 'photo_share_folder_id')
-     * 3. Google Drive root folder match
-     * 4. Gallery Photo_Shares_DB ready share
+     * Resolves only an explicitly requested and confirmed upload share.
+     * Gallery exports and folders discovered by name are not upload requests.
      *
      * @return array{url: string, title: string, source: string}|null
      */
@@ -335,130 +331,16 @@ class AVBK_Photo_Share {
             return null;
         }
 
-        // 1. Check avb_photo_shares
-        $db_share = AVBK_DB::get_photo_share_by_user_id($user_id);
-        if ($db_share && $db_share->status === 'confirmed' && !empty($db_share->drive_folder_url)) {
-            return [
-                'url'    => $db_share->drive_folder_url,
-                'title'  => $db_share->drive_folder_name ?: 'Jouw persoonlijke Google Drive map',
-                'source' => 'db',
-            ];
-        }
-
-        // 2. Check user meta
-        $url = trim((string) get_user_meta($user_id, 'photo_share_url', true));
-        if ($url !== '') {
-            return [
-                'url'    => $url,
-                'title'  => 'Jouw persoonlijke Google Drive map',
-                'source' => 'meta',
-            ];
-        }
-
-        $folder_id = trim((string) get_user_meta($user_id, 'photo_share_folder_id', true));
-        if ($folder_id !== '') {
-            return [
-                'url'    => 'https://drive.google.com/drive/folders/' . $folder_id,
-                'title'  => 'Jouw persoonlijke Google Drive map',
-                'source' => 'meta',
-            ];
-        }
-
-        $user = get_userdata($user_id);
-        if (!$user) {
+        $share = AVBK_DB::get_photo_share_by_user_id($user_id);
+        if (!$share || $share->status !== 'confirmed' || empty($share->drive_folder_url)) {
             return null;
         }
 
-        // 3. Check Google Drive under root folder 1MfTPOBUD-Md2rK2Qdgt3y9dJ3voyzz8B
-        if (class_exists('\Avpvh\Frontend\Share_Drive') && \Avpvh\Frontend\Share_Drive::has_account()) {
-            $drive_share = self::find_folder_in_drive($user);
-            if ($drive_share !== null) {
-                update_user_meta($user_id, 'photo_share_folder_id', $drive_share['folder_id']);
-                return [
-                    'url'    => 'https://drive.google.com/drive/folders/' . $drive_share['folder_id'],
-                    'title'  => $drive_share['name'],
-                    'source' => 'drive',
-                ];
-            }
-        }
-
-        // 4. Check Gallery Photo_Shares_DB for ready shares
-        if (class_exists('\Avpvh\Frontend\Photo_Shares_DB')) {
-            $shares = \Avpvh\Frontend\Photo_Shares_DB::for_user($user_id);
-            foreach ($shares as $s) {
-                if ($s->status === 'ready' && !empty($s->drive_folder_id)) {
-                    return [
-                        'url'    => 'https://drive.google.com/drive/folders/' . $s->drive_folder_id,
-                        'title'  => $s->description ?: 'Jouw persoonlijke Google Drive map',
-                        'source' => 'gallery',
-                    ];
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Searches for a matching folder in the Google Drive root folder.
-     */
-    private static function find_folder_in_drive(WP_User $user): ?array {
-        $transient_key = 'avbk_drive_check_' . $user->ID;
-        if (false !== ($cached = get_transient($transient_key))) {
-            return is_array($cached) ? $cached : null;
-        }
-
-        try {
-            $drive = \Avpvh\Frontend\Share_Drive::drive();
-            $res = $drive->files->listFiles([
-                'q'                         => sprintf("'%s' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false", self::ROOT_FOLDER_ID),
-                'supportsAllDrives'         => true,
-                'includeItemsFromAllDrives' => true,
-                'fields'                    => 'files(id, name)',
-            ]);
-
-            $files = $res->getFiles();
-            if (empty($files)) {
-                set_transient($transient_key, 0, 10 * MINUTE_IN_SECONDS);
-                return null;
-            }
-
-            // Candidate tokens
-            $tokens = [
-                strtolower(trim($user->user_email)),
-                strtolower(trim($user->user_login)),
-                strtolower(trim($user->display_name)),
-            ];
-
-            if (class_exists('\AVPVH_DB') && method_exists('\AVPVH_DB', 'get_member_by_wp_user')) {
-                $member = \AVPVH_DB::get_member_by_wp_user($user->ID);
-                if ($member) {
-                    $parts = array_filter([$member->first_name, $member->suffix, $member->last_name]);
-                    if ($parts) {
-                        $tokens[] = strtolower(implode(' ', $parts));
-                    }
-                }
-            }
-
-            foreach ($files as $f) {
-                $folder_name = strtolower(trim($f->getName()));
-                foreach ($tokens as $token) {
-                    if ($token !== '' && (str_contains($folder_name, $token) || str_contains($token, $folder_name))) {
-                        $result = [
-                            'folder_id' => (string) $f->getId(),
-                            'name'      => (string) $f->getName(),
-                        ];
-                        set_transient($transient_key, $result, HOUR_IN_SECONDS);
-                        return $result;
-                    }
-                }
-            }
-            set_transient($transient_key, 0, 10 * MINUTE_IN_SECONDS);
-        } catch (\Throwable $e) {
-            // Network/API failure
-        }
-
-        return null;
+        return [
+            'url'    => $share->drive_folder_url,
+            'title'  => $share->drive_folder_name ?: 'Jouw persoonlijke Google Drive map',
+            'source' => 'db',
+        ];
     }
 
     /**
@@ -508,10 +390,7 @@ class AVBK_Photo_Share {
         if (!empty($_GET['photo_share_confirmed']) && !empty($_GET['share_token'])) {
             $token_share = AVBK_DB::get_photo_share_by_token(sanitize_text_field($_GET['share_token']));
             if ($token_share && $token_share->status === 'confirmed' && !empty($token_share->drive_folder_url)) {
-                $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-success">'
-                    . '&#10003; <strong>Gefeliciteerd!</strong> Jouw persoonlijke uploadmap is succesvol geactiveerd.'
-                    . '</div>';
-                return $out . $this->render_share_card($token_share->drive_folder_url, $token_share->drive_folder_name ?: 'Jouw persoonlijke fotomap');
+                return $out . $this->render_share_link($token_share->drive_folder_url);
             }
         }
 
@@ -521,7 +400,7 @@ class AVBK_Photo_Share {
             $share   = self::get_user_share($user_id);
 
             if ($share !== null) {
-                return $out . $this->render_share_card($share['url'], $share['title']);
+                return $out . $this->render_share_link($share['url']);
             }
 
             // Check if there is a pending request for this user
@@ -542,55 +421,11 @@ class AVBK_Photo_Share {
     }
 
     /**
-     * Renders the card for members who have an active, confirmed photo share.
+     * Shows the requested upload share as a single link.
      */
-    private function render_share_card(string $url, string $title): string {
-        $qr_svg = AVBK_QR::svg($url) ?: '';
-
-        ob_start();
-        ?>
-        <div class="avbk-photo-share-card">
-            <div class="avbk-photo-share-header">
-                <span class="avbk-photo-share-badge">&#10003; Persoonlijke uploadmap gekoppeld</span>
-                <h3 class="avbk-photo-share-title"><?php echo esc_html($title); ?></h3>
-                <p class="avbk-photo-share-desc">
-                    Scan de QR-code met je smartphone om direct vanaf je telefoon foto&#8217;s en video&#8217;s te uploaden, of klik op de knop om de map in Google Drive te openen.
-                </p>
-            </div>
-
-            <div class="avbk-photo-share-content">
-                <?php if ($qr_svg !== '') : ?>
-                    <div class="avbk-photo-share-qr-column">
-                        <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer" class="avbk-photo-share-qr-link" title="Open Google Drive map">
-                            <div class="avbk-photo-share-qr-frame">
-                                <?php echo $qr_svg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-                            </div>
-                        </a>
-                        <span class="avbk-photo-share-qr-hint">Scan met je smartphone</span>
-                    </div>
-                <?php endif; ?>
-
-                <div class="avbk-photo-share-details-column">
-                    <div class="avbk-photo-share-hotlink-wrap">
-                        <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer" class="button avbk-photo-share-btn">
-                            Open je persoonlijke Google Drive map &rarr;
-                        </a>
-                    </div>
-
-                    <div class="avbk-photo-share-url-wrap">
-                        <label for="avbk-photo-share-input">Directe link:</label>
-                        <div class="avbk-photo-share-copy-wrap">
-                            <input type="text" id="avbk-photo-share-input" readonly value="<?php echo esc_url($url); ?>" class="avbk-photo-share-input" onclick="this.select()">
-                            <button type="button" class="button avbk-photo-share-copy-btn" onclick="navigator.clipboard.writeText('<?php echo esc_js($url); ?>'); this.textContent='Gekopieerd!'; setTimeout(() => this.textContent='Kopieer link', 2000);">
-                                Kopieer link
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php
-        return ob_get_clean();
+    private function render_share_link(string $url): string {
+        return '<p class="avbk-photo-share-link"><a href="' . esc_url($url)
+            . '" target="_blank" rel="noopener noreferrer">Open je persoonlijke uploadmap</a></p>';
     }
 
     /**
@@ -635,7 +470,7 @@ class AVBK_Photo_Share {
             <h3 class="avbk-photo-share-auth-title">Jouw persoonlijke uploadmap activeren</h3>
             <p>
                 Beste <?php echo esc_html($name); ?>, klik op de onderstaande knop om een activatielink te ontvangen op <strong><?php echo esc_html($email); ?></strong>.
-                Na bevestiging wordt jouw eigen map in Google Drive direct aangemaakt en verschijnen hier jouw QR-code en uploadlink.
+                Na bevestiging wordt jouw eigen map in Google Drive direct aangemaakt en verschijnt hier de link naar jouw uploadmap.
             </p>
             <p style="color: #667766; font-size: 0.85em;">
                 <em>De activatielink is na verzending 5 dagen geldig.</em>
@@ -663,7 +498,7 @@ class AVBK_Photo_Share {
             <h3 class="avbk-photo-share-auth-title">Persoonlijke uploadmap aanvragen</h3>
             <p>
                 Ben je deelnemer of actief lid? Vul hieronder je e-mailadres in om een activatielink te ontvangen.
-                Na bevestiging van de e-mail ontvang je direct jouw persoonlijke Google Drive uploadmap met QR-code.
+                Na bevestiging van de e-mail ontvang je direct jouw persoonlijke Google Drive uploadmap.
             </p>
             <p style="color: #667766; font-size: 0.85em;">
                 <em>Let op: De verificatielink is na verzending 5 dagen geldig.</em>

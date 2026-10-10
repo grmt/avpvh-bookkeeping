@@ -43,6 +43,9 @@ jobs:
       - name: "Dispute reply and history regression checks"
         run: php tests/test-disputes.php
 
+      - name: "Photo upload share regression checks"
+        run: php tests/test-photo-share.php
+
       - name: "Book order flow regression checks"
         run: php tests/test-book-order.php
 
