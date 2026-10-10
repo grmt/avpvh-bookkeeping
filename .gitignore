@@ -1,4 +1,5 @@
 /vendor/
+/output/
 *.log
 .DS_Store
 *.local
