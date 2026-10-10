@@ -1715,10 +1715,28 @@ class AVBK_DB {
                 $member_id, $activity_id
             )) ?: null;
         }
+
+        $category_aliases = [
+            'T-shirt' => ['tshirt', 'T-shirt'],
+            'tshirt'  => ['tshirt', 'T-shirt'],
+            'Boek'    => ['book', 'Boek'],
+            'book'    => ['book', 'Boek'],
+        ];
+        $cats = $category_aliases[$category] ?? [$category];
+        $placeholders = implode(',', array_fill(0, count($cats), '%s'));
+
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id IS NULL AND category = %s AND status = 'open' ORDER BY id ASC LIMIT 1",
-            $member_id, $category
+            "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id IS NULL AND category IN ({$placeholders}) AND status = 'open' ORDER BY id ASC LIMIT 1",
+            $member_id, ...$cats
         )) ?: null;
+    }
+
+    public static function get_open_tshirt_fee_item(int $member_id): ?object {
+        return self::get_open_other_fee_item($member_id, 'tshirt');
+    }
+
+    public static function get_open_book_fee_item(int $member_id): ?object {
+        return self::get_open_other_fee_item($member_id, 'book');
     }
 
     public static function create_other_fee_item(int $member_id, string $category, string $description, float $amount, int $activity_id = 0): int {

@@ -1908,16 +1908,48 @@ class AVBK_Admin {
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
         if (!$member_id) {
             wp_send_json_error('Ontbrekende gegevens.', 400);
         }
+
+        $open_items_data = array_map(function($it) {
+            $rem = max(0.0, AVBK_DB::get_fee_item_remaining($it));
+            return [
+                'id'        => (int) $it->id,
+                'val'       => 'f' . $it->id,
+                'label'     => 'Post #' . $it->id . ' — ' . $it->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')',
+                'remaining' => $rem,
+            ];
+        }, AVBK_DB::get_open_fee_items_for_member($member_id));
+
+        if ($fee_item_id) {
+            $item = AVBK_DB::get_fee_item($fee_item_id);
+            $closed_year = (int) get_option('avbk_closed_through_year', 0);
+            $payable = $item && (int) $item->member_id === $member_id && $item->status === 'open'
+                && (!$closed_year || AVBK_DB::fee_item_book_year($item) > $closed_year);
+            $share = $payable ? max(0.0, AVBK_DB::get_fee_item_remaining($item)) : 0.0;
+            wp_send_json_success([
+                'share'             => $share,
+                'is_estimated'      => false,
+                'estimate_reason'   => '',
+                'found'             => $payable,
+                'fragments_html'    => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — bestaande post #' . $item->id : 'Post bestaat niet meer.'),
+                'estimated_text'    => '',
+                'estimated_warning' => false,
+                'open_fee_items'    => $open_items_data,
+            ]);
+        }
+
         // activity_id 0 means the treasurer picked a one-off category
         // (Weekend, Drank, Overig, ...) with no tarief to look up — still
         // worth telling them the member is a scholier/student, see
         // AVBK_DB::get_member_status_detail().
-        wp_send_json_success($activity_id
+        $data = $activity_id
             ? AVBK_DB::get_member_fee_detail_for_activity($member_id, $activity_id)
-            : AVBK_DB::get_member_status_detail($member_id));
+            : AVBK_DB::get_member_status_detail($member_id);
+        $data['open_fee_items'] = $open_items_data;
+        wp_send_json_success($data);
     }
 
     /**
