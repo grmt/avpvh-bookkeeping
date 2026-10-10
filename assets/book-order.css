@@ -1,0 +1,515 @@
+/* Styling for [avpvh_bk_book_order] flow */
+.avbk-book-order {
+    max-width: 860px;
+    margin: 1.5rem auto;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.avbk-book-intro-card {
+    background: #fdfaf5;
+    border: 1px solid #ebd8c1;
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-book-intro-card h3 {
+    margin-top: 0;
+    margin-bottom: .75rem;
+    color: #4a3525;
+}
+
+.avbk-book-flaptekst {
+    font-size: 1.02rem;
+    color: #2c3e50;
+    line-height: 1.7;
+}
+
+.avbk-book-flaptekst p {
+    margin: 0 0 1rem 0;
+}
+
+.avbk-book-flaptekst p:last-child {
+    margin-bottom: 0;
+}
+
+.avbk-book-flaptekst blockquote {
+    margin: 1rem 0;
+    padding: .85rem 1.25rem;
+    border-left: 3px solid #b8860b;
+    background: rgba(255, 255, 255, 0.65);
+    font-style: italic;
+    color: #3b2818;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.6;
+}
+
+.avbk-book-flaptekst em,
+.avbk-book-flaptekst i {
+    font-style: italic;
+    font-weight: 600;
+}
+
+.avbk-book-notice {
+    padding: .85rem 1.15rem;
+    margin-bottom: 1.25rem;
+    border-radius: 4px;
+}
+
+.avbk-book-notice-info {
+    background: #eef5fa;
+    border-left: 4px solid #2271b1;
+    color: #1a3c5a;
+}
+
+.avbk-book-notice-price {
+    background: #fcf9e8;
+    border-left: 4px solid #d4af37;
+    color: #53450e;
+    font-size: 1.05rem;
+}
+
+.avbk-book-price-note {
+    font-size: .95rem;
+    font-weight: normal;
+    color: #6c5a17;
+    margin-left: .5rem;
+}
+
+.avbk-book-notice-success {
+    background: #edfaef;
+    border-left: 4px solid #00a32a;
+    color: #14521e;
+}
+
+.avbk-book-error {
+    background: #fbeaea;
+    border-left: 4px solid #d63638;
+    color: #721c24;
+}
+
+.avbk-book-warning {
+    background: #fff8e5;
+    border-left: 4px solid #dba617;
+    color: #614700;
+}
+
+.avbk-book-login-banner,
+.avbk-book-check-email-box,
+#avbk-check-email-box,
+#avbk-check-email-result {
+    scroll-margin-top: 100px;
+}
+
+.avbk-book-login-banner {
+    background: #f0f6fc;
+    border: 1px solid #c8d7e1;
+    border-radius: 6px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.avbk-book-login-intro {
+    margin: 0 0 .75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.avbk-book-login-intro a {
+    font-weight: 600;
+}
+
+.avbk-book-check-email-box {
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid #d8e2eb;
+}
+
+.avbk-book-check-email-prompt {
+    margin: 0 0 .5rem;
+    font-size: .95rem;
+    color: #2c3338;
+}
+
+.avbk-book-check-email-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+}
+
+.avbk-check-email-input {
+    flex: 1 1 240px;
+    max-width: 320px;
+    padding: .45rem .65rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: .95rem;
+}
+
+.avbk-check-email-btn {
+    padding: .4rem .9rem;
+    font-size: .9rem;
+}
+
+.avbk-check-email-result-container {
+    margin-top: .75rem;
+}
+
+.avbk-check-email-loading {
+    margin: .5rem 0 0;
+    color: #666;
+    font-style: italic;
+    font-size: .9rem;
+}
+
+.avbk-book-member-box {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: .85rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.avbk-book-member-identity {
+    margin: 0 0 .25rem;
+    font-size: 1.05rem;
+}
+
+.avbk-book-subtext {
+    margin: 0;
+    font-size: .9rem;
+    color: #555;
+}
+
+.avbk-book-fieldset {
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    background: #fff;
+}
+
+.avbk-book-fieldset legend {
+    font-weight: 600;
+    padding: 0 .5rem;
+    color: #1d2327;
+}
+
+.avbk-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: .75rem;
+}
+
+.avbk-form-row-2 .avbk-form-field {
+    flex: 1 1 240px;
+}
+
+.avbk-form-row-3 .avbk-form-field {
+    flex: 1 1 180px;
+}
+
+.avbk-form-field {
+    margin: 0 0 .75rem;
+}
+
+.avbk-form-field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: .3rem;
+    font-size: .95rem;
+}
+
+.avbk-form-field input[type="text"],
+.avbk-form-field input[type="email"],
+.avbk-form-field input[type="tel"],
+.avbk-form-field select {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: .5rem .65rem;
+    font-size: 1rem;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+.avbk-form-field textarea,
+#avbk_notes,
+#notes,
+.avbk-book-order textarea {
+    display: block !important;
+    width: 100% !important;
+    min-height: 110px !important;
+    height: auto !important;
+    padding: .65rem .75rem !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+    font-family: inherit !important;
+    box-sizing: border-box !important;
+    border: 1px solid #8c8f94 !important;
+    border-radius: 4px !important;
+    resize: vertical !important;
+}
+
+.avbk-form-field select {
+    max-width: 340px;
+}
+
+.avbk-book-presentation-box {
+    background: #fbfbfb;
+    border: 1px solid #e2e4e7;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+}
+
+.avbk-book-presentation-box h4 {
+    margin: 0 0 .5rem;
+    color: #1d2327;
+}
+
+.avbk-book-presentation-desc {
+    margin: 0 0 .75rem;
+    font-size: .95rem;
+    color: #555;
+}
+
+.avbk-checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    margin-bottom: .6rem;
+    cursor: pointer;
+    font-size: .95rem;
+}
+
+.avbk-checkbox-row input[type="checkbox"] {
+    margin-top: .25rem;
+}
+
+.avbk-book-submit-wrap {
+    margin-top: 2rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.avbk-book-submit-btn,
+.avbk-submit-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 10px !important;
+    background: linear-gradient(180deg, #1d7435 0%, #155c2a 100%) !important;
+    color: #ffffff !important;
+    font-size: 1.25rem !important;
+    font-weight: 700 !important;
+    line-height: 1.35 !important;
+    padding: 16px 36px !important;
+    border: none !important;
+    border-radius: 8px !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 14px rgba(21, 92, 42, 0.35) !important;
+    text-decoration: none !important;
+    transition: all 0.2s ease-in-out !important;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.25) !important;
+    letter-spacing: 0.2px;
+}
+
+.avbk-book-submit-btn:hover,
+.avbk-submit-btn:hover {
+    background: linear-gradient(180deg, #228b3f 0%, #17682f 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 20px rgba(21, 92, 42, 0.45) !important;
+    transform: translateY(-2px);
+}
+
+.avbk-book-submit-btn:active,
+.avbk-submit-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 8px rgba(21, 92, 42, 0.25) !important;
+}
+
+.avbk-book-submit-btn:focus-visible,
+.avbk-submit-btn:focus-visible {
+    outline: 3px solid #70c686 !important;
+    outline-offset: 2px !important;
+}
+
+@media (max-width: 600px) {
+    .avbk-book-submit-wrap {
+        text-align: stretch;
+    }
+    .avbk-book-submit-btn,
+    .avbk-submit-btn {
+        width: 100% !important;
+        font-size: 1.15rem !important;
+        padding: 16px 18px !important;
+        box-sizing: border-box !important;
+    }
+}
+
+/* Confirmation and Summary views */
+.avbk-book-summary-box {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+}
+
+.avbk-book-summary-box h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.avbk-book-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.avbk-book-summary-table th,
+.avbk-book-summary-table td {
+    padding: .65rem .75rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #f0f0f1;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.avbk-book-summary-table th {
+    width: 32%;
+    max-width: 220px;
+    color: #50575e;
+    font-weight: 600;
+}
+
+@media (max-width: 640px) {
+    .avbk-book-summary-box {
+        padding: 1rem .85rem;
+    }
+
+    .avbk-book-summary-table,
+    .avbk-book-summary-table tbody,
+    .avbk-book-summary-table tr,
+    .avbk-book-summary-table th,
+    .avbk-book-summary-table td {
+        display: block;
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+
+    .avbk-book-summary-table tr {
+        padding: .65rem 0;
+        border-bottom: 1px solid #e5e5e7;
+    }
+
+    .avbk-book-summary-table tr:last-child {
+        border-bottom: none;
+    }
+
+    .avbk-book-summary-table th {
+        width: 100% !important;
+        max-width: none !important;
+        padding: 0 0 .25rem 0 !important;
+        font-size: .82rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: .5px !important;
+        color: #646970 !important;
+        border: none !important;
+    }
+
+    .avbk-book-summary-table td {
+        width: 100% !important;
+        padding: 0 !important;
+        font-size: 1rem !important;
+        line-height: 1.45 !important;
+        color: #1d2327 !important;
+        border: none !important;
+    }
+}
+
+.avbk-book-payment-box {
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.avbk-book-payment-box h3 {
+    margin-top: 0;
+}
+
+.avbk-book-amount-due {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.avbk-book-qr-render {
+    max-width: 200px;
+    margin: 1rem auto;
+}
+
+.avbk-book-qr-render svg {
+    width: 100%;
+    height: auto;
+}
+
+.avbk-book-qr-hint {
+    max-width: 500px;
+    margin: .5rem auto;
+    font-size: .95rem;
+    color: #444;
+}
+
+.avbk-book-qr-ref {
+    max-width: 540px;
+    margin: 1rem auto 0;
+    font-size: .9rem;
+    color: #555;
+    background: #fff;
+    padding: .75rem 1rem;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.avbk-book-paid-badge {
+    background: #edfaef;
+    border: 1px solid #68de7c;
+    border-radius: 6px;
+    padding: 1rem;
+    color: #14521e;
+    font-size: 1.1rem;
+}
+.avbk-book-back-profile {
+    margin-top: 2rem;
+}
+
+.avbk-book-back-profile a {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.avbk-order-commitment-box {
+    background: #fff8e5;
+    border: 1px solid #dba617;
+    border-left: 5px solid #dba617;
+    padding: .9rem 1.15rem;
+    margin-top: 1.25rem;
+    margin-bottom: 1.5rem;
+    border-radius: 4px;
+    color: #4c3700;
+    line-height: 1.45;
+    font-size: .95rem;
+}
+
+.avbk-order-commitment-box strong {
+    color: #2e2200;
+}
+

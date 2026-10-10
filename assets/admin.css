@@ -416,3 +416,81 @@
 .avbk-reimbursement-edit input[hidden] + .description {
     display: none;
 }
+
+/* Disputes: readable message cards with an append-only action history. */
+.avbk-disputes {
+    max-width: 1100px;
+}
+.avbk-dispute-card {
+    margin: 1rem 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid #c3c4c7;
+    background: #fff;
+    overflow-wrap: anywhere;
+    scroll-margin-top: 48px;
+}
+.avbk-dispute-card:target {
+    border-color: #2271b1;
+}
+.avbk-dispute-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem;
+}
+.avbk-dispute-header h3 {
+    margin: 0;
+}
+.avbk-dispute-status {
+    padding: .2rem .6rem;
+    border-radius: 3px;
+    background: #f0f0f1;
+}
+.avbk-dispute-message {
+    padding: .75rem;
+    margin: .75rem 0;
+    background: #f6f7f7;
+}
+.avbk-dispute-card summary,
+.avbk-disputes-resolved > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+.avbk-dispute-history {
+    padding: .75rem 0;
+    border-bottom: 1px solid #dcdcde;
+}
+.avbk-dispute-history ol {
+    margin-left: 1.5rem;
+}
+.avbk-dispute-history li {
+    padding: .5rem 0;
+}
+.avbk-dispute-delivery {
+    margin: .3rem 0;
+}
+.avbk-dispute-delivery--warning {
+    color: #b32d2e;
+    font-weight: 600;
+}
+.avbk-dispute-actions > details {
+    margin: .9rem 0;
+}
+.avbk-dispute-actions label {
+    display: block;
+    margin: .75rem 0 .3rem;
+}
+.avbk-dispute-actions textarea {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+}
+.avbk-dispute-status-form {
+    border-top: 1px solid #dcdcde;
+    padding-top: .25rem;
+}
+.avbk-disputes-resolved > summary {
+    font-size: 1.2em;
+    margin-top: 1.5rem;
+}

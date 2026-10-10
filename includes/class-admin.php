@@ -48,6 +48,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
         add_action('admin_post_avbk_save_review_order',              [$this, 'handle_save_review_order']);
         add_action('admin_post_avbk_resolve_dispute',                [$this, 'handle_resolve_dispute']);
+        add_action('admin_post_avbk_update_dispute',                 [$this, 'handle_update_dispute']);
         add_action('admin_post_avbk_second_approve_transaction',     [$this, 'handle_second_approve_transaction']);
         add_action('admin_post_avbk_revert_transaction_to_review',   [$this, 'handle_revert_transaction_to_review']);
         add_action('admin_post_avbk_revert_year_payments_to_review', [$this, 'handle_revert_year_payments_to_review']);
@@ -56,6 +57,12 @@ class AVBK_Admin {
         add_action('admin_post_avbk_save_activity_payment_qr',       [$this, 'handle_save_activity_payment_qr']);
         add_action('admin_post_avbk_delete_activity_payment_url',    [$this, 'handle_delete_activity_payment_url']);
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
+        add_action('admin_post_avbk_update_order_distribution',      [$this, 'handle_update_order_distribution']);
+        add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_order_distribution']);
+        add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
+        add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
+        add_action('admin_post_avbk_export_tshirt_matrix',           [$this, 'handle_export_tshirt_matrix']);
+        add_action('admin_post_avbk_save_order_settings',            [$this, 'handle_save_order_settings']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
         add_action('wp_ajax_avbk_activity_participants', [$this, 'ajax_activity_participants']);
@@ -102,6 +109,11 @@ class AVBK_Admin {
         add_submenu_page('avbk-overview', 'Declaraties', $reimbursements_label, 'read', 'avbk-reimbursements', [$this, 'render_reimbursements']);
 
         add_submenu_page('avbk-overview', 'Deelname en betalingen', 'Deelname en betalingen', 'read', 'avbk-activity-payments', [$this, 'render_activity_payments']);
+
+        $pending_orders = AVBK_DB::count_pending_distribution_orders();
+        $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
+        add_submenu_page('avbk-overview', 'Boekbestellingen', 'Boekbestellingen', 'read', 'avbk-book-orders', [$this, 'render_book_orders']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -149,7 +161,13 @@ class AVBK_Admin {
     public function render_transactions(): void { require AVBK_PLUGIN_DIR . 'admin/transactions.php'; }
     public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
     public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
-    public function render_iban_bank_codes(): void { require AVBK_PLUGIN_DIR . 'admin/iban-bank-codes.php'; }
+    public function render_orders(): void { require AVBK_PLUGIN_DIR . 'admin/orders.php'; }
+    public function render_book_orders(): void {
+        if (!isset($_GET['tab'])) {
+            $_GET['tab'] = 'book';
+        }
+        require AVBK_PLUGIN_DIR . 'admin/orders.php';
+    }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
@@ -1995,10 +2013,32 @@ class AVBK_Admin {
             wp_die('Geen toegang.', 403);
         }
         $id = (int) ($_POST['id'] ?? 0);
-        if ($id) {
-            AVBK_DB::resolve_dispute($id, get_current_user_id());
+        $saved = $id && AVBK_DB::resolve_dispute($id, get_current_user_id());
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-disputes', 'dispute_result' => $saved ? 'resolved' : 'save_failed'], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_update_dispute(): void {
+        if (!$this->can_manage()) wp_die('Geen toegang.', 'Fout', ['response' => 403]);
+        $id = absint(wp_unslash($_POST['id'] ?? 0));
+        check_admin_referer('avbk_update_dispute_' . $id);
+        $action = sanitize_key(wp_unslash($_POST['dispute_action'] ?? ''));
+        $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+        $request_key = sanitize_text_field(wp_unslash($_POST['request_key'] ?? ''));
+        $result = AVBK_Disputes::act($id, $action, $message, $request_key);
+        $draft_key = 'avbk_dispute_draft_' . get_current_user_id() . '_' . $id;
+        if (is_wp_error($result)) {
+            if ($message !== '' && in_array($action, ['reply', 'note', 'resolve', 'reopen'], true)) {
+                set_transient($draft_key, ['action' => $action, 'message' => $message], 30 * MINUTE_IN_SECONDS);
+            }
+            $notice = $result->get_error_code();
+        } else {
+            delete_transient($draft_key);
+            $notice = $result;
         }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-disputes', 'resolved' => '1'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg([
+            'page' => 'avbk-disputes', 'dispute_id' => $id, 'dispute_result' => $notice,
+        ], admin_url('admin.php')) . '#avbk-dispute-' . $id);
         exit;
     }
 
@@ -2068,6 +2108,24 @@ class AVBK_Admin {
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);
+        if (isset($_POST['book_title'])) {
+            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
+        }
+        if (isset($_POST['book_price'])) {
+            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
+        }
+        if (isset($_POST['book_price_note'])) {
+            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
+        }
+        if (isset($_POST['book_flaptekst'])) {
+            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
+        }
+        if (isset($_POST['book_distribution_notice'])) {
+            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
+        }
+        if (isset($_POST['book_presentation_notice'])) {
+            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
+        }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }
@@ -2137,6 +2195,378 @@ class AVBK_Admin {
             'country' => $country_code,
             'bank_deleted' => '1',
         ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_update_order_distribution(): void {
+        if (!empty($_POST['action']) && $_POST['action'] === 'avbk_update_book_distribution') {
+            check_admin_referer('avbk_update_book_distribution');
+        } else {
+            check_admin_referer('avbk_update_order_distribution');
+        }
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $order_id = (int) ($_POST['order_id'] ?? 0);
+        $status = sanitize_key(wp_unslash($_POST['distribution_status'] ?? 'pending'));
+        $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders');
+
+        if ($order_id) {
+            AVBK_DB::update_order_distribution($order_id, $status);
+        }
+        wp_safe_redirect(add_query_arg('distribution_updated', '1', $redirect));
+        exit;
+    }
+
+    public function handle_update_book_distribution(): void {
+        $this->handle_update_order_distribution();
+    }
+
+    public function handle_export_book_orders(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $filter_args = ['order_type' => 'book'];
+        $status_filter = sanitize_key(wp_unslash($_GET['status'] ?? ''));
+        $dist_filter   = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
+        $pay_filter    = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
+        $pres_filter   = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
+        $search        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+
+        if ($status_filter !== '' && $status_filter !== 'all') {
+            $filter_args['status'] = $status_filter;
+        }
+        if ($dist_filter !== '' && $dist_filter !== 'all') {
+            $filter_args['distribution_status'] = $dist_filter;
+        }
+        if ($pay_filter !== '' && $pay_filter !== 'all') {
+            $filter_args['payment_status'] = $pay_filter;
+        }
+        if ($pres_filter !== '' && $pres_filter !== 'all') {
+            $filter_args['presentation'] = $pres_filter;
+        }
+        if ($search !== '') {
+            $filter_args['search'] = $search;
+        }
+
+        $orders = AVBK_DB::get_orders($filter_args);
+
+        $filename = 'boekbestellingen-' . gmdate('Ymd-His') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+        fputcsv($out, [
+            'Bestelnummer',
+            'Datum',
+            'Status bestelling',
+            'Lidnummer',
+            'Voornaam',
+            'Tussenvoegsel',
+            'Achternaam',
+            'E-mailadres',
+            'Telefoonnummer',
+            'Straat',
+            'Huisnummer',
+            'Postcode',
+            'Woonplaats',
+            'Land',
+            'Aantal exemplaren',
+            'Stukprijs',
+            'Totaalbedrag',
+            'Betaald bedrag',
+            'Betaalstatus',
+            'Uitreiking',
+            'Aanwezig bij presentatie',
+            'Op de hoogte houden',
+            'Opmerkingen',
+        ], ';');
+
+        foreach ($orders as $order) {
+            $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
+            $pay_status_label = $order->fee_status === 'waived' ? 'Kwijtgescholden' : ($is_paid ? 'Betaald' : 'Open');
+            $dist_label = match ($order->distribution_status) {
+                'collected'   => 'Opgehaald',
+                'distributed' => 'Uitgereikt',
+                default       => 'In afwachting',
+            };
+
+            fputcsv($out, [
+                $order->id,
+                $order->created_at,
+                $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
+                $order->member_id ?: '',
+                $order->first_name,
+                $order->suffix,
+                $order->last_name,
+                $order->email,
+                $order->phone,
+                $order->street,
+                $order->house_number,
+                $order->postal_code,
+                $order->city,
+                $order->country,
+                $order->quantity,
+                number_format((float) $order->unit_price, 2, ',', ''),
+                number_format((float) $order->total_amount, 2, ',', ''),
+                number_format((float) $order->fee_paid, 2, ',', ''),
+                $pay_status_label,
+                $dist_label,
+                !empty($order->attend_presentation) ? 'Ja' : 'Nee',
+                !empty($order->keep_updated) ? 'Ja' : 'Nee',
+                $order->notes ?: '',
+            ], ';');
+        }
+
+        fclose($out);
+        exit;
+    }
+
+    public function handle_export_tshirt_orders(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $filter_args = ['order_type' => 'tshirt'];
+        $status_filter = sanitize_key(wp_unslash($_GET['status'] ?? ''));
+        $dist_filter   = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
+        $pay_filter    = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
+        $search        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+
+        if ($status_filter !== '' && $status_filter !== 'all') {
+            $filter_args['status'] = $status_filter;
+        }
+        if ($dist_filter !== '' && $dist_filter !== 'all') {
+            $filter_args['distribution_status'] = $dist_filter;
+        }
+        if ($pay_filter !== '' && $pay_filter !== 'all') {
+            $filter_args['payment_status'] = $pay_filter;
+        }
+        if ($search !== '') {
+            $filter_args['search'] = $search;
+        }
+
+        $orders = AVBK_DB::get_orders($filter_args);
+
+        $filename = 'tshirt-bestellingen-' . gmdate('Ymd-His') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+        fputcsv($out, [
+            'Bestelnummer',
+            'Datum',
+            'Status bestelling',
+            'Lidnummer',
+            'Voornaam',
+            'Tussenvoegsel',
+            'Achternaam',
+            'E-mailadres',
+            'Telefoonnummer',
+            'Straat',
+            'Huisnummer',
+            'Postcode',
+            'Woonplaats',
+            'Land',
+            'Bestelde shirts (overzicht)',
+            'Totaal aantal shirts',
+            'Totaalbedrag',
+            'Betaald bedrag',
+            'Betaalstatus',
+            'Uitreiking',
+            'Opmerkingen',
+        ], ';');
+
+        foreach ($orders as $order) {
+            $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
+            $pay_status_label = $order->fee_status === 'waived' ? 'Kwijtgescholden' : ($is_paid ? 'Betaald' : 'Open');
+            $dist_label = match ($order->distribution_status) {
+                'collected'   => 'Opgehaald',
+                'distributed' => 'Uitgereikt',
+                default       => 'In afwachting',
+            };
+
+            $items_summary = [];
+            if (!empty($order->items)) {
+                foreach ($order->items as $it) {
+                    $items_summary[] = "{$it->quantity}x {$it->title} ({$it->variant})";
+                }
+            }
+
+            fputcsv($out, [
+                $order->id,
+                $order->created_at,
+                $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
+                $order->member_id ?: '',
+                $order->first_name,
+                $order->suffix,
+                $order->last_name,
+                $order->email,
+                $order->phone,
+                $order->street,
+                $order->house_number,
+                $order->postal_code,
+                $order->city,
+                $order->country,
+                implode(', ', $items_summary),
+                $order->quantity,
+                number_format((float) $order->total_amount, 2, ',', ''),
+                number_format((float) $order->fee_paid, 2, ',', ''),
+                $pay_status_label,
+                $dist_label,
+                $order->notes ?: '',
+            ], ';');
+        }
+
+        fclose($out);
+        exit;
+    }
+
+    public function handle_export_tshirt_matrix(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $matrix = AVBK_DB::get_order_matrix('tshirt');
+        $unit_price = (float) (get_option('avbk_tshirt_price', AVBK_Tshirt_Order::DEFAULT_PRICE) ?: AVBK_Tshirt_Order::DEFAULT_PRICE);
+
+        $filename = 'tshirt-inkoopmatrix-' . gmdate('Ymd-His') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+        // Headers
+        $header_row = array_merge(['Design / Model'], $matrix['variants'], ['Totaal aantal shirts', 'Omzet (EUR)']);
+        fputcsv($out, $header_row, ';');
+
+        foreach ($matrix['designs'] as $design) {
+            $row_qty = $matrix['totals_by_design'][$design] ?? 0;
+            $row_eur = round($row_qty * $unit_price, 2);
+            $row_data = [$design];
+            foreach ($matrix['variants'] as $var) {
+                $row_data[] = $matrix['cells'][$design][$var] ?? 0;
+            }
+            $row_data[] = $row_qty;
+            $row_data[] = number_format($row_eur, 2, ',', '');
+            fputcsv($out, $row_data, ';');
+        }
+
+        // Summary row
+        $summary_row = ['TOTAAL PER MAAT'];
+        foreach ($matrix['variants'] as $var) {
+            $summary_row[] = $matrix['totals_by_variant'][$var] ?? 0;
+        }
+        $summary_row[] = $matrix['grand_total'];
+        $summary_row[] = number_format((float) $matrix['total_revenue'], 2, ',', '');
+        fputcsv($out, $summary_row, ';');
+
+        fclose($out);
+        exit;
+    }
+
+    public function handle_save_order_settings(): void {
+        check_admin_referer('avbk_save_order_settings');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders&tab=settings');
+
+        // T-shirt options
+        if (isset($_POST['tshirt_title'])) {
+            update_option('avbk_tshirt_title', sanitize_text_field(wp_unslash($_POST['tshirt_title'] ?? '')) ?: AVBK_Tshirt_Order::DEFAULT_TITLE);
+        }
+        if (isset($_POST['tshirt_price'])) {
+            update_option('avbk_tshirt_price', (float) ($_POST['tshirt_price'] ?? AVBK_Tshirt_Order::DEFAULT_PRICE));
+        }
+        if (isset($_POST['tshirt_price_note'])) {
+            update_option('avbk_tshirt_price_note', sanitize_text_field(wp_unslash($_POST['tshirt_price_note'] ?? '')) ?: AVBK_Tshirt_Order::DEFAULT_PRICE_NOTE);
+        }
+        if (isset($_POST['tshirt_intro'])) {
+            update_option('avbk_tshirt_intro', sanitize_textarea_field(wp_unslash($_POST['tshirt_intro'] ?? '')) ?: AVBK_Tshirt_Order::DEFAULT_INTRO);
+        }
+        if (isset($_POST['tshirt_distribution_notice'])) {
+            update_option('avbk_tshirt_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['tshirt_distribution_notice'] ?? '')) ?: AVBK_Tshirt_Order::DEFAULT_DISTRIBUTION_NOTICE);
+        }
+        if (isset($_POST['tshirt_sizes'])) {
+            update_option('avbk_tshirt_sizes', sanitize_text_field(wp_unslash($_POST['tshirt_sizes'] ?? '')));
+        }
+        if (isset($_POST['tshirt_colors'])) {
+            update_option('avbk_tshirt_colors', sanitize_text_field(wp_unslash($_POST['tshirt_colors'] ?? '')));
+        }
+        if (isset($_POST['tshirt_types']) && is_array($_POST['tshirt_types'])) {
+            $sanitized_types = [];
+            foreach ($_POST['tshirt_types'] as $t) {
+                $id = sanitize_key($t['id'] ?? '');
+                $name = sanitize_text_field(wp_unslash($t['name'] ?? ''));
+                if ($name === '') continue;
+                $p = isset($t['price']) && $t['price'] !== '' ? (float) $t['price'] : AVBK_Tshirt_Order::DEFAULT_PRICE;
+                $sanitized_types[] = [
+                    'id'    => $id ?: sanitize_key($name),
+                    'name'  => $name,
+                    'price' => $p,
+                ];
+            }
+            if (!empty($sanitized_types)) {
+                update_option('avbk_tshirt_types', $sanitized_types);
+            }
+        }
+        if (isset($_POST['tshirt_designs']) && is_array($_POST['tshirt_designs'])) {
+            $sanitized_designs = [];
+            foreach ($_POST['tshirt_designs'] as $d) {
+                $id = sanitize_key($d['id'] ?? '');
+                $name = sanitize_text_field(wp_unslash($d['name'] ?? ''));
+                if ($name === '') continue;
+                $p = isset($d['price']) && $d['price'] !== '' ? (float) $d['price'] : null;
+                $img_input = trim(sanitize_text_field(wp_unslash($d['image'] ?? '')));
+                $img_clean = preg_match('#^https?://#i', $img_input) ? esc_url_raw($img_input) : ltrim($img_input, '/');
+                $sanitized_designs[] = [
+                    'id'          => $id ?: sanitize_key($name),
+                    'name'        => $name,
+                    'description' => sanitize_text_field(wp_unslash($d['description'] ?? '')),
+                    'image'       => $img_clean,
+                    'price'       => $p,
+                    'active'      => !empty($d['active']) ? 1 : 0,
+                ];
+            }
+            if (!empty($sanitized_designs)) {
+                update_option('avbk_tshirt_designs', $sanitized_designs);
+            }
+        }
+
+        // Book options
+        if (isset($_POST['book_title'])) {
+            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
+        }
+        if (isset($_POST['book_price'])) {
+            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
+        }
+        if (isset($_POST['book_price_note'])) {
+            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
+        }
+        if (isset($_POST['book_flaptekst'])) {
+            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
+        }
+        if (isset($_POST['book_distribution_notice'])) {
+            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
+        }
+        if (isset($_POST['book_presentation_notice'])) {
+            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
+        }
+
+        wp_safe_redirect(add_query_arg('settings_saved', '1', $redirect));
         exit;
     }
 }

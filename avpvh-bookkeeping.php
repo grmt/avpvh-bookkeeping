@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Boekhouding
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.7.1
+ * Version:     1.7.4
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -81,10 +81,14 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-ocr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-popup.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-balance-shortcode.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-disputes.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-tshirt-order.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-sheet-import.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-camp-sheet-import.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-photo-share.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-frontend-admin-menu.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
@@ -93,6 +97,9 @@ add_action('plugins_loaded', function () {
     new AVBK_Balance_Shortcode();
     new AVBK_Reimbursements();
     new AVBK_Congress();
+    new AVBK_Book_Order();
+    new AVBK_Tshirt_Order();
+    new AVBK_Photo_Share();
     new AVBK_Frontend_Admin_Menu();
     new AVBK_Admin();
 });
