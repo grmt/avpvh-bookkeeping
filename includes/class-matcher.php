@@ -196,6 +196,24 @@ class AVBK_Matcher {
             }
         }
 
+        if (!in_array('T-shirt', $types, true)) {
+            foreach (['t-shirt', 'tshirt', 'shirt', 'hoodie', 'merch', 'merchandise', 'lustrumkleding', 'kleding', 'trui'] as $kw) {
+                if (str_contains($d, $kw)) {
+                    $types[] = 'T-shirt';
+                    break;
+                }
+            }
+        }
+
+        if (!in_array('Boek', $types, true)) {
+            foreach (['boek', 'jubileumboek', 'doorgraven'] as $kw) {
+                if (str_contains($d, $kw)) {
+                    $types[] = 'Boek';
+                    break;
+                }
+            }
+        }
+
         return $types;
     }
 

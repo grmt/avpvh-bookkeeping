@@ -310,6 +310,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <span style="color: #00a32a; font-weight: bold;">&#10004; Betaald</span>
                                 <?php else : ?>
                                     <span style="color: #d63638; font-weight: bold;">Open</span>
+                                    <?php if (!empty($order->fee_item_id) && !empty($order->member_id)) : ?>
+                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk post in ledenoverzicht">Post #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
+                                    <?php endif; ?>
                                     <?php if ((float) $order->fee_paid > 0.005) : ?>
                                         <br><small>(&euro;&nbsp;<?php echo number_format((float) $order->fee_paid, 2, ',', '.'); ?> ontvangen)</small>
                                     <?php endif; ?>
@@ -549,6 +552,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <span style="color: #00a32a; font-weight: bold;">&#10004; Betaald</span>
                                 <?php else : ?>
                                     <span style="color: #d63638; font-weight: bold;">Open</span>
+                                    <?php if (!empty($order->fee_item_id) && !empty($order->member_id)) : ?>
+                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk post in ledenoverzicht">Post #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
+                                    <?php endif; ?>
                                     <?php if ((float) $order->fee_paid > 0.005) : ?>
                                         <br><small>(&euro;&nbsp;<?php echo number_format((float) $order->fee_paid, 2, ',', '.'); ?> ontvangen)</small>
                                     <?php endif; ?>

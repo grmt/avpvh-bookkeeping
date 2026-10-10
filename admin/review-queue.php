@@ -84,11 +84,30 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
  * tied to a dated activiteit — value is the bare type name, and creates a
  * brand new one-off regel instead of matching an existing one.
  */
-function avbk_activity_select(string $name, array $recent_activities, array $other_type_names, string $selected = ''): void {
+function avbk_activity_select(string $name, array $recent_activities, array $other_type_names, string $selected = '', int $member_id = 0): void {
     ?>
     <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select">
         <option value="">&mdash; activiteit &mdash;</option>
-        <?php if (preg_match('/^f(\d+)$/', $selected, $fee_match)) :
+        <?php
+        $open_fee_items = $member_id ? AVBK_DB::get_open_fee_items_for_member($member_id) : [];
+        $selected_fee_shown = false;
+        if ($open_fee_items) : ?>
+        <optgroup label="Openstaande posten lid" class="avbk-member-open-fees-group">
+            <?php foreach ($open_fee_items as $ofi) :
+                $val = 'f' . $ofi->id;
+                if ($selected === $val) {
+                    $selected_fee_shown = true;
+                }
+                $rem = AVBK_DB::get_fee_item_remaining($ofi);
+                $label = 'Post #' . $ofi->id . ' — ' . $ofi->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')';
+                ?>
+                <option value="<?php echo esc_attr($val); ?>" <?php selected($selected, $val); ?>>
+                    <?php echo esc_html($label); ?>
+                </option>
+            <?php endforeach; ?>
+        </optgroup>
+        <?php endif; ?>
+        <?php if (!$selected_fee_shown && preg_match('/^f(\d+)$/', $selected, $fee_match)) :
             $exact_item = AVBK_DB::get_fee_item((int) $fee_match[1]);
             ?>
             <option value="<?php echo esc_attr($selected); ?>" selected>
@@ -314,6 +333,29 @@ function avbk_row_detail(array $row): ?array {
                     // activity-type name never creates a suggestion.
                     $activity_obj = AVBK_DB::get_current_activity_for_type_name($activity_name);
                     if (!$activity_obj) {
+                        if ($activity_name === 'T-shirt') {
+                            $fee_item = AVBK_DB::get_open_tshirt_fee_item($member_id);
+                            if ($fee_item) {
+                                $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
+                                if ($rem > 0.005) {
+                                    $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
+                                    $known_amount_sum += $rem;
+                                    $member_had_a_row = true;
+                                    continue;
+                                }
+                            }
+                        } elseif ($activity_name === 'Boek') {
+                            $fee_item = AVBK_DB::get_open_book_fee_item($member_id);
+                            if ($fee_item) {
+                                $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
+                                if ($rem > 0.005) {
+                                    $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
+                                    $known_amount_sum += $rem;
+                                    $member_had_a_row = true;
+                                    continue;
+                                }
+                            }
+                        }
                         if (AVBK_Matcher::is_personal_one_off_type($activity_name)) {
                             $rows[] = ['member_id' => $member_id, 'activity' => $activity_name, 'description' => '', 'amount' => null];
                             $member_had_a_row = true;
@@ -342,6 +384,17 @@ function avbk_row_detail(array $row): ?array {
                         $rows[] = ['member_id' => $member_id, 'activity' => $activity_value, 'description' => '', 'amount' => null];
                     }
                     $member_had_a_row = true;
+                }
+                if (!$member_had_a_row) {
+                    $open_items = AVBK_DB::get_open_fee_items_for_member($member_id);
+                    if (count($open_items) === 1) {
+                        $rem = max(0.0, AVBK_DB::get_fee_item_remaining($open_items[0]));
+                        if (abs($rem - (float) $tx->amount) < 0.01) {
+                            $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $open_items[0]->id, 'description' => '', 'amount' => $rem];
+                            $known_amount_sum += $rem;
+                            $member_had_a_row = true;
+                        }
+                    }
                 }
                 if (!$member_had_a_row) {
                     $rows[] = ['member_id' => $member_id, 'activity' => '', 'description' => '', 'amount' => null];
@@ -425,7 +478,7 @@ function avbk_row_detail(array $row): ?array {
                         ?>
                         <tr>
                             <td><?php avbk_member_select('member_id[]', $all_members, (int) $row['member_id']); ?></td>
-                            <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names, (string) $row['activity']); ?></td>
+                            <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names, (string) $row['activity'], (int) ($row['member_id'] ?? 0)); ?></td>
                             <td>
                                 &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="<?php echo !empty($d['found']) ? '1' : '0'; ?>" data-open-amount="<?php echo !empty($d['found']) ? esc_attr(number_format($open_amount, 2, '.', '')) : ''; ?>" value="<?php echo esc_attr(number_format($row_amount, 2, ',', '')); ?>" size="6">
                                 <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_matched_activity ? ' style="display:none"' : ''; ?>>
