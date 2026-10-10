@@ -18,8 +18,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
     <?php if (isset($_GET['distribution_updated'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Status uitreiking bijgewerkt.</p></div>
     <?php endif; ?>
-    <?php if (isset($_GET['settings_saved'])) : ?>
-        <div class="notice notice-success is-dismissible"><p>Instellingen succesvol opgeslagen.</p></div>
+    <?php if (isset($_GET['order_deleted'])) : ?>
+        <div class="notice notice-success is-dismissible">
+            <p>Bestelling #<?php echo (int) $_GET['order_deleted']; ?> succesvol verwijderd<?php echo !empty($_GET['email_sent']) ? ' (annuleringsmail verstuurd naar besteller).' : ' (zonder e-mail).'; ?></p>
+        </div>
+    <?php endif; ?>
+    <?php if (isset($_GET['delete_error'])) : ?>
+        <div class="notice notice-error is-dismissible">
+            <p><?php echo esc_html(urldecode((string) $_GET['delete_error'])); ?></p>
+        </div>
     <?php endif; ?>
 
     <nav class="nav-tab-wrapper" style="margin-bottom: 1.5rem;">
@@ -242,12 +249,13 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th style="width: 110px;">Betaling</th>
                     <th style="width: 150px;">Uitreiking</th>
                     <th>Opmerkingen</th>
+                    <th style="width: 100px;">Acties</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($orders)) : ?>
                     <tr>
-                        <td colspan="9">Geen T-shirt bestellingen gevonden.</td>
+                        <td colspan="10">Geen T-shirt bestellingen gevonden.</td>
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) :
@@ -322,6 +330,16 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                             </td>
                             <td>
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
+                            </td>
+                            <td>
+                                <button type="button" class="button button-small button-link-delete avbk-delete-order-btn"
+                                        data-order-id="<?php echo (int) $order->id; ?>"
+                                        data-order-name="<?php echo esc_attr($full_name); ?>"
+                                        data-order-email="<?php echo esc_attr($order->email); ?>"
+                                        data-order-type="tshirt"
+                                        style="color: #b32d2e;">
+                                    &#128465; Verwijderen
+                                </button>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -484,12 +502,13 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th style="width: 120px;">Presentatie</th>
                     <th style="width: 150px;">Uitreiking</th>
                     <th>Opmerkingen</th>
+                    <th style="width: 100px;">Acties</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($orders)) : ?>
                     <tr>
-                        <td colspan="10">Geen boekbestellingen gevonden.</td>
+                        <td colspan="11">Geen boekbestellingen gevonden.</td>
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) :
@@ -561,6 +580,16 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                             </td>
                             <td>
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
+                            </td>
+                            <td>
+                                <button type="button" class="button button-small button-link-delete avbk-delete-order-btn"
+                                        data-order-id="<?php echo (int) $order->id; ?>"
+                                        data-order-name="<?php echo esc_attr($full_name); ?>"
+                                        data-order-email="<?php echo esc_attr($order->email); ?>"
+                                        data-order-type="book"
+                                        style="color: #b32d2e;">
+                                    &#128465; Verwijderen
+                                </button>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -744,4 +773,87 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <?php submit_button('Alle instellingen opslaan'); ?>
         </form>
     <?php endif; ?>
+
+    <!-- Delete order confirmation modal -->
+    <div id="avbk-delete-order-modal" style="display: none; position: fixed; z-index: 100000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center;">
+        <div style="background: #fff; border-radius: 4px; padding: 22px 24px; max-width: 480px; width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.3); box-sizing: border-box;">
+            <h3 style="margin-top: 0; color: #b32d2e; font-size: 1.2rem;">Bestelling verwijderen</h3>
+            <p id="avbk-delete-order-desc" style="font-size: 0.95rem; margin-bottom: 0.75rem;">
+                Weet je zeker dat je bestelling <strong id="avbk-delete-order-id"></strong> van <strong id="avbk-delete-order-name"></strong> wilt verwijderen?
+            </p>
+            <p style="font-size: 0.85rem; color: #646970; margin-bottom: 1.25rem;">
+                De bijbehorende openstaande post in de boekhouding wordt hiermee ook automatisch opgeruimd (of kwijtgescholden indien reeds afgehandeld).
+            </p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-delete-order-form">
+                <?php wp_nonce_field('avbk_delete_order'); ?>
+                <input type="hidden" name="action" value="avbk_delete_order">
+                <input type="hidden" name="order_id" id="avbk-delete-modal-order-id" value="">
+                <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? admin_url('admin.php?page=avbk-orders')); ?>">
+
+                <div id="avbk-delete-email-option" style="margin: 15px 0; padding: 12px; background: #f0f0f1; border-radius: 4px; border: 1px solid #dcdcde;">
+                    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" name="send_email" id="avbk-delete-send-email" value="1" style="margin-top: 2px;">
+                        <span>Stuur een annuleringsmail naar de besteller (<span id="avbk-delete-order-email" style="font-weight: 600;"></span>)</span>
+                    </label>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                    <button type="button" class="button" id="avbk-delete-modal-cancel">Annuleren</button>
+                    <button type="submit" class="button button-primary" style="background: #b32d2e; border-color: #b32d2e;">Ja, verwijder bestelling</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var modal = document.getElementById('avbk-delete-order-modal');
+        var cancelBtn = document.getElementById('avbk-delete-modal-cancel');
+        var formOrderId = document.getElementById('avbk-delete-modal-order-id');
+        var spanId = document.getElementById('avbk-delete-order-id');
+        var spanName = document.getElementById('avbk-delete-order-name');
+        var spanEmail = document.getElementById('avbk-delete-order-email');
+        var emailBox = document.getElementById('avbk-delete-email-option');
+        var checkbox = document.getElementById('avbk-delete-send-email');
+
+        document.querySelectorAll('.avbk-delete-order-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                var id = this.getAttribute('data-order-id');
+                var name = this.getAttribute('data-order-name');
+                var email = this.getAttribute('data-order-email');
+
+                formOrderId.value = id;
+                spanId.textContent = '#' + id;
+                spanName.textContent = name || 'de besteller';
+
+                if (email && email.trim() !== '') {
+                    spanEmail.textContent = email;
+                    emailBox.style.display = 'block';
+                    checkbox.checked = false;
+                } else {
+                    emailBox.style.display = 'none';
+                    checkbox.checked = false;
+                }
+
+                modal.style.display = 'flex';
+            });
+        });
+
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
+        }
+
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+    });
+    </script>
 </div>
