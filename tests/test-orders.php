@@ -81,6 +81,7 @@ class AVPVH_Directory {
 }
 
 class AVBK_QR {
+    public static function svg(string $payload): string { return '<svg data-url="' . htmlspecialchars($payload, ENT_QUOTES) . '"></svg>'; }
     public static function for_fee_item(int $member_id, object $item): string {
         return '<svg viewBox="0 0 100 100"><rect width="100" height="100"/></svg>';
     }
@@ -416,6 +417,7 @@ class Mock_Orders_WPDB {
     }
 }
 
+require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-tshirt-order.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
@@ -668,6 +670,22 @@ check(str_contains($confirm_html, 'Bestellen betekent betalen'), 'Confirmation s
 check(str_contains($confirm_html, 'Totaalbedrag:'), 'Confirmation summary shows total');
 check(str_contains($confirm_html, 'zonder btw'), 'Confirmation summary shows VAT notice');
 check($last_order->status === 'confirmed', 'Visiting confirmation link confirms order in database');
+
+// Shared payment request has no amount in its URL; the order supplies the amount.
+$GLOBALS['options']['avbk_product_payment_tshirt'] = ['url' => 'https://pay.example.test/tshirt', 'attachment_id' => 0];
+$_GET = ['tshirt_token' => $last_order->confirm_token];
+$request_html = $controller->render();
+check(str_contains($request_html, 'href="https://pay.example.test/tshirt"'), 'Product payment request shown on confirmed order');
+check(str_contains($request_html, 'Vul in het betaalverzoek zelf') && str_contains($request_html, number_format((float) $last_order->total_amount, 2, ',', '.')), 'Order amount shown for manual entry');
+check(!str_contains($request_html, 'niet met de camera app'), 'Shared request replaces EPC instructions');
+$payment_fee_id = (int) $last_order->fee_item_id;
+$GLOBALS['wpdb']->fee_items[$payment_fee_id]->status = 'waived';
+$settled_html = $controller->render();
+check(str_contains($settled_html, 'Betaald!') && !str_contains($settled_html, 'pay.example.test'), 'Settled order has no payment request');
+$GLOBALS['wpdb']->fee_items[$payment_fee_id]->status = 'pending';
+unset($GLOBALS['options']['avbk_product_payment_tshirt']);
+$_GET = [];
+
 
 // -------------------------------------------------------------
 // Test 7: Logged-in member checkout with line items

@@ -80,6 +80,7 @@ class AVPVH_Directory {
 }
 
 class AVBK_QR {
+    public static function svg(string $payload): string { return '<svg data-url="' . htmlspecialchars($payload, ENT_QUOTES) . '"></svg>'; }
     public static function for_fee_item(int $member_id, object $item): string {
         return '<svg viewBox="0 0 100 100"><rect width="100" height="100"/></svg>';
     }
@@ -468,6 +469,7 @@ class Mock_WPDB {
     }
 }
 
+require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
 
@@ -706,6 +708,22 @@ check(!str_contains($conf_html, 'Zowel leden als bezoekers hebben een eigen prof
 check(!str_contains($conf_html, 'Profiel en overzicht'), 'Confirmation view does NOT contain Profiel en overzicht heading');
 $refreshed_guest_order = AVBK_DB::get_book_order($guest_order->id);
 check($refreshed_guest_order->status === 'confirmed', 'Viewing confirmation page marks order as confirmed');
+
+// Shared payment request has no amount in its URL; the order supplies the amount.
+$GLOBALS['options']['avbk_product_payment_book'] = ['url' => 'https://pay.example.test/book', 'attachment_id' => 0];
+$_GET = ['book_token' => $guest_order->confirm_token];
+$request_html = $book_order->render();
+check(str_contains($request_html, 'href="https://pay.example.test/book"'), 'Product payment request shown on confirmed order');
+check(str_contains($request_html, 'Vul in het betaalverzoek zelf') && str_contains($request_html, number_format((float) $guest_order->total_amount, 2, ',', '.')), 'Order amount shown for manual entry');
+check(!str_contains($request_html, 'niet met de camera app'), 'Shared request replaces EPC instructions');
+$payment_fee_id = (int) $guest_order->fee_item_id;
+$GLOBALS['wpdb']->fee_items[$payment_fee_id]->status = 'waived';
+$settled_html = $book_order->render();
+check(str_contains($settled_html, 'Betaald!') && !str_contains($settled_html, 'pay.example.test'), 'Settled order has no payment request');
+$GLOBALS['wpdb']->fee_items[$payment_fee_id]->status = 'pending';
+unset($GLOBALS['options']['avbk_product_payment_book']);
+$_GET = [];
+
 
 // 11b. Guest order with empty address succeeds (address is optional)
 $GLOBALS['current_user_id'] = 0;
