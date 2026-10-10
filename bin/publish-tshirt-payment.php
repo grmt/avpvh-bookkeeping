@@ -8,10 +8,9 @@ if (!defined('WP_CLI') || !WP_CLI) {
     exit(1);
 }
 
-$payment_url = 'https://www.ing.nl/payreq/m/aFbdfoIoWem2exURVabPmWck5AoW7WMT';
-$image_url = plugins_url('assets/images/tshirts-betalen-qr.png', dirname(__DIR__) . '/avpvh-bookkeeping.php');
-if (!is_file(dirname(__DIR__) . '/assets/images/tshirts-betalen-qr.png')) {
-    WP_CLI::error('De betaal-QR-code ontbreekt.');
+$payment = AVBK_Product_Payment::get('tshirt');
+if ($payment['url'] === '' && !$payment['attachment_id']) {
+    WP_CLI::error('Stel eerst het kledingbetaalverzoek in bij Boekhouding → Bestellingen → Instellingen.');
 }
 
 // Controleer het menu voordat er iets wordt gepubliceerd.
@@ -34,27 +33,7 @@ if ($existing_page && $existing_page->post_title !== 'T-shirts betalen') {
     WP_CLI::error('Het adres t-shirts-betalen is al in gebruik door een andere pagina.');
 }
 
-$escaped_payment_url = esc_url($payment_url);
-$escaped_image_url = esc_url($image_url);
-$content = <<<HTML
-<!-- wp:paragraph -->
-<p>Heb je al T-shirts of hoodies besteld? Betaal je bestaande bestelling via onderstaande betaallink of scan de QR-code met je smartphone.</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:buttons -->
-<div class="wp-block-buttons"><!-- wp:button -->
-<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="{$escaped_payment_url}" target="_blank" rel="noopener noreferrer">Betaal je bestelling via ING</a></div>
-<!-- /wp:button --></div>
-<!-- /wp:buttons -->
-
-<!-- wp:image {"width":"256px","sizeSlug":"full","linkDestination":"none"} -->
-<figure class="wp-block-image size-full is-resized"><img src="{$escaped_image_url}" alt="Scan deze QR-code om je bestaande T-shirtbestelling via ING te betalen" style="width:256px;max-width:100%;height:auto" width="256" height="256"/><figcaption class="wp-element-caption">Scan de QR-code om je bestelling te betalen.</figcaption></figure>
-<!-- /wp:image -->
-
-<!-- wp:paragraph -->
-<p><a href="{$escaped_payment_url}" target="_blank" rel="noopener noreferrer">Open het betaalverzoek van ING</a></p>
-<!-- /wp:paragraph -->
-HTML;
+$content = '<!-- wp:shortcode -->' . "\n" . '[avpvh_bk_product_payment product="tshirt"]' . "\n" . '<!-- /wp:shortcode -->';
 
 if ($existing_page && trim($existing_page->post_content) !== '' && $existing_page->post_content !== $content) {
     WP_CLI::error('De bestaande betaalpagina bevat andere inhoud; deze wordt niet overschreven.');

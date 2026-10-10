@@ -772,6 +772,17 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
             <?php submit_button('Alle instellingen opslaan'); ?>
         </form>
+        <?php
+        $payment_error_key = 'avbk_product_payment_error_' . get_current_user_id();
+        $payment_error = get_transient($payment_error_key);
+        delete_transient($payment_error_key);
+        if ($payment_error) : ?>
+            <div class="notice notice-error"><p><?php echo esc_html($payment_error); ?></p></div>
+        <?php elseif (isset($_GET['product_payment_saved']) && $_GET['product_payment_saved'] === '1') : ?>
+            <div class="notice notice-success"><p>Het betaalverzoek is opgeslagen.</p></div>
+        <?php endif; ?>
+        <?php AVBK_Product_Payment::render_settings('tshirt', 'T-shirts en hoodies'); ?>
+        <?php AVBK_Product_Payment::render_settings('book', 'Boeken'); ?>
     <?php endif; ?>
 
     <!-- Delete order confirmation modal -->
