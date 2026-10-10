@@ -2104,6 +2104,7 @@ class AVBK_Admin {
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
         update_option('avbk_penningmeester_name', sanitize_text_field(wp_unslash($_POST['penningmeester_name'] ?? '')) ?: 'de penningmeester');
         update_option('avbk_payment_email_login_help', !empty($_POST['payment_email_login_help']) ? 1 : 0);
+        update_option(AVBK_Fee_Popup::ENABLED_OPTION, !empty($_POST['login_payment_popup_enabled']) ? 1 : 0);
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);
