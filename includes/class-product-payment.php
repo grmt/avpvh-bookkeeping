@@ -66,13 +66,33 @@ class AVBK_Product_Payment {
             require_once ABSPATH . 'wp-admin/includes/image.php';
             // The financial-role gate above authorizes this specific upload,
             // including treasurers without general media-library permissions.
-            $attachment_id = media_handle_upload('qr_upload', 0, [], ['test_form' => false, 'mimes' => self::MIMES]);
+            add_filter('upload_dir', [self::class, 'public_upload_dir'], PHP_INT_MAX);
+            try {
+                $attachment_id = media_handle_upload('qr_upload', 0, [], ['test_form' => false, 'mimes' => self::MIMES]);
+            } finally {
+                remove_filter('upload_dir', [self::class, 'public_upload_dir'], PHP_INT_MAX);
+            }
             if (is_wp_error($attachment_id)) {
                 return new WP_Error('upload_failed', 'De upload kon niet worden opgeslagen. Het bestaande betaalverzoek is behouden.');
             }
         }
         update_option('avbk_product_payment_' . $product, ['url' => esc_url_raw($url), 'attachment_id' => (int) $attachment_id], false);
         return true;
+    }
+
+    /** Payment requests are public; scope this override to their upload only. */
+    public static function public_upload_dir(array $dirs): array {
+        // The site's public /wp-content/ URL maps to the wp-content-pvh
+        // volume. Use this plugin's actual content directory for file writes.
+        $dirs['basedir'] = dirname(rtrim(AVBK_PLUGIN_DIR, '/'), 2) . '/uploads';
+        $subdir = preg_replace('#^/public/payment-requests(?=/|$)#', '', $dirs['subdir']);
+        $subdir = preg_replace('#^/(?:private|public)(?=/|$)#', '', $subdir);
+        $dirs['subdir'] = '/public/payment-requests' . $subdir;
+        $dirs['path'] = $dirs['basedir'] . $dirs['subdir'];
+        $dirs['url'] = $dirs['baseurl'] . $dirs['subdir'];
+        // An earlier upload_dir filter may report a private-path error.
+        $dirs['error'] = false;
+        return $dirs;
     }
 
     public function handle_save(): void {

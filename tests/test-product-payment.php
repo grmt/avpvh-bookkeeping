@@ -3,6 +3,7 @@
 $fixture = sys_get_temp_dir() . '/avbk-payment-fixture-' . getmypid() . '/';
 define('ABSPATH', $fixture);
 define('MINUTE_IN_SECONDS', 60);
+define('AVBK_PLUGIN_DIR', '/var/www/html/wp-content-pvh/plugins/avpvh-bookkeeping/');
 mkdir($fixture . 'wp-admin/includes', 0700, true);
 foreach (['file', 'media', 'image'] as $name) { file_put_contents($fixture . 'wp-admin/includes/' . $name . '.php', '<?php'); }
 class WP_Error {
@@ -35,6 +36,8 @@ function wp_get_attachment_url($id) { return $GLOBALS['attachments'][$id]['url']
 function get_post_mime_type($id) { return $GLOBALS['attachments'][$id]['mime'] ?? false; }
 function is_wp_error($value) { return $value instanceof WP_Error; }
 function add_action(...$args) {}
+function add_filter($hook, $callback, $priority) { $GLOBALS['upload_filter'] = $callback; }
+function remove_filter($hook, $callback, $priority) { unset($GLOBALS['upload_filter']); }
 function add_shortcode(...$args) {}
 function shortcode_atts($default, $attributes) { return array_merge($default, $attributes); }
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_-]/', '', strtolower($key)); }
@@ -80,12 +83,19 @@ try {
     $file = ['error' => UPLOAD_ERR_OK, 'tmp_name' => $path, 'name' => 'request.png'];
     check(AVBK_Product_Payment::save('tshirt', $original['url'], $file, false) === true, 'valid image upload accepted for treasurer');
     check(AVBK_Product_Payment::get('tshirt')['attachment_id'] === 14, 'upload saved with product request');
+    check(!isset($GLOBALS['upload_filter']), 'upload override removed after successful upload');
+    $dirs = ['basedir' => '/var/www/html/wp-content/uploads', 'baseurl' => 'https://example.test/wp-content/uploads', 'subdir' => '/private/2026/10', 'error' => 'old private path error'];
+    $public = AVBK_Product_Payment::public_upload_dir($dirs);
+    check($public['path'] === '/var/www/html/wp-content-pvh/uploads/public/payment-requests/2026/10', 'payment uploads use actual public content volume');
+    check($public['url'] === 'https://example.test/wp-content/uploads/public/payment-requests/2026/10' && !$public['error'], 'payment URL uses public media route');
+    check(AVBK_Product_Payment::public_upload_dir($public) === $public, 'public upload path override is idempotent');
     $html = AVBK_Product_Payment::render('tshirt', 21.00);
     check(str_contains($html, '/uploads/qr.png') && !str_contains($html, '<svg'), 'uploaded image replaces generated link QR');
     $before_upload_error = AVBK_Product_Payment::get('tshirt');
     $GLOBALS['upload_fail'] = true;
     check(is_wp_error(AVBK_Product_Payment::save('tshirt', 'https://pay.example.test/replacement', $file, true)), 'storage error reported');
     check(AVBK_Product_Payment::get('tshirt') === $before_upload_error, 'failed upload preserves previous link and image');
+    check(!isset($GLOBALS['upload_filter']), 'upload override removed after failed upload');
     $GLOBALS['upload_fail'] = false;
     $calls = $GLOBALS['upload_calls'];
     file_put_contents($path, '<?php echo "fictional";');
