@@ -3,7 +3,7 @@
  * Standalone test suite for AVBK_Photo_Share.
  * Verifies email invitation flow, 5-day expiration, confirmation link handling,
  * Google Drive subfolder naming (YYYYMMDD-firstname-lastname),
- * QR code SVG generation, hot link, and direct link display.
+ * requested upload link display without gallery export fallbacks.
  *
  * Strictly fictitious names only (see AGENTS.md).
  */
@@ -392,6 +392,25 @@ namespace {
     // 1. Shortcode registration
     assert_true(isset($GLOBALS['shortcodes']['avpvh_bk_photo_share']), 'Shortcode avpvh_bk_photo_share registered');
 
+    // A gallery export is not an upload request, even when its filter is named.
+    $GLOBALS['current_user_id'] = 3;
+    \Avpvh\Frontend\Photo_Shares_DB::$test_shares[3] = [(object) [
+        'status' => 'ready',
+        'drive_folder_id' => 'gallery-export-fixture',
+        'description' => 'Filteromschrijving: kampen en jaartallen',
+    ]];
+    $unrequested_html = $service->render_shortcode();
+    assert_contains('Stuur mij een activatielink', $unrequested_html, 'Gallery export does not replace the upload request form');
+    assert_not_contains('gallery-export-fixture', $unrequested_html, 'Gallery download is not shown as an upload share');
+    assert_not_contains('Filteromschrijving', $unrequested_html, 'Gallery filter description is not shown');
+    assert_true(AVBK_Photo_Share::get_user_share(3) === null, 'No upload share is resolved without a confirmed request');
+
+    update_user_meta(3, 'photo_share_url', 'https://drive.google.com/drive/folders/legacy-fixture');
+    update_user_meta(3, 'photo_share_folder_id', 'legacy-fixture');
+    assert_true(AVBK_Photo_Share::get_user_share(3) === null, 'Stored folder metadata alone does not count as an upload request');
+    assert_not_contains('legacy-fixture', $service->render_shortcode(), 'Unrequested legacy folder link is not displayed');
+    $GLOBALS['current_user_id'] = 0;
+
     // 2. Request creation with 5-day expiration token
     $req = AVBK_DB::create_photo_share_request([
         'member_id'  => 10,
@@ -408,6 +427,12 @@ namespace {
     // Verify 5-day expiration
     $diff_seconds = strtotime($req->expires_at) - strtotime($req->created_at);
     assert_true($diff_seconds === 5 * 86400, 'Expiration date is exactly 5 days (432000s) from creation');
+
+    $GLOBALS['current_user_id'] = 1;
+    $pending_html = $service->render_shortcode();
+    assert_contains('Verificatielink verzonden', $pending_html, 'Unconfirmed request shows its confirmation status');
+    assert_not_contains('avbk-photo-share-link', $pending_html, 'Pending request does not show an upload link');
+    $GLOBALS['current_user_id'] = 0;
 
     // 3. Email sending
     $sent = AVBK_Photo_Share::send_confirmation_email($req);
@@ -447,14 +472,25 @@ namespace {
     assert_true(!empty($confirmed_share->drive_folder_url), 'drive_folder_url stored on share row');
     assert_true(get_user_meta(1, 'photo_share_url', true) === $confirmed_share->drive_folder_url, 'User meta photo_share_url updated for user 1');
 
-    // 6. Confirmed member view renders QR code SVG, hotlink, and link
+    // 6. Confirmed member view displays only the requested upload link.
     $GLOBALS['current_user_id'] = 1;
     $confirmed_html = $service->render_shortcode();
-    assert_contains('avbk-photo-share-card', $confirmed_html, 'Confirmed member sees share card');
-    assert_contains('<svg', $confirmed_html, 'Confirmed member sees inline SVG QR code');
-    assert_contains('avbk-qr', $confirmed_html, 'QR code has avbk-qr class');
-    assert_contains('Open je persoonlijke Google Drive map', $confirmed_html, 'Hotlink button present');
-    assert_contains('Kopieer link', $confirmed_html, 'Copy link button present');
+    assert_contains('href="' . $confirmed_share->drive_folder_url . '"', $confirmed_html, 'Link points to the confirmed requested folder');
+    assert_contains('Open je persoonlijke uploadmap', $confirmed_html, 'Confirmed member sees a clearly labelled upload link');
+    assert_true(substr_count($confirmed_html, '<a ') === 1, 'Confirmed view has exactly one link');
+    assert_not_contains('<svg', $confirmed_html, 'Confirmed view has no QR code');
+    assert_not_contains('avbk-photo-share-card', $confirmed_html, 'Confirmed view has no upload card');
+    assert_not_contains($confirmed_share->drive_folder_name, $confirmed_html, 'Folder title is not displayed');
+    assert_not_contains('<input', $confirmed_html, 'Confirmed view has no copy input');
+    assert_not_contains('<button', $confirmed_html, 'Confirmed view has no extra buttons');
+
+    // The confirmation URL also returns the same single link for a guest.
+    $GLOBALS['current_user_id'] = 0;
+    $_GET['photo_share_confirmed'] = 1;
+    $_GET['share_token'] = $req->confirm_token;
+    assert_true($service->render_shortcode() === $confirmed_html, 'Confirmed email link shows the same minimal view without login');
+    unset($_GET['photo_share_confirmed'], $_GET['share_token']);
+    $GLOBALS['current_user_id'] = 1;
 
     // 7. Expired link handling (after 5 days)
     $expired_req = AVBK_DB::create_photo_share_request([
