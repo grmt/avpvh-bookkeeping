@@ -4182,16 +4182,33 @@ class AVBK_DB {
 
         // Optional notification email to the customer
         if ($send_email && !empty($order->email) && is_email($order->email)) {
-            $type_label = $order->order_type === 'tshirt' ? 'Jubileumkleding' : 'Jubileumboek';
+            $is_tshirt = $order->order_type === 'tshirt';
+            $type_label = $is_tshirt ? 'Jubileumkleding' : 'Jubileumboek';
+            $item_description = $is_tshirt ? 'de jubileumkleding' : 'het jubileumboek';
             $subject = "Bestelling geannuleerd — {$type_label}";
             $first_name = trim($order->first_name) ?: 'besteller';
-            $body = "<p>Beste " . esc_html($first_name) . ",</p>"
-                . "<p>Hierbij bevestigen we dat je bestelling (#" . (int) $order->id . ") voor <strong>" . esc_html($type_label) . "</strong> is geannuleerd.</p>"
-                . "<p>Mocht je hier vragen over hebben, neem dan gerust contact op met de penningmeester via <a href='mailto:info@avphilipsvanhorne.nl'>info@avphilipsvanhorne.nl</a>.</p>"
-                . "<p>Met vriendelijke groet,<br>Archeologische Vereniging Philips van Horne</p>";
+            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
+                . '<p>Beste ' . esc_html($first_name) . ',</p>'
+                . '<p>Hierbij bevestigen we dat je bestelling (#' . (int) $order->id . ') voor <strong>' . esc_html($item_description) . '</strong> is geannuleerd.</p>'
+                . '<p>Mocht je hier vragen over hebben, neem dan gerust contact op met de penningmeester via <a href="mailto:info@avphilipsvanhorne.nl" style="color: #2271b1; text-decoration: underline;">info@avphilipsvanhorne.nl</a>.</p>'
+                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
+                . '<p style="font-size: 13px; color: #646970;">'
+                . 'Met vriendelijke groet,<br>'
+                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
+                . '</p>'
+                . '</body></html>';
 
             $headers = ['Content-Type: text/html; charset=UTF-8'];
-            wp_mail($order->email, $subject, $body, $headers);
+            $force_from = static fn() => 'info@avphilipsvanhorne.nl';
+            $force_from_name = static fn() => 'AV Philips van Horne';
+            add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
+            add_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
+            try {
+                wp_mail($order->email, $subject, $body, $headers);
+            } finally {
+                remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
+                remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
+            }
         }
 
         return ['success' => true];

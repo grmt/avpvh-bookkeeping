@@ -187,6 +187,8 @@ function wp_mail(string $to, string $subject, string $body, $headers = []): bool
 }
 function add_action(string $tag, $callback): void {}
 function remove_action(string $tag, $callback): void {}
+function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+function remove_filter(string $tag, $callback, int $priority = 10): bool { return true; }
 function add_shortcode(string $tag, $callback): void { $GLOBALS['shortcodes'][$tag] = $callback; }
 function wp_enqueue_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 function selected($val, $current, bool $echo = true) {
@@ -925,7 +927,7 @@ check(AVBK_DB::get_book_order($del_b_id) === null, 'Book order deleted from data
 check(count($GLOBALS['sent_mails']) === 1, 'Cancellation email sent to book order customer');
 check($GLOBALS['sent_mails'][0]['to'] === 'floor@example.test', 'Cancellation email sent to floor@example.test');
 check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains($GLOBALS['sent_mails'][0]['subject'], '&mdash;'), 'Book cancellation email subject contains em dash and no raw HTML entity');
-check(str_contains($GLOBALS['sent_mails'][0]['body'], 'Jubileumboek'), 'Cancellation email body mentions Jubileumboek');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'het jubileumboek'), 'Cancellation email body mentions het jubileumboek');
 
 echo "\nAll book order tests passed cleanly!\n";
 
