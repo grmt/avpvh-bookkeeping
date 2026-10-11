@@ -248,6 +248,61 @@
     white-space: normal;
 }
 
+.avbk-photo-upload {
+    margin: 24px 0;
+    overflow-wrap: anywhere;
+}
+
+.avbk-photo-upload [hidden] {
+    display: none !important;
+}
+
+.avbk-photo-upload label,
+.avbk-photo-upload input[type="file"] {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.avbk-photo-upload input[type="file"] {
+    margin-top: 10px;
+    padding: 10px 0;
+}
+
+.avbk-photo-upload .avbk-photo-upload-help {
+    font-size: 0.9rem;
+    margin: 12px 0;
+}
+
+.avbk-photo-upload button {
+    box-sizing: border-box;
+    max-width: 100%;
+    white-space: normal;
+    min-height: 44px;
+}
+
+.avbk-photo-upload .avbk-google-photos-start {
+    margin-top: 20px;
+}
+
+.avbk-photo-upload button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.avbk-photo-upload-results {
+    padding-left: 20px;
+    font-size: 0.9rem;
+}
+
+@media (max-width: 640px) {
+    .avbk-photo-upload button {
+        width: 100%;
+    }
+}
+
 @media (max-width: 640px) {
     .avbk-photo-share-form-row {
         flex-direction: column;
