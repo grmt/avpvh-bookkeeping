@@ -27,7 +27,7 @@ class AVBK_Google_Photos_Picker {
     }
 
     private static function save(array $session): void {
-        set_transient(self::key(), $session, self::TTL);
+        set_transient(self::key(), $session, min(self::TTL, max(1, (int) $session['expires'] - time())));
     }
 
     private static function session(): array {
