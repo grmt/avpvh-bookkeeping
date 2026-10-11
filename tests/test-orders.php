@@ -174,6 +174,8 @@ function wp_mail(string $to, string $subject, string $body, $headers = []): bool
 }
 function add_action(string $tag, $callback): void {}
 function remove_action(string $tag, $callback): void {}
+function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+function remove_filter(string $tag, $callback, int $priority = 10): bool { return true; }
 function add_shortcode(string $tag, $callback): void { $GLOBALS['shortcodes'][$tag] = $callback; }
 function wp_enqueue_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 function wp_enqueue_script(string $handle, string $src, array $deps = [], $ver = false, bool $in_footer = false): void {}
@@ -846,6 +848,8 @@ check(count($GLOBALS['sent_mails']) === 1, 'Cancellation email sent when send_em
 check($GLOBALS['sent_mails'][0]['to'] === 'piet@example.test', 'Cancellation email sent to correct recipient');
 check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains($GLOBALS['sent_mails'][0]['subject'], '&mdash;'), 'Cancellation email subject contains UTF-8 em dash and no raw HTML entity');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'geannuleerd'), 'Cancellation email body states order is cancelled');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'de jubileumkleding'), 'Cancellation email body mentions de jubileumkleding');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], '<!doctype html>'), 'Cancellation email body has HTML document structure');
 
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
 
