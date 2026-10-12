@@ -61,6 +61,9 @@ jobs:
       - name: "Login payment popup option regression checks"
         run: php tests/test-login-payment-popup.php
 
+      - name: "Product payment requests and uploads regression checks"
+        run: php tests/test-product-payment.php
+
   plugin-check:
     name: "WordPress Plugin Check"
     runs-on: ubuntu-latest

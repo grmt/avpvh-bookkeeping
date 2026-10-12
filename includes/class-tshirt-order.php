@@ -210,6 +210,7 @@ class AVBK_Tshirt_Order {
             <?php endif; ?>
 
             <!-- Design Showcase Gallery -->
+            <?php echo AVBK_Product_Payment::render('tshirt'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped payment component ?>
             <div class="avbk-tshirt-gallery">
                 <h3>1. Bekijk de designs</h3>
                 <div class="avbk-tshirt-cards-grid">
@@ -610,6 +611,7 @@ class AVBK_Tshirt_Order {
         $fee_item = $order->fee_item_id ? AVBK_DB::get_fee_item((int) $order->fee_item_id) : null;
         $remaining = $fee_item ? AVBK_DB::get_fee_item_remaining($fee_item) : (float) $order->total_amount;
         $is_paid = $fee_item && ($fee_item->status === 'waived' || $remaining <= 0.005);
+        $payment_request = !$is_paid ? AVBK_Product_Payment::render('tshirt', $remaining, (int) $order->id) : '';
         $qr = ($order->member_id && $fee_item && !$is_paid && class_exists('AVBK_QR')) ? AVBK_QR::for_fee_item((int) $order->member_id, $fee_item) : null;
 
         $title = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
@@ -698,7 +700,9 @@ class AVBK_Tshirt_Order {
                         <p><strong>Let op: Bestellen betekent betalen.</strong> Met deze bestelling is een betalingsverplichting ontstaan. Voldoe het openstaande bedrag van &euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?> z.s.m. via onderstaande instructies.</p>
                     </div>
 
-                    <?php if ($qr) : ?>
+                    <?php if ($payment_request !== '') : ?>
+                        <?php echo $payment_request; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped payment component ?>
+                    <?php elseif ($qr) : ?>
                         <p class="avbk-book-amount-due">Nog te betalen: <strong>&euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></strong></p>
                         <div class="avbk-book-qr-render">
                             <?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
