@@ -15,7 +15,7 @@
 
 ## Productieomgeving
 
-- Stel lokaal `DEPLOY_HOST` in op het SSH-doel; leg de concrete loginnaam niet vast in deze repository.
+- `DEPLOY_HOST` wordt lokaal geladen uit `.env.local` (bevat `DEPLOY_HOST=avpvh.nl`, wat dezelfde server is als `rechtspreker.nl`). Dit bestand is opgenomen in `.gitignore` zodat het lokaal blijft en nooit op GitHub terechtkomt.
 - **Deployen**: rsync de gewijzigde bestanden naar
   `$DEPLOY_HOST:/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/`,
   bijv.:
