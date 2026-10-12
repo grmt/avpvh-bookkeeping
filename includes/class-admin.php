@@ -150,6 +150,10 @@ class AVBK_Admin {
         if (str_contains($hook, 'avbk-import') || str_contains($hook, 'avbk-activity-payments')) {
             wp_enqueue_script('avbk-import', AVBK_PLUGIN_URL . 'assets/import.js', [], avbk_asset_version('assets/import.js'), true);
         }
+        if (str_contains($hook, 'avbk-activity-payments')) {
+            wp_enqueue_style('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.css', [], avbk_asset_version('assets/activity-picker.css'));
+            wp_enqueue_script('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.js', [], avbk_asset_version('assets/activity-picker.js'), true);
+        }
     }
 
     public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
@@ -1908,16 +1912,48 @@ class AVBK_Admin {
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
         if (!$member_id) {
             wp_send_json_error('Ontbrekende gegevens.', 400);
         }
+
+        $open_items_data = array_map(function($it) {
+            $rem = max(0.0, AVBK_DB::get_fee_item_remaining($it));
+            return [
+                'id'        => (int) $it->id,
+                'val'       => 'f' . $it->id,
+                'label'     => 'Post #' . $it->id . ' — ' . $it->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')',
+                'remaining' => $rem,
+            ];
+        }, AVBK_DB::get_open_fee_items_for_member($member_id));
+
+        if ($fee_item_id) {
+            $item = AVBK_DB::get_fee_item($fee_item_id);
+            $closed_year = (int) get_option('avbk_closed_through_year', 0);
+            $payable = $item && (int) $item->member_id === $member_id && $item->status === 'open'
+                && (!$closed_year || AVBK_DB::fee_item_book_year($item) > $closed_year);
+            $share = $payable ? max(0.0, AVBK_DB::get_fee_item_remaining($item)) : 0.0;
+            wp_send_json_success([
+                'share'             => $share,
+                'is_estimated'      => false,
+                'estimate_reason'   => '',
+                'found'             => $payable,
+                'fragments_html'    => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — bestaande post #' . $item->id : 'Post bestaat niet meer.'),
+                'estimated_text'    => '',
+                'estimated_warning' => false,
+                'open_fee_items'    => $open_items_data,
+            ]);
+        }
+
         // activity_id 0 means the treasurer picked a one-off category
         // (Weekend, Drank, Overig, ...) with no tarief to look up — still
         // worth telling them the member is a scholier/student, see
         // AVBK_DB::get_member_status_detail().
-        wp_send_json_success($activity_id
+        $data = $activity_id
             ? AVBK_DB::get_member_fee_detail_for_activity($member_id, $activity_id)
-            : AVBK_DB::get_member_status_detail($member_id));
+            : AVBK_DB::get_member_status_detail($member_id);
+        $data['open_fee_items'] = $open_items_data;
+        wp_send_json_success($data);
     }
 
     /**
@@ -2105,6 +2141,7 @@ class AVBK_Admin {
         update_option('avbk_penningmeester_email', sanitize_email(wp_unslash($_POST['penningmeester_email'] ?? '')) ?: 'info@avphilipsvanhorne.nl');
         update_option('avbk_penningmeester_name', sanitize_text_field(wp_unslash($_POST['penningmeester_name'] ?? '')) ?: 'de penningmeester');
         update_option('avbk_payment_email_login_help', !empty($_POST['payment_email_login_help']) ? 1 : 0);
+        update_option(AVBK_Fee_Popup::ENABLED_OPTION, !empty($_POST['login_payment_popup_enabled']) ? 1 : 0);
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);

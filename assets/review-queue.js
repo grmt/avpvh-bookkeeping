@@ -522,14 +522,45 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        function lookupDetail() {
-            // f<id> is one exact existing fee, not a guessed activity.
-            // Preserve its rendered balance and any manually entered partial
-            // amount; a generic activity lookup could overwrite that choice.
-            if (/^f\d+$/.test(activitySelect.value)) return;
+        function updateOpenFeeItemsInSelect(selectEl, openItems) {
+            if (!selectEl) return;
+            var existingGroup = selectEl.querySelector('.avbk-member-open-fees-group');
+            if (existingGroup) {
+                existingGroup.remove();
+            }
+            if (!openItems || !openItems.length) return;
+
+            var group = document.createElement('optgroup');
+            group.label = 'Openstaande posten lid';
+            group.className = 'avbk-member-open-fees-group';
+
+            openItems.forEach(function (item) {
+                var opt = document.createElement('option');
+                opt.value = item.val;
+                opt.textContent = item.label;
+                if (selectEl.value === item.val) {
+                    opt.selected = true;
+                }
+                group.appendChild(opt);
+            });
+
+            var firstOpt = selectEl.querySelector('option[value=""]');
+            if (firstOpt && firstOpt.nextSibling) {
+                selectEl.insertBefore(group, firstOpt.nextSibling);
+            } else {
+                selectEl.appendChild(group);
+            }
+        }
+
+        function lookupDetail(isExplicitActivityChange) {
             var fragmentsEl = row.querySelector('.avbk-detail-fragments');
             var estimatedEl = row.querySelector('.avbk-detail-estimated');
             var amountInput = row.querySelector('.avbk-amount-input');
+
+            var activityVal = activitySelect.value;
+            var feeItemMatch = /^f(\d+)$/.exec(activityVal);
+            var activityId = matchedActivityId(activityVal);
+            if (!memberSelect.value) return;
 
             // Clear stale detail immediately — showing the *previous*
             // person's/activiteit's age/nights would otherwise be actively
@@ -538,19 +569,14 @@ document.addEventListener('DOMContentLoaded', function () {
             if (estimatedEl) estimatedEl.textContent = '';
             if (amountInput) amountInput.dataset.openAmount = '';
 
-            // No matched activiteit (Weekend, Drank, Overig, ...) means no
-            // tarief to compute a bedrag from, but the endpoint still
-            // returns the member's scholier/student status for activity_id
-            // 0 — worth the round-trip even then, see
-            // AVBK_DB::get_member_status_detail().
-            var activityId = matchedActivityId(activitySelect.value);
-            if (!memberSelect.value) return;
-
             var body = new URLSearchParams();
             body.set('action', 'avbk_member_fee_detail');
             body.set('nonce', cfg.nonce);
             body.set('member_id', memberSelect.value);
             body.set('activity_id', activityId || '0');
+            if (feeItemMatch) {
+                body.set('fee_item_id', feeItemMatch[1]);
+            }
 
             fetch(cfg.ajaxUrl, {
                 method: 'POST',
@@ -561,6 +587,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(function (res) {
                     if (!res.success) return;
                     var d = res.data;
+                    if (d.open_fee_items) {
+                        updateOpenFeeItemsInSelect(activitySelect, d.open_fee_items);
+                    }
                     if (fragmentsEl) fragmentsEl.innerHTML = d.fragments_html || '';
                     if (estimatedEl) {
                         estimatedEl.textContent = d.estimated_text || '';
@@ -569,7 +598,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (amountInput) {
                         amountInput.dataset.known = d.found ? '1' : '0';
                         amountInput.dataset.openAmount = d.found ? d.share.toFixed(2) : '';
-                        if (d.found) {
+                        if (d.found && (isExplicitActivityChange || !amountInput.value || amountInput.value === '0,00' || /^f\d+$/.test(activityVal))) {
                             amountInput.value = d.share.toFixed(2).replace('.', ',');
                         }
                     }
@@ -580,7 +609,7 @@ document.addEventListener('DOMContentLoaded', function () {
         memberSelect.addEventListener('change', function () {
             loadHouseholdSuggestions(form, memberSelect.value);
             updateMemberEditLink();
-            lookupDetail();
+            lookupDetail(false);
         });
         activitySelect.addEventListener('change', function () {
             updateDescriptionVisibility();
@@ -588,7 +617,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 fillRemainingAmount(row, form);
             }
             loadActivityParticipants(memberSelect, matchedActivityId(activitySelect.value));
-            lookupDetail();
+            lookupDetail(true);
         });
         updateDescriptionVisibility();
         updateMemberEditLink();

@@ -8,7 +8,7 @@ class AVPVH_Roles {
 class AVPVH_DB {
     public static function get_member(int $id): ?object { return $GLOBALS['members'][$id] ?? null; }
     public static function get_activity_types(): array {
-        return array_map(fn($name) => (object) ['name' => $name], ['Kamp', 'Contributie', 'Drank', 'Boek']);
+        return array_map(fn($name) => (object) ['name' => $name], ['Kamp', 'Contributie', 'Drank', 'Boek', 'T-shirt']);
     }
     public static function get_activities(): array {
         return [(object) ['id' => 1, 'name' => 'Contributie', 'year' => 2026], (object) ['id' => 2, 'name' => 'Voorbeeldkamp', 'year' => 2026]];
@@ -64,6 +64,21 @@ class AVBK_DB {
     public static function member_edit_url(int $id): string { return 'https://example.test/member/' . $id; }
     public static function get_member_fee_detail_for_activity(int $member, int $activity): array { return ['found' => false, 'share' => 0.0]; }
     public static function get_member_status_detail(int $id): array { return ['found' => false, 'share' => 0.0]; }
+    public static function get_open_fee_items_for_member(int $member_id): array {
+        return array_values(array_filter(self::$fees, fn($f) => $f->member_id === $member_id && $f->status === 'open'));
+    }
+    public static function get_open_tshirt_fee_item(int $member_id): ?object {
+        foreach (self::$fees as $f) {
+            if ($f->member_id === $member_id && $f->status === 'open' && in_array($f->category ?? '', ['tshirt', 'T-shirt'], true)) return $f;
+        }
+        return null;
+    }
+    public static function get_open_book_fee_item(int $member_id): ?object {
+        foreach (self::$fees as $f) {
+            if ($f->member_id === $member_id && $f->status === 'open' && in_array($f->category ?? '', ['book', 'Boek'], true)) return $f;
+        }
+        return null;
+    }
 }
 function get_option(string $name, $default = false) { return $name === 'avbk_closed_through_year' ? 2025 : $default; }
 function current_time(string $format): string { return $format === 'Y' ? '2026' : '2026-10-09'; }
@@ -141,6 +156,11 @@ check(AVBK_Matcher::classify_types('Naam: Piet Boekman Omschrijving: Boek IBAN: 
 check(AVBK_Matcher::classify_types('Name: Piet Boekman Description: IBAN: XXTEST') === [], 'empty bank memo cannot classify account holder metadata');
 check(AVBK_Matcher::classify_types('Name: Piet Boekman IBAN: XXTEST') === [], 'missing bank memo cannot turn payer name into book purchase');
 check(AVBK_Matcher::classify_types('Boek') === ['Boek'], 'plain unlabelled purchase memo still recognized');
+check(in_array('T-shirt', AVBK_Matcher::classify_types('Naam: Piet Jansen Omschrijving: Archeo merch IBAN: XXTEST'), true), 'merch in memo classifies as T-shirt');
+check(in_array('T-shirt', AVBK_Matcher::classify_types('Naam: Piet Jansen Omschrijving: Lustrum hoodie XXL IBAN: XXTEST'), true), 'hoodie in memo classifies as T-shirt');
+check(in_array('T-shirt', AVBK_Matcher::classify_types('Naam: Piet Jansen Omschrijving: tshirt maat L IBAN: XXTEST'), true), 'tshirt without dash classifies as T-shirt');
+check(in_array('T-shirt', AVBK_Matcher::classify_types('Naam: Piet Jansen Omschrijving: Lustrumkleding IBAN: XXTEST'), true), 'lustrumkleding classifies as T-shirt');
+check(in_array('Boek', AVBK_Matcher::classify_types('Naam: Piet Jansen Omschrijving: Boek Doorgraven IBAN: XXTEST'), true), 'doorgraven classifies as Boek');
 
 reset_case();
 $id = transaction(50.0, 'PVH-1001-F1001.1002');
