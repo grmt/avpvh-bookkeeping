@@ -26,6 +26,10 @@ class AVBK_Import {
         if ($parsed['rows'] && !$transactions) {
             throw new \RuntimeException('Geen transactierijen herkend. Controleer het gekozen importprofiel, de kolomnamen en het datumformaat.');
         }
+        // Bank exports often list newest first. Allocate older payments
+        // first so a later transfer cannot consume an earlier QR's charges.
+        // Equal dates keep their original export order (stable PHP sort).
+        usort($transactions, fn($a, $b) => strcmp($a['transaction_date'], $b['transaction_date']));
         $batch_id = AVBK_DB::create_import_batch($filename, $uploaded_by);
 
         $row_count = 0;
@@ -58,15 +62,22 @@ class AVBK_Import {
 
             $type_hints = AVBK_Matcher::classify_types($tx['description']);
 
-            $exact_fee_items = self::resolve_exact_fee_reference(
-                AVBK_Matcher::match_fee_item_reference($tx['description']),
-                (float) $tx['amount']
-            );
+            $fee_ids = AVBK_Matcher::match_fee_item_reference($tx['description']);
+            $exact_fee_items = self::resolve_exact_fee_reference($fee_ids, (float) $tx['amount']);
             if ($exact_fee_items) {
                 $tx['status'] = 'matched';
                 $tx_id = AVBK_DB::insert_transaction($tx);
                 self::apply_exact_fee_reference($tx_id, $exact_fee_items, $tx['counterparty_iban'], $tx['counterparty_name']);
                 $matched_count++;
+                continue;
+            }
+            if ($fee_ids) {
+                // An amount mismatch or already-paid item invalidates the
+                // automatic allocation, not the explicitly named people.
+                $review = self::get_exact_reference_review($tx['description']);
+                $tx['status'] = $review['rows'] ? 'suggested' : 'unmatched';
+                $tx['suggested_member_ids'] = implode(',', array_unique(array_column($review['rows'], 'member_id')));
+                AVBK_DB::insert_transaction($tx);
                 continue;
             }
 
@@ -107,16 +118,29 @@ class AVBK_Import {
      */
     public static function recompute_suggestions(): int {
         $changed = 0;
-        foreach (AVBK_DB::get_review_queue() as $tx) {
+        $queue = AVBK_DB::get_review_queue();
+        usort($queue, fn($a, $b) => strcmp($a->transaction_date, $b->transaction_date) ?: (int) $a->id <=> (int) $b->id);
+        foreach ($queue as $tx) {
+            if (AVBK_DB::get_transaction_draft((int) $tx->id) !== null) {
+                continue; // Never automatically confirm or replace a saved draft.
+            }
             $type_hints = AVBK_Matcher::classify_types($tx->description);
 
-            $exact_fee_items = self::resolve_exact_fee_reference(
-                AVBK_Matcher::match_fee_item_reference($tx->description),
-                (float) $tx->amount
-            );
+            $fee_ids = AVBK_Matcher::match_fee_item_reference($tx->description);
+            $exact_fee_items = self::resolve_exact_fee_reference($fee_ids, (float) $tx->amount);
             if ($exact_fee_items) {
                 self::apply_exact_fee_reference((int) $tx->id, $exact_fee_items, $tx->counterparty_iban, $tx->counterparty_name);
                 $changed++;
+                continue;
+            }
+            if ($fee_ids) {
+                $review = self::get_exact_reference_review($tx->description);
+                $new_ids = implode(',', array_unique(array_column($review['rows'], 'member_id')));
+                $new_status = $review['rows'] ? 'suggested' : 'unmatched';
+                if ($tx->status !== $new_status || $tx->suggested_member_ids !== $new_ids || $tx->suggested_type !== '') {
+                    AVBK_DB::update_transaction_suggestion((int) $tx->id, $new_status, $new_ids, '');
+                    $changed++;
+                }
                 continue;
             }
 
@@ -150,6 +174,41 @@ class AVBK_Import {
             }
         }
         return $changed;
+    }
+
+    /**
+     * Read-only review of an explicit fee reference, even if its amount
+     * no longer matches. Never create rows from fuzzy names/type guesses.
+     * f<id> targets that exact existing charge during manual confirmation.
+     *
+     * @return array{ids:int[],rows:array[],warnings:string[],remaining:float}
+     */
+    public static function get_exact_reference_review(string $description): array {
+        $ids = AVBK_Matcher::match_fee_item_reference($description);
+        $rows = [];
+        $warnings = [];
+        $total = 0.0;
+        $closed_year = (int) get_option('avbk_closed_through_year', 0);
+        foreach ($ids as $id) {
+            $item = AVBK_DB::get_fee_item($id);
+            if (!$item || !AVPVH_DB::get_member((int) $item->member_id)) {
+                $warnings[] = 'Post #' . $id . ' of het bijbehorende lid bestaat niet meer.';
+                continue;
+            }
+            $remaining = max(0.0, AVBK_DB::get_fee_item_remaining($item));
+            if ($closed_year && AVBK_DB::fee_item_book_year($item) <= $closed_year) {
+                $remaining = 0.0;
+                $warnings[] = 'Post #' . $id . ' hoort bij een afgesloten boekjaar.';
+            } elseif ($item->status !== 'open') {
+                $remaining = 0.0;
+                $warnings[] = 'Post #' . $id . ' is niet meer openstaand.';
+            } elseif ($remaining <= 0.005) {
+                $warnings[] = 'Post #' . $id . ' is al volledig betaald.';
+            }
+            $rows[] = ['member_id' => (int) $item->member_id, 'activity' => 'f' . $id, 'description' => '', 'amount' => $remaining];
+            $total += $remaining;
+        }
+        return ['ids' => $ids, 'rows' => $rows, 'warnings' => $warnings, 'remaining' => round($total, 2)];
     }
 
     /**
@@ -359,6 +418,7 @@ class AVBK_Import {
      *
      * $rows: array of ['member_id' => int, 'activity' => string,
      * 'description' => string, 'amount' => float]. 'activity' is either
+     * "f<id>" for one exact existing fee from a payment reference, or
      * "a<id>" — a specific avm_activities row the treasurer picked from
      * the review queue's own dropdown, allocated against that member's
      * matching open fee item (unambiguous even when the member has two
@@ -384,6 +444,9 @@ class AVBK_Import {
         $tx = AVBK_DB::get_transaction($transaction_id);
         if (!$tx) {
             return ['ok' => false, 'errors' => ['Transactie niet gevonden.']];
+        }
+        if ($tx->direction !== 'in' || !in_array($tx->status, ['suggested', 'unmatched'], true)) {
+            return ['ok' => false, 'errors' => ['Deze transactie is al verwerkt of is geen ontvangen betaling.']];
         }
 
         $errors = [];
@@ -416,6 +479,22 @@ class AVBK_Import {
             $member_id = (int) ($row['member_id'] ?? 0);
             $amount = round((float) ($row['amount'] ?? 0), 2);
             $activity = trim((string) ($row['activity'] ?? ''));
+            if ($member_id > 0 && $amount > 0 && preg_match('/^f(\d+)$/', $activity, $fee_match)) {
+                $fee_id = (int) $fee_match[1];
+                $item = AVBK_DB::get_fee_item($fee_id);
+                $closed_year = (int) get_option('avbk_closed_through_year', 0);
+                if (!$item || (int) $item->member_id !== $member_id || $item->status !== 'open'
+                    || ($closed_year && AVBK_DB::fee_item_book_year($item) <= $closed_year)
+                    || AVBK_DB::get_fee_item_remaining($item) <= 0.005) {
+                    $errors[] = 'Post #' . $fee_id . ' hoort niet bij dit lid, is al betaald of is niet meer openstaand. Controleer de selectie.';
+                } elseif (isset($selected_open_charges['f' . $fee_id])) {
+                    $errors[] = 'Post #' . $fee_id . ' is meer dan één keer geselecteerd.';
+                } else {
+                    $open = AVBK_DB::get_fee_item_remaining($item);
+                    $selected_open_charges['f' . $fee_id] = ['open' => $open, 'assigned' => min($amount, $open)];
+                }
+                continue;
+            }
             if ($member_id <= 0 || $amount <= 0 || $activity === '' || !preg_match('/^a(\d+)$/', $activity, $m)) {
                 continue;
             }
@@ -509,7 +588,13 @@ class AVBK_Import {
             if ($member_id <= 0 || $amount <= 0 || $activity === '') {
                 continue;
             }
-            if (preg_match('/^a(\d+)$/', $activity, $m)) {
+            if (preg_match('/^f(\d+)$/', $activity, $m)) {
+                $item = AVBK_DB::get_fee_item((int) $m[1]);
+                $allocation = min($amount, max(0, AVBK_DB::get_fee_item_remaining($item)));
+                if ($allocation > 0.005) {
+                    AVBK_DB::allocate($transaction_id, (int) $item->id, $member_id, $allocation);
+                }
+            } elseif (preg_match('/^a(\d+)$/', $activity, $m)) {
                 $activity_id = (int) $m[1];
                 $activity_obj = AVPVH_DB::get_activity($activity_id);
                 $requires_generated_fee = $activity_obj

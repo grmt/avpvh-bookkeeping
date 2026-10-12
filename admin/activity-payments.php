@@ -5,13 +5,10 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 }
 
 $activities = AVPVH_DB::get_activities();
-$activity_id = (int) ($_GET['activity_id'] ?? 0);
+$activity_id = absint(wp_unslash($_GET['activity_id'] ?? 0));
 $current_user_id = get_current_user_id();
-if ($activity_id) {
-    // Remember per-admin so the page reopens on whichever activity this
-    // user last looked at, instead of always falling back to "current".
-    update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
-} else {
+// A cleared/filter-only selection must not revive an unrelated remembered activity.
+if (!isset($_GET['activity_id']) && !isset($_GET['activity_year']) && !isset($_GET['activity_type'])) {
     $remembered_id = (int) get_user_meta($current_user_id, 'avbk_last_activity_payments_id', true);
     $remembered_exists = $remembered_id && array_filter($activities, fn($a) => (int) $a->id === $remembered_id);
     if ($remembered_exists) {
@@ -22,6 +19,21 @@ if ($activity_id) {
     }
 }
 $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+$filter_year = isset($_GET['activity_year']) ? absint(wp_unslash($_GET['activity_year'])) : (int) ($activity->year ?? 0);
+$filter_type = isset($_GET['activity_type'])
+    ? sanitize_text_field(wp_unslash($_GET['activity_type']))
+    : (string) ($activity->type_name ?? '');
+$filtered_activities = array_values(array_filter($activities, static function ($candidate) use ($filter_year, $filter_type) {
+    $type = (string) ($candidate->type_name ?? '');
+    return (!$filter_year || (int) $candidate->year === $filter_year)
+        && ($filter_type === '' || ($filter_type === '__none__' ? $type === '' : $type === $filter_type));
+}));
+$matching_ids = array_map(fn($candidate) => (int) $candidate->id, $filtered_activities);
+if (!$activity || !in_array($activity_id, $matching_ids, true)) {
+    $activity_id = count($filtered_activities) === 1 ? (int) $filtered_activities[0]->id : 0;
+    $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+}
+if ($activity) update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
 $is_camp = $activity && ($activity->type_name ?? '') === 'Kamp';
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
 $import_result = get_transient(AVBK_Sheet_Import::result_transient_key($activity_id));
@@ -60,146 +72,47 @@ sort($activity_types);
     <h1>Deelname en betalingen</h1>
     <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
-    <form method="get" style="margin-bottom:1rem" id="avbk-activity-picker-form">
+    <form method="get" class="avbk-activity-picker" id="avbk-activity-picker-form">
         <input type="hidden" name="page" value="avbk-activity-payments">
-        <label>Jaar:
-            <select id="avbk-activity-year-filter">
-                <option value="">&mdash; alle jaren &mdash;</option>
-                <?php foreach ($activity_years as $year) : ?>
-                    <option value="<?php echo esc_attr($year); ?>" <?php selected($activity && (int) $activity->year === $year); ?>>
-                        <?php echo esc_html((string) $year); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <label>Type:
-            <select id="avbk-activity-type-filter">
-                <option value="">&mdash; alle types &mdash;</option>
-                <?php foreach ($activity_types as $type) : ?>
-                    <option value="<?php echo esc_attr($type); ?>" <?php selected($activity && ($activity->type_name ?? '') === $type); ?>>
-                        <?php echo esc_html($type !== '' ? $type : '(geen type)'); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <label>Activiteit:
-            <div class="avbk-activity-combo">
-                <input type="hidden" name="activity_id" id="avbk-activity-combo-value" value="<?php echo esc_attr($activity_id ?: ''); ?>">
-                <input type="text" class="avbk-activity-combo-input" autocomplete="off" placeholder="&mdash; kies activiteit &mdash;" value="<?php echo esc_attr($activity ? $activity->name . ' (' . $activity->year . ')' : ''); ?>">
-                <div class="avbk-activity-combo-list" hidden></div>
-            </div>
-        </label>
-        <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
+        <div class="avbk-activity-picker__fields">
+            <label for="avbk-activity-year-filter">Jaar
+                <select name="activity_year" id="avbk-activity-year-filter">
+                    <option value="0">Alle jaren</option>
+                    <?php foreach ($activity_years as $year) : ?>
+                        <option value="<?php echo esc_attr($year); ?>" <?php selected($filter_year, $year); ?>><?php echo esc_html((string) $year); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label for="avbk-activity-type-filter">Type
+                <select name="activity_type" id="avbk-activity-type-filter">
+                    <option value="">Alle types</option>
+                    <?php foreach ($activity_types as $type) : ?>
+                        <option value="<?php echo esc_attr($type !== '' ? $type : '__none__'); ?>" <?php selected($filter_type, $type !== '' ? $type : '__none__'); ?>><?php echo esc_html($type !== '' ? $type : '(geen type)'); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label for="avbk-activity-name-filter" class="avbk-activity-picker__search" hidden>Zoek activiteit
+                <input type="search" id="avbk-activity-name-filter" placeholder="Zoek op naam">
+            </label>
+            <label for="avbk-activity-select" class="avbk-activity-picker__selection">Activiteit
+                <select name="activity_id" id="avbk-activity-select" data-placeholder="Kies een activiteit…" data-empty="Geen activiteiten gevonden">
+                    <option value="0"><?php echo $filtered_activities ? 'Kies een activiteit…' : 'Geen activiteiten gevonden'; ?></option>
+                    <?php foreach ($filtered_activities as $option) : ?>
+                        <option value="<?php echo esc_attr($option->id); ?>" <?php selected($activity_id, $option->id); ?>><?php echo esc_html($option->name . ' (' . $option->year . ')'); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <button type="submit" class="button">Bekijken</button>
+        </div>
+        <p class="description">Jaar en type bepalen welke activiteiten je kunt kiezen. Kies daarna een activiteit om de deelnemers en betalingen te bekijken.</p>
     </form>
-    <script>
-    (function () {
-        var cfg = JSON.parse(document.getElementById('avbk-activity-picker-config').textContent);
-        var form = document.getElementById('avbk-activity-picker-form');
-        var yearFilter = document.getElementById('avbk-activity-year-filter');
-        var typeFilter = document.getElementById('avbk-activity-type-filter');
-        var wrapper = form.querySelector('.avbk-activity-combo');
-        var hidden = document.getElementById('avbk-activity-combo-value');
-        var input = wrapper.querySelector('.avbk-activity-combo-input');
-        var list = wrapper.querySelector('.avbk-activity-combo-list');
-        var activeIndex = -1;
-        var renderedItems = [];
-
-        function labelFor(id) {
-            var a = cfg.activities.filter(function (x) { return String(x.id) === String(id); })[0];
-            return a ? a.label : '';
-        }
-
-        function closeList() {
-            list.hidden = true;
-            activeIndex = -1;
-        }
-
-        function selectActivity(id, label) {
-            hidden.value = id;
-            input.value = label;
-            closeList();
-            form.submit();
-        }
-
-        function setActive(index) {
-            var children = Array.prototype.slice.call(list.querySelectorAll('.avbk-activity-combo-item'));
-            children.forEach(function (el, i) { el.classList.toggle('is-active', i === index); });
-            if (children[index]) children[index].scrollIntoView({ block: 'nearest' });
-            activeIndex = index;
-        }
-
-        function render(forceEmptyTerm) {
-            var term = forceEmptyTerm ? '' : input.value.trim().toLowerCase();
-            var year = yearFilter.value;
-            var type = typeFilter.value;
-            list.innerHTML = '';
-            renderedItems = [];
-            cfg.activities.forEach(function (a) {
-                if (year !== '' && String(a.year) !== year) return;
-                if (type !== '' && a.type !== type) return;
-                if (term !== '' && a.label.toLowerCase().indexOf(term) === -1) return;
-                var item = document.createElement('div');
-                item.className = 'avbk-activity-combo-item';
-                item.textContent = a.label;
-                item.dataset.id = a.id;
-                item.addEventListener('mousedown', function (e) {
-                    e.preventDefault();
-                    selectActivity(a.id, a.label);
-                });
-                list.appendChild(item);
-                renderedItems.push(item);
-            });
-            list.hidden = renderedItems.length === 0;
-            activeIndex = -1;
-        }
-
-        input.addEventListener('input', function () { render(false); });
-        input.addEventListener('focus', function () {
-            input.select();
-            render(true);
-        });
-        input.addEventListener('keydown', function (e) {
-            if (list.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                render(true);
-                return;
-            }
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setActive(Math.min(activeIndex + 1, renderedItems.length - 1));
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setActive(Math.max(activeIndex - 1, 0));
-            } else if (e.key === 'Enter') {
-                if (!list.hidden && activeIndex >= 0 && renderedItems[activeIndex]) {
-                    e.preventDefault();
-                    var item = renderedItems[activeIndex];
-                    selectActivity(item.dataset.id, item.textContent);
-                }
-            } else if (e.key === 'Escape') {
-                closeList();
-            }
-        });
-        input.addEventListener('blur', function () {
-            setTimeout(function () {
-                closeList();
-                input.value = hidden.value ? labelFor(hidden.value) : '';
-            }, 150);
-        });
-        // Kiezen van een jaar/type is zelf geen keuze van activiteit —
-        // alleen de kandidatenlijst versmallen, direct zichtbaar als die
-        // al open staat.
-        yearFilter.addEventListener('change', function () {
-            if (!list.hidden) render(false);
-        });
-        typeFilter.addEventListener('change', function () {
-            if (!list.hidden) render(false);
-        });
-    })();
-    </script>
 
     <?php if (!$activity) : ?>
-        <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
+        <div class="notice notice-info inline"><p><?php echo esc_html(!$activities
+            ? 'Nog geen activiteit aangemaakt in AV-PvH Leden → Activiteiten.'
+            : ($filtered_activities ? 'Kies hierboven een activiteit om de deelnemers en betalingen te bekijken.' : 'Geen activiteiten gevonden voor dit jaar en type. Pas je filters aan.')); ?></p></div>
     <?php else : ?>
+        <h2><?php echo esc_html('Deelname en betalingen — ' . $activity->name . ' (' . $activity->year . ')'); ?></h2>
 
         <?php if (isset($_GET['config_saved'])) : ?>
             <div class="notice notice-success is-dismissible"><p>Instellingen opgeslagen.</p></div>

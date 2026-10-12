@@ -331,7 +331,9 @@ class AVBK_Balance_Shortcode {
             exit;
         }
 
-        AVBK_DB::create_dispute($member_id, $message);
+        if (!AVBK_DB::create_dispute($member_id, $message, (int) $own_member->id)) {
+            wp_die('Je bericht kon niet worden opgeslagen. Ga terug en probeer opnieuw.', 'Fout', ['response' => 500]);
+        }
 
         $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
         $submitted_by = avpvh_format_name($own_member);
