@@ -263,6 +263,13 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
         <input type="hidden" name="action" value="avbk_save_settings">
         <table class="form-table" style="max-width:900px">
             <tr>
+                <th><label for="login_payment_popup_enabled">Betaalpopup bij inloggen</label></th>
+                <td>
+                    <label><input type="checkbox" id="login_payment_popup_enabled" name="login_payment_popup_enabled" value="1" <?php checked((bool) get_option(AVBK_Fee_Popup::ENABLED_OPTION, 0)); ?>> Toon een popup bij een openstaand saldo</label>
+                    <p class="description">Standaard uitgeschakeld voor iedereen. Het betaaloverzicht en de QR-code blijven beschikbaar via Mijn betalingen in het accountmenu.</p>
+                </td>
+            </tr>
+            <tr>
                 <th><label for="club_iban">IBAN vereniging</label></th>
                 <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', '')); ?>"></td>
             </tr>

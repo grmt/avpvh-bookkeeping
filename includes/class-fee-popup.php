@@ -15,6 +15,7 @@ class AVBK_Fee_Popup {
 
     const USER_META = '_avbk_show_popup';
     const DISMISS_COOKIE = 'avbk_popup_dismissed';
+    const ENABLED_OPTION = 'avbk_login_payment_popup_enabled';
 
     public function __construct() {
         add_action('wp_login', [$this, 'check_on_login'], 10, 2);
@@ -24,6 +25,10 @@ class AVBK_Fee_Popup {
     }
 
     public function check_on_login(string $user_login, \WP_User $user): void {
+        if (!get_option(self::ENABLED_OPTION, 0)) {
+            delete_user_meta($user->ID, self::USER_META);
+            return;
+        }
         $member = avpvh_get_member_by_wp_user($user->ID);
         if (!$member || $member->status !== 'active') {
             return;
@@ -40,7 +45,7 @@ class AVBK_Fee_Popup {
     }
 
     private function should_show(): ?object {
-        if (!is_user_logged_in() || isset($_COOKIE[self::DISMISS_COOKIE])) {
+        if (!get_option(self::ENABLED_OPTION, 0) || !is_user_logged_in() || isset($_COOKIE[self::DISMISS_COOKIE])) {
             return null;
         }
         $user_id = get_current_user_id();

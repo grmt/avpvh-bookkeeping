@@ -58,6 +58,9 @@ jobs:
       - name: "Household balance overview regression checks"
         run: php tests/test-household-balance.php
 
+      - name: "Login payment popup option regression checks"
+        run: php tests/test-login-payment-popup.php
+
   plugin-check:
     name: "WordPress Plugin Check"
     runs-on: ubuntu-latest
