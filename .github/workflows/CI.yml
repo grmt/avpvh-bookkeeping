@@ -49,8 +49,17 @@ jobs:
       - name: "Photo upload share regression checks"
         run: php tests/test-photo-share.php
 
+      - name: "Photo upload and Google Photos Picker security checks"
+        run: php tests/test-photo-upload.php
+
       - name: "Book order flow regression checks"
         run: php tests/test-book-order.php
+
+      - name: "Household balance overview regression checks"
+        run: php tests/test-household-balance.php
+
+      - name: "Login payment popup option regression checks"
+        run: php tests/test-login-payment-popup.php
 
   plugin-check:
     name: "WordPress Plugin Check"

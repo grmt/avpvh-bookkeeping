@@ -386,8 +386,8 @@ class AVBK_Photo_Share {
             }
         }
 
-        // Just confirmed via token
-        if (!empty($_GET['photo_share_confirmed']) && !empty($_GET['share_token'])) {
+        // A confirmation link is view-only. Logged-in visitors use their own share.
+        if (!is_user_logged_in() && !empty($_GET['photo_share_confirmed']) && !empty($_GET['share_token'])) {
             $token_share = AVBK_DB::get_photo_share_by_token(sanitize_text_field($_GET['share_token']));
             if ($token_share && $token_share->status === 'confirmed' && !empty($token_share->drive_folder_url)) {
                 return $out . $this->render_share_link($token_share->drive_folder_url);
@@ -400,7 +400,7 @@ class AVBK_Photo_Share {
             $share   = self::get_user_share($user_id);
 
             if ($share !== null) {
-                return $out . $this->render_share_link($share['url']);
+                return $out . $this->render_share_link($share['url']) . AVBK_Photo_Upload::render();
             }
 
             // Check if there is a pending request for this user

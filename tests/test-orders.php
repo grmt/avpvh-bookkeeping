@@ -174,6 +174,8 @@ function wp_mail(string $to, string $subject, string $body, $headers = []): bool
 }
 function add_action(string $tag, $callback): void {}
 function remove_action(string $tag, $callback): void {}
+function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+function remove_filter(string $tag, $callback, int $priority = 10): bool { return true; }
 function add_shortcode(string $tag, $callback): void { $GLOBALS['shortcodes'][$tag] = $callback; }
 function wp_enqueue_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 function wp_enqueue_script(string $handle, string $src, array $deps = [], $ver = false, bool $in_footer = false): void {}
@@ -240,6 +242,27 @@ class Mock_Orders_WPDB {
                 foreach ($data as $k => $v) $this->orders[$id]->$k = $v;
                 return 1;
             }
+        }
+        return 0;
+    }
+
+    public function delete(string $table, array $where): int {
+        if (str_contains($table, 'avb_orders') && !str_contains($table, 'order_items')) {
+            $id = (int) ($where['id'] ?? 0);
+            unset($this->orders[$id]);
+            return 1;
+        } elseif (str_contains($table, 'avb_order_items')) {
+            $order_id = (int) ($where['order_id'] ?? 0);
+            foreach ($this->order_items as $k => $item) {
+                if ((int) ($item->order_id ?? 0) === $order_id) {
+                    unset($this->order_items[$k]);
+                }
+            }
+            return 1;
+        } elseif (str_contains($table, 'avb_fee_items')) {
+            $id = (int) ($where['id'] ?? 0);
+            unset($this->fee_items[$id]);
+            return 1;
         }
         return 0;
     }
@@ -778,6 +801,55 @@ try {
 } catch (RuntimeException $e) {
     check(str_contains($e->getMessage(), 'tshirt_error=invalid_email'), 'Guest order fails when email is invalid');
 }
+
+// -------------------------------------------------------------
+// Test 11: Deleting orders (with and without notification email)
+// -------------------------------------------------------------
+$del_order = AVBK_DB::create_order([
+    'order_type'    => 'tshirt',
+    'first_name'    => 'Hans',
+    'last_name'     => 'Vermeer',
+    'email'         => 'hans@example.test',
+    'total_amount'  => 42.00,
+    'quantity'      => 2,
+    'fee_item_id'   => 123,
+    'items'         => [
+        ['design' => 'jubileum_zwart', 'variant' => 'L', 'quantity' => 2, 'unit_price' => 21.00, 'total_price' => 42.00, 'title' => 'Shirt'],
+    ],
+]);
+$del_order_id = (int) $del_order['id'];
+$GLOBALS['wpdb']->fee_items[123] = (object) ['id' => 123, 'amount' => 42.00, 'status' => 'pending'];
+
+// 11a: Delete without sending email
+$GLOBALS['sent_mails'] = [];
+$res_del = AVBK_DB::delete_order($del_order_id, false);
+check(!empty($res_del['success']), 'Order deletion succeeds');
+check(AVBK_DB::get_order($del_order_id) === null, 'Order row deleted from database');
+check(empty($GLOBALS['wpdb']->fee_items[123]), 'Associated fee item removed when unpaid');
+check(count($GLOBALS['sent_mails']) === 0, 'No email sent when send_email is false');
+
+// 11b: Delete with notification email
+$del_order_2 = AVBK_DB::create_order([
+    'order_type'    => 'tshirt',
+    'first_name'    => 'Piet',
+    'last_name'     => 'Jansen',
+    'email'         => 'piet@example.test',
+    'total_amount'  => 21.00,
+    'quantity'      => 1,
+    'items'         => [
+        ['design' => 'jubileum_zwart', 'variant' => 'M', 'quantity' => 1, 'unit_price' => 21.00, 'total_price' => 21.00, 'title' => 'Shirt'],
+    ],
+]);
+$del_order_id_2 = (int) $del_order_2['id'];
+$GLOBALS['sent_mails'] = [];
+$res_del_2 = AVBK_DB::delete_order($del_order_id_2, true);
+check(!empty($res_del_2['success']), 'Second order deletion succeeds');
+check(count($GLOBALS['sent_mails']) === 1, 'Cancellation email sent when send_email is true');
+check($GLOBALS['sent_mails'][0]['to'] === 'piet@example.test', 'Cancellation email sent to correct recipient');
+check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains($GLOBALS['sent_mails'][0]['subject'], '&mdash;'), 'Cancellation email subject contains UTF-8 em dash and no raw HTML entity');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'geannuleerd'), 'Cancellation email body states order is cancelled');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'de jubileumkleding'), 'Cancellation email body mentions de jubileumkleding');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], '<!doctype html>'), 'Cancellation email body has HTML document structure');
 
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
 

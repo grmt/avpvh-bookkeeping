@@ -185,6 +185,13 @@ function add_shortcode(string $tag, callable $callback): void {
 }
 
 function add_action(string $tag, callable $callback): void {}
+function add_filter(string $tag, callable $callback, int $priority = 10, int $args = 1): void {}
+function wp_enqueue_script(...$args): void {}
+function admin_url(string $path = ''): string { return home_url('/wp-admin/' . $path); }
+function wp_create_nonce(string $action): string { return 'test-nonce'; }
+function wp_max_upload_size(): int { return 32 * 1024 * 1024; }
+function size_format(int $bytes): string { return ($bytes / 1024 / 1024) . ' MB'; }
+function get_option(string $key, $default = false) { return $GLOBALS['options'][$key] ?? $default; }
 
 function wp_register_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 
@@ -271,6 +278,7 @@ function wp_nonce_field(string $action, string $name = '_wpnonce'): void {
 }
 
 function add_query_arg(...$args): string {
+    if (count($args) === 3) return add_query_arg([$args[0] => $args[1]], $args[2]);
     if (count($args) === 1) return '?' . http_build_query($args[0]);
     if (count($args) === 2) {
         $url = $args[1];
@@ -353,6 +361,8 @@ namespace {
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-qr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-photo-share.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-photo-upload.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-google-photos-picker.php';
 
     // Helper assertions
     function assert_true(bool $cond, string $msg): void {
@@ -472,7 +482,7 @@ namespace {
     assert_true(!empty($confirmed_share->drive_folder_url), 'drive_folder_url stored on share row');
     assert_true(get_user_meta(1, 'photo_share_url', true) === $confirmed_share->drive_folder_url, 'User meta photo_share_url updated for user 1');
 
-    // 6. Confirmed member view displays only the requested upload link.
+    // 6. Confirmed members see their link and the direct upload controls.
     $GLOBALS['current_user_id'] = 1;
     $confirmed_html = $service->render_shortcode();
     assert_contains('href="' . $confirmed_share->drive_folder_url . '"', $confirmed_html, 'Link points to the confirmed requested folder');
@@ -481,14 +491,22 @@ namespace {
     assert_not_contains('<svg', $confirmed_html, 'Confirmed view has no QR code');
     assert_not_contains('avbk-photo-share-card', $confirmed_html, 'Confirmed view has no upload card');
     assert_not_contains($confirmed_share->drive_folder_name, $confirmed_html, 'Folder title is not displayed');
-    assert_not_contains('<input', $confirmed_html, 'Confirmed view has no copy input');
-    assert_not_contains('<button', $confirmed_html, 'Confirmed view has no extra buttons');
+    assert_contains('type="file"', $confirmed_html, 'Confirmed member can select photos');
+    assert_contains('multiple required', $confirmed_html, 'Multiple photo selection is available');
+    assert_not_contains('Kies uit Google Photos', $confirmed_html, 'Picker is hidden until OAuth is configured');
+    $GLOBALS['options']['avpvh_oauth_google_client_id'] = 'fixture-client';
+    $GLOBALS['options']['avpvh_oauth_google_client_secret'] = 'fixture-secret';
+    assert_contains('Kies uit Google Photos', $service->render_shortcode(), 'Configured Picker appears for a confirmed member');
 
     // The confirmation URL also returns the same single link for a guest.
     $GLOBALS['current_user_id'] = 0;
     $_GET['photo_share_confirmed'] = 1;
     $_GET['share_token'] = $req->confirm_token;
-    assert_true($service->render_shortcode() === $confirmed_html, 'Confirmed email link shows the same minimal view without login');
+    $guest_confirmed_html = $service->render_shortcode();
+    assert_contains('Open je persoonlijke uploadmap', $guest_confirmed_html, 'Confirmed email link still displays the folder');
+    assert_not_contains('type="file"', $guest_confirmed_html, 'Guest confirmation grants no website upload access');
+    $GLOBALS['current_user_id'] = 3;
+    assert_not_contains($confirmed_share->drive_folder_url, $service->render_shortcode(), 'Logged-in visitor cannot select another user’s share by token');
     unset($_GET['photo_share_confirmed'], $_GET['share_token']);
     $GLOBALS['current_user_id'] = 1;
 

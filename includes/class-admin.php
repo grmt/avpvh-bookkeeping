@@ -59,6 +59,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('admin_post_avbk_update_order_distribution',      [$this, 'handle_update_order_distribution']);
         add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_order_distribution']);
+        add_action('admin_post_avbk_delete_order',                   [$this, 'handle_delete_order']);
         add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
         add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
         add_action('admin_post_avbk_export_tshirt_matrix',           [$this, 'handle_export_tshirt_matrix']);
@@ -148,6 +149,10 @@ class AVBK_Admin {
         }
         if (str_contains($hook, 'avbk-import') || str_contains($hook, 'avbk-activity-payments')) {
             wp_enqueue_script('avbk-import', AVBK_PLUGIN_URL . 'assets/import.js', [], avbk_asset_version('assets/import.js'), true);
+        }
+        if (str_contains($hook, 'avbk-activity-payments')) {
+            wp_enqueue_style('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.css', [], avbk_asset_version('assets/activity-picker.css'));
+            wp_enqueue_script('avbk-activity-picker', AVBK_PLUGIN_URL . 'assets/activity-picker.js', [], avbk_asset_version('assets/activity-picker.js'), true);
         }
     }
 
@@ -1907,16 +1912,48 @@ class AVBK_Admin {
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
         if (!$member_id) {
             wp_send_json_error('Ontbrekende gegevens.', 400);
         }
+
+        $open_items_data = array_map(function($it) {
+            $rem = max(0.0, AVBK_DB::get_fee_item_remaining($it));
+            return [
+                'id'        => (int) $it->id,
+                'val'       => 'f' . $it->id,
+                'label'     => 'Post #' . $it->id . ' — ' . $it->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')',
+                'remaining' => $rem,
+            ];
+        }, AVBK_DB::get_open_fee_items_for_member($member_id));
+
+        if ($fee_item_id) {
+            $item = AVBK_DB::get_fee_item($fee_item_id);
+            $closed_year = (int) get_option('avbk_closed_through_year', 0);
+            $payable = $item && (int) $item->member_id === $member_id && $item->status === 'open'
+                && (!$closed_year || AVBK_DB::fee_item_book_year($item) > $closed_year);
+            $share = $payable ? max(0.0, AVBK_DB::get_fee_item_remaining($item)) : 0.0;
+            wp_send_json_success([
+                'share'             => $share,
+                'is_estimated'      => false,
+                'estimate_reason'   => '',
+                'found'             => $payable,
+                'fragments_html'    => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — bestaande post #' . $item->id : 'Post bestaat niet meer.'),
+                'estimated_text'    => '',
+                'estimated_warning' => false,
+                'open_fee_items'    => $open_items_data,
+            ]);
+        }
+
         // activity_id 0 means the treasurer picked a one-off category
         // (Weekend, Drank, Overig, ...) with no tarief to look up — still
         // worth telling them the member is a scholier/student, see
         // AVBK_DB::get_member_status_detail().
-        wp_send_json_success($activity_id
+        $data = $activity_id
             ? AVBK_DB::get_member_fee_detail_for_activity($member_id, $activity_id)
-            : AVBK_DB::get_member_status_detail($member_id));
+            : AVBK_DB::get_member_status_detail($member_id);
+        $data['open_fee_items'] = $open_items_data;
+        wp_send_json_success($data);
     }
 
     /**
@@ -2220,6 +2257,30 @@ class AVBK_Admin {
 
     public function handle_update_book_distribution(): void {
         $this->handle_update_order_distribution();
+    }
+
+    public function handle_delete_order(): void {
+        check_admin_referer('avbk_delete_order');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $order_id   = (int) ($_POST['order_id'] ?? 0);
+        $send_email = !empty($_POST['send_email']);
+        $redirect   = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders');
+
+        $result = AVBK_DB::delete_order($order_id, $send_email);
+        if (!empty($result['success'])) {
+            $redirect = add_query_arg([
+                'order_deleted' => $order_id,
+                'email_sent'    => $send_email ? '1' : '0',
+            ], $redirect);
+        } else {
+            $redirect = add_query_arg([
+                'delete_error' => urlencode($result['error'] ?? 'Fout bij verwijderen.'),
+            ], $redirect);
+        }
+        wp_safe_redirect($redirect);
+        exit;
     }
 
     public function handle_export_book_orders(): void {

@@ -1,0 +1,39 @@
+/* Activity filters and selection use native, keyboard-accessible controls. */
+.avbk-activity-picker {
+    margin: 1rem 0 1.5rem;
+    padding: 1rem;
+    border: 1px solid #c3c4c7;
+    background: #fff;
+}
+.avbk-activity-picker__fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: .75rem;
+}
+.avbk-activity-picker__fields label {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    font-weight: 600;
+}
+.avbk-activity-picker__fields select,
+.avbk-activity-picker__fields input {
+    margin: 0;
+    font-weight: 400;
+    min-height: 34px;
+}
+.avbk-activity-picker__selection {
+    flex: 1 1 20rem;
+    min-width: 0;
+}
+.avbk-activity-picker__selection select {
+    width: 100%;
+    max-width: 100%;
+}
+.avbk-activity-picker .description {
+    margin-bottom: 0;
+}
+.avbk-activity-picker [hidden] {
+    display: none !important;
+}

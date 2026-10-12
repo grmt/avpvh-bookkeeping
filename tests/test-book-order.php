@@ -187,6 +187,8 @@ function wp_mail(string $to, string $subject, string $body, $headers = []): bool
 }
 function add_action(string $tag, $callback): void {}
 function remove_action(string $tag, $callback): void {}
+function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+function remove_filter(string $tag, $callback, int $priority = 10): bool { return true; }
 function add_shortcode(string $tag, $callback): void { $GLOBALS['shortcodes'][$tag] = $callback; }
 function wp_enqueue_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 function selected($val, $current, bool $echo = true) {
@@ -269,6 +271,27 @@ class Mock_WPDB {
                 foreach ($data as $k => $v) $this->addresses[$id]->$k = $v;
                 return 1;
             }
+        }
+        return 0;
+    }
+
+    public function delete(string $table, array $where): int {
+        if (str_contains($table, 'avb_orders') && !str_contains($table, 'order_items')) {
+            $id = (int) ($where['id'] ?? 0);
+            unset($this->orders[$id], $this->book_orders[$id]);
+            return 1;
+        } elseif (str_contains($table, 'avb_order_items')) {
+            $order_id = (int) ($where['order_id'] ?? 0);
+            foreach ($this->order_items as $k => $item) {
+                if ((int) ($item->order_id ?? 0) === $order_id) {
+                    unset($this->order_items[$k]);
+                }
+            }
+            return 1;
+        } elseif (str_contains($table, 'avb_fee_items')) {
+            $id = (int) ($where['id'] ?? 0);
+            unset($this->fee_items[$id]);
+            return 1;
         }
         return 0;
     }
@@ -887,6 +910,24 @@ try {
     check(str_contains($e->getMessage(), 'JSON success'), 'AJAX request triggers wp_send_json_success');
     check($GLOBALS['json_response']['data']['status'] === 'not_found', 'AJAX response returns status=not_found');
 }
+
+// 20. Deleting book order
+$del_book = AVBK_DB::create_book_order([
+    'first_name'   => 'Floor',
+    'last_name'    => 'Hendriks',
+    'email'        => 'floor@example.test',
+    'quantity'     => 1,
+    'total_amount' => 35.00,
+]);
+$del_b_id = (int) $del_book['id'];
+$GLOBALS['sent_mails'] = [];
+$del_res = AVBK_DB::delete_book_order($del_b_id, true);
+check(!empty($del_res['success']), 'delete_book_order returns success');
+check(AVBK_DB::get_book_order($del_b_id) === null, 'Book order deleted from database');
+check(count($GLOBALS['sent_mails']) === 1, 'Cancellation email sent to book order customer');
+check($GLOBALS['sent_mails'][0]['to'] === 'floor@example.test', 'Cancellation email sent to floor@example.test');
+check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains($GLOBALS['sent_mails'][0]['subject'], '&mdash;'), 'Book cancellation email subject contains em dash and no raw HTML entity');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'het jubileumboek'), 'Cancellation email body mentions het jubileumboek');
 
 echo "\nAll book order tests passed cleanly!\n";
 
