@@ -589,13 +589,14 @@ check(str_contains($html, 'avbk-tshirt-items-table'), 'Form renders line items t
 check(str_contains($html, 'avbk-add-shirt-btn'), 'Form contains "+ Extra kledingstuk toevoegen" button');
 check(str_contains($html, 'avbk-book-check-email-box'), 'Form contains email check banner for guests');
 check(str_contains($html, 'redirect_to='), 'Form login link contains redirect_to parameter');
-check(str_contains($html, 'bestellen verplicht tot betaling'), 'Form mentions payment obligation');
+check(str_contains($html, 'Bestellen betekent betalen') || str_contains($html, 'betaalverplichting'), 'Form mentions payment obligation');
 check(str_contains($html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
+check(!str_contains($html, 'Let op: bestellen verplicht tot betaling.'), 'Redundant Let op removed from price box');
 check(str_contains($html, 'avbk-tshirt-type-select'), 'Form contains garment type selection column');
 check(str_contains($html, 'avbk-tshirt-color-select'), 'Form contains color selection column');
 check(str_contains($html, 'avbk-tshirt-size-select'), 'Form contains size selection column');
 check(str_contains($html, 'Vanaf &euro;&nbsp;21,00 per kledingstuk'), 'Form contains correct starting price');
-check(str_contains($html, 'zonder btw') && str_contains($html, '21% btw'), 'Form mentions VAT notice (zonder btw / 21% btw)');
+check(str_contains($html, 'zonder btw') && !str_contains($html, '21% btw'), 'Form mentions VAT notice (zonder btw and no 21% btw)');
 check(str_contains($html, 'Stukprijs'), 'Repeater table header has Stukprijs');
 check(!str_contains($html, 'Stukprijs (incl. btw)'), 'Repeater table header does not mention incl. btw');
 check(str_contains($html, '1. Kies design *'), 'Repeater table header has step 1 Kies design');
@@ -649,7 +650,7 @@ check($mail['to'] === 'emma@example.test', 'Email sent to correct guest address'
 check(str_contains($mail['body'], 'tshirt_token='), 'Email contains unique confirmation link with tshirt_token');
 check(str_contains($mail['body'], '3 kledingstuk(ken)'), 'Email mentions 3 kledingstuk(ken)');
 check(str_contains($mail['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
-check(str_contains($mail['body'], 'zonder btw') && str_contains($mail['body'], '21% btw'), 'Email mentions VAT notice (zonder btw / 21% btw)');
+check(str_contains($mail['body'], 'zonder btw') && !str_contains($mail['body'], '21% btw'), 'Email mentions VAT notice (zonder btw and no 21% btw)');
 
 $last_order = end($GLOBALS['wpdb']->orders);
 check($last_order->status === 'pending_confirmation', 'Guest order starts as pending_confirmation');

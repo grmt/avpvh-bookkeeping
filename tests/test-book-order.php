@@ -651,9 +651,10 @@ $form_html = $book_order->render();
 check(str_contains($form_html, 'Over het boek'), 'Order form contains book flaptekst heading');
 check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contains 2027 presentation section');
 check(str_contains($form_html, 'in principe niet per post verzonden'), 'Order form includes distribution notice');
-check(str_contains($form_html, '35,00'), 'Order form displays 35,00 price');
-check(str_contains($form_html, 'zonder btw') && str_contains($form_html, '21% btw'), 'Order form displays VAT notice (zonder btw / 21% btw)');
-check(str_contains($form_html, 'bestellen verplicht tot betaling'), 'Order form mentions payment obligation');
+check(str_contains($form_html, 'Richtprijs:') && str_contains($form_html, '35,00'), 'Order form displays Richtprijs ca. 35,00');
+check(str_contains($form_html, 'zonder btw') && str_contains($form_html, 'definitieve prijs'), 'Order form displays updated price & VAT notice');
+check(!str_contains($form_html, '21% btw'), 'Order form does not mention 21% btw');
+check(!str_contains($form_html, 'Let op: bestellen verplicht tot betaling.'), 'Redundant Let op removed from price box');
 check(str_contains($form_html, 'Bestelling plaatsen (met betaalverplichting)'), 'Submit button mentions payment obligation');
 check(str_contains($form_html, 'name="first_name"'), 'Guest sees name fields');
 check(str_contains($form_html, 'Weet je niet of je al bekend bent'), 'Order form contains email check banner prompt');
@@ -701,7 +702,7 @@ check(count($GLOBALS['sent_mails']) === 1, 'Confirmation email dispatched to gue
 check(str_contains($GLOBALS['sent_mails'][0]['to'], 'cas@example.test'), 'Email sent to correct guest recipient');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'book_token='), 'Email contains unique token confirmation link');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'bestellen betekent betalen'), 'Email reminds of payment obligation');
-check(str_contains($GLOBALS['sent_mails'][0]['body'], 'zonder btw') && str_contains($GLOBALS['sent_mails'][0]['body'], '21% btw'), 'Email mentions VAT notice (zonder btw / 21% btw)');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'zonder btw') && !str_contains($GLOBALS['sent_mails'][0]['body'], '21% btw'), 'Email mentions VAT notice (zonder btw and no 21% btw)');
 
 $_GET = ['book_ordered' => '1'];
 $thanks_html = $book_order->render();

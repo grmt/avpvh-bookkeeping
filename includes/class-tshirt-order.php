@@ -19,7 +19,11 @@ class AVBK_Tshirt_Order {
 
     public const DEFAULT_TITLE = 'Lustrumkleding 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 21.00;
-    public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.';
+    public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn zonder btw.';
+    public const LEGACY_PRICE_NOTES = [
+        'Inclusief btw.',
+        'Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.',
+    ];
     public const DEFAULT_DISTRIBUTION_NOTICE = 'Kleding wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt tijdens de jubileumactiviteiten. Verzending per post gebeurt alleen als het echt nodig is; de portokosten komen er dan wel bij.';
     public const DEFAULT_INTRO = 'Voor het 50-jarig jubileum van de vereniging is er nieuwe jubileumkleding ontworpen! Kies hieronder je favoriete design, het gewenste kledingstuk (T-shirt of Hoodie), de gewenste kleur en maat.';
 
@@ -144,6 +148,10 @@ class AVBK_Tshirt_Order {
         $title               = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price               = (float) (get_option('avbk_tshirt_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
         $price_note          = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
+        if (in_array($price_note, self::LEGACY_PRICE_NOTES, true)) {
+            $price_note = self::DEFAULT_PRICE_NOTE;
+            update_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE);
+        }
         $intro               = get_option('avbk_tshirt_intro', self::DEFAULT_INTRO) ?: self::DEFAULT_INTRO;
         $distribution_notice = get_option('avbk_tshirt_distribution_notice', self::DEFAULT_DISTRIBUTION_NOTICE) ?: self::DEFAULT_DISTRIBUTION_NOTICE;
 
@@ -238,12 +246,12 @@ class AVBK_Tshirt_Order {
                                     <?php foreach ($types as $t) : ?>
                                         <span class="avbk-price-badge"><?php echo esc_html($t['name']); ?>: &euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?></span>
                                     <?php endforeach; ?>
-                                    <span class="avbk-price-vat">(op dit moment zonder btw)</span>
+                                    <span class="avbk-price-vat">(zonder btw)</span>
                                 </div>
                                 <div class="avbk-tshirt-card-buttons">
                                     <?php foreach ($types as $t) : ?>
                                         <button type="button" class="button <?php echo $t['id'] === 'tshirt' ? 'button-primary' : 'button-secondary'; ?> avbk-select-design-type-btn" data-design-id="<?php echo esc_attr($design['id']); ?>" data-product-type="<?php echo esc_attr($t['id']); ?>">
-                                            ＋ Bestel <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 0, ',', '.'); ?>,-)
+                                             ＋ Bestel <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 0, ',', '.'); ?>,-)
                                         </button>
                                     <?php endforeach; ?>
                                 </div>
@@ -262,7 +270,6 @@ class AVBK_Tshirt_Order {
                 <?php if (!empty($price_note)) : ?>
                     <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
                 <?php endif; ?>
-                <span class="avbk-book-price-note" style="display:block; margin-top:.35rem; font-weight:600; color:#856404;">Let op: bestellen verplicht tot betaling.</span>
             </div>
 
             <?php if (!$member) : ?>
@@ -617,6 +624,9 @@ class AVBK_Tshirt_Order {
         $title = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $distribution_notice = get_option('avbk_tshirt_distribution_notice', self::DEFAULT_DISTRIBUTION_NOTICE) ?: self::DEFAULT_DISTRIBUTION_NOTICE;
         $price_note = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
+        if (in_array($price_note, self::LEGACY_PRICE_NOTES, true) || empty($price_note)) {
+            $price_note = self::DEFAULT_PRICE_NOTE;
+        }
 
         ob_start();
         ?>
@@ -911,6 +921,9 @@ class AVBK_Tshirt_Order {
         $items_html .= '</ul>';
 
         $price_note_opt = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
+        if (in_array($price_note_opt, self::LEGACY_PRICE_NOTES, true) || empty($price_note_opt)) {
+            $price_note_opt = self::DEFAULT_PRICE_NOTE;
+        }
         $price_note_html = !empty($price_note_opt)
             ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
             : '';
