@@ -139,6 +139,27 @@ class AVBK_Balance_Shortcode {
             <?php endif; ?>
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
 
+            <?php
+            $target_book_orders = AVBK_DB::get_book_orders_for_member((int) $target_id);
+            $active_target_book_orders = array_values(array_filter($target_book_orders, fn($o) => $o->status !== 'cancelled'));
+            if (!empty($active_target_book_orders)) :
+                $total_ordered_books = array_sum(array_column($active_target_book_orders, 'quantity'));
+                $book_title = get_option('avbk_book_title', 'Doorgraven! - 50 jaar AV Philips van Horne') ?: 'Doorgraven! - 50 jaar AV Philips van Horne';
+            ?>
+                <div class="avbk-profile-book-card">
+                    <div class="avbk-profile-book-content">
+                        <span class="avbk-profile-book-icon" aria-hidden="true">&#128214;</span>
+                        <div class="avbk-profile-book-text">
+                            <strong>Jubileumboek:</strong>
+                            Je hebt <strong><?php echo (int) $total_ordered_books; ?> exempla<?php echo (int) $total_ordered_books === 1 ? 'ar' : 'ren'; ?></strong> van <em><?php echo esc_html($book_title); ?></em> besteld.
+                            <div class="avbk-profile-book-action">
+                                <a href="<?php echo esc_url(home_url('/boek/')); ?>">Bestelling bekijken, opmerking toevoegen of bijbestellen &rarr;</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <?php if ($household) : ?>
                 <form method="get" class="avbk-balance-also-form" action="#bijdrage">
                     <?php if ($requested_id) : ?><input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>"><?php endif; ?>

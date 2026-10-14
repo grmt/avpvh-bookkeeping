@@ -69,6 +69,7 @@ class AVPVH_DB {
     public static function get_activity(int $activity_id): ?object { return null; }
     public static function get_all_flags(): array { return []; }
     public static function get_activities(): array { return []; }
+    public static function get_extended_household(int $id): array { return []; }
 }
 
 class AVPVH_Directory {
@@ -182,6 +183,9 @@ function esc_attr(string $val): string { return esc_html($val); }
 function esc_textarea(string $val): string { return esc_html($val); }
 function esc_url(string $val): string { return esc_attr($val); }
 function esc_url_raw(string $val): string { return $val; }
+function wp_list_pluck(array $rows, string $key): array {
+    return array_map(fn($row) => is_object($row) ? ($row->$key ?? null) : ($row[$key] ?? null), $rows);
+}
 function wp_mail(string $to, string $subject, string $body, $headers = []): bool {
     $GLOBALS['sent_mails'][] = compact('to', 'subject', 'body');
     return !empty($GLOBALS['mail_success']);
@@ -446,8 +450,18 @@ class Mock_WPDB {
             }
         }
         if (str_contains($query, 'avb_orders') && !str_contains($query, 'order_items')) {
+            $mid_match = null;
+            if (preg_match('/member_id = (\d+)/', $query, $mm)) {
+                $mid_match = (int) $mm[1];
+            }
+            $type_match = null;
+            if (preg_match('/order_type = \'([^\']+)\'/', $query, $tm)) {
+                $type_match = $tm[1];
+            }
             $list = [];
             foreach ($this->orders as $o) {
+                if ($mid_match !== null && (int) ($o->member_id ?? 0) !== $mid_match) continue;
+                if ($type_match !== null && ($o->order_type ?? 'book') !== $type_match) continue;
                 $row = clone $o;
                 $row->fee_amount_due = $this->fee_items[$o->fee_item_id]->amount_due ?? $o->total_amount;
                 $row->fee_status = $this->fee_items[$o->fee_item_id]->status ?? 'open';
@@ -946,6 +960,87 @@ check(count($GLOBALS['sent_mails']) === 1, 'Cancellation email sent to book orde
 check($GLOBALS['sent_mails'][0]['to'] === 'floor@example.test', 'Cancellation email sent to floor@example.test');
 check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains($GLOBALS['sent_mails'][0]['subject'], '&mdash;'), 'Book cancellation email subject contains em dash and no raw HTML entity');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'het jubileumboek'), 'Cancellation email body mentions het jubileumboek');
+
+// 21. Logged in member with existing book order sees their order details on /boek/
+$GLOBALS['current_user_id'] = 42;
+$member1 = $GLOBALS['wp_user_member'][42];
+$order1 = AVBK_DB::create_book_order([
+    'member_id'    => (int) $member1->id,
+    'first_name'   => $member1->first_name,
+    'last_name'    => $member1->last_name,
+    'email'        => $member1->email,
+    'quantity'     => 2,
+    'total_amount' => 70.00,
+    'notes'        => 'Graag ophalen op ALV',
+    'status'       => 'confirmed',
+]);
+$ord1_id = (int) $order1['id'];
+
+$html = $book_order->render();
+check(str_contains($html, 'avbk-book-existing-orders'), 'Logged-in member with order sees existing orders card');
+check(str_contains($html, '2 exemplaren'), 'Existing order quantity displayed');
+check(str_contains($html, 'Graag ophalen op ALV'), 'Existing order note displayed in textarea');
+check(str_contains($html, 'Opmerking opslaan'), 'Form has button to save/update notes');
+check(!str_contains($html, 'Verwijderen') && !str_contains($html, 'annuleren'), 'Member cannot delete or cancel their order');
+check(str_contains($html, 'Extra exemplaren bijbestellen'), 'Section to order additional copies is available');
+check(str_contains($html, 'Extra exemplaren bestellen (met betaalverplichting)'), 'Button text updated for re-ordering');
+
+// 22. Updating notes on existing order
+$_POST = [
+    'action'   => 'avbk_update_book_notes',
+    '_wpnonce' => 'test-nonce',
+    'order_id' => $ord1_id,
+    'notes'    => 'Aangepaste instructie: overhandigen aan contactpersoon',
+    'page_url' => 'https://example.test/jubileumboek/',
+];
+try {
+    $book_order->handle_update_notes();
+    check(false, 'Expected redirect after handle_update_notes');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'notes_saved=1'), 'Notes update redirects with notes_saved=1');
+}
+$reloaded = AVBK_DB::get_book_order($ord1_id);
+check($reloaded->notes === 'Aangepaste instructie: overhandigen aan contactpersoon', 'Order notes successfully updated in database');
+
+// 23. Unauthorized note update: user 2 attempting to update order of user 1
+$GLOBALS['current_user_id'] = 99; // Different member
+$GLOBALS['members'][2] = (object) [
+    'id'         => 2,
+    'first_name' => 'Bas',
+    'last_name'  => 'Bakker',
+    'email'      => 'bas@example.test',
+    'wp_user_id' => 99,
+    'status'     => 'active',
+];
+$GLOBALS['wp_user_member'][99] = $GLOBALS['members'][2];
+
+$_POST['notes'] = 'Onrechtmatige poging';
+try {
+    $book_order->handle_update_notes();
+    check(false, 'Expected redirect after unauthorized handle_update_notes');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'book_error=unauthorized'), 'Non-owner rejected with book_error=unauthorized');
+}
+check(AVBK_DB::get_book_order($ord1_id)->notes !== 'Onrechtmatige poging', 'Unauthorized user cannot alter order notes');
+
+// 24. Guest cannot update notes
+$GLOBALS['current_user_id'] = 0;
+try {
+    $book_order->handle_update_notes();
+    check(false, 'Expected redirect after guest handle_update_notes');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'book_error=unauthorized'), 'Guest rejected with book_error=unauthorized');
+}
+
+// 25. Member profile balance view shows book order notification card
+require_once AVBK_PLUGIN_DIR . 'includes/class-balance-shortcode.php';
+$balance_sc = new AVBK_Balance_Shortcode();
+$GLOBALS['current_user_id'] = 42;
+$profile_html = $balance_sc->render();
+check(str_contains($profile_html, 'avbk-profile-book-card'), 'Member profile displays book order notification card');
+check(str_contains($profile_html, 'Jubileumboek:'), 'Profile card mentions Jubileumboek');
+check(str_contains($profile_html, '2 exemplaren'), 'Profile card displays total ordered books');
+check(str_contains($profile_html, 'Bestelling bekijken, opmerking toevoegen of bijbestellen'), 'Profile card links to book page');
 
 echo "\nAll book order tests passed cleanly!\n";
 

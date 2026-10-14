@@ -39,6 +39,7 @@ class AVBK_Book_Order {
         add_action('admin_post_nopriv_avbk_check_book_email', [$this, 'handle_check_email']);
         add_action('wp_ajax_avbk_check_book_email',           [$this, 'handle_check_email']);
         add_action('wp_ajax_nopriv_avbk_check_book_email',    [$this, 'handle_check_email']);
+        add_action('admin_post_avbk_update_book_notes',       [$this, 'handle_update_notes']);
     }
 
     public function enqueue_assets(): void {
@@ -78,6 +79,8 @@ class AVBK_Book_Order {
             $member = avpvh_get_member_by_wp_user($current_user_id);
         }
         $existing_address = ($member && !empty($member->id)) ? AVBK_DB::get_member_active_address((int) $member->id) : null;
+        $existing_orders  = ($member && !empty($member->id)) ? AVBK_DB::get_book_orders_for_member((int) $member->id) : [];
+        $active_orders    = array_values(array_filter($existing_orders, fn($o) => $o->status !== 'cancelled'));
 
         $error = sanitize_key(wp_unslash($_GET['book_error'] ?? ''));
         $email_check   = sanitize_key(wp_unslash($_GET['email_check'] ?? ''));
@@ -85,7 +88,7 @@ class AVBK_Book_Order {
 
         $raw_url = get_permalink() ?: home_url('/boek/');
         $page_url = function_exists('remove_query_arg')
-            ? remove_query_arg(['email_check', 'checked_email', 'book_ordered', 'book_token', 'book_error', 'email_failed'], $raw_url)
+            ? remove_query_arg(['email_check', 'checked_email', 'book_ordered', 'book_token', 'book_error', 'email_failed', 'notes_saved'], $raw_url)
             : $raw_url;
         $login_url = add_query_arg('redirect_to', $page_url, home_url('/avpvh-login/'));
 
@@ -94,7 +97,17 @@ class AVBK_Book_Order {
         <div class="avbk-book-order">
             <h2><?php echo esc_html($title); ?> &mdash; Bestellen</h2>
 
-            <?php if ($error === 'missing_fields') : ?>
+            <?php if (!empty($_GET['notes_saved'])) : ?>
+                <div class="avbk-book-notice avbk-book-notice-success">
+                    Je opmerking is opgeslagen.
+                </div>
+            <?php endif; ?>
+
+            <?php if ($error === 'unauthorized') : ?>
+                <div class="avbk-book-notice avbk-book-error">
+                    Je bent niet gemachtigd om deze bestelling aan te passen.
+                </div>
+            <?php elseif ($error === 'missing_fields') : ?>
                 <div class="avbk-book-notice avbk-book-error">
                     Vul alle verplichte velden in: voornaam, achternaam en een geldig e-mailadres.
                 </div>
@@ -171,6 +184,92 @@ class AVBK_Book_Order {
                             <?php endif; ?>
                         </div>
                     </div>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($active_orders)) : ?>
+                <div class="avbk-book-existing-orders">
+                    <h3>Je geplaatste bestelling<?php echo count($active_orders) > 1 ? 'en' : ''; ?></h3>
+                    <p class="description" style="margin-top:-.25rem; margin-bottom:1.25rem; color:#646970;">Hieronder zie je het overzicht van je bestelling<?php echo count($active_orders) > 1 ? 'en' : ''; ?> voor het jubileumboek. Je kunt hier een opmerking of instructie achterlaten of bijwerken.</p>
+
+                    <?php foreach ($active_orders as $ord) :
+                        $fee_item = $ord->fee_item_id ? AVBK_DB::get_fee_item((int) $ord->fee_item_id) : null;
+                        $remaining = $fee_item ? AVBK_DB::get_fee_item_remaining($fee_item) : (float) $ord->total_amount;
+                        $is_paid = $fee_item && ($fee_item->status === 'waived' || $remaining <= 0.005);
+                        $dist_label = match ($ord->distribution_status ?? 'pending') {
+                            'collected', 'distributed' => 'Opgehaald / uitgereikt',
+                            default => 'Nog uit te reiken (ophalen of uitreiken tijdens activiteiten)',
+                        };
+                        ?>
+                        <div class="avbk-book-existing-item" id="order-<?php echo (int) $ord->id; ?>">
+                            <div class="avbk-book-existing-meta">
+                                <span class="avbk-book-existing-number">Bestelling #<?php echo (int) $ord->id; ?></span>
+                                <span class="avbk-book-existing-date"><?php echo esc_html(wp_date('j F Y, H:i', strtotime($ord->created_at))); ?></span>
+                            </div>
+                            <table class="avbk-book-summary-table">
+                                <tr>
+                                    <th>Aantal &amp; bedrag:</th>
+                                    <td>
+                                        <strong><?php echo (int) $ord->quantity . ((int) $ord->quantity === 1 ? ' exemplaar' : ' exemplaren'); ?></strong>
+                                        (&euro;&nbsp;<?php echo esc_html(number_format((float) $ord->total_amount, 2, ',', '.')); ?>)
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Status uitreiking:</th>
+                                    <td><?php echo esc_html($dist_label); ?></td>
+                                </tr>
+                                <tr>
+                                    <th>Betaalstatus:</th>
+                                    <td>
+                                        <?php if ($is_paid) : ?>
+                                            <span class="avbk-order-status-badge avbk-order-status-paid">&#10004; Betaald</span>
+                                        <?php else : ?>
+                                            <span class="avbk-order-status-badge avbk-order-status-open">Openstaand (&euro;&nbsp;<?php echo esc_html(number_format($remaining, 2, ',', '.')); ?>)</span>
+                                            <?php
+                                            $payment_request = class_exists('AVBK_Product_Payment') ? AVBK_Product_Payment::render('book', $remaining, (int) $ord->id) : '';
+                                            if ($payment_request) {
+                                                echo '<div class="avbk-book-order-payment-request">' . $payment_request . '</div>';
+                                            } elseif (!empty($ord->confirm_token)) {
+                                                $confirm_url = add_query_arg('book_token', $ord->confirm_token, $page_url);
+                                                echo '<div style="margin-top:.4rem;"><a href="' . esc_url($confirm_url) . '" class="button button-small">Betaalinstructies &amp; QR openen &rarr;</a></div>';
+                                            }
+                                            ?>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php if (!empty($ord->attend_presentation) || !empty($ord->keep_updated)) : ?>
+                                    <tr>
+                                        <th>Boekpresentatie:</th>
+                                        <td>
+                                            <?php if (!empty($ord->attend_presentation)) : ?>
+                                                <div>&#10003; Aangemeld als geïnteresseerde aanwezig bij boekpresentatie begin 2027</div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ord->keep_updated)) : ?>
+                                                <div>&#10003; Op de hoogte houden van nieuws &amp; datum</div>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
+                            </table>
+
+                            <div class="avbk-book-order-notes-box">
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-notes-form">
+                                    <?php wp_nonce_field('avbk_update_book_notes_' . (int) $ord->id); ?>
+                                    <input type="hidden" name="action" value="avbk_update_book_notes">
+                                    <input type="hidden" name="order_id" value="<?php echo (int) $ord->id; ?>">
+                                    <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
+                                    <label for="avbk_notes_<?php echo (int) $ord->id; ?>"><strong>Opmerking / toelichting bij deze bestelling:</strong></label>
+                                    <textarea id="avbk_notes_<?php echo (int) $ord->id; ?>" name="notes" rows="3" placeholder="Plaats hier een opmerking voor de organisatie (bijv. wie het boek ophaalt of een vraag)..."><?php echo esc_textarea($ord->notes ?? ''); ?></textarea>
+                                    <p style="margin: .5rem 0 0;"><button type="submit" class="button button-secondary">Opmerking opslaan</button></p>
+                                </form>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <div class="avbk-book-reorder-intro">
+                    <h3>Extra exemplaren bijbestellen</h3>
+                    <p>Wil je nog een of meerdere exemplaren aan je bestelling toevoegen? Kies hieronder het gewenste aantal om een aanvullende bestelling te plaatsen.</p>
                 </div>
             <?php endif; ?>
 
@@ -251,7 +350,7 @@ class AVBK_Book_Order {
                 </fieldset>
 
                 <fieldset class="avbk-book-fieldset">
-                    <legend>Bestelling</legend>
+                    <legend><?php echo !empty($active_orders) ? 'Extra exemplaren bestellen' : 'Bestelling'; ?></legend>
                     <p class="avbk-form-field avbk-form-field-qty">
                         <label for="avbk_quantity">Aantal exemplaren *</label>
                         <select id="avbk_quantity" name="quantity">
@@ -281,7 +380,7 @@ class AVBK_Book_Order {
                 </fieldset>
 
                 <div class="avbk-book-submit-wrap">
-                    <button type="submit" class="button button-primary avbk-book-submit-btn">Bestelling plaatsen (met betaalverplichting) &rarr;</button>
+                    <button type="submit" class="button button-primary avbk-book-submit-btn"><?php echo !empty($active_orders) ? 'Extra exemplaren bestellen (met betaalverplichting) &rarr;' : 'Bestelling plaatsen (met betaalverplichting) &rarr;'; ?></button>
                 </div>
 
                 <div class="avbk-order-commitment-box">
@@ -809,6 +908,38 @@ class AVBK_Book_Order {
         }
 
         wp_safe_redirect(add_query_arg(['email_check' => 'reset_sent', 'checked_email' => rawurlencode($email)], $page_url) . '#avbk-check-email-box');
+        exit;
+    }
+
+    public function handle_update_notes(): void {
+        $order_id = isset($_POST['order_id']) ? (int) $_POST['order_id'] : 0;
+        check_admin_referer('avbk_update_book_notes_' . $order_id);
+
+        $raw_page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? ''));
+        $page_url = $raw_page_url ?: home_url('/boek/');
+
+        if (!is_user_logged_in()) {
+            wp_safe_redirect(add_query_arg('book_error', 'unauthorized', $page_url));
+            exit;
+        }
+
+        $current_user_id = get_current_user_id();
+        $member = function_exists('avpvh_get_member_by_wp_user') ? avpvh_get_member_by_wp_user($current_user_id) : null;
+        if (!$member || empty($member->id)) {
+            wp_safe_redirect(add_query_arg('book_error', 'unauthorized', $page_url));
+            exit;
+        }
+
+        $order = AVBK_DB::get_book_order($order_id);
+        if (!$order || (int) $order->member_id !== (int) $member->id) {
+            wp_safe_redirect(add_query_arg('book_error', 'unauthorized', $page_url));
+            exit;
+        }
+
+        $notes = sanitize_textarea_field(wp_unslash($_POST['notes'] ?? ''));
+        AVBK_DB::update_book_order_notes($order_id, $notes);
+
+        wp_safe_redirect(add_query_arg('notes_saved', '1', $page_url) . '#order-' . $order_id);
         exit;
     }
 }

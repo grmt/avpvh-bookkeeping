@@ -513,3 +513,117 @@
     color: #2e2200;
 }
 
+/* Existing orders display & notes update */
+.avbk-book-existing-orders {
+    background: #fdfaf5;
+    border: 1px solid #ebd8c1;
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.avbk-book-existing-header h3 {
+    margin: 0 0 .5rem 0;
+    color: #4a3525;
+}
+
+.avbk-book-existing-item {
+    background: #ffffff;
+    border: 1px solid #e0d0be;
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.avbk-book-existing-item:last-child {
+    margin-bottom: 0;
+}
+
+.avbk-book-existing-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #f0e6da;
+    padding-bottom: .6rem;
+    margin-bottom: .85rem;
+    font-size: .95rem;
+}
+
+.avbk-book-existing-number {
+    font-weight: 700;
+    color: #3b2818;
+}
+
+.avbk-book-existing-date {
+    color: #646970;
+}
+
+.avbk-order-status-badge {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 3px;
+    font-size: .85rem;
+    font-weight: 600;
+}
+
+.avbk-order-status-paid {
+    background: #edfaef;
+    color: #14521e;
+    border: 1px solid #68de7c;
+}
+
+.avbk-order-status-open {
+    background: #fcf9e8;
+    color: #856404;
+    border: 1px solid #d4af37;
+}
+
+.avbk-book-order-notes-box {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #f0e6da;
+}
+
+.avbk-book-notes-form label {
+    display: block;
+    margin-bottom: .35rem;
+    font-size: .95rem;
+    color: #2c3338;
+}
+
+.avbk-book-notes-form textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: .6rem;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    font-size: .95rem;
+    line-height: 1.4;
+    resize: vertical;
+}
+
+.avbk-book-notes-form textarea:focus {
+    border-color: #2271b1;
+    outline: none;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+.avbk-book-reorder-intro {
+    background: #f6f7f7;
+    border-left: 4px solid #2271b1;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    border-radius: 0 4px 4px 0;
+}
+
+.avbk-book-reorder-intro h3 {
+    margin: 0 0 .35rem 0;
+    color: #1d2327;
+}
+
+.avbk-book-reorder-intro p {
+    margin: 0;
+    color: #50575e;
+    font-size: .95rem;
+}
+
