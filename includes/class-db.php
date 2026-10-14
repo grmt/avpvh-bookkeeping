@@ -4237,6 +4237,14 @@ class AVBK_DB {
         return $updated !== false;
     }
 
+    public static function update_order_notes(int $id, string $notes): bool {
+        global $wpdb;
+        $updated = $wpdb->update("{$wpdb->prefix}avb_orders", [
+            'notes' => $notes,
+        ], ['id' => $id], ['%s'], ['%d']);
+        return $updated !== false;
+    }
+
     public static function count_pending_distribution_orders(string $order_type = ''): int {
         global $wpdb;
         if ($order_type !== '') {
@@ -4566,6 +4574,10 @@ class AVBK_DB {
 
     public static function update_book_order_distribution(int $id, string $distribution_status): bool {
         return self::update_order_distribution($id, $distribution_status);
+    }
+
+    public static function update_book_order_notes(int $id, string $notes): bool {
+        return self::update_order_notes($id, $notes);
     }
 
     public static function count_pending_distribution_book_orders(): int {
