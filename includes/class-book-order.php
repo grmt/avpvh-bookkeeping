@@ -16,7 +16,11 @@ class AVBK_Book_Order {
 
     public const DEFAULT_TITLE = 'Doorgraven! - 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 35.00;
-    public const DEFAULT_PRICE_NOTE = 'Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.';
+    public const DEFAULT_PRICE_NOTE = 'De definitieve prijs hangt af van het totale aantal bestelde exemplaren. Alle prijzen zijn zonder btw.';
+    public const LEGACY_PRICE_NOTES = [
+        'Inclusief btw.',
+        'Alle prijzen zijn op dit moment zonder btw. Het zou kunnen dat er alsnog btw moet worden afgedragen; in dat geval komt er op dit bedrag nog 21% btw bij.',
+    ];
     public const DEFAULT_DISTRIBUTION_NOTICE = 'Het boek wordt in principe niet per post verzonden, maar kan worden opgehaald of wordt uitgereikt tijdens de activiteiten van de vereniging. Bij verzending per post komen er nog verpakkings- en verzendkosten bij (ongeveer €10).';
     public const DEFAULT_PRESENTATION_NOTICE = 'Begin 2027 organiseren we (waarschijnlijk in Weert) een feestelijke boekpresentatie.';
     public const DEFAULT_FLAPTEKST = "<p>Vijftig jaar archeologie, vriendschap en plezier: dat is het verhaal van de Werkgroep Archeologie / Archeologische Vereniging Philips van Horne. In dit boek blikken we terug op de tweede vijfentwintig jaar. Een periode waarin de werkgroep Philips van Horne, verbonden aan de gelijknamige school, transformeerde tot een volwaardige vereniging. Daarbij bleven de kernwaarden overeind: met enthousiasme en doorzettingsvermogen meewerken aan opgravingen om zo bij te dragen aan behoud en waardering van archeologisch erfgoed en ondertussen genieten van cultuur, de mooie dingen van het leven en vooral ook van elkaar.</p>\n\n<p>Zongen de jongeren, zoals gedocumenteerd in het eerste jubileumboek <em>Graven!</em>:</p>\n<blockquote>&ldquo;Samen hier, veel plezier<br>Graven, schaven, potje bier<br>Kampvuur en een vuile plee:<br>Ga je ook mee?&rdquo;</blockquote>\n\n<p>Inmiddels rappen de jongeren:</p>\n<blockquote>&ldquo;Misschien dat mijn sleuf weer volloopt<br>Je ruikt dixi en zweet als ik langsloop<br>Als je bitch wil graven is het geen probleem, dan ga ik er heen. Ik kom niet alleen<br>Want ik heb trek en stek.<br>Ik heb trek en stek.&rdquo;</blockquote>\n\n<p>Over de trekstek en meer lees je in <em>Doorgraven!</em>, dat herinneringen oproept aan het roemruchte lijfblad <em>DGéén &ndash; door graven één &ndash;</em>. In opvolging van <em>Graven!</em> geeft dit boek een unieke kijk op een halve eeuw samen ontdekken, beleven en (door)graven.</p>";
@@ -65,7 +69,7 @@ class AVBK_Book_Order {
         $title               = get_option('avbk_book_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price               = (float) (get_option('avbk_book_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
         $price_note          = get_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
-        if ($price_note === 'Inclusief btw.') {
+        if (in_array($price_note, self::LEGACY_PRICE_NOTES, true)) {
             $price_note = self::DEFAULT_PRICE_NOTE;
             update_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE);
         }
@@ -133,11 +137,10 @@ class AVBK_Book_Order {
             </div>
 
             <div class="avbk-book-notice avbk-book-notice-price">
-                <strong>Prijs:</strong> &euro;&nbsp;<?php echo esc_html(number_format($price, 2, ',', '.')); ?> per exemplaar.
+                <strong>Richtprijs:</strong> ca. &euro;&nbsp;<?php echo esc_html(number_format($price, 2, ',', '.')); ?> per exemplaar.
                 <?php if (!empty($price_note)) : ?>
                     <span class="avbk-book-price-note"><?php echo esc_html($price_note); ?></span>
                 <?php endif; ?>
-                <span class="avbk-book-price-note" style="display:block; margin-top:.35rem; font-weight:600; color:#856404;">Let op: bestellen verplicht tot betaling.</span>
             </div>
 
             <?php if (!$member) : ?>
@@ -582,7 +585,7 @@ class AVBK_Book_Order {
                 </table>
                 <?php
                 $price_note_conf = get_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
-                if ($price_note_conf === 'Inclusief btw.' || empty($price_note_conf)) {
+                if (in_array($price_note_conf, self::LEGACY_PRICE_NOTES, true) || empty($price_note_conf)) {
                     $price_note_conf = self::DEFAULT_PRICE_NOTE;
                 }
                 if (!empty($price_note_conf)) : ?>
@@ -737,7 +740,7 @@ class AVBK_Book_Order {
         $confirm_link = add_query_arg('book_token', $order_result['token'], $page_url);
 
         $price_note_opt = get_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
-        if ($price_note_opt === 'Inclusief btw.' || empty($price_note_opt)) {
+        if (in_array($price_note_opt, self::LEGACY_PRICE_NOTES, true) || empty($price_note_opt)) {
             $price_note_opt = self::DEFAULT_PRICE_NOTE;
         }
         $price_note_email = !empty($price_note_opt) ? "Prijsnotitie: {$price_note_opt}\n\n" : '';
