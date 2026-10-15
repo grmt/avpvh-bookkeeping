@@ -2005,28 +2005,28 @@ class AVBK_DB {
     // -------------------------------------------------------------------
 
     /**
-     * Incoming transactions this member helped pay, with money left over
-     * after the normal allocation — a real overpayment (e.g. one bank
-     * transfer that happened to be €70 more than what was open at the
-     * time), not otherwise modeled as a reusable balance anywhere in this
-     * codebase (see allocate_to_open_items()'s own docblock in
-     * class-import.php).
+     * Incoming transactions this member paid (one of the known co-owners
+     * of the paying IBAN — avb_known_ibans) with money left over after the
+     * normal allocation — a real overpayment (e.g. one bank transfer that
+     * happened to be €70 more than what was open at the time), not
+     * otherwise modeled as a reusable balance anywhere in this codebase
+     * (see allocate_to_open_items()'s own docblock in class-import.php).
      *
-     * A transaction paid from one shared household account for several
+     * Ownership follows the money, not who happened to benefit from it: a
+     * transaction paid from one shared household account for several
      * members at once (e.g. "Garmt: Contributie 2026, <huisgenoot>: Kamp
-     * ...") is included too, for every member it was allocated to — the
-     * leftover is a shared pot, not any one of them's alone. apply_credit()
-     * re-checks the live remaining amount on every call, so whoever applies
-     * part of it first simply shrinks what the others still see available;
-     * nothing here reserves a per-member share up front.
+     * ...") is credit for whoever co-owns that account, even one who got
+     * nothing allocated from it themselves — never for a housemate who
+     * merely had an item paid off but doesn't co-own the paying IBAN. Only
+     * a co-owner (or the treasurer, via handle_apply_credit()'s own
+     * can_manage() check) can ever apply() this money anywhere — see
+     * apply_credit(), which re-derives "available" from this same method.
      *
-     * A member also counts as involved when they're a known co-owner of the
-     * paying IBAN (avb_known_ibans), even without an allocation of their
-     * own on this transaction — the real case this caught: a joint account
-     * paid several housemates' open items in full and nobody else's, so
-     * the account's own owner had zero allocations here, yet it was their
-     * account the leftover money sat in. Only a confirmed ('matched')
-     * transaction counts — an unreviewed bank row isn't a real credit yet.
+     * Only a confirmed ('matched') transaction counts — an unreviewed bank
+     * row isn't a real credit yet. apply_credit() re-checks the live
+     * remaining amount on every call, so whoever applies part of a shared
+     * credit first simply shrinks what the other co-owners still see
+     * available; nothing here reserves a per-owner share up front.
      *
      * Each row gets a `credit` property: the still-unallocated remainder.
      */
@@ -2039,23 +2039,15 @@ class AVBK_DB {
              LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
              WHERE t.direction = 'in'
                AND t.status = 'matched'
-               AND (
-                   EXISTS (
-                       SELECT 1 FROM {$wpdb->prefix}avb_transaction_allocations a2
-                       WHERE a2.transaction_id = t.id AND a2.member_id = %d
-                   )
-                   OR (
-                       t.counterparty_iban != ''
-                       AND EXISTS (
-                           SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
-                           WHERE k.iban = t.counterparty_iban AND k.member_id = %d
-                       )
-                   )
+               AND t.counterparty_iban != ''
+               AND EXISTS (
+                   SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
+                   WHERE k.iban = t.counterparty_iban AND k.member_id = %d
                )
              GROUP BY t.id
              HAVING allocated_total < t.amount
              ORDER BY t.transaction_date ASC, t.id ASC",
-            $member_id, $member_id
+            $member_id
         )) ?: [];
         foreach ($rows as $row) {
             $row->credit = round((float) $row->amount - (float) $row->allocated_total, 2);
