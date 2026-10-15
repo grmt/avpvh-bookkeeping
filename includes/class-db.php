@@ -2000,6 +2000,115 @@ class AVBK_DB {
         )) ?: [];
     }
 
+    // -------------------------------------------------------------------
+    // Credit (teveel betaald, nog te verrekenen)
+    // -------------------------------------------------------------------
+
+    /**
+     * Incoming transactions for this member with money left over after
+     * their normal allocation — a real overpayment (e.g. one bank transfer
+     * that happened to be €70 more than what was open at the time), not
+     * otherwise modeled as a reusable balance anywhere in this codebase
+     * (see allocate_to_open_items()'s own docblock in class-import.php).
+     * Only single-member transactions count — a split household payment's
+     * leftover is ambiguous about whose credit it actually is, so it's
+     * left out here rather than guessed at.
+     *
+     * Each row gets a `credit` property: the still-unallocated remainder.
+     */
+    public static function get_credit_transactions_for_member(int $member_id): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name,
+                    COALESCE(SUM(a.amount), 0) AS allocated_total,
+                    COUNT(DISTINCT a.member_id) AS distinct_members
+             FROM {$wpdb->prefix}avb_transactions t
+             JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
+             WHERE t.direction = 'in'
+               AND EXISTS (
+                   SELECT 1 FROM {$wpdb->prefix}avb_transaction_allocations a2
+                   WHERE a2.transaction_id = t.id AND a2.member_id = %d
+               )
+             GROUP BY t.id
+             HAVING distinct_members = 1 AND allocated_total < t.amount
+             ORDER BY t.transaction_date ASC, t.id ASC",
+            $member_id
+        )) ?: [];
+        foreach ($rows as $row) {
+            $row->credit = round((float) $row->amount - (float) $row->allocated_total, 2);
+        }
+        return $rows;
+    }
+
+    public static function get_total_credit_for_member(int $member_id): float {
+        return round(array_sum(array_map(fn($row) => $row->credit, self::get_credit_transactions_for_member($member_id))), 2);
+    }
+
+    /**
+     * Applies part (or all) of a member's own leftover credit — see
+     * get_credit_transactions_for_member() — to one of their own open fee
+     * items. Just an ordinary allocate() against the original transaction,
+     * dated whenever this is called rather than when that transaction
+     * first came in. Re-validates both sides itself (available credit,
+     * remaining due) rather than trusting the caller's numbers, since both
+     * self-service (the member) and the treasurer can reach this.
+     *
+     * @return int The new allocation id, or 0 if the request doesn't check
+     *     out (wrong member, amount exceeds what either side actually has).
+     */
+    public static function apply_credit(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
+        $amount = round($amount, 2);
+        if ($amount <= 0.005) {
+            return 0;
+        }
+        $available = 0.0;
+        foreach (self::get_credit_transactions_for_member($member_id) as $row) {
+            if ((int) $row->id === $transaction_id) {
+                $available = $row->credit;
+                break;
+            }
+        }
+        if ($amount > $available + 0.005) {
+            return 0;
+        }
+        $item = self::get_fee_item($fee_item_id);
+        if (!$item || (int) $item->member_id !== $member_id || $item->status !== 'open') {
+            return 0;
+        }
+        if ($amount > self::get_fee_item_remaining($item) + 0.005) {
+            return 0;
+        }
+        return self::allocate($transaction_id, $fee_item_id, $member_id, $amount);
+    }
+
+    /**
+     * Same as apply_credit(), but spread automatically across however many
+     * of a member's credit transactions it takes (oldest first) rather
+     * than the caller having to pick one — the UI only asks "how much of
+     * my credit, onto which open item", never "from which old payment".
+     *
+     * @return float The amount actually applied (may be less than
+     *     $amount if available credit or the fee item's remaining due
+     *     runs out first).
+     */
+    public static function apply_credit_fifo(int $member_id, int $fee_item_id, float $amount): float {
+        $amount = round($amount, 2);
+        $applied = 0.0;
+        foreach (self::get_credit_transactions_for_member($member_id) as $row) {
+            if ($amount - $applied <= 0.005) {
+                break;
+            }
+            $take = min($row->credit, round($amount - $applied, 2));
+            if ($take <= 0.005) {
+                continue;
+            }
+            if (self::apply_credit((int) $row->id, $fee_item_id, $member_id, $take)) {
+                $applied = round($applied + $take, 2);
+            }
+        }
+        return $applied;
+    }
+
     /** Preserve the original form timestamp for a sheet-imported attendee. */
     public static function save_sheet_participation_meta(
         int $activity_id,

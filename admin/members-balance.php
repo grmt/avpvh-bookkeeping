@@ -44,6 +44,43 @@ $current_book_year = (int) current_time('Y');
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
             </p>
             <?php require AVBK_PLUGIN_DIR . 'admin/member-household-balance.php'; ?>
+
+            <?php if (isset($_GET['credit_applied'])) : ?>
+                <div class="notice notice-success inline"><p>Tegoed verrekend.</p></div>
+            <?php endif; ?>
+            <?php
+            $available_credit = AVBK_DB::get_total_credit_for_member($detail_member_id);
+            if ($available_credit > 0.005) :
+                $credit_open_items = array_values(array_filter($shown_items, fn($i) => $i->status === 'open' && $i->remaining > 0.005));
+                ?>
+                <div class="notice notice-info inline" style="padding:.75rem 1rem">
+                    <p>Dit lid heeft <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (een eerdere betaling was meer dan op dat moment openstond).</p>
+                    <?php if ($credit_open_items) : ?>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+                            <?php wp_nonce_field('avbk_apply_credit'); ?>
+                            <input type="hidden" name="action" value="avbk_apply_credit">
+                            <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                            <label>Verreken met:
+                                <select name="fee_item_id">
+                                    <?php foreach ($credit_open_items as $item) : ?>
+                                        <option value="<?php echo esc_attr($item->id); ?>">
+                                            <?php echo esc_html($item->description . ' (openstaand € ' . number_format((float) $item->remaining, 2, ',', '.') . ')'); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>Bedrag: &euro;
+                                <input type="text" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>" size="6">
+                            </label>
+                            <button type="submit" class="button">Tegoed verrekenen</button>
+                        </form>
+                        <p class="description">Het lid krijgt hierna automatisch een mailtje.</p>
+                    <?php else : ?>
+                        <p class="description">Er staat op dit moment niets open om het tegoed mee te verrekenen.</p>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+
             <h3>Rekening van dit lid</h3>
             <?php if ($closed_through_year) : ?>
                 <p class="description">
