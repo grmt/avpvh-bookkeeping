@@ -44,6 +44,7 @@ $current_book_year = (int) current_time('Y');
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
             </p>
             <?php require AVBK_PLUGIN_DIR . 'admin/member-household-balance.php'; ?>
+            <?php require AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; ?>
 
             <?php if (isset($_GET['credit_applied'])) : ?>
                 <div class="notice notice-success inline"><p>Tegoed verrekend.</p></div>

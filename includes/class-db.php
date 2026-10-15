@@ -2005,14 +2005,20 @@ class AVBK_DB {
     // -------------------------------------------------------------------
 
     /**
-     * Incoming transactions for this member with money left over after
-     * their normal allocation — a real overpayment (e.g. one bank transfer
-     * that happened to be €70 more than what was open at the time), not
-     * otherwise modeled as a reusable balance anywhere in this codebase
-     * (see allocate_to_open_items()'s own docblock in class-import.php).
-     * Only single-member transactions count — a split household payment's
-     * leftover is ambiguous about whose credit it actually is, so it's
-     * left out here rather than guessed at.
+     * Incoming transactions this member helped pay, with money left over
+     * after the normal allocation — a real overpayment (e.g. one bank
+     * transfer that happened to be €70 more than what was open at the
+     * time), not otherwise modeled as a reusable balance anywhere in this
+     * codebase (see allocate_to_open_items()'s own docblock in
+     * class-import.php).
+     *
+     * A transaction paid from one shared household account for several
+     * members at once (e.g. "Garmt: Contributie 2026, <huisgenoot>: Kamp
+     * ...") is included too, for every member it was allocated to — the
+     * leftover is a shared pot, not any one of them's alone. apply_credit()
+     * re-checks the live remaining amount on every call, so whoever applies
+     * part of it first simply shrinks what the others still see available;
+     * nothing here reserves a per-member share up front.
      *
      * Each row gets a `credit` property: the still-unallocated remainder.
      */
@@ -2020,8 +2026,7 @@ class AVBK_DB {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name,
-                    COALESCE(SUM(a.amount), 0) AS allocated_total,
-                    COUNT(DISTINCT a.member_id) AS distinct_members
+                    COALESCE(SUM(a.amount), 0) AS allocated_total
              FROM {$wpdb->prefix}avb_transactions t
              JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
              WHERE t.direction = 'in'
@@ -2030,7 +2035,7 @@ class AVBK_DB {
                    WHERE a2.transaction_id = t.id AND a2.member_id = %d
                )
              GROUP BY t.id
-             HAVING distinct_members = 1 AND allocated_total < t.amount
+             HAVING allocated_total < t.amount
              ORDER BY t.transaction_date ASC, t.id ASC",
             $member_id
         )) ?: [];
