@@ -114,7 +114,6 @@ class AVBK_Admin {
         $pending_orders = AVBK_DB::count_pending_distribution_orders();
         $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
-        add_submenu_page('avbk-overview', 'Boekbestellingen', 'Boekbestellingen', 'read', 'avbk-book-orders', [$this, 'render_book_orders']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -167,12 +166,6 @@ class AVBK_Admin {
     public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
     public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
     public function render_orders(): void { require AVBK_PLUGIN_DIR . 'admin/orders.php'; }
-    public function render_book_orders(): void {
-        if (!isset($_GET['tab'])) {
-            $_GET['tab'] = 'book';
-        }
-        require AVBK_PLUGIN_DIR . 'admin/orders.php';
-    }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
