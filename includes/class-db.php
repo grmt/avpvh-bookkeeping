@@ -2020,6 +2020,14 @@ class AVBK_DB {
      * part of it first simply shrinks what the others still see available;
      * nothing here reserves a per-member share up front.
      *
+     * A member also counts as involved when they're a known co-owner of the
+     * paying IBAN (avb_known_ibans), even without an allocation of their
+     * own on this transaction — the real case this caught: a joint account
+     * paid several housemates' open items in full and nobody else's, so
+     * the account's own owner had zero allocations here, yet it was their
+     * account the leftover money sat in. Only a confirmed ('matched')
+     * transaction counts — an unreviewed bank row isn't a real credit yet.
+     *
      * Each row gets a `credit` property: the still-unallocated remainder.
      */
     public static function get_credit_transactions_for_member(int $member_id): array {
@@ -2028,16 +2036,26 @@ class AVBK_DB {
             "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name,
                     COALESCE(SUM(a.amount), 0) AS allocated_total
              FROM {$wpdb->prefix}avb_transactions t
-             JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
+             LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
              WHERE t.direction = 'in'
-               AND EXISTS (
-                   SELECT 1 FROM {$wpdb->prefix}avb_transaction_allocations a2
-                   WHERE a2.transaction_id = t.id AND a2.member_id = %d
+               AND t.status = 'matched'
+               AND (
+                   EXISTS (
+                       SELECT 1 FROM {$wpdb->prefix}avb_transaction_allocations a2
+                       WHERE a2.transaction_id = t.id AND a2.member_id = %d
+                   )
+                   OR (
+                       t.counterparty_iban != ''
+                       AND EXISTS (
+                           SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
+                           WHERE k.iban = t.counterparty_iban AND k.member_id = %d
+                       )
+                   )
                )
              GROUP BY t.id
              HAVING allocated_total < t.amount
              ORDER BY t.transaction_date ASC, t.id ASC",
-            $member_id
+            $member_id, $member_id
         )) ?: [];
         foreach ($rows as $row) {
             $row->credit = round((float) $row->amount - (float) $row->allocated_total, 2);
