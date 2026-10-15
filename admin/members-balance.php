@@ -274,6 +274,7 @@ $current_book_year = (int) current_time('Y');
                 <?php else : ?>
                     <th data-col="saldo" data-type="number">Openstaand saldo</th>
                 <?php endif; ?>
+                <th data-col="tegoed" data-type="number">Tegoed</th>
                 <th data-col="status" data-filter="select">Status</th><th></th>
             </tr></thead>
             <tbody>
@@ -286,6 +287,7 @@ $current_book_year = (int) current_time('Y');
                 );
                 $shown_balance = $per_year ? $by_year['total'] : $by_year['current'];
                 $balance_status = $shown_balance > 0.005 ? 'Openstaand' : 'Betaald';
+                $member_credit = AVBK_DB::get_total_credit_for_member((int) $m->id);
                 ?>
                 <tr>
                     <td><?php echo esc_html(avpvh_format_name($m, 'list')); ?></td>
@@ -306,6 +308,9 @@ $current_book_year = (int) current_time('Y');
                             <?php endif; ?>
                         </td>
                     <?php endif; ?>
+                    <td<?php echo $member_credit > 0.005 ? ' style="color:#2271b1;font-weight:bold"' : ''; ?>>
+                        <?php echo $member_credit > 0.005 ? '&euro; ' . esc_html(number_format($member_credit, 2, ',', '.')) : '&mdash;'; ?>
+                    </td>
                     <td><?php echo esc_html($balance_status); ?></td>
                     <td><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id)); ?>">Details</a></td>
                 </tr>
