@@ -23,6 +23,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_rate', [$this, 'handle_delete_activity_rate']);
         add_action('admin_post_avbk_copy_activity_rates',  [$this, 'handle_copy_activity_rates']);
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
+        add_action('admin_post_avbk_apply_credit',         [$this, 'handle_apply_credit']);
         add_action('admin_post_avbk_update_fee_item_amount', [$this, 'handle_update_fee_item_amount']);
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
@@ -2083,6 +2084,44 @@ class AVBK_Admin {
             AVBK_DB::waive_fee_item($id);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'waived' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Penningmeester verrekent namens een lid diens tegoed (zie
+     * AVBK_DB::get_credit_transactions_for_member()) met een openstaande
+     * post van datzelfde lid. Het lid krijgt hierna een mailtje — anders
+     * zou een tegoed stilletjes verdwijnen uit iemands overzicht zonder
+     * dat diegene weet waarom.
+     */
+    public function handle_apply_credit(): void {
+        check_admin_referer('avbk_apply_credit');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
+        if ($member_id && $fee_item_id && $amount > 0) {
+            $applied = AVBK_DB::apply_credit_fifo($member_id, $fee_item_id, $amount);
+            if ($applied > 0.005) {
+                $member = AVPVH_DB::get_member($member_id);
+                $item = AVBK_DB::get_fee_item($fee_item_id);
+                if ($member && is_email($member->email)) {
+                    $subject = '[AV-PvH] Tegoed verrekend';
+                    $body = sprintf(
+                        "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
+                        number_format($applied, 2, ',', '.'),
+                        $item->description ?? '',
+                        home_url('/leden/beheer/#bijdrage')
+                    );
+                    wp_mail($member->email, $subject, $body);
+                }
+                wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'credit_applied' => '1'], admin_url('admin.php')));
+                exit;
+            }
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php')));
         exit;
     }
 

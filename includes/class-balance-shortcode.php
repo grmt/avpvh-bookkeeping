@@ -25,6 +25,7 @@ class AVBK_Balance_Shortcode {
             wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', [], avbk_asset_version('assets/balance.js'), true);
         });
         add_action('admin_post_avbk_submit_dispute', [$this, 'handle_dispute']);
+        add_action('admin_post_avbk_apply_own_credit', [$this, 'handle_apply_own_credit']);
     }
 
     public function render(): string {
@@ -129,6 +130,16 @@ class AVBK_Balance_Shortcode {
         ));
         $selected_total = round(array_sum(array_map(fn($item) => (float) $item->remaining, $selected_items)), 2);
 
+        // Credit (teveel betaald, nog te verrekenen) — always the viewer's
+        // own, never the combined household's: see AVBK_DB::apply_credit(),
+        // which only ever applies a member's credit to that same member's
+        // own open item.
+        $available_credit = AVBK_DB::get_total_credit_for_member($target_id);
+        $own_open_items = array_values(array_filter(
+            $items,
+            fn($item) => (int) $item->member_id === $target_id && $item->status !== 'waived' && $item->remaining > 0.005
+        ));
+
         ob_start();
         ?>
         <div class="avbk-balance" id="bijdrage">
@@ -138,6 +149,38 @@ class AVBK_Balance_Shortcode {
                 <p class="avbk-balance-notice">Je bericht is verstuurd naar de penningmeester.</p>
             <?php endif; ?>
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
+
+            <?php if (!empty($_GET['credit_applied'])) : ?>
+                <p class="avbk-balance-notice">Tegoed verrekend.</p>
+            <?php endif; ?>
+            <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id) : ?>
+                <div class="avbk-balance-credit">
+                    <p>Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond).</p>
+                    <?php if ($own_open_items) : ?>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-balance-also-form">
+                            <?php wp_nonce_field('avbk_apply_own_credit'); ?>
+                            <input type="hidden" name="action" value="avbk_apply_own_credit">
+                            <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
+                            <label>Verreken met:
+                                <select name="fee_item_id">
+                                    <?php foreach ($own_open_items as $item) : ?>
+                                        <option value="<?php echo esc_attr($item->id); ?>">
+                                            <?php echo esc_html($item->description . ' (openstaand € ' . number_format((float) $item->remaining, 2, ',', '.') . ')'); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>Bedrag:
+                                &euro; <input type="text" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>" size="6">
+                            </label>
+                            <button type="submit" class="button">Tegoed verrekenen</button>
+                        </form>
+                        <p class="description">De penningmeester krijgt hier automatisch een melding van.</p>
+                    <?php else : ?>
+                        <p class="description">Er staat op dit moment niets open om het tegoed mee te verrekenen.</p>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
 
             <?php
             $target_book_orders = AVBK_DB::get_book_orders_for_member((int) $target_id);
@@ -369,6 +412,50 @@ class AVBK_Balance_Shortcode {
         wp_mail($to, $subject, $body);
 
         wp_safe_redirect(add_query_arg('dispute_sent', '1', $redirect_url));
+        exit;
+    }
+
+    /**
+     * Self-service: een lid verrekent het eigen tegoed (zie
+     * AVBK_DB::get_credit_transactions_for_member()) met een eigen
+     * openstaande post — nooit met die van een huisgenoot, dezelfde
+     * beperking die AVBK_DB::apply_credit() zelf al afdwingt. De
+     * penningmeester krijgt hierna altijd een mailtje, zodat een
+     * stilletjes verschoven boeking nooit alleen in de database blijft.
+     */
+    public function handle_apply_own_credit(): void {
+        check_admin_referer('avbk_apply_own_credit');
+        if (!is_user_logged_in()) {
+            wp_die('Je moet ingelogd zijn.', 'Fout', ['response' => 403]);
+        }
+        $redirect_url = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: home_url('/');
+        $own_member = avpvh_get_member_by_wp_user(get_current_user_id());
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
+        if (!$own_member || !$fee_item_id || $amount <= 0) {
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
+        $applied = AVBK_DB::apply_credit_fifo((int) $own_member->id, $fee_item_id, $amount);
+        if ($applied <= 0.005) {
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
+        $item = AVBK_DB::get_fee_item($fee_item_id);
+        $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
+        $subject = sprintf('[AV-PvH] %s heeft tegoed verrekend', avpvh_format_name($own_member));
+        $body = sprintf(
+            "%s heeft zelf € %s tegoed verrekend met \"%s\".\n\nOverzicht: %s",
+            avpvh_format_name($own_member),
+            number_format($applied, 2, ',', '.'),
+            $item->description ?? '',
+            admin_url('admin.php?page=avbk-members&member_id=' . $own_member->id)
+        );
+        wp_mail($to, $subject, $body);
+
+        wp_safe_redirect(add_query_arg('credit_applied', '1', $redirect_url));
         exit;
     }
 }

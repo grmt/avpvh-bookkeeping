@@ -251,6 +251,20 @@ input.avbk-filter-control,
     padding: .75rem 1rem;
 }
 
+.avbk-balance-credit {
+    background: #e5f1fb;
+    border-left: 4px solid #2271b1;
+    padding: .75rem 1rem;
+    margin-bottom: 1rem;
+}
+.avbk-balance-credit .avbk-balance-also-form {
+    margin-top: .5rem;
+}
+.avbk-balance-credit .avbk-balance-also-form button {
+    display: inline-block;
+    margin-top: 0;
+}
+
 .avbk-balance-also-form fieldset {
     border: 1px solid #ddd;
     border-radius: 4px;
