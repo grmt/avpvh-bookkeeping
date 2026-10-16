@@ -80,10 +80,14 @@ $ignore_reason_label = [
                 }
             }
             $allocated_activity_names = [];
+            $has_donation_allocation = false;
             foreach ($allocations as $allocation) {
                 $fee_item = AVBK_DB::get_fee_item((int) $allocation->fee_item_id);
                 if ($fee_item && !empty($fee_item->activity_id) && isset($activity_names[(int) $fee_item->activity_id])) {
                     $allocated_activity_names[(int) $fee_item->activity_id] = $activity_names[(int) $fee_item->activity_id];
+                }
+                if ($fee_item && ($fee_item->category ?? '') === 'Schenking') {
+                    $has_donation_allocation = true;
                 }
             }
             $shortfall = $tx->direction === 'in' && $tx->status === 'matched' ? round((float) $tx->amount - $allocated, 2) : 0.0;
@@ -107,7 +111,10 @@ $ignore_reason_label = [
                 <?php $clean_description = AVBK_Matcher::strip_name_field($tx->description); ?>
                 <td data-filter-value="<?php echo esc_attr($clean_description); ?>"><?php echo esc_html(mb_strimwidth($clean_description, 0, 100, '…')); ?></td>
                 <?php $tag_label = $allocations
-                    ? ($allocated_activity_names ? implode(', ', $allocated_activity_names) : 'Toegewezen zonder activiteit')
+                    ? trim(
+                        ($allocated_activity_names ? implode(', ', $allocated_activity_names) : ($has_donation_allocation ? '' : 'Toegewezen zonder activiteit'))
+                        . ($has_donation_allocation ? ($allocated_activity_names ? ', Schenking' : 'Schenking') : '')
+                    )
                     : (!empty($tx->activity_id) && isset($activity_names[(int) $tx->activity_id]) ? $activity_names[(int) $tx->activity_id] : 'Geen activiteit'); ?>
                 <td data-filter-value="<?php echo esc_attr($tag_label); ?>">
                     <?php if ($allocations) : ?>

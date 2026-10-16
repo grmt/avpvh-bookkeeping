@@ -2018,7 +2018,7 @@ class AVBK_DB {
      * ...") is credit for whoever co-owns that account, even one who got
      * nothing allocated from it themselves — never for a housemate who
      * merely had an item paid off but doesn't co-own the paying IBAN. Only
-     * a co-owner (or the treasurer, via handle_apply_credit()'s own
+     * a co-owner (or the treasurer, via settle_credit_selection()'s own
      * can_manage() check) can ever apply() this money anywhere — see
      * apply_credit(), which re-derives "available" from this same method.
      *
@@ -2122,6 +2122,33 @@ class AVBK_DB {
             }
         }
         return $applied;
+    }
+
+    /**
+     * A member gives up (part of) their own credit instead of verrekening
+     * it against an open item — booked as an ordinary, already-paid
+     * "Schenking" fee item (via create_other_fee_item()) rather than just
+     * discarded, so it stays visible on the member's rekening and counts
+     * in overzichten like any other bijdrage, instead of silently
+     * disappearing from get_total_credit_for_member().
+     *
+     * @return float The amount actually donated (capped to available credit).
+     */
+    public static function donate_credit(int $member_id, float $amount): float {
+        $amount = min(round($amount, 2), self::get_total_credit_for_member($member_id));
+        if ($amount <= 0.005) {
+            return 0.0;
+        }
+        $fee_item_id = self::create_other_fee_item($member_id, 'Schenking', '', $amount);
+        return self::apply_credit_fifo($member_id, $fee_item_id, $amount);
+    }
+
+    /** Running total of all credit ever donated via donate_credit(), across all members, all years. */
+    public static function get_total_donations(): float {
+        global $wpdb;
+        return round((float) $wpdb->get_var(
+            "SELECT COALESCE(SUM(amount_due), 0) FROM {$wpdb->prefix}avb_fee_items WHERE category = 'Schenking'"
+        ), 2);
     }
 
     /** Preserve the original form timestamp for a sheet-imported attendee. */

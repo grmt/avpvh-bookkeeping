@@ -47,40 +47,13 @@ $current_book_year = (int) current_time('Y');
             <?php require AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; ?>
 
             <?php if (isset($_GET['credit_applied'])) : ?>
-                <div class="notice notice-success inline"><p>Tegoed verrekend.</p></div>
+                <div class="notice notice-success inline"><p>Tegoed verrekend. Het lid krijgt hierna automatisch een mailtje.</p></div>
+            <?php elseif (isset($_GET['credit_donated'])) : ?>
+                <div class="notice notice-success inline"><p>Tegoed geboekt als schenking. Het lid krijgt hierna automatisch een mailtje.</p></div>
+            <?php elseif (isset($_GET['credit_apply_failed'])) : ?>
+                <div class="notice notice-error inline"><p>Niets verrekend: vink minimaal één openstaande post én het tegoed aan.</p></div>
             <?php endif; ?>
-            <?php
-            $available_credit = AVBK_DB::get_total_credit_for_member($detail_member_id);
-            if ($available_credit > 0.005) :
-                $credit_open_items = array_values(array_filter($shown_items, fn($i) => $i->status === 'open' && $i->remaining > 0.005));
-                ?>
-                <div class="notice notice-info inline" style="padding:.75rem 1rem">
-                    <p>Dit lid heeft <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (een eerdere betaling was meer dan op dat moment openstond).</p>
-                    <?php if ($credit_open_items) : ?>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-                            <?php wp_nonce_field('avbk_apply_credit'); ?>
-                            <input type="hidden" name="action" value="avbk_apply_credit">
-                            <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
-                            <label>Verreken met:
-                                <select name="fee_item_id">
-                                    <?php foreach ($credit_open_items as $item) : ?>
-                                        <option value="<?php echo esc_attr($item->id); ?>">
-                                            <?php echo esc_html($item->description . ' (openstaand € ' . number_format((float) $item->remaining, 2, ',', '.') . ')'); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </label>
-                            <label>Bedrag: &euro;
-                                <input type="text" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>" size="6">
-                            </label>
-                            <button type="submit" class="button">Tegoed verrekenen</button>
-                        </form>
-                        <p class="description">Het lid krijgt hierna automatisch een mailtje.</p>
-                    <?php else : ?>
-                        <p class="description">Er staat op dit moment niets open om het tegoed mee te verrekenen.</p>
-                    <?php endif; ?>
-                </div>
-            <?php endif; ?>
+            <?php $available_credit = AVBK_DB::get_total_credit_for_member($detail_member_id); ?>
 
             <h3>Rekening van dit lid</h3>
             <?php if ($closed_through_year) : ?>
@@ -132,9 +105,46 @@ $current_book_year = (int) current_time('Y');
             <table class="wp-list-table widefat striped">
                 <thead><tr><th>Kies</th><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Betaling(en)</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                <?php if (!$shown_items) : ?>
+                <?php if ($available_credit > 0.005) :
+                    $credit_transactions = AVBK_DB::get_credit_transactions_for_member($detail_member_id);
+                    ?>
+                    <tr style="background:#f0f6fc">
+                        <td><input type="checkbox" name="apply_credit" value="1" form="avbk-payment-selection"></td>
+                        <td><strong>Tegoed</strong> <span class="description">(eerdere betaling was meer dan op dat moment openstond)</span></td>
+                        <td>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?></td>
+                        <td>&mdash;</td>
+                        <td>
+                            <?php foreach ($credit_transactions as $credit_tx) :
+                                $credit_tx_url = add_query_arg(
+                                    ['page' => 'avbk-transactions', 'show_all_years' => '1'],
+                                    admin_url('admin.php')
+                                ) . '#tx-' . (int) $credit_tx->id;
+                                ?>
+                                <div>
+                                    <a href="<?php echo esc_url($credit_tx_url); ?>">
+                                        <?php echo esc_html(wp_date('d-m-Y', strtotime($credit_tx->transaction_date))); ?>
+                                        &mdash; transactie #<?php echo esc_html($credit_tx->id); ?>
+                                    </a>
+                                    (&euro; <?php echo esc_html(number_format((float) $credit_tx->credit, 2, ',', '.')); ?>)
+                                </div>
+                            <?php endforeach; ?>
+                        </td>
+                        <td style="color:#2271b1;font-weight:bold">&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?></td>
+                        <td>Beschikbaar</td>
+                        <td>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                                <?php wp_nonce_field('avbk_donate_credit'); ?>
+                                <input type="hidden" name="action" value="avbk_donate_credit">
+                                <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                                <input type="hidden" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>">
+                                <button type="submit" class="button button-small" onclick="return confirm('Dit tegoed boeken als schenking aan de vereniging? Dit kan niet ongedaan gemaakt worden.');">Schenking</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+                <?php if (!$shown_items && $available_credit <= 0.005) : ?>
                     <tr><td colspan="8">Nog geen bijdragen geregistreerd.</td></tr>
-                <?php else : foreach ($shown_items as $item) :
+                <?php elseif ($shown_items) : foreach ($shown_items as $item) :
                     $payments = AVBK_DB::get_payments_for_fee_item((int) $item->id);
                     ?>
                     <tr>
@@ -226,15 +236,20 @@ $current_book_year = (int) current_time('Y');
                     <?php endif; ?>
                 </tfoot>
             </table>
-            <?php if ($shown_total > 0.005) :
+            <?php if ($shown_total > 0.005 || $available_credit > 0.005) :
                 ?>
                 <form id="avbk-payment-selection" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <?php wp_nonce_field('avbk_request_balance_payment'); ?>
-                    <input type="hidden" name="action" value="avbk_request_balance_payment">
+                    <?php wp_nonce_field('avbk_balance_selection'); ?>
+                    <input type="hidden" name="action" value="avbk_balance_selection">
                     <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
-                    <p class="description">Vink één of meerdere openstaande posten aan.</p>
-                    <button type="submit" name="request_mode" value="show" class="button">Bekijk selectie en maak QR</button>
-                    <button type="submit" name="request_mode" value="mail" class="button button-primary">Mail betaalverzoek voor selectie</button>
+                    <p class="description">Vink één of meerdere openstaande posten aan<?php echo $available_credit > 0.005 ? ', en het tegoed als je dat ermee wilt verrekenen' : ''; ?>.</p>
+                    <?php if ($shown_total > 0.005) : ?>
+                        <button type="submit" name="request_mode" value="show" class="button">Bekijk selectie en maak QR</button>
+                        <button type="submit" name="request_mode" value="mail" class="button button-primary">Mail betaalverzoek voor selectie</button>
+                    <?php endif; ?>
+                    <?php if ($available_credit > 0.005) : ?>
+                        <button type="submit" name="do_settle_credit" value="1" class="button button-primary">Verrekenen met tegoed</button>
+                    <?php endif; ?>
                 </form>
             <?php endif; ?>
         <?php endif;

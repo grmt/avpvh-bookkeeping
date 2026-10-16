@@ -119,6 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
 
+            var optionsByKey = {};
             values.forEach(function (v) {
                 var key = v.toLowerCase();
                 var option = document.createElement('button');
@@ -129,6 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 icon.className = 'avbk-tristate-icon';
                 option.appendChild(icon);
                 option.appendChild(document.createTextNode(' ' + v));
+                optionsByKey[key] = option;
                 option.addEventListener('click', function () {
                     var next = option.dataset.state === 'none' ? 'include'
                         : option.dataset.state === 'include' ? 'exclude'
@@ -206,7 +208,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     return matchesInclude;
                 },
-                splitValues: splitValues
+                splitValues: splitValues,
+                avbkOptions: optionsByKey
             };
             filterTh.appendChild(wrapper);
         } else {
@@ -221,6 +224,26 @@ document.addEventListener('DOMContentLoaded', function () {
         filters[index] = control;
     });
     thead.appendChild(filterRow);
+
+    // --- Deep-linked filters, e.g. ?f_toegewezen=niet or ?f_activiteit=Schenking
+    // — used by the overzicht-tegels on het Overzicht om hier direct met de
+    // juiste selectie te landen, zonder zelf te hoeven filteren.
+    var urlParams = new URLSearchParams(window.location.search);
+    headerCells.forEach(function (th, index) {
+        var col = th.dataset.col;
+        if (!col) return;
+        var wanted = urlParams.get('f_' + col);
+        if (wanted === null) return;
+        var control = filters[index];
+        if (!control) return;
+        if (control.avbkOptions) {
+            var option = control.avbkOptions[wanted.toLowerCase()];
+            if (option) option.click();
+        } else if (control.nodeType) {
+            control.value = wanted;
+            control.dispatchEvent(new Event('input'));
+        }
+    });
 
     function applyFilters() {
         dataRows().forEach(function (row) {
