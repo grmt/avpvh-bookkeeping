@@ -57,7 +57,7 @@ $full_balance_url = add_query_arg(
         <p class="description">Er zijn geen andere familieleden of huisgenoten gekoppeld in de ledenadministratie.</p>
     <?php endif; ?>
     <table id="avbk-household-balances" class="widefat striped">
-        <thead><tr><th>Lid</th><th>Openstaande posten</th><th>Openstaand bedrag</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Lid</th><th scope="col">Openstaande posten</th><th scope="col">Openstaand bedrag</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
         <tbody>
         <?php foreach ($household_members as $household_id => $household_member) :
             $household_detail_url = add_query_arg(
@@ -73,13 +73,13 @@ $full_balance_url = add_query_arg(
             </tr>
         <?php endforeach; ?>
         </tbody>
-        <tfoot><tr><th>Totaal familie en huisgenoten</th><th><?php echo esc_html(count($household_open_items)); ?></th><th>&euro; <?php echo esc_html(number_format($household_total, 2, ',', '.')); ?></th><th></th></tr></tfoot>
+        <tfoot><tr><th scope="row">Totaal familie en huisgenoten</th><td><?php echo esc_html(count($household_open_items)); ?></td><td>&euro; <?php echo esc_html(number_format($household_total, 2, ',', '.')); ?></td><td></td></tr></tfoot>
     </table>
     <?php if ($household_open_items) : ?>
         <details open style="margin:1rem 0">
             <summary><strong>Openstaande posten per persoon</strong></summary>
             <table id="avbk-household-open-items" class="widefat striped" style="margin-top:.5rem">
-                <thead><tr><th>Lid</th><th>Boekjaar</th><th>Omschrijving</th><th>Openstaand</th></tr></thead>
+                <thead><tr><th scope="col">Lid</th><th scope="col">Boekjaar</th><th scope="col">Omschrijving</th><th scope="col">Openstaand</th></tr></thead>
                 <tbody>
                 <?php foreach ($household_open_items as $entry) : ?>
                     <tr>

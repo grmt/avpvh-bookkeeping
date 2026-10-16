@@ -24,7 +24,9 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    dismissBtn.addEventListener('click', dismiss);
+    dismissBtn.addEventListener('click', function () {
+        void dismiss();
+    });
 
     if (detailLink) {
         detailLink.addEventListener('click', function (e) {
@@ -32,7 +34,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var href = detailLink.href;
             dismiss().finally(function () {
                 window.location.href = href;
-            });
+            }).catch(function () {});
         });
     }
 });

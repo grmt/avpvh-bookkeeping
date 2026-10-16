@@ -68,7 +68,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
     ?>
     <div class="avbk-member-combo">
         <input type="hidden" name="<?php echo esc_attr($name); ?>" class="avbk-member-combo-value" value="<?php echo esc_attr($selected_id ?: ''); ?>">
-        <input type="text" class="avbk-member-combo-input" autocomplete="off" placeholder="&mdash; kies lid &mdash;" value="<?php echo esc_attr($selected_label); ?>">
+        <input type="text" class="avbk-member-combo-input" autocomplete="off" placeholder="&mdash; kies lid &mdash;" value="<?php echo esc_attr($selected_label); ?>" aria-label="Selecteer lid">
         <div class="avbk-member-combo-list" hidden></div>
     </div>
     <a href="<?php echo esc_url($selected_id ? AVBK_DB::member_edit_url($selected_id) : '#'); ?>" target="_blank" class="avbk-detail-member-link"<?php echo $selected_id ? '' : ' style="display:none"'; ?>>bewerk lid</a>
@@ -86,7 +86,7 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
  */
 function avbk_activity_select(string $name, array $recent_activities, array $other_type_names, string $selected = '', int $member_id = 0): void {
     ?>
-    <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select">
+    <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select" aria-label="Selecteer activiteit">
         <option value="">&mdash; activiteit &mdash;</option>
         <?php
         $open_fee_items = $member_id ? AVBK_DB::get_open_fee_items_for_member($member_id) : [];
@@ -467,7 +467,7 @@ function avbk_row_detail(array $row): ?array {
                 <?php endif; ?>
 
                 <table class="avbk-review-split">
-                    <thead><tr><th>Persoon</th><th>Activiteit</th><th>Bedrag</th><th></th></tr></thead>
+                    <thead><tr><th scope="col">Persoon</th><th scope="col">Activiteit</th><th scope="col">Bedrag</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) :
                         $d = avbk_row_detail($row);
@@ -480,8 +480,8 @@ function avbk_row_detail(array $row): ?array {
                             <td><?php avbk_member_select('member_id[]', $all_members, (int) $row['member_id']); ?></td>
                             <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names, (string) $row['activity'], (int) ($row['member_id'] ?? 0)); ?></td>
                             <td>
-                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="<?php echo !empty($d['found']) ? '1' : '0'; ?>" data-open-amount="<?php echo !empty($d['found']) ? esc_attr(number_format($open_amount, 2, '.', '')) : ''; ?>" value="<?php echo esc_attr(number_format($row_amount, 2, ',', '')); ?>" size="6">
-                                <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_matched_activity ? ' style="display:none"' : ''; ?>>
+                                &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="<?php echo !empty($d['found']) ? '1' : '0'; ?>" data-open-amount="<?php echo !empty($d['found']) ? esc_attr(number_format($open_amount, 2, '.', '')) : ''; ?>" value="<?php echo esc_attr(number_format($row_amount, 2, ',', '')); ?>" size="6" aria-label="Bedrag voor regel">
+                                <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="<?php echo esc_attr($row['description'] ?? ''); ?>"<?php echo $is_matched_activity ? ' style="display:none"' : ''; ?> aria-label="Omschrijving voor regel">
                                 <span class="avbk-detail-fragments description"><?php echo $d['fragments_html'] ?? ''; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built entirely from esc_html()'d/esc_url()'d fragments in AVBK_DB::get_member_fee_detail() (see that method's own comment), never raw input. ?></span>
                                 <span class="avbk-detail-estimated<?php echo !empty($d['estimated_warning']) ? ' avbk-detail-estimated-warning' : ''; ?>"><?php echo esc_html($d['estimated_text'] ?? ''); ?></span>
                                 <span class="avbk-detail-shortfall"><?php echo $row_shortfall > 0.005 ? esc_html('⚠ Gedeeltelijke betaling: € ' . number_format($row_shortfall, 2, ',', '.') . ' blijft voor deze bijdrage open.') : ''; ?></span>
@@ -500,8 +500,8 @@ function avbk_row_detail(array $row): ?array {
                         <td><?php avbk_member_select('member_id[]', $all_members); ?></td>
                         <td><?php avbk_activity_select('activity[]', $recent_activities, $other_activity_type_names); ?></td>
                         <td>
-                            &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="0" value="" size="6" placeholder="0,00">
-                            <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="">
+                            &euro; <input type="text" name="amount[]" class="avbk-amount-input" data-known="0" value="" size="6" placeholder="0,00" aria-label="Bedrag voor regel">
+                            <input type="text" name="description[]" class="avbk-row-description" placeholder="Omschrijving (optioneel)" value="" aria-label="Omschrijving voor regel">
                             <span class="avbk-detail-fragments description"></span>
                             <span class="avbk-detail-estimated"></span>
                             <span class="avbk-detail-shortfall"></span>

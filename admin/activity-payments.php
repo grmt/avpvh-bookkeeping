@@ -140,9 +140,9 @@ sort($activity_types);
                 <?php wp_nonce_field('avbk_sheet_import_upload'); ?>
                 <input type="hidden" name="action" value="avbk_sheet_import_upload">
                 <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                <div class="avbk-dropzone" tabindex="0" style="max-width:32em">
+                <div class="avbk-dropzone" style="max-width:32em">
                     <span class="avbk-dropzone-text">Sleep het bijgewerkte kampbestand (.xlsx) hierheen, of klik om te kiezen</span>
-                    <input type="file" name="sheet_file" accept=".xlsx" required>
+                    <input type="file" name="sheet_file" accept=".xlsx" aria-label="Kampbestand (.xlsx)" required>
                 </div>
                 <p class="description">
                     Herkende deelnemers en hun dagen worden bijgewerkt; de kampperiode volgt de datums in het bestand.
@@ -155,7 +155,7 @@ sort($activity_types);
                 <?php wp_nonce_field('avbk_camp_sheet_import_from_url'); ?>
                 <input type="hidden" name="action" value="avbk_camp_sheet_import_from_url">
                 <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                <input type="url" name="camp_sheet_url" class="regular-text" style="width:32em" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <input type="url" name="camp_sheet_url" class="regular-text" style="width:32em" placeholder="https://docs.google.com/spreadsheets/d/..." aria-label="Google Sheets URL voor kampbestand">
                 <?php submit_button('Ophalen en verwerken', 'secondary', 'submit', false); ?>
             </form>
         <?php else : ?>
@@ -203,9 +203,9 @@ sort($activity_types);
             <input type="hidden" name="action" value="avbk_sheet_import_upload">
             <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
             <p class="description">Of upload een Excel-bestand (.xlsx) met dezelfde kolomindeling als hieronder ingesteld:</p>
-            <div class="avbk-dropzone" tabindex="0" style="max-width:32em">
+            <div class="avbk-dropzone" style="max-width:32em">
                 <span class="avbk-dropzone-text">Sleep een .xlsx-bestand hierheen, of klik om te kiezen</span>
-                <input type="file" name="sheet_file" accept=".xlsx" required>
+                <input type="file" name="sheet_file" accept=".xlsx" aria-label="Excel-bestand (.xlsx)" required>
             </div>
             <?php submit_button('Upload en verwerk', 'secondary', 'submit', false); ?>
         </form>
@@ -216,16 +216,16 @@ sort($activity_types);
             <div style="max-width:100%;overflow:auto;margin-bottom:1.5rem">
                 <table class="wp-list-table widefat striped" style="width:max-content;min-width:100%">
                     <thead><tr>
-                        <th>Rij</th>
+                        <th scope="col">Rij</th>
                         <?php
                         $preview_column_count = max(array_map(fn($row) => $row['cells'] ? max(array_keys($row['cells'])) + 1 : 0, $raw_preview_rows));
                         for ($preview_column = 0; $preview_column < $preview_column_count; $preview_column++) : ?>
-                            <th style="min-width:10em"><?php echo esc_html(AVBK_Sheet_Import::index_to_letter($preview_column)); ?></th>
+                            <th scope="col" style="min-width:10em"><?php echo esc_html(AVBK_Sheet_Import::index_to_letter($preview_column)); ?></th>
                         <?php endfor; ?>
                     </tr></thead>
                     <tbody>
                         <?php foreach ($raw_preview_rows as $preview_row) : ?><tr>
-                            <th><?php echo esc_html($preview_row['row_number']); ?></th>
+                            <th scope="row"><?php echo esc_html($preview_row['row_number']); ?></th>
                             <?php for ($preview_column = 0; $preview_column < $preview_column_count; $preview_column++) : ?>
                                 <td><?php echo esc_html(mb_strimwidth((string) ($preview_row['cells'][$preview_column] ?? ''), 0, 120, '…')); ?></td>
                             <?php endfor; ?>
@@ -309,9 +309,18 @@ sort($activity_types);
                 </tr>
             </table>
             <table class="wp-list-table widefat striped" style="max-width:1200px">
-                <thead><tr><th>Slot</th><th>Naam <em>(of e-mail)</em></th><th>E-mail <em>(of naam)</em></th><th>Allergie/notitie</th><th>Overige notitie</th><th>Bedrag <em>(optioneel)</em></th><th>Nieuwsbrief <em>(optioneel)</em></th></tr></thead>
+                <thead><tr><th scope="col">Slot</th><th scope="col">Naam <em>(of e-mail)</em></th><th scope="col">E-mail <em>(of naam)</em></th><th scope="col">Allergie/notitie</th><th scope="col">Overige notitie</th><th scope="col">Bedrag <em>(optioneel)</em></th><th scope="col">Nieuwsbrief <em>(optioneel)</em></th></tr></thead>
                 <tbody>
-                <?php for ($i = 0; $i < AVBK_Sheet_Import::MAX_SLOTS; $i++) :
+                <?php
+                $slot_field_labels = [
+                    'slot_name'       => 'Naam',
+                    'slot_email'      => 'E-mail',
+                    'slot_diet'       => 'Allergie/notitie',
+                    'slot_notes'      => 'Overige notitie',
+                    'slot_amount'     => 'Bedrag',
+                    'slot_newsletter' => 'Nieuwsbrief',
+                ];
+                for ($i = 0; $i < AVBK_Sheet_Import::MAX_SLOTS; $i++) :
                     $slot = $config['slots'][$i] ?? ['name' => '', 'email' => '', 'diet' => '', 'notes' => '', 'amount' => '', 'newsletter' => ''];
                     $slot_label = $i === 0 ? 'Persoon 1 (hoofdaanmelder)' : 'Persoon ' . ($i + 1) . ' (optioneel)';
                     $slot_inputs = [
@@ -324,11 +333,13 @@ sort($activity_types);
                     ];
                     ?>
                     <tr>
-                        <td><?php echo esc_html($slot_label); ?></td>
-                        <?php foreach ($slot_inputs as $input_name => $value) : ?>
+                        <th scope="row"><?php echo esc_html($slot_label); ?></th>
+                        <?php foreach ($slot_inputs as $input_name => $value) :
+                            $aria_label = ($slot_field_labels[$input_name] ?? $input_name) . ' ' . $slot_label;
+                        ?>
                             <td>
                                 <?php if ($sheet_headers) : ?>
-                                    <select name="<?php echo esc_attr($input_name); ?>[]" data-avbk-column-select style="max-width:20em">
+                                    <select name="<?php echo esc_attr($input_name); ?>[]" data-avbk-column-select aria-label="<?php echo esc_attr($aria_label); ?>" style="max-width:20em">
                                         <option value="">&mdash; niet gebruikt &mdash;</option>
                                         <?php foreach ($sheet_headers as $letter => $header_text) : ?>
                                             <option value="<?php echo esc_attr($letter); ?>" <?php selected($value, $letter); ?>>
@@ -338,7 +349,7 @@ sort($activity_types);
                                         <?php endforeach; ?>
                                     </select>
                                 <?php else : ?>
-                                    <input type="text" name="<?php echo esc_attr($input_name); ?>[]" value="<?php echo esc_attr($value); ?>" style="width:5em" placeholder="bijv. B">
+                                    <input type="text" name="<?php echo esc_attr($input_name); ?>[]" value="<?php echo esc_attr($value); ?>" aria-label="<?php echo esc_attr($aria_label); ?>" style="width:5em" placeholder="bijv. B">
                                 <?php endif; ?>
                             </td>
                         <?php endforeach; ?>
@@ -432,9 +443,9 @@ sort($activity_types);
                                 <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
                                 <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
                             <?php endif; ?>
-                            <label style="display:block;margin:.4rem 0"><input type="search" class="avbk-unmatched-member-search" placeholder="Zoek lid, bijv. paul" style="width:20em"></label>
+                            <label style="display:block;margin:.4rem 0"><span class="screen-reader-text">Zoek lid</span><input type="search" class="avbk-unmatched-member-search" placeholder="Zoek lid, bijv. paul" aria-label="Zoek lid" style="width:20em"></label>
                             <label style="display:block;margin:.4rem 0"><input type="checkbox" class="avbk-show-inactive-members"> Toon inactieve leden</label>
-                            <select name="member_id" class="avbk-unmatched-member-select" required>
+                            <select name="member_id" class="avbk-unmatched-member-select" aria-label="Kies lid" required>
                                 <option value="">&mdash; kies lid (ook oud-leden/bezoekers) &mdash;</option>
                                 <?php if (!empty($person['suggestions'])) : ?>
                                     <optgroup label="Waarschijnlijke actieve leden">
@@ -541,16 +552,16 @@ sort($activity_types);
             <div class="avbk-balance-table-wrap">
             <table id="avbk-balance-table" data-storage-key="avbk_activity_payments_hidden_cols_<?php echo esc_attr($activity_id); ?>" class="wp-list-table widefat striped avbk-balance-table">
                 <thead><tr class="avbk-balance-header-row">
-                    <th data-col="naam">Naam</th>
-                    <th data-col="bank" class="avbk-col-optional">Bank(en)</th>
-                    <th data-col="bank_naam" data-filter="select" class="avbk-col-optional">Bank</th>
-                    <th data-col="land" data-filter="select" class="avbk-col-optional">Land</th>
-                    <th data-col="ingeschreven" data-filter="select">Ingeschreven op</th>
-                    <th data-col="allergieen" class="avbk-col-optional">Allergieën</th>
-                    <th data-col="notities" class="avbk-col-optional">Notities</th>
-                    <th data-col="betaald" data-type="number">Betaald</th>
-                    <th data-col="totaal" data-type="number">Berekend totaal</th>
-                    <th data-col="betaalverzoek" data-filter="select">Betaalverzoek</th>
+                    <th scope="col" data-col="naam">Naam</th>
+                    <th scope="col" data-col="bank" class="avbk-col-optional">Bank(en)</th>
+                    <th scope="col" data-col="bank_naam" data-filter="select" class="avbk-col-optional">Bank</th>
+                    <th scope="col" data-col="land" data-filter="select" class="avbk-col-optional">Land</th>
+                    <th scope="col" data-col="ingeschreven" data-filter="select">Ingeschreven op</th>
+                    <th scope="col" data-col="allergieen" class="avbk-col-optional">Allergieën</th>
+                    <th scope="col" data-col="notities" class="avbk-col-optional">Notities</th>
+                    <th scope="col" data-col="betaald" data-type="number">Betaald</th>
+                    <th scope="col" data-col="totaal" data-type="number">Berekend totaal</th>
+                    <th scope="col" data-col="betaalverzoek" data-filter="select">Betaalverzoek</th>
                 </tr></thead>
                 <tbody>
                 <?php $participants_paid_total = 0.0; $participants_due_total = 0.0; foreach ($participants as $p) :
@@ -650,10 +661,10 @@ sort($activity_types);
                 <?php endforeach; ?>
                 </tbody>
                 <tfoot><tr>
-                    <th>Totaal</th><th></th><th></th><th></th><th></th><th></th><th></th>
-                    <th data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></th>
-                    <th data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></th>
-                    <th></th>
+                    <th scope="row">Totaal</th><td></td><td></td><td></td><td></td><td></td><td></td>
+                    <td data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></td>
+                    <td data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></td>
+                    <td></td>
                 </tr></tfoot>
             </table>
             </div>

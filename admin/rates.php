@@ -85,7 +85,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
         </form>
     <?php endif; ?>
     <table class="wp-list-table widefat striped" style="max-width:800px">
-        <thead><tr><th>Label</th><th>Min. leeftijd</th><th>Max. leeftijd</th><th>Scholieren/studenten</th><th>Kenmerk</th><th>Tarief</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Label</th><th scope="col">Min. leeftijd</th><th scope="col">Max. leeftijd</th><th scope="col">Scholieren/studenten</th><th scope="col">Kenmerk</th><th scope="col">Tarief</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
         <tbody>
         <?php foreach ($rates as $rate) : ?>
             <tr>
@@ -94,19 +94,19 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <input type="hidden" name="action" value="avbk_save_activity_rate">
                     <input type="hidden" name="id" value="<?php echo esc_attr($rate->id); ?>">
                     <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                    <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%"></td>
-                    <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em"></td>
-                    <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em"></td>
-                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
+                    <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%" aria-label="Tariefomschrijving"></td>
+                    <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em" aria-label="Minimum leeftijd"></td>
+                    <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em" aria-label="Maximum leeftijd"></td>
+                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?> aria-label="Alleen scholieren/studenten"></td>
                     <td>
-                        <select name="flag_id">
+                        <select name="flag_id" aria-label="Koppel met kenmerk">
                             <option value="">&mdash; geen &mdash;</option>
                             <?php foreach ($all_flags as $flag) : ?>
                                 <option value="<?php echo esc_attr($flag->id); ?>" <?php selected((int) ($rate->flag_id ?? 0), (int) $flag->id); ?>><?php echo esc_html($flag->label); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>
-                    <td>&euro; <input type="text" name="rate" value="<?php echo esc_attr(number_format((float) $rate->rate, 2, ',', '')); ?>" style="width:6em"></td>
+                    <td>&euro; <input type="text" name="rate" value="<?php echo esc_attr(number_format((float) $rate->rate, 2, ',', '')); ?>" style="width:6em" aria-label="Bedrag"></td>
                     <td>
                         <button type="submit" class="button button-small">Opslaan</button>
                 </form>
@@ -126,19 +126,19 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <input type="hidden" name="action" value="avbk_save_activity_rate">
                 <input type="hidden" name="id" value="0">
                 <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-                <td><input type="text" name="label" placeholder="bijv. Volwassenen" style="width:100%"></td>
-                <td><input type="number" name="min_age" style="width:5em"></td>
-                <td><input type="number" name="max_age" style="width:5em"></td>
-                <td style="text-align:center"><input type="checkbox" name="for_students" value="1"></td>
+                <td><input type="text" name="label" placeholder="bijv. Volwassenen" style="width:100%" aria-label="Nieuwe tariefomschrijving"></td>
+                <td><input type="number" name="min_age" style="width:5em" aria-label="Minimum leeftijd"></td>
+                <td><input type="number" name="max_age" style="width:5em" aria-label="Maximum leeftijd"></td>
+                <td style="text-align:center"><input type="checkbox" name="for_students" value="1" aria-label="Alleen scholieren/studenten"></td>
                 <td>
-                    <select name="flag_id">
+                    <select name="flag_id" aria-label="Koppel met kenmerk">
                         <option value="">&mdash; geen &mdash;</option>
                         <?php foreach ($all_flags as $flag) : ?>
                             <option value="<?php echo esc_attr($flag->id); ?>"><?php echo esc_html($flag->label); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </td>
-                <td>&euro; <input type="text" name="rate" placeholder="0,00" style="width:6em"></td>
+                <td>&euro; <input type="text" name="rate" placeholder="0,00" style="width:6em" aria-label="Bedrag"></td>
                 <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
             </form>
         </tr>
@@ -302,7 +302,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <th><label for="payment_email_login_help">Inloguitleg in betaalmail</label></th>
                 <td>
                     <label><input type="checkbox" id="payment_email_login_help" name="payment_email_login_help" value="1" <?php checked((bool) get_option('avbk_payment_email_login_help', 1)); ?>> Voeg uitleg over wachtwoord, Google en Microsoft toe</label>
-                    <textarea name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem; width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', '') ?: AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT); ?></textarea>
+                    <textarea id="payment_email_login_text" name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem; width:100%; max-width:700px;" aria-label="Aangepaste inloguitleg in betaalmail"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', '') ?: AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT); ?></textarea>
                     <p class="description">Gebruik <code>[wachtwoord-link]</code> voor de klikbare link “hier” naar het scherm om in te loggen of een wachtwoord in te stellen. De QR-code en profiel-link blijven altijd in de betaalmail staan.</p>
                 </td>
             </tr>

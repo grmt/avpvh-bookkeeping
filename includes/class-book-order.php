@@ -159,6 +159,7 @@ class AVBK_Book_Order {
                             <input type="hidden" name="action" value="avbk_check_book_email">
                             <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
                             <div class="avbk-book-check-email-row">
+                                <label for="avbk_check_email_input" class="screen-reader-text">E-mailadres ter controle</label>
                                 <input type="email" id="avbk_check_email_input" name="check_email" class="avbk-check-email-input" placeholder="jouw.email@example.nl" value="<?php echo esc_attr($checked_email); ?>" required>
                                 <button type="submit" id="avbk_check_email_btn" class="button avbk-check-email-btn">Controleren</button>
                             </div>
@@ -743,7 +744,6 @@ class AVBK_Book_Order {
         if (in_array($price_note_opt, self::LEGACY_PRICE_NOTES, true) || empty($price_note_opt)) {
             $price_note_opt = self::DEFAULT_PRICE_NOTE;
         }
-        $price_note_email = !empty($price_note_opt) ? "Prijsnotitie: {$price_note_opt}\n\n" : '';
 
         // If user was logged in, order is confirmed immediately. Redirect to confirmation view.
         if ($member) {
@@ -873,7 +873,7 @@ class AVBK_Book_Order {
         }
 
         // Member exists but has never logged in yet. Send email with password creation link.
-        $transient_key = 'avbk_reset_sent_' . md5(strtolower($email));
+        $transient_key = 'avbk_reset_sent_' . hash('sha256', strtolower($email));
         $already_sent = (bool) get_transient($transient_key);
 
         if (!$already_sent) {
