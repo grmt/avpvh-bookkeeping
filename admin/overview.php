@@ -72,6 +72,8 @@ $last_payment_dates = AVBK_DB::get_last_payment_dates(wp_list_pluck($members_wit
 $stale_fee_items = AVBK_Fee_Generation::find_stale_fee_items();
 $assigned_payment_counts = AVBK_DB::get_assigned_payment_counts_by_year();
 $transaction_date_ranges = AVBK_DB::get_transaction_date_ranges_by_year();
+$total_credit = round(array_sum(array_map(fn($m) => AVBK_DB::get_total_credit_for_member((int) $m->id), $members)), 2);
+$total_donations = AVBK_DB::get_total_donations();
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>
@@ -88,6 +90,14 @@ $transaction_date_ranges = AVBK_DB::get_transaction_date_ranges_by_year();
         <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-review')); ?>" style="color:inherit;text-decoration:none">
             <span class="avbk-stat-value"><?php echo esc_html(count($review_queue)); ?></span>
             <span class="avbk-stat-label">Transacties te controleren</span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1', 'f_toegewezen' => 'niet'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($total_credit, 2, ',', '.')); ?></span>
+            <span class="avbk-stat-label">Totaal aan tegoeden</span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1', 'f_activiteit' => 'Schenking'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($total_donations, 2, ',', '.')); ?></span>
+            <span class="avbk-stat-label">Totaal geschonken</span>
         </a>
     </div>
 

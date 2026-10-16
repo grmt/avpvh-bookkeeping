@@ -23,7 +23,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_rate', [$this, 'handle_delete_activity_rate']);
         add_action('admin_post_avbk_copy_activity_rates',  [$this, 'handle_copy_activity_rates']);
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
-        add_action('admin_post_avbk_apply_credit',         [$this, 'handle_apply_credit']);
+        add_action('admin_post_avbk_donate_credit',        [$this, 'handle_donate_credit']);
         add_action('admin_post_avbk_update_fee_item_amount', [$this, 'handle_update_fee_item_amount']);
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
@@ -45,7 +45,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_request_payment',                [$this, 'handle_request_payment']);
         add_action('admin_post_avbk_preview_request_payment_email',  [$this, 'handle_preview_request_payment_email']);
         add_action('admin_post_avbk_preview_payment_request',        [$this, 'handle_preview_payment_request']);
-        add_action('admin_post_avbk_request_balance_payment',        [$this, 'handle_request_balance_payment']);
+        add_action('admin_post_avbk_balance_selection',               [$this, 'handle_balance_selection']);
         add_action('admin_post_avbk_recompute_suggestions',          [$this, 'handle_recompute_suggestions']);
         add_action('admin_post_avbk_save_review_order',              [$this, 'handle_save_review_order']);
         add_action('admin_post_avbk_resolve_dispute',                [$this, 'handle_resolve_dispute']);
@@ -1784,23 +1784,34 @@ class AVBK_Admin {
     }
 
     /**
-     * Opens or mails the existing member balance/QR page for an explicit
-     * selection of fee items. This deliberately reuses the shortcode and
-     * AVBK_QR reference format instead of creating a second payment flow in
-     * wp-admin.
+     * One shared "Kies" selection on the member-detail rekening table feeds
+     * three different intents, dispatched on which button was pressed
+     * rather than each needing its own form/nonce: opening or mailing the
+     * existing member balance/QR page for the checked fee items (this
+     * deliberately reuses the shortcode and AVBK_QR reference format
+     * instead of a second payment flow in wp-admin), or — when "Verrekenen
+     * met tegoed" is pressed instead — settling those same items against
+     * the member's own credit via settle_credit_selection().
      */
-    public function handle_request_balance_payment(): void {
-        check_admin_referer('avbk_request_balance_payment');
+    public function handle_balance_selection(): void {
+        check_admin_referer('avbk_balance_selection');
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
 
         $member_id = (int) ($_POST['member_id'] ?? 0);
-        $mode = sanitize_key(wp_unslash($_POST['request_mode'] ?? 'show'));
         $requested_ids = array_values(array_unique(array_filter(array_map(
             'intval',
             (array) wp_unslash($_POST['fee_item_ids'] ?? [])
         ))));
+        $return_url = add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php'));
+
+        if (isset($_POST['do_settle_credit'])) {
+            $this->settle_credit_selection($member_id, $requested_ids, !empty($_POST['apply_credit']), $return_url);
+            return;
+        }
+
+        $mode = sanitize_key(wp_unslash($_POST['request_mode'] ?? 'show'));
         $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
 
         $items = [];
@@ -1819,7 +1830,6 @@ class AVBK_Admin {
             $total += $remaining;
         }
 
-        $return_url = add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php'));
         if (!$member || !$items) {
             wp_safe_redirect(add_query_arg('payment_request_failed', '1', $return_url));
             exit;
@@ -1889,6 +1899,86 @@ class AVBK_Admin {
         remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
 
         wp_safe_redirect(add_query_arg($sent ? 'payment_requested' : 'payment_request_failed', '1', $return_url));
+        exit;
+    }
+
+    /**
+     * "Verrekenen met tegoed" on the member-detail rekening table: settle
+     * every checked open item against the member's own credit in one go
+     * (oldest credit-transaction first — see apply_credit_fifo()), instead
+     * of picking one item and an amount by hand.
+     */
+    private function settle_credit_selection(int $member_id, array $fee_item_ids, bool $use_credit, string $return_url): void {
+        if (!$member_id || !$use_credit || !$fee_item_ids) {
+            wp_safe_redirect(add_query_arg('credit_apply_failed', '1', $return_url));
+            exit;
+        }
+        $total_applied = 0.0;
+        $descriptions = [];
+        foreach ($fee_item_ids as $fee_item_id) {
+            $item = AVBK_DB::get_fee_item($fee_item_id);
+            if (!$item || (int) $item->member_id !== $member_id || $item->status !== 'open') {
+                continue;
+            }
+            $remaining = AVBK_DB::get_fee_item_remaining($item);
+            if ($remaining <= 0.005) {
+                continue;
+            }
+            $applied = AVBK_DB::apply_credit_fifo($member_id, $fee_item_id, $remaining);
+            if ($applied > 0.005) {
+                $total_applied = round($total_applied + $applied, 2);
+                $descriptions[] = $item->description;
+            }
+        }
+        if ($total_applied <= 0.005) {
+            wp_safe_redirect(add_query_arg('credit_apply_failed', '1', $return_url));
+            exit;
+        }
+        $member = AVPVH_DB::get_member($member_id);
+        if ($member && is_email($member->email)) {
+            $subject = '[AV-PvH] Tegoed verrekend';
+            $body = sprintf(
+                "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
+                number_format($total_applied, 2, ',', '.'),
+                implode(', ', $descriptions),
+                home_url('/leden/beheer/#bijdrage')
+            );
+            wp_mail($member->email, $subject, $body);
+        }
+        wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
+        exit;
+    }
+
+    /**
+     * "Schenking" on the tegoed-regel: the member gives up (all of) their
+     * own credit instead of verrekening it — booked via
+     * AVBK_DB::donate_credit() as an ordinary paid "Schenking" bijdrage so
+     * it stays visible instead of silently disappearing.
+     */
+    public function handle_donate_credit(): void {
+        check_admin_referer('avbk_donate_credit');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
+        $return_url = add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php'));
+        $donated = $member_id && $amount > 0 ? AVBK_DB::donate_credit($member_id, $amount) : 0.0;
+        if ($donated <= 0.005) {
+            wp_safe_redirect($return_url);
+            exit;
+        }
+        $member = AVPVH_DB::get_member($member_id);
+        if ($member && is_email($member->email)) {
+            $subject = '[AV-PvH] Tegoed geschonken';
+            $body = sprintf(
+                "De penningmeester heeft € %s van je tegoed geboekt als schenking aan AV Philips van Horne.\n\nJe overzicht: %s",
+                number_format($donated, 2, ',', '.'),
+                home_url('/leden/beheer/#bijdrage')
+            );
+            wp_mail($member->email, $subject, $body);
+        }
+        wp_safe_redirect(add_query_arg('credit_donated', '1', $return_url));
         exit;
     }
 
@@ -2084,44 +2174,6 @@ class AVBK_Admin {
             AVBK_DB::waive_fee_item($id);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'waived' => '1'], admin_url('admin.php')));
-        exit;
-    }
-
-    /**
-     * Penningmeester verrekent namens een lid diens tegoed (zie
-     * AVBK_DB::get_credit_transactions_for_member()) met een openstaande
-     * post van datzelfde lid. Het lid krijgt hierna een mailtje — anders
-     * zou een tegoed stilletjes verdwijnen uit iemands overzicht zonder
-     * dat diegene weet waarom.
-     */
-    public function handle_apply_credit(): void {
-        check_admin_referer('avbk_apply_credit');
-        if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
-        }
-        $member_id = (int) ($_POST['member_id'] ?? 0);
-        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
-        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
-        if ($member_id && $fee_item_id && $amount > 0) {
-            $applied = AVBK_DB::apply_credit_fifo($member_id, $fee_item_id, $amount);
-            if ($applied > 0.005) {
-                $member = AVPVH_DB::get_member($member_id);
-                $item = AVBK_DB::get_fee_item($fee_item_id);
-                if ($member && is_email($member->email)) {
-                    $subject = '[AV-PvH] Tegoed verrekend';
-                    $body = sprintf(
-                        "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
-                        number_format($applied, 2, ',', '.'),
-                        $item->description ?? '',
-                        home_url('/leden/beheer/#bijdrage')
-                    );
-                    wp_mail($member->email, $subject, $body);
-                }
-                wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'credit_applied' => '1'], admin_url('admin.php')));
-                exit;
-            }
-        }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php')));
         exit;
     }
 
