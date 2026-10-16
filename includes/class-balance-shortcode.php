@@ -227,15 +227,15 @@ class AVBK_Balance_Shortcode {
             <table class="avbk-balance-table" id="avbk-balance-table">
                 <thead>
                     <tr class="avbk-balance-header-row">
-                        <?php if ($balance['balance'] > 0.005) : ?><th data-col="betalen">Betalen</th><?php endif; ?>
-                        <?php if ($show_member_column) : ?><th data-col="lid" data-filter="select">Lid</th><?php endif; ?>
-                        <th data-col="omschrijving">Omschrijving</th>
-                        <th data-col="tarief" class="avbk-col-optional">Tarief</th>
-                        <th data-col="aantal" class="avbk-col-optional">Aantal</th>
-                        <th data-col="bedrag" data-type="number">Bedrag</th>
-                        <th data-col="betaald" data-type="number" class="avbk-col-optional">Betaald</th>
-                        <th data-col="openstaand" data-type="number">Openstaand</th>
-                        <th data-col="status" data-filter="select">Status</th>
+                        <?php if ($balance['balance'] > 0.005) : ?><th scope="col" data-col="betalen">Betalen</th><?php endif; ?>
+                        <?php if ($show_member_column) : ?><th scope="col" data-col="lid" data-filter="select">Lid</th><?php endif; ?>
+                        <th scope="col" data-col="omschrijving">Omschrijving</th>
+                        <th scope="col" data-col="tarief" class="avbk-col-optional">Tarief</th>
+                        <th scope="col" data-col="aantal" class="avbk-col-optional">Aantal</th>
+                        <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
+                        <th scope="col" data-col="betaald" data-type="number" class="avbk-col-optional">Betaald</th>
+                        <th scope="col" data-col="openstaand" data-type="number">Openstaand</th>
+                        <th scope="col" data-col="status" data-filter="select">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -255,7 +255,7 @@ class AVBK_Balance_Shortcode {
                         <?php if ($balance['balance'] > 0.005) : ?>
                             <td>
                                 <?php if ($item->status !== 'waived' && $item->remaining > 0.005) : ?>
-                                    <input type="checkbox" name="pay[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?>>
+                                    <input type="checkbox" name="pay[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?> aria-label="<?php echo esc_attr(sprintf('Selecteer %s voor betaling', $parts['base'])); ?>">
                                 <?php else : ?>&mdash;<?php endif; ?>
                             </td>
                         <?php endif; ?>
@@ -282,22 +282,22 @@ class AVBK_Balance_Shortcode {
                 </tbody>
                 <tfoot>
                     <?php
-                    // One <th> per logical column (no colspan) so this row
+                    // One cell per logical column (no colspan) so this row
                     // lines up correctly with thead/tbody regardless of
                     // which columns the visitor has hidden — colspan cells
                     // don't collapse cleanly across columns hidden via
                     // display:none and end up drifting out of alignment.
                     ?>
                     <tr>
-                        <?php if ($balance['balance'] > 0.005) : ?><th></th><?php endif; ?>
-                        <?php if ($show_member_column) : ?><th>Totaal</th><?php else : ?><th class="avbk-col-description">Totaal</th><?php endif; ?>
-                        <?php if ($show_member_column) : ?><th class="avbk-col-description"></th><?php endif; ?>
-                        <th class="avbk-col-optional"></th>
-                        <th class="avbk-col-optional"></th>
-                        <th></th>
-                        <th class="avbk-col-optional"></th>
-                        <th class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></th>
-                        <th></th>
+                        <?php if ($balance['balance'] > 0.005) : ?><td></td><?php endif; ?>
+                        <?php if ($show_member_column) : ?><th scope="row">Totaal</th><?php else : ?><th scope="row" class="avbk-col-description">Totaal</th><?php endif; ?>
+                        <?php if ($show_member_column) : ?><td class="avbk-col-description"></td><?php endif; ?>
+                        <td class="avbk-col-optional"></td>
+                        <td class="avbk-col-optional"></td>
+                        <td></td>
+                        <td class="avbk-col-optional"></td>
+                        <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></td>
+                        <td></td>
                     </tr>
                 </tfoot>
             </table>

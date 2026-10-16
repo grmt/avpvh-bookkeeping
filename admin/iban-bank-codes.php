@@ -39,15 +39,15 @@ foreach ($formats as $format) {
         Verwijderen wist ook de bankcodes van dat land.
     </p>
     <table class="wp-list-table widefat striped" style="max-width:900px">
-        <thead><tr><th>Landcode</th><th>Landnaam</th><th>Positie bankcode</th><th>Lengte</th><th>Acties</th></tr></thead>
+        <thead><tr><th scope="col">Landcode</th><th scope="col">Landnaam</th><th scope="col">Positie bankcode</th><th scope="col">Lengte</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
         <tbody>
         <?php foreach ($formats as $format) :
             $form_id = 'avbk-country-' . strtolower($format->country_code); ?>
             <tr>
                 <td><code><?php echo esc_html($format->country_code); ?></code></td>
-                <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="country_name" value="<?php echo esc_attr($format->country_name); ?>" required></td>
-                <td><input form="<?php echo esc_attr($form_id); ?>" type="number" name="bank_code_position" min="1" max="34" value="<?php echo esc_attr($format->bank_code_position); ?>" required style="width:6em"></td>
-                <td><input form="<?php echo esc_attr($form_id); ?>" type="number" name="bank_code_length" min="1" max="16" value="<?php echo esc_attr($format->bank_code_length); ?>" required style="width:6em"></td>
+                <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="country_name" value="<?php echo esc_attr($format->country_name); ?>" required aria-label="Landnaam voor <?php echo esc_attr($format->country_code); ?>"></td>
+                <td><input form="<?php echo esc_attr($form_id); ?>" type="number" name="bank_code_position" min="1" max="34" value="<?php echo esc_attr($format->bank_code_position); ?>" required style="width:6em" aria-label="Positie bankcode voor <?php echo esc_attr($format->country_code); ?>"></td>
+                <td><input form="<?php echo esc_attr($form_id); ?>" type="number" name="bank_code_length" min="1" max="16" value="<?php echo esc_attr($format->bank_code_length); ?>" required style="width:6em" aria-label="Lengte bankcode voor <?php echo esc_attr($format->country_code); ?>"></td>
                 <td style="white-space:nowrap">
                     <form id="<?php echo esc_attr($form_id); ?>" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
                         <?php wp_nonce_field('avbk_save_iban_country_format'); ?>
@@ -65,10 +65,10 @@ foreach ($formats as $format) {
             </tr>
         <?php endforeach; ?>
         <tr>
-            <td><input form="avbk-new-country" type="text" name="country_code" maxlength="2" pattern="[A-Za-z]{2}" placeholder="DE" required style="width:5em;text-transform:uppercase"></td>
-            <td><input form="avbk-new-country" type="text" name="country_name" placeholder="Landnaam" required></td>
-            <td><input form="avbk-new-country" type="number" name="bank_code_position" min="1" max="34" required style="width:6em"></td>
-            <td><input form="avbk-new-country" type="number" name="bank_code_length" min="1" max="16" required style="width:6em"></td>
+            <td><input form="avbk-new-country" type="text" name="country_code" maxlength="2" pattern="[A-Za-z]{2}" placeholder="DE" required style="width:5em;text-transform:uppercase" aria-label="Nieuwe landcode"></td>
+            <td><input form="avbk-new-country" type="text" name="country_name" placeholder="Landnaam" required aria-label="Nieuwe landnaam"></td>
+            <td><input form="avbk-new-country" type="number" name="bank_code_position" min="1" max="34" required style="width:6em" aria-label="Nieuwe positie bankcode"></td>
+            <td><input form="avbk-new-country" type="number" name="bank_code_length" min="1" max="16" required style="width:6em" aria-label="Nieuwe lengte bankcode"></td>
             <td>
                 <form id="avbk-new-country" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('avbk_save_iban_country_format'); ?>
@@ -102,14 +102,14 @@ foreach ($formats as $format) {
             Laat Eindcode leeg voor één exacte code. Bereiken mogen niet overlappen.
         </p>
         <table class="wp-list-table widefat striped" style="max-width:900px">
-            <thead><tr><th>Begincode</th><th>Eindcode</th><th>Banknaam</th><th>Acties</th></tr></thead>
+            <thead><tr><th scope="col">Begincode</th><th scope="col">Eindcode</th><th scope="col">Banknaam</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
             <tbody>
             <?php foreach ($bank_codes as $bank_code) :
                 $form_id = 'avbk-bank-code-' . (int) $bank_code->id; ?>
                 <tr>
-                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="code_start" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" value="<?php echo esc_attr($bank_code->code_start); ?>" required style="width:9em;text-transform:uppercase"></td>
-                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="code_end" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" value="<?php echo esc_attr($bank_code->code_end); ?>" style="width:9em;text-transform:uppercase"></td>
-                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="bank_name" value="<?php echo esc_attr($bank_code->bank_name); ?>" required style="width:100%;max-width:24em"></td>
+                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="code_start" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" value="<?php echo esc_attr($bank_code->code_start); ?>" required style="width:9em;text-transform:uppercase" aria-label="Begincode voor <?php echo esc_attr($bank_code->bank_name); ?>"></td>
+                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="code_end" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" value="<?php echo esc_attr($bank_code->code_end); ?>" style="width:9em;text-transform:uppercase" aria-label="Eindcode voor <?php echo esc_attr($bank_code->bank_name); ?>"></td>
+                    <td><input form="<?php echo esc_attr($form_id); ?>" type="text" name="bank_name" value="<?php echo esc_attr($bank_code->bank_name); ?>" required style="width:100%;max-width:24em" aria-label="Banknaam voor <?php echo esc_attr($bank_code->code_start); ?>"></td>
                     <td style="white-space:nowrap">
                         <form id="<?php echo esc_attr($form_id); ?>" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
                             <?php wp_nonce_field('avbk_save_iban_bank_code'); ?>
@@ -129,9 +129,9 @@ foreach ($formats as $format) {
                 </tr>
             <?php endforeach; ?>
             <tr>
-                <td><input form="avbk-new-bank-code" type="text" name="code_start" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" required style="width:9em;text-transform:uppercase"></td>
-                <td><input form="avbk-new-bank-code" type="text" name="code_end" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" style="width:9em;text-transform:uppercase"></td>
-                <td><input form="avbk-new-bank-code" type="text" name="bank_name" required style="width:100%;max-width:24em"></td>
+                <td><input form="avbk-new-bank-code" type="text" name="code_start" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" required style="width:9em;text-transform:uppercase" aria-label="Nieuwe begincode"></td>
+                <td><input form="avbk-new-bank-code" type="text" name="code_end" maxlength="<?php echo esc_attr($selected_format->bank_code_length); ?>" style="width:9em;text-transform:uppercase" aria-label="Nieuwe eindcode"></td>
+                <td><input form="avbk-new-bank-code" type="text" name="bank_name" required style="width:100%;max-width:24em" aria-label="Nieuwe banknaam"></td>
                 <td>
                     <form id="avbk-new-bank-code" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                         <?php wp_nonce_field('avbk_save_iban_bank_code'); ?>

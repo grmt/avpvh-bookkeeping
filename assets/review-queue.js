@@ -78,7 +78,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!res.success) return;
                 activityParticipantsCache[activityId] = res.data;
                 applyActivityParticipants(hiddenInput, res.data);
-            });
+            })
+            .catch(function () {});
     }
 
     function loadHouseholdSuggestions(form, memberId) {
@@ -603,11 +604,12 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
                     }
                     updateTotals(form); // amountInput.value was set programmatically, no native 'input' event fires
-                });
+                })
+                .catch(function () {});
         }
 
         memberSelect.addEventListener('change', function () {
-            loadHouseholdSuggestions(form, memberSelect.value);
+            void loadHouseholdSuggestions(form, memberSelect.value);
             updateMemberEditLink();
             lookupDetail(false);
         });
@@ -674,7 +676,7 @@ document.addEventListener('DOMContentLoaded', function () {
         entries.forEach(function (entry) {
             if (!entry.isIntersecting) return;
             var form = entry.target;
-            loadHouseholdSuggestions(form);
+            void loadHouseholdSuggestions(form);
             householdObserver.unobserve(form);
         });
     }, { rootMargin: '250px 0px' }) : null;
@@ -708,7 +710,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 wireRemoveButton(row, form);
                 // The new row is blank, so it's exactly the case
                 // applyHouseholdSuggestions() targets.
-                loadHouseholdSuggestions(form);
+                void loadHouseholdSuggestions(form);
                 refreshSaveState();
             });
         }

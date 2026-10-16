@@ -312,7 +312,7 @@ class AVBK_Photo_Share {
         }
 
         // Fallback folder ID for environments without live Drive API credentials
-        $fallback_id = 'share-' . md5($folder_name . '-' . $share->confirm_token);
+        $fallback_id = 'share-' . hash('sha256', $folder_name . '-' . $share->confirm_token);
         return [
             'folder_id'   => $fallback_id,
             'folder_url'  => 'https://drive.google.com/drive/folders/' . $fallback_id,

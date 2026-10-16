@@ -288,7 +288,8 @@ class AVBK_Tshirt_Order {
                             <input type="hidden" name="action" value="avbk_check_tshirt_email">
                             <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
                             <div class="avbk-book-check-email-row">
-                                <input type="email" id="avbk_check_email_input" name="check_email" class="avbk-check-email-input" placeholder="jouw.email@example.nl" value="<?php echo esc_attr($checked_email); ?>" required>
+                                <label for="avbk_check_tshirt_email_input" class="screen-reader-text">E-mailadres ter controle</label>
+                                <input type="email" id="avbk_check_tshirt_email_input" name="check_email" class="avbk-check-email-input" placeholder="jouw.email@example.nl" value="<?php echo esc_attr($checked_email); ?>" required>
                                 <button type="submit" id="avbk_check_email_btn" class="button avbk-check-email-btn">Controleren</button>
                             </div>
                         </form>
@@ -649,11 +650,11 @@ class AVBK_Tshirt_Order {
                     <table class="avbk-tshirt-summary-table widefat striped" style="margin-bottom: .75rem;">
                         <thead>
                             <tr>
-                                <th>Design</th>
-                                <th>Maat</th>
-                                <th style="width: 80px;">Aantal</th>
-                                <th style="width: 110px;">Stukprijs</th>
-                                <th style="width: 110px;">Totaal</th>
+                                <th scope="col">Design</th>
+                                <th scope="col">Maat</th>
+                                <th scope="col" style="width: 80px;">Aantal</th>
+                                <th scope="col" style="width: 110px;">Stukprijs</th>
+                                <th scope="col" style="width: 110px;">Totaal</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -669,8 +670,8 @@ class AVBK_Tshirt_Order {
                         </tbody>
                         <tfoot>
                             <tr>
-                                <th colspan="4" style="text-align: right;">Totaalbedrag:</th>
-                                <th>&euro;&nbsp;<?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></th>
+                                <th scope="row" colspan="4" style="text-align: right;">Totaalbedrag:</th>
+                                <td>&euro;&nbsp;<?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -1049,7 +1050,7 @@ class AVBK_Tshirt_Order {
             exit;
         }
 
-        $transient_key = 'avbk_reset_sent_' . md5(strtolower($email));
+        $transient_key = 'avbk_reset_sent_' . hash('sha256', strtolower($email));
         $already_sent = (bool) get_transient($transient_key);
 
         if (!$already_sent) {

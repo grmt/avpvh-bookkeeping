@@ -101,7 +101,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (values.indexOf(v) === -1) values.push(v);
                 });
             });
-            values.sort();
+            values.sort(function (a, b) {
+                return a.localeCompare(b);
+            });
 
             function updateToggleLabel() {
                 var included = 0, excluded = 0;
