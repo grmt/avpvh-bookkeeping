@@ -27,6 +27,27 @@ $current_book_year = (int) current_time('Y');
     <?php if ($detail_member_id) :
         $member = AVPVH_DB::get_member($detail_member_id);
         if ($member) :
+            // "Rekening combineren met" — same household-selection function
+            // as [avpvh_bk_balance]'s own "Betaal ook voor" on the member's
+            // profile page (AVPVH_DB::get_extended_household() +
+            // ?also[]=), so the treasurer can fold a household/family
+            // member's open posten into this same table and selection
+            // instead of handling each person's rekening one at a time.
+            $household = array_values(array_filter(
+                AVPVH_DB::get_extended_household($detail_member_id),
+                fn($m) => (int) $m->id !== $detail_member_id
+            ));
+            $requested_also = array_map('intval', (array) ($_GET['also'] ?? []));
+            $also_ids = array_values(array_intersect($requested_also, wp_list_pluck($household, 'id')));
+            $also_members = [];
+            foreach ($household as $hm) {
+                if (in_array((int) $hm->id, $also_ids, true)) {
+                    $also_members[(int) $hm->id] = $hm;
+                }
+            }
+            $combined_members = [$detail_member_id => $member] + $also_members;
+            $show_member_column = (bool) $also_members;
+
             $by_year = AVBK_DB::get_member_balance_by_year($detail_member_id, $show_all_years);
             // Default view: this book year only. A not-yet-closed previous
             // year's items only appear once "per boekjaar" is switched on —
@@ -36,6 +57,18 @@ $current_book_year = (int) current_time('Y');
                 ? $by_year['items']
                 : array_values(array_filter($by_year['items'], fn($item) => AVBK_DB::fee_item_book_year($item) === $current_book_year));
             $shown_total = $per_year ? $by_year['total'] : $by_year['current'];
+            $combined_current = $by_year['current'];
+            $combined_other = $by_year['other'];
+            foreach ($also_members as $also_id => $also_member) {
+                $also_by_year = AVBK_DB::get_member_balance_by_year($also_id, $show_all_years);
+                $also_items = $per_year
+                    ? $also_by_year['items']
+                    : array_values(array_filter($also_by_year['items'], fn($item) => AVBK_DB::fee_item_book_year($item) === $current_book_year));
+                $shown_items = array_merge($shown_items, $also_items);
+                $shown_total = round($shown_total + ($per_year ? $also_by_year['total'] : $also_by_year['current']), 2);
+                $combined_current = round($combined_current + $also_by_year['current'], 2);
+                $combined_other = round($combined_other + $also_by_year['other'], 2);
+            }
             ?>
             <h2><?php echo esc_html(avpvh_format_name($member)); ?></h2>
             <p>
@@ -55,7 +88,27 @@ $current_book_year = (int) current_time('Y');
             <?php endif; ?>
             <?php $available_credit = AVBK_DB::get_total_credit_for_member($detail_member_id); ?>
 
-            <h3>Rekening van dit lid</h3>
+            <?php if ($household) : ?>
+                <form method="get" style="margin:.5rem 0 1rem">
+                    <input type="hidden" name="page" value="avbk-members">
+                    <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                    <?php if ($show_all_years) : ?><input type="hidden" name="show_all_years" value="1"><?php endif; ?>
+                    <?php if ($per_year) : ?><input type="hidden" name="per_year" value="1"><?php endif; ?>
+                    <fieldset>
+                        <legend><strong>Rekening combineren met:</strong></legend>
+                        <?php foreach ($household as $hm) : ?>
+                            <label style="margin-right:1rem">
+                                <input type="checkbox" name="also[]" value="<?php echo esc_attr($hm->id); ?>" <?php checked(in_array((int) $hm->id, $also_ids, true)); ?> onchange="this.form.requestSubmit()">
+                                <?php echo esc_html(avpvh_format_name($hm)); ?>
+                            </label>
+                        <?php endforeach; ?>
+                        <noscript><button type="submit" class="button button-small">Toepassen</button></noscript>
+                    </fieldset>
+                    <p class="description">Open posten van geselecteerde huisgenoten/familie verschijnen hieronder in dezelfde tabel en kunnen samen geselecteerd worden voor een betaalverzoek/QR. Het tegoed hierboven blijft dat van dit lid zelf.</p>
+                </form>
+            <?php endif; ?>
+
+            <h3>Rekening van dit lid<?php echo $show_member_column ? ' en geselecteerde huisgenoten/familie' : ''; ?></h3>
             <?php if ($closed_through_year) : ?>
                 <p class="description">
                     <?php if ($show_all_years) : ?>
@@ -103,13 +156,14 @@ $current_book_year = (int) current_time('Y');
                 </form>
             </details>
             <table class="wp-list-table widefat striped">
-                <thead><tr><th>Kies</th><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Betaling(en)</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Kies</th><?php if ($show_member_column) : ?><th>Lid</th><?php endif; ?><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Betaling(en)</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                 <?php if ($available_credit > 0.005) :
                     $credit_transactions = AVBK_DB::get_credit_transactions_for_member($detail_member_id);
                     ?>
                     <tr style="background:#f0f6fc">
                         <td><input type="checkbox" name="apply_credit" value="1" form="avbk-payment-selection"></td>
+                        <?php if ($show_member_column) : ?><td><?php echo esc_html(avpvh_format_name($member)); ?></td><?php endif; ?>
                         <td><strong>Tegoed</strong> <span class="description">(eerdere betaling was meer dan op dat moment openstond)</span></td>
                         <td>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?></td>
                         <td>&mdash;</td>
@@ -143,9 +197,10 @@ $current_book_year = (int) current_time('Y');
                     </tr>
                 <?php endif; ?>
                 <?php if (!$shown_items && $available_credit <= 0.005) : ?>
-                    <tr><td colspan="8">Nog geen bijdragen geregistreerd.</td></tr>
+                    <tr><td colspan="<?php echo $show_member_column ? 9 : 8; ?>">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php elseif ($shown_items) : foreach ($shown_items as $item) :
                     $payments = AVBK_DB::get_payments_for_fee_item((int) $item->id);
+                    $item_owner = $combined_members[(int) $item->member_id] ?? $member;
                     ?>
                     <tr>
                         <td>
@@ -153,6 +208,7 @@ $current_book_year = (int) current_time('Y');
                                 <input type="checkbox" name="fee_item_ids[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-payment-selection">
                             <?php else : ?>&mdash;<?php endif; ?>
                         </td>
+                        <?php if ($show_member_column) : ?><td><?php echo esc_html(avpvh_format_name($item_owner)); ?></td><?php endif; ?>
                         <td>
                             <?php echo esc_html($item->description); ?>
                             <?php if (!empty($item->donation_email_sent_at)) : ?>
@@ -173,7 +229,7 @@ $current_book_year = (int) current_time('Y');
                                     <?php wp_nonce_field('avbk_update_fee_item_amount'); ?>
                                     <input type="hidden" name="action" value="avbk_update_fee_item_amount">
                                     <input type="hidden" name="id" value="<?php echo esc_attr($item->id); ?>">
-                                    <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                                    <input type="hidden" name="member_id" value="<?php echo esc_attr($item->member_id); ?>">
                                     &euro; <input type="text" name="amount_due" value="<?php echo esc_attr(number_format((float) $item->amount_due, 2, ',', '')); ?>" size="6"<?php echo $rate_options ? ' list="' . esc_attr($datalist_id) . '"' : ''; ?>>
                                     <?php if ($rate_options) : ?>
                                         <datalist id="<?php echo esc_attr($datalist_id); ?>">
@@ -215,7 +271,7 @@ $current_book_year = (int) current_time('Y');
                                     <?php wp_nonce_field('avbk_waive_fee_item'); ?>
                                     <input type="hidden" name="action" value="avbk_waive_fee_item">
                                     <input type="hidden" name="id" value="<?php echo esc_attr($item->id); ?>">
-                                    <input type="hidden" name="member_id" value="<?php echo esc_attr($detail_member_id); ?>">
+                                    <input type="hidden" name="member_id" value="<?php echo esc_attr($item->member_id); ?>">
                                     <button type="submit" class="button button-small" onclick="return confirm('Deze bijdrage kwijtschelden?');">Kwijtschelden</button>
                                 </form>
                             <?php endif; ?>
@@ -224,15 +280,16 @@ $current_book_year = (int) current_time('Y');
                 <?php endforeach; endif; ?>
                 </tbody>
                 <tfoot>
+                    <?php $foot_colspan = $show_member_column ? 6 : 5; ?>
                     <?php if ($per_year) : ?>
                         <tr>
-                            <th colspan="5">Totaal openstaand</th>
-                            <th>Huidig: &euro; <?php echo esc_html(number_format($by_year['current'], 2, ',', '.')); ?></th>
-                            <th>Vorig: &euro; <?php echo esc_html(number_format($by_year['other'], 2, ',', '.')); ?></th>
-                            <th>Totaal: &euro; <?php echo esc_html(number_format($by_year['total'], 2, ',', '.')); ?></th>
+                            <th colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th>
+                            <th>Huidig: &euro; <?php echo esc_html(number_format($combined_current, 2, ',', '.')); ?></th>
+                            <th>Vorig: &euro; <?php echo esc_html(number_format($combined_other, 2, ',', '.')); ?></th>
+                            <th>Totaal: &euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th>
                         </tr>
                     <?php else : ?>
-                        <tr><th colspan="5">Totaal openstaand</th><th colspan="3">&euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th></tr>
+                        <tr><th colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th><th colspan="3">&euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th></tr>
                     <?php endif; ?>
                 </tfoot>
             </table>

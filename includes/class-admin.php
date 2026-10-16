@@ -1814,11 +1814,21 @@ class AVBK_Admin {
         $mode = sanitize_key(wp_unslash($_POST['request_mode'] ?? 'show'));
         $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
 
+        // Items may belong to the viewed member or any household/family
+        // member shown alongside them via "Rekening combineren met" on the
+        // rekeningtabel — re-derive the allowed set server-side (same
+        // AVPVH_DB::get_extended_household() the shortcode's own "Betaal
+        // ook voor" uses) rather than trusting which ids the client sent.
+        $allowed_member_ids = $member_id
+            ? array_map('intval', array_merge([$member_id], wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id')))
+            : [];
+
         $items = [];
         $total = 0.0;
+        $item_member_ids = [];
         foreach ($requested_ids as $fee_item_id) {
             $item = AVBK_DB::get_fee_item($fee_item_id);
-            if (!$item || (int) $item->member_id !== $member_id || $item->status === 'waived') {
+            if (!$item || !in_array((int) $item->member_id, $allowed_member_ids, true) || $item->status === 'waived') {
                 continue;
             }
             $remaining = AVBK_DB::get_fee_item_remaining($item);
@@ -1828,6 +1838,7 @@ class AVBK_Admin {
             $item->remaining = $remaining;
             $items[] = $item;
             $total += $remaining;
+            $item_member_ids[(int) $item->member_id] = true;
         }
 
         if (!$member || !$items) {
@@ -1835,8 +1846,19 @@ class AVBK_Admin {
             exit;
         }
 
+        // Any household member actually represented in the selection must
+        // be passed along too, or the frontend page (whose own "Betaal ook
+        // voor" independently derives $items from ?also[]) won't recognize
+        // their fee item ids and will silently drop them from the combined
+        // QR/overzicht.
+        $also_member_ids = array_values(array_diff(array_keys($item_member_ids), [$member_id]));
+
         $balance_url = add_query_arg(
-            ['member_id' => $member_id, 'pay' => wp_list_pluck($items, 'id')],
+            array_filter([
+                'member_id' => $member_id,
+                'pay'       => wp_list_pluck($items, 'id'),
+                'also'      => $also_member_ids ?: null,
+            ]),
             home_url('/leden/beheer/member-profile/')
         ) . '#bijdrage';
         if ($mode === 'show') {
@@ -1850,7 +1872,12 @@ class AVBK_Admin {
         }
 
         $descriptions = array_map(
-            fn($item) => sprintf('%s: € %s', $item->description, number_format((float) $item->remaining, 2, ',', '.')),
+            fn($item) => sprintf(
+                '%s%s: € %s',
+                $item->description,
+                (int) $item->member_id !== $member_id ? ' (' . avpvh_format_name(AVPVH_DB::get_member((int) $item->member_id)) . ')' : '',
+                number_format((float) $item->remaining, 2, ',', '.')
+            ),
             $items
         );
         $penningmeester_name = get_option('avbk_penningmeester_name', 'de penningmeester');
