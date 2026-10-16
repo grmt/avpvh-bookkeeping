@@ -1,5 +1,11 @@
 <?php
-/** Standalone view checks with synthetic members/fees; no database writes or mail. */
+/**
+ * Standalone view checks with synthetic members/fees; no database writes or
+ * mail. Covers the member-detail page's household "Rekening combineren met"
+ * selector, which folds selected household members' own open items into the
+ * same combined table (replacing the older separate household-balance
+ * summary section).
+ */
 define('ABSPATH', __DIR__ . '/');
 define('AVBK_PLUGIN_DIR', dirname(__DIR__) . '/');
 
@@ -50,6 +56,14 @@ function esc_url($value): string { return esc_html($value); }
 function avpvh_format_name(object $member): string { return $member->name; }
 function wp_date(string $format, int $timestamp): string { return date($format, $timestamp); }
 function wp_nonce_field(string $action): void { echo '<input type="hidden" name="_wpnonce" value="test">'; }
+function wp_list_pluck(array $list, string $field): array {
+    return array_map(fn($item) => is_object($item) ? $item->$field : $item[$field], $list);
+}
+function checked($checked, $current = true, bool $echo = true): string {
+    $result = ((string) $checked === (string) $current) ? ' checked="checked"' : '';
+    if ($echo) echo $result;
+    return $result;
+}
 
 require AVBK_PLUGIN_DIR . 'includes/class-db.php';
 function check(bool $ok, string $message): void {
@@ -71,7 +85,7 @@ function reset_case(): void {
         12 => (object) ['id' => 12, 'name' => 'Lid C'],
         99 => (object) ['id' => 99, 'name' => 'Niet gekoppeld'],
     ];
-    $GLOBALS['households'] = [10 => [$GLOBALS['members'][10], $GLOBALS['members'][11], $GLOBALS['members'][12], $GLOBALS['members'][11]]];
+    $GLOBALS['households'] = [10 => [$GLOBALS['members'][10], $GLOBALS['members'][11], $GLOBALS['members'][12]]];
     $GLOBALS['fees'] = [
         fee(1, 10, 2026, 75, 75, 'Betaalde bijdrage'),
         fee(2, 11, 2026, 40, 15, 'Gedeeltelijk betaald'),
@@ -100,59 +114,57 @@ function table(string $html, string $id): string {
     preg_match('/<table id="' . preg_quote($id, '/') . '".*?<\/table>/s', $html, $match);
     return $match[0] ?? '';
 }
-function family_link(string $html): array {
-    preg_match('/href="([^"]+)">Volledige rekening, huisgenoten en QR/', $html, $match);
-    parse_str(parse_url(html_entity_decode($match[1] ?? ''), PHP_URL_QUERY) ?? '', $query);
-    return $query;
-}
-
 reset_case();
 $html = render();
 $preview = $html;
-$summary = table($html, 'avbk-household-balances');
-$open = table($html, 'avbk-household-open-items');
-check(substr_count($summary, '<tbody>') === 1 && substr_count($summary, 'Bekijk rekening') === 3, 'each household member shown once, including members with zero balance');
-check(str_contains($summary, '47,00') && str_contains($summary, '35,00') && str_contains($summary, '12,00'), 'individual and combined totals count partial payments without masking debts with overpayments');
-check(str_contains($open, 'Open vorig jaar') && str_contains($open, 'Overige kosten zonder jaar'), 'household shows all non-closed years even when individual table is current-year-only');
-check(!str_contains($open, 'Afgesloten jaar') && !str_contains($open, 'Kwijtgescholden') && !str_contains($open, 'Te veel betaald') && !str_contains($open, 'Betaalde bijdrage'), 'closed, waived, paid and overpaid fees omitted from open items');
+$table = table($html, 'avbk-balance-table');
+check(!str_contains($html, 'data-col="lid"'), 'no Lid column when no household members are combined into the table');
+check(!str_contains($table, 'Gedeeltelijk betaald'), 'own table does not include other household members\' items by default');
+check(str_contains($html, 'Rekening combineren met'), 'household combine checkboxes are offered when a household is registered');
+check(str_contains($html, 'name="also[]" value="11"') && str_contains($html, 'name="also[]" value="12"'), 'a checkbox is offered per household member');
+check(!str_contains($html, 'checked="checked"'), 'no household member pre-selected by default');
 check(!str_contains($html, 'Niet gekoppeld') && !str_contains($html, 'Kosten buiten familie'), 'unrelated members and costs are not included');
-$query = family_link($html);
-check(($query['member_id'] ?? '') === '10' && ($query['also'] ?? []) === ['11', '12'], 'combined QR link is always available and includes the unique household, even if chosen member owes nothing');
-check(!str_contains($html, 'id="avbk-payment-selection"'), 'no empty payment request form for settled individual');
-check(str_contains(html_entity_decode($summary), 'member_id=11&per_year=1'), 'member detail links reveal non-closed years rather than hiding older open fees');
+check(!str_contains($html, 'id="avbk-payment-selection"'), 'no empty payment request form for a settled individual');
 
-$with_years = render(['per_year' => '1']);
-check(table($with_years, 'avbk-household-balances') === $summary, 'individual per-year toggle does not change household totals');
-$with_closed = render(['show_all_years' => '1', 'per_year' => '1']);
-check(str_contains(table($with_closed, 'avbk-household-balances'), '56,00') && str_contains(table($with_closed, 'avbk-household-open-items'), 'Afgesloten jaar'), 'explicit closed-year toggle reveals historical fees with matching totals');
-check(str_contains($with_closed, 'actuele rekening en QR hieronder bevatten deze niet'), 'historical fees are not represented as payable through current QR');
+$combined = render(['also' => ['11']]);
+$combined_table = table($combined, 'avbk-balance-table');
+check(str_contains($combined, 'data-col="lid"'), 'Lid column appears once a household member is combined in');
+check((bool) preg_match('/name="also\[\]" value="11"\s+checked="checked"/', $combined), 'combined member\'s checkbox reflects the selection');
+check(str_contains($combined_table, 'Gedeeltelijk betaald') && str_contains($combined_table, 'Lid B'), 'combined member\'s own open item and name appear in the same table');
+check(!str_contains($combined_table, 'Afgesloten jaar'), 'a closed-year item of the combined member stays hidden by default, same as for the viewed member');
+check(str_contains($combined_table, 'Kwijtgescholden bijdrage') && str_contains($combined_table, 'Te veel betaald'), 'the combined member\'s full current-year ledger is shown (not just open items), same as for the viewed member');
+check(!str_contains($combined, 'name="also[]" value="99"'), 'unrelated members are never offered as combine options');
+
+$ignored = render(['also' => ['99']]);
+check(!str_contains($ignored, 'data-col="lid"') && !str_contains($ignored, 'Niet gekoppeld'), 'a member outside the household cannot be combined in via a crafted also[] value');
+
+$with_closed = render(['also' => ['11'], 'show_all_years' => '1', 'per_year' => '1']);
+check(str_contains(table($with_closed, 'avbk-balance-table'), 'Afgesloten jaar'), 'show_all_years reveals closed-year items for a combined member too, same as for the viewed member');
 
 reset_case();
 $fees[] = fee(9, 10, 2026, 5, 0, 'Eigen open post');
 $html = render();
-check(str_contains(table($html, 'avbk-household-balances'), '52,00') && str_contains($html, 'id="avbk-payment-selection"') && str_contains($html, 'name="fee_item_ids[]" value="9"'), 'existing individual selection and payment requests remain available');
-
-reset_case();
-$fees[] = fee(9, 10, 2025, 5, 0, 'Eigen vorige post');
-$html = render();
-check(str_contains(table($html, 'avbk-household-open-items'), 'Eigen vorige post') && !str_contains($html, 'id="avbk-payment-selection"'), 'own older open fee is visible in household section without changing individual year filter');
+check(str_contains($html, 'id="avbk-payment-selection"') && str_contains($html, 'name="fee_item_ids[]" value="9"'), 'existing selection and payment requests remain available for the viewed member\'s own items');
 
 reset_case();
 $fees[6]->activity_id = 7;
-check(str_contains(table(render(), 'avbk-household-open-items'), '<td>2027</td>'), 'fees without year use their activity book year');
+$per_year_combined = render(['also' => ['12'], 'per_year' => '1']);
+check(str_contains(table($per_year_combined, 'avbk-balance-table'), 'Overige kosten zonder jaar'), 'a combined member\'s fee without a year uses its activity book year, same as for the viewed member');
+
 $members[11]->name = '<script>name</script>';
 $fees[1]->description = '<script>fee</script>';
-$html = render();
-check(!str_contains($html, '<script>') && str_contains($html, '&lt;script&gt;fee&lt;/script&gt;'), 'member names and fee descriptions are HTML escaped');
+$html = render(['also' => ['11']]);
+check(!str_contains($html, '<script>') && str_contains($html, '&lt;script&gt;fee&lt;/script&gt;') && str_contains($html, '&lt;script&gt;name&lt;/script&gt;'), 'member names and fee descriptions are HTML escaped, including in the new Lid column');
 
 reset_case();
 $fees = [];
 $html = render();
-check(str_contains($html, 'Geen openstaande posten') && str_contains($html, 'Volledige rekening, huisgenoten en QR'), 'fully paid household still shown with combined account link');
+check(str_contains($html, 'Nog geen bijdragen geregistreerd'), 'an empty account still renders without error');
+
 reset_case();
 $households = [];
 $html = render();
-check(str_contains($html, 'geen andere familieleden of huisgenoten gekoppeld') && substr_count(table($html, 'avbk-household-balances'), 'Bekijk rekening') === 1, 'no inferred family when no household is registered');
+check(!str_contains($html, 'Rekening combineren met'), 'no combine selector offered when no household is registered');
 
 reset_case();
 $treasurer = false;
@@ -160,10 +172,10 @@ try {
     render();
     throw new RuntimeException('FAILED: unauthorized page rendered');
 } catch (RuntimeException $error) {
-    check($error->getMessage() === 'Access denied', 'unauthorized viewers cannot see household balances');
+    check($error->getMessage() === 'Access denied', 'unauthorized viewers cannot see the member balance page');
 }
 $admin = true;
-check(str_contains(render(), 'avbk-household-balances'), 'administrator retains access');
+check(str_contains(render(), 'id="avbk-balance-table"'), 'administrator retains access');
 
 if (in_array('--render', $_SERVER['argv'] ?? [], true)) {
     echo '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><title>Fictief familieoverzicht</title></head><body>' . $preview . '</body></html>';
