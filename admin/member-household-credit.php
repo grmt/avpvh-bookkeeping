@@ -4,8 +4,9 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
     wp_die('Geen toegang.');
 }
 
-// Included from the detail view, right after member-household-balance.php —
-// reuses its $household_members (same household scope, no need to recompute).
+// Included from the detail view. Reuses members-balance.php's own
+// $household_members (full household, independent of which members are
+// currently checked into the combined rekening table above).
 //
 // A credit transaction paid from one shared account can belong to several
 // household members at once (see AVBK_DB::get_credit_transactions_for_member()'s
