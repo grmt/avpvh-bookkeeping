@@ -15,16 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: "Setup PHP"
-        uses: shivammathur/setup-php@2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ env.php-version }}
           coverage: none
 
       - name: "Cache Composer dependencies"
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: "~/.composer/cache"
           key: composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-${{ hashFiles('composer.json') }}
@@ -70,7 +70,7 @@ jobs:
     needs: lint
     steps:
       - name: "Checkout avpvh-bookkeeping"
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: avpvh-bookkeeping
 
@@ -80,14 +80,14 @@ jobs:
       # as a second plugin to install and activate alongside this one.
       # It's public, so no token/auth needed.
       - name: "Checkout avpvh-members"
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: grmt/avpvh-members
           ref: main
           path: avpvh-members
 
       - name: "Setup PHP"
-        uses: shivammathur/setup-php@2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ env.php-version }}
           coverage: none
@@ -120,7 +120,7 @@ jobs:
       # excluded deliberately, not just deferred.
       - name: "Run plugin check"
         continue-on-error: true
-        uses: wordpress/plugin-check-action@v1
+        uses: wordpress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
         with:
           build-dir: avpvh-bookkeeping
           exclude-directories: |

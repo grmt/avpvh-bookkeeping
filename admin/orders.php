@@ -229,7 +229,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 </select>
             </label>
 
-            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;">
+            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek kledingbestellingen">
             <button type="submit" class="button">Filteren</button>
             <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $status_filter !== '' || $search_query !== '') : ?>
                 <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt'], admin_url('admin.php'))); ?>" class="button">Reset</a>
@@ -240,16 +240,16 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
-                    <th style="width: 50px;">ID</th>
-                    <th style="width: 90px;">Datum</th>
-                    <th style="width: 170px;">Besteller</th>
-                    <th>Adres</th>
-                    <th style="width: 240px;">Bestelde shirts</th>
-                    <th style="width: 90px;">Bedrag</th>
-                    <th style="width: 110px;">Betaling</th>
-                    <th style="width: 150px;">Uitreiking</th>
-                    <th>Opmerkingen</th>
-                    <th style="width: 100px;">Acties</th>
+                    <th scope="col" style="width: 50px;">ID</th>
+                    <th scope="col" style="width: 90px;">Datum</th>
+                    <th scope="col" style="width: 170px;">Besteller</th>
+                    <th scope="col">Adres</th>
+                    <th scope="col" style="width: 240px;">Bestelde shirts</th>
+                    <th scope="col" style="width: 90px;">Bedrag</th>
+                    <th scope="col" style="width: 110px;">Betaling</th>
+                    <th scope="col" style="width: 150px;">Uitreiking</th>
+                    <th scope="col">Opmerkingen</th>
+                    <th scope="col" style="width: 100px;"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -324,7 +324,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
                                     <input type="hidden" name="order_id" value="<?php echo (int) $order->id; ?>">
                                     <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt'], admin_url('admin.php'))); ?>">
-                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;">
+                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
                                         <option value="pending" <?php selected($order->distribution_status, 'pending'); ?>>In afwachting</option>
                                         <option value="collected" <?php selected($order->distribution_status, 'collected'); ?>>Opgehaald</option>
                                         <option value="distributed" <?php selected($order->distribution_status, 'distributed'); ?>>Uitgereikt</option>
@@ -485,7 +485,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 </select>
             </label>
 
-            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;">
+            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek boekbestellingen">
             <button type="submit" class="button">Filteren</button>
             <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $presentation_filter !== 'all' || $status_filter !== '' || $search_query !== '') : ?>
                 <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book'], admin_url('admin.php'))); ?>" class="button">Reset</a>
@@ -495,17 +495,17 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
-                    <th style="width: 50px;">ID</th>
-                    <th style="width: 90px;">Datum</th>
-                    <th style="width: 170px;">Besteller</th>
-                    <th>Adres</th>
-                    <th style="width: 80px;">Aantal</th>
-                    <th style="width: 90px;">Bedrag</th>
-                    <th style="width: 110px;">Betaling</th>
-                    <th style="width: 120px;">Presentatie</th>
-                    <th style="width: 150px;">Uitreiking</th>
-                    <th>Opmerkingen</th>
-                    <th style="width: 100px;">Acties</th>
+                    <th scope="col" style="width: 50px;">ID</th>
+                    <th scope="col" style="width: 90px;">Datum</th>
+                    <th scope="col" style="width: 170px;">Besteller</th>
+                    <th scope="col">Adres</th>
+                    <th scope="col" style="width: 80px;">Aantal</th>
+                    <th scope="col" style="width: 90px;">Bedrag</th>
+                    <th scope="col" style="width: 110px;">Betaling</th>
+                    <th scope="col" style="width: 120px;">Presentatie</th>
+                    <th scope="col" style="width: 150px;">Uitreiking</th>
+                    <th scope="col">Opmerkingen</th>
+                    <th scope="col" style="width: 100px;"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -577,7 +577,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
                                     <input type="hidden" name="order_id" value="<?php echo (int) $order->id; ?>">
                                     <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? add_query_arg(['page' => 'avbk-orders', 'tab' => 'book'], admin_url('admin.php'))); ?>">
-                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;">
+                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
                                         <option value="pending" <?php selected($order->distribution_status, 'pending'); ?>>In afwachting</option>
                                         <option value="collected" <?php selected($order->distribution_status, 'collected'); ?>>Opgehaald</option>
                                         <option value="distributed" <?php selected($order->distribution_status, 'distributed'); ?>>Uitgereikt</option>
@@ -670,22 +670,22 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <table class="widefat striped" style="max-width: 600px; margin-bottom: 1.5rem;" id="avbk_types_editor_table">
                 <thead>
                     <tr>
-                        <th style="width: 140px;">Type code</th>
-                        <th style="width: 200px;">Naam</th>
-                        <th style="width: 120px;">Prijs (&euro;)</th>
+                        <th scope="col" style="width: 140px;">Type code</th>
+                        <th scope="col" style="width: 200px;">Naam</th>
+                        <th scope="col" style="width: 120px;">Prijs (&euro;)</th>
                     </tr>
                 </thead>
                 <tbody id="avbk_types_editor_body">
                     <?php foreach ($types as $idx => $t) : ?>
                         <tr>
                             <td>
-                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($t['id'] ?? ''); ?>" style="width:100%;" required>
+                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($t['id'] ?? ''); ?>" style="width:100%;" required aria-label="Type code voor kledingstuk <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($t['name'] ?? ''); ?>" style="width:100%;" required>
+                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($t['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor kledingstuk <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="number" step="0.50" name="tshirt_types[<?php echo $idx; ?>][price]" value="<?php echo esc_attr(number_format((float) ($t['price'] ?? 21.00), 2, '.', '')); ?>" style="width:100%;" required>
+                                <input type="number" step="0.50" name="tshirt_types[<?php echo $idx; ?>][price]" value="<?php echo esc_attr(number_format((float) ($t['price'] ?? 21.00), 2, '.', '')); ?>" style="width:100%;" required aria-label="Prijs voor kledingstuk <?php echo $idx + 1; ?>">
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -698,34 +698,34 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <table class="widefat striped" style="max-width: 960px; margin-bottom: 1.5rem;" id="avbk_designs_editor_table">
                 <thead>
                     <tr>
-                        <th style="width: 130px;">ID / Code</th>
-                        <th style="width: 200px;">Naam design</th>
-                        <th>Omschrijving</th>
-                        <th style="width: 220px;">Foto URL / Pad</th>
-                        <th style="width: 85px;">Prijs (&euro;)</th>
-                        <th style="width: 55px; text-align: center;">Actief</th>
+                        <th scope="col" style="width: 130px;">ID / Code</th>
+                        <th scope="col" style="width: 200px;">Naam design</th>
+                        <th scope="col">Omschrijving</th>
+                        <th scope="col" style="width: 220px;">Foto URL / Pad</th>
+                        <th scope="col" style="width: 85px;">Prijs (&euro;)</th>
+                        <th scope="col" style="width: 55px; text-align: center;">Actief</th>
                     </tr>
                 </thead>
                 <tbody id="avbk_designs_editor_body">
                     <?php foreach ($designs as $idx => $d) : ?>
                         <tr>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($d['id'] ?? ''); ?>" style="width:100%;" required>
+                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($d['id'] ?? ''); ?>" style="width:100%;" required aria-label="ID / code voor design <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($d['name'] ?? ''); ?>" style="width:100%;" required>
+                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($d['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor design <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][description]" value="<?php echo esc_attr($d['description'] ?? ''); ?>" style="width:100%;">
+                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][description]" value="<?php echo esc_attr($d['description'] ?? ''); ?>" style="width:100%;" aria-label="Omschrijving voor design <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="assets/images/design-1.png" style="width:100%;">
+                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="assets/images/design-1.png" style="width:100%;" aria-label="Foto URL of pad voor design <?php echo $idx + 1; ?>">
                             </td>
                             <td>
-                                <input type="number" step="0.50" name="tshirt_designs[<?php echo $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;">
+                                <input type="number" step="0.50" name="tshirt_designs[<?php echo $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;" aria-label="Afwijkende prijs voor design <?php echo $idx + 1; ?>">
                             </td>
                             <td style="text-align: center;">
-                                <input type="checkbox" name="tshirt_designs[<?php echo $idx; ?>][active]" value="1" <?php checked(!empty($d['active'])); ?>>
+                                <input type="checkbox" name="tshirt_designs[<?php echo $idx; ?>][active]" value="1" <?php checked(!empty($d['active'])); ?> aria-label="Design <?php echo $idx + 1; ?> actief">
                             </td>
                         </tr>
                     <?php endforeach; ?>

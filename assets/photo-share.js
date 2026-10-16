@@ -110,9 +110,9 @@ document.querySelectorAll('.avbk-photo-upload').forEach((box) => {
                 if (tab) tab.close();
                 status.textContent = error.message;
             } finally { busy = false; controls(); }
-            if (picking) poll();
+            if (picking) void poll();
         });
-        resume.addEventListener('click', poll);
+        resume.addEventListener('click', () => { void poll(); });
         cancel.addEventListener('click', async () => {
             if (busy) return;
             clearTimeout(timer); busy = true; controls();
@@ -123,10 +123,10 @@ document.querySelectorAll('.avbk-photo-upload').forEach((box) => {
             } catch (error) { status.textContent = error.message; }
             finally { busy = false; controls(); }
         });
-        window.addEventListener('focus', () => { if (picking && !busy) poll(); });
-        document.addEventListener('visibilitychange', () => { if (!document.hidden && picking && !busy) poll(); });
+        window.addEventListener('focus', () => { if (picking && !busy) void poll(); });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden && picking && !busy) void poll(); });
         try { picking = sessionStorage.getItem(storageKey) === '1'; } catch (_) { /* No storage. */ }
         if (new URLSearchParams(location.search).has('google_photos_error')) picking = true;
-        if (picking) { controls(); poll(); }
+        if (picking) { controls(); void poll(); }
     }
 });

@@ -94,7 +94,7 @@ $layout = AVBK_Bank_Import_Layout::get_config();
             <tr>
                 <th><label for="bank_export">Bestand</label></th>
                 <td>
-                    <div class="avbk-dropzone" id="avbk-import-dropzone" tabindex="0">
+                    <div class="avbk-dropzone" id="avbk-import-dropzone">
                         <span class="avbk-dropzone-text" id="avbk-import-dropzone-text">Sleep een bestand hierheen, of klik om te kiezen</span>
                         <input type="file" id="bank_export" name="bank_export" accept=".xlsx,.csv" required>
                     </div>
@@ -112,13 +112,13 @@ $layout = AVBK_Bank_Import_Layout::get_config();
         <table class="wp-list-table widefat striped">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>Geüpload</th>
-                    <th>Bestand</th>
-                    <th>Periode</th>
-                    <th>Rijen</th>
-                    <th>Automatisch gekoppeld</th>
-                    <th>Door</th>
+                    <th scope="col">#</th>
+                    <th scope="col">Geüpload</th>
+                    <th scope="col">Bestand</th>
+                    <th scope="col">Periode</th>
+                    <th scope="col">Rijen</th>
+                    <th scope="col">Automatisch gekoppeld</th>
+                    <th scope="col">Door</th>
                 </tr>
             </thead>
             <tbody>

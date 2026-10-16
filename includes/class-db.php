@@ -1505,6 +1505,7 @@ class AVBK_DB {
             return $detail;
         }
         $detail['found'] = true;
+        $paid = isset($item->paid) ? (float) $item->paid : self::get_fee_item_paid((int) $item->id);
         $detail['share'] = self::get_fee_item_remaining($item);
         if (!empty($item->is_estimated)) {
             $reason = $item->estimate_reason ?: 'Geschat bedrag.';

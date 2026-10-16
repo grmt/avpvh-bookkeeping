@@ -27,7 +27,7 @@
 }
 
 .avbk-balance-table td {
-    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .avbk-balance-table .avbk-cell-nowrap {

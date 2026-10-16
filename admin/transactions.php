@@ -50,16 +50,16 @@ $ignore_reason_label = [
     <table id="avbk-balance-table" data-storage-key="avbk_transactions_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
         <thead>
             <tr class="avbk-balance-header-row">
-                <th data-col="regel" data-type="number">Regel</th>
-                <th data-col="import" data-type="number">Import</th>
-                <th data-col="datum" data-type="date">Datum</th>
-                <th data-col="richting" data-filter="select">Richting</th>
-                <th data-col="bedrag" data-type="number">Bedrag</th>
-                <th data-col="naam">Naam</th>
-                <th data-col="omschrijving">Omschrijving</th>
-                <th data-col="activiteit" data-filter="select">Activiteit</th>
-                <th data-col="status" data-filter="select">Status</th>
-                <th data-col="toegewezen" data-type="number">Toegewezen</th>
+                <th scope="col" data-col="regel" data-type="number">Regel</th>
+                <th scope="col" data-col="import" data-type="number">Import</th>
+                <th scope="col" data-col="datum" data-type="date">Datum</th>
+                <th scope="col" data-col="richting" data-filter="select">Richting</th>
+                <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
+                <th scope="col" data-col="naam">Naam</th>
+                <th scope="col" data-col="omschrijving">Omschrijving</th>
+                <th scope="col" data-col="activiteit" data-filter="select">Activiteit</th>
+                <th scope="col" data-col="status" data-filter="select">Status</th>
+                <th scope="col" data-col="toegewezen" data-type="number">Toegewezen</th>
             </tr>
         </thead>
         <tbody>
@@ -127,7 +127,7 @@ $ignore_reason_label = [
                             <input type="hidden" name="action" value="avbk_set_transaction_activity">
                             <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
                             <input type="hidden" name="show_all_years" value="<?php echo $show_all_years ? '1' : ''; ?>">
-                            <select name="activity_id" style="max-width:17em">
+                            <select name="activity_id" style="max-width:17em" aria-label="<?php echo esc_attr(sprintf('Koppel transactie #%d aan activiteit', $tx->id)); ?>">
                                 <option value="0">&mdash; geen activiteit &mdash;</option>
                                 <?php foreach ($activities as $activity) : ?>
                                     <option value="<?php echo esc_attr($activity->id); ?>" <?php selected((int) ($tx->activity_id ?? 0), (int) $activity->id); ?>><?php echo esc_html($activity_names[(int) $activity->id]); ?></option>

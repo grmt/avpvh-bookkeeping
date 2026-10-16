@@ -124,7 +124,7 @@ $total_donations = AVBK_DB::get_total_donations();
             <?php endif; ?>
         </div>
         <table class="wp-list-table widefat striped" style="max-width:760px;margin-bottom:1rem">
-            <thead><tr><th>Activiteit</th><th style="width:12em">Openstaand</th></tr></thead>
+            <thead><tr><th scope="col">Activiteit</th><th scope="col" style="width:12em">Openstaand</th></tr></thead>
             <tbody>
             <?php if (!$open_by_year_activity[$book_year]) : ?>
                 <tr><td colspan="2">Niets openstaand.</td></tr>
@@ -132,7 +132,7 @@ $total_donations = AVBK_DB::get_total_donations();
                 <tr><td><?php if (isset($activity_links[$label])) : ?><a href="<?php echo esc_url($activity_links[$label]); ?>"><?php echo esc_html($label); ?></a><?php else : echo esc_html($label); endif; ?></td><td>&euro; <?php echo esc_html(number_format((float) $amount, 2, ',', '.')); ?></td></tr>
             <?php endforeach; endif; ?>
             </tbody>
-            <tfoot><tr><th>Totaal <?php echo esc_html($book_year); ?></th><th>&euro; <?php echo esc_html(number_format($open_by_year[$book_year], 2, ',', '.')); ?></th></tr></tfoot>
+            <tfoot><tr><th scope="row">Totaal <?php echo esc_html($book_year); ?></th><td>&euro; <?php echo esc_html(number_format($open_by_year[$book_year], 2, ',', '.')); ?></td></tr></tfoot>
         </table>
     <?php endforeach; ?>
 
