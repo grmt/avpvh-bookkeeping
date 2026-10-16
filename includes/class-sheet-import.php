@@ -467,7 +467,10 @@ class AVBK_Sheet_Import {
     /** @return array{lines: string[]}|array{error: string} */
     private static function fetch_csv_lines(string $sheet_url): array {
         $csv_url = self::to_csv_export_url($sheet_url);
-        $response = wp_remote_get($csv_url, ['timeout' => 20]);
+        if (!$csv_url) {
+            return ['error' => 'Geen geldige Google Sheets-link. Alleen links beginnend met https://docs.google.com/spreadsheets/d/ zijn toegestaan.'];
+        }
+        $response = wp_safe_remote_get($csv_url, ['timeout' => 20]);
         if (is_wp_error($response)) {
             return ['error' => $response->get_error_message()];
         }
@@ -788,9 +791,9 @@ class AVBK_Sheet_Import {
         return [implode(' ', $parts), $last];
     }
 
-    private static function to_csv_export_url(string $url): string {
-        if (!preg_match('#/spreadsheets/d/([a-zA-Z0-9_-]+)#', $url, $m)) {
-            return $url;
+    private static function to_csv_export_url(string $url): ?string {
+        if (!preg_match('#^https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)#i', $url, $m)) {
+            return null;
         }
         $gid = '';
         if (preg_match('/[?#&]gid=(\d+)/', $url, $gm)) {

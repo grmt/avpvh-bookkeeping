@@ -16,8 +16,78 @@ defined('ABSPATH') || exit;
  */
 class AVBK_Reimbursements {
 
+    public const MAX_BYTES = 25 * 1024 * 1024;
+    public const ALLOWED_MIMES = [
+        'image/jpeg'      => ['jpg', 'jpeg'],
+        'image/png'       => ['png'],
+        'image/webp'      => ['webp'],
+        'image/heic'      => ['heic'],
+        'image/heif'      => ['heif'],
+        'application/pdf' => ['pdf'],
+    ];
+
     public static function receipts_dir(): string {
         return WP_CONTENT_DIR . '/avbk-receipts';
+    }
+
+    public static function ensure_receipts_dir_protected(): void {
+        $dir = self::receipts_dir();
+        wp_mkdir_p($dir);
+        $htaccess = $dir . '/.htaccess';
+        if (!file_exists($htaccess)) {
+            self::filesystem()->put_contents(
+                $htaccess,
+                "# Block direct script execution and directory browsing\n<FilesMatch \"\\.(php|phtml|phar|pl|py|cgi|asp|js|html|htm|svg)$\">\nOrder Deny,Allow\nDeny from all\n</FilesMatch>\nOptions -Indexes\n"
+            );
+        }
+        $index = $dir . '/index.html';
+        if (!file_exists($index)) {
+            self::filesystem()->put_contents($index, '');
+        }
+    }
+
+    /**
+     * Validates an uploaded receipt file's size, extension, and real bytes.
+     * SVG, HTML, and script extensions are strictly excluded.
+     *
+     * @return string|null Normalized extension on success, null on failure.
+     */
+    public static function validate_receipt_file(string $tmp_path, string $original_name): ?string {
+        if (!is_uploaded_file($tmp_path)) {
+            return null;
+        }
+        $size = filesize($tmp_path);
+        if (!$size || $size > self::MAX_BYTES) {
+            return null;
+        }
+        $original_name = sanitize_file_name($original_name);
+        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+
+        $allowed_exts = [];
+        foreach (self::ALLOWED_MIMES as $exts) {
+            $allowed_exts = array_merge($allowed_exts, $exts);
+        }
+        if (!in_array($ext, $allowed_exts, true)) {
+            return null;
+        }
+
+        if ($ext === 'pdf') {
+            $handle = @fopen($tmp_path, 'rb');
+            $sig = $handle ? fread($handle, 5) : '';
+            if ($handle) {
+                fclose($handle);
+            }
+            return $sig === '%PDF-' ? 'pdf' : null;
+        }
+
+        $mime = function_exists('wp_get_image_mime') ? wp_get_image_mime($tmp_path) : (mime_content_type($tmp_path) ?: '');
+        if ($mime === 'image/x-ms-bmp') {
+            $mime = 'image/bmp';
+        }
+        if (!isset(self::ALLOWED_MIMES[$mime]) || !in_array($ext, self::ALLOWED_MIMES[$mime], true)) {
+            return null;
+        }
+        return $ext;
     }
 
     public function __construct() {
@@ -117,9 +187,9 @@ class AVBK_Reimbursements {
 
                 <p>
                     <label for="avbk-receipt-input">Bonnetjes</label><br>
-                    <div class="avbk-dropzone" id="avbk-dropzone" tabindex="0">
+                    <div class="avbk-dropzone" id="avbk-dropzone">
                         <span class="avbk-dropzone-text">Sleep een of meer foto's hierheen, of klik om te kiezen</span>
-                        <input type="file" name="receipt[]" id="avbk-receipt-input" accept="image/*" capture="environment" multiple>
+                        <input type="file" name="receipt[]" id="avbk-receipt-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" multiple>
                     </div>
                     <button type="button" class="button" id="avbk-add-manual-row">+ Regel toevoegen zonder bonnetje</button>
                     <table class="avbk-dropzone-table" id="avbk-dropzone-table" hidden>
@@ -280,8 +350,14 @@ class AVBK_Reimbursements {
             wp_send_json_error();
         }
 
-        $member = avpvh_get_member_by_wp_user(get_current_user_id());
         $tmp_path = $_FILES['receipt']['tmp_name'];
+        $original_name = (string) ($_FILES['receipt']['name'] ?? '');
+        $ext = self::validate_receipt_file($tmp_path, $original_name);
+        if ($ext === null) {
+            wp_send_json_error('Ongeldig bestand');
+        }
+
+        $member = avpvh_get_member_by_wp_user(get_current_user_id());
         $hash = hash_file('sha256', $tmp_path);
         $text = AVBK_OCR::extract_text($tmp_path);
         $amount = $text ? AVBK_OCR::guess_total($text) : null;
@@ -292,7 +368,7 @@ class AVBK_Reimbursements {
     }
 
     /**
-     * Hashes, OCRs and duplicate-checks one already-uploaded temp file
+     * Validates, hashes, OCRs and duplicate-checks one already-uploaded temp file
      * without moving it yet — handle_submit() needs every file in a batch
      * to pass this before any of them are actually stored, so a duplicate
      * discovered on file 3 doesn't leave files 1-2 orphaned on disk.
@@ -300,8 +376,9 @@ class AVBK_Reimbursements {
      * added twice in one submission (before either has a DB row to match
      * against). Returns null for an invalid or duplicate file.
      */
-    private function analyze_uploaded_receipt(string $tmp_path, array &$seen_hashes, int $member_id): ?array {
-        if (!is_uploaded_file($tmp_path)) {
+    private function analyze_uploaded_receipt(string $tmp_path, string $original_name, array &$seen_hashes, int $member_id): ?array {
+        $ext = self::validate_receipt_file($tmp_path, $original_name);
+        if ($ext === null) {
             return null;
         }
         $hash = hash_file('sha256', $tmp_path);
@@ -316,7 +393,8 @@ class AVBK_Reimbursements {
         $seen_hashes[] = $hash;
 
         return [
-            'hash'      => $hash,
+            'ext'        => $ext,
+            'hash'       => $hash,
             'ocr_amount' => $ocr_amount,
             'ocr_date'   => $ocr_date,
             'ocr_store'  => $ocr_store,
@@ -324,10 +402,13 @@ class AVBK_Reimbursements {
     }
 
     /** Moves an already-validated temp upload into permanent storage under a random filename. */
-    private function store_receipt_file(string $tmp_path, string $original_name): string {
-        wp_mkdir_p(self::receipts_dir());
-        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-        $ext = preg_match('/^[a-z0-9]{1,5}$/', $ext) ? $ext : 'jpg';
+    private function store_receipt_file(string $tmp_path, string $validated_ext): string {
+        self::ensure_receipts_dir_protected();
+        $allowed_exts = [];
+        foreach (self::ALLOWED_MIMES as $exts) {
+            $allowed_exts = array_merge($allowed_exts, $exts);
+        }
+        $ext = in_array(strtolower($validated_ext), $allowed_exts, true) ? strtolower($validated_ext) : 'jpg';
         $random_name = wp_generate_password(32, false, false) . '.' . $ext;
         // WP_Filesystem->move() (not move_uploaded_file(), which Plugin
         // Check forbids) does the actual move — the caller already
@@ -381,7 +462,7 @@ class AVBK_Reimbursements {
                 $tmp_path = $files['tmp_name'][$file_index];
                 $name = (string) ($files['name'][$file_index] ?? '');
                 $file_index++;
-                $info = $this->analyze_uploaded_receipt($tmp_path, $seen_hashes, (int) $member->id);
+                $info = $this->analyze_uploaded_receipt($tmp_path, $name, $seen_hashes, (int) $member->id);
                 if ($info === null) {
                     wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
                     exit;
@@ -397,6 +478,7 @@ class AVBK_Reimbursements {
             } elseif ($row_amount !== null && $row_amount > 0) {
                 // Manual line — no photo, nothing to OCR or duplicate-check.
                 $analyzed[] = [
+                    'ext'         => '',
                     'hash'        => '',
                     'ocr_amount'  => null,
                     'ocr_date'    => null,
@@ -432,7 +514,7 @@ class AVBK_Reimbursements {
         foreach ($analyzed as $a) {
             // A manual line has no tmp_path — nothing to move, receipt_path/
             // receipt_hash just stay at their column defaults (empty string).
-            $random_name = $a['tmp_path'] !== null ? $this->store_receipt_file($a['tmp_path'], $a['name']) : '';
+            $random_name = $a['tmp_path'] !== null ? $this->store_receipt_file($a['tmp_path'], $a['ext']) : '';
             AVBK_DB::add_reimbursement_receipt($id, [
                 'receipt_path' => $random_name,
                 'receipt_hash' => $a['hash'],
@@ -571,12 +653,13 @@ class AVBK_Reimbursements {
         }
 
         $seen_hashes = [];
-        $info = $this->analyze_uploaded_receipt($tmp_path, $seen_hashes, (int) $member->id);
+        $name = (string) ($_FILES['receipt']['name'] ?? '');
+        $info = $this->analyze_uploaded_receipt($tmp_path, $name, $seen_hashes, (int) $member->id);
         if ($info === null) {
             wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
             exit;
         }
-        $random_name = $this->store_receipt_file($tmp_path, (string) ($_FILES['receipt']['name'] ?? ''));
+        $random_name = $this->store_receipt_file($tmp_path, $info['ext']);
         AVBK_DB::add_reimbursement_receipt($id, [
             'receipt_path' => $random_name,
             'receipt_hash' => $info['hash'],
@@ -683,10 +766,24 @@ class AVBK_Reimbursements {
             wp_die('Bestand niet gevonden.', 'Fout', ['response' => 404]);
         }
 
-        header('Content-Type: ' . (mime_content_type($path) ?: 'application/octet-stream'));
-        header('Content-Disposition: inline; filename="bonnetje"');
+        $ext = strtolower(pathinfo($receipt->receipt_path, PATHINFO_EXTENSION));
+        $mime_map = [
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png'  => 'image/png',
+            'webp' => 'image/webp',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+            'pdf'  => 'application/pdf',
+        ];
+        $mime = $mime_map[$ext] ?? 'application/octet-stream';
+        $disposition = ($ext === 'pdf') ? 'attachment' : 'inline';
+
+        header('Content-Type: ' . $mime);
+        header('Content-Disposition: ' . $disposition . '; filename="bonnetje.' . $ext . '"');
         header('X-Content-Type-Options: nosniff');
-        echo self::filesystem()->get_contents($path); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- raw binary image content, not HTML; there's nothing to escape.
+        header("Content-Security-Policy: default-src 'none'");
+        echo self::filesystem()->get_contents($path); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- raw binary image/pdf content, not HTML; there's nothing to escape.
         exit;
     }
 }

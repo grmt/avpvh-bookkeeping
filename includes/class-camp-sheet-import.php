@@ -47,11 +47,11 @@ class AVBK_Camp_Sheet_Import {
      * that config — see handle_save_sheet_url()).
      */
     public static function import_from_url(int $activity_id, string $sheet_url): array {
-        if (!preg_match('#/spreadsheets/d/([a-zA-Z0-9_-]+)#', $sheet_url, $m)) {
-            return self::error('Geen geldige Google Sheets-link.');
+        if (!preg_match('#^https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)#i', $sheet_url, $m)) {
+            return self::error('Geen geldige Google Sheets-link. Alleen links beginnend met https://docs.google.com/spreadsheets/d/ zijn toegestaan.');
         }
         $export_url = "https://docs.google.com/spreadsheets/d/{$m[1]}/export?format=xlsx";
-        $response = wp_remote_get($export_url, ['timeout' => 30]);
+        $response = wp_safe_remote_get($export_url, ['timeout' => 30]);
         if (is_wp_error($response)) {
             return self::error($response->get_error_message());
         }

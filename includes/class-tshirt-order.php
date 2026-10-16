@@ -310,6 +310,10 @@ class AVBK_Tshirt_Order {
                                 <div class="avbk-book-notice avbk-book-notice-neutral">
                                     <p>Dit e-mailadres is nog niet bekend bij ons. Je hoeft niet eerst in te loggen: vul hieronder je gegevens in om te bestellen. Er wordt dan automatisch een account voor je aangemaakt.</p>
                                 </div>
+                            <?php elseif ($email_check === 'rate_limited') : ?>
+                                <div class="avbk-book-notice avbk-book-error">
+                                    <p>Te veel controles vanaf dit IP-adres. Probeer het over een paar minuten opnieuw.</p>
+                                </div>
                             <?php elseif ($email_check === 'invalid_email') : ?>
                                 <div class="avbk-book-notice avbk-book-error">
                                     <p>Vul een geldig e-mailadres in om te controleren.</p>
@@ -869,8 +873,9 @@ class AVBK_Tshirt_Order {
             $member_id = (int) ($match['member_id'] ?? 0);
         }
 
-        // Save active address only if provided
-        if ($member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
+        // Save active address only if logged in or a newly created visitor
+        $can_save_member_address = $member || (($match['match_type'] ?? '') === 'new');
+        if ($can_save_member_address && $member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
             AVBK_DB::save_member_address($member_id, [
                 'street'       => $street,
                 'house_number' => $house_number,
@@ -1003,9 +1008,22 @@ class AVBK_Tshirt_Order {
     public function handle_check_email(): void {
         check_admin_referer('avbk_check_tshirt_email');
 
-        $email    = sanitize_email(wp_unslash($_POST['check_email'] ?? ''));
         $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/tshirt/');
         $is_ajax  = !empty($_POST['ajax']) || (defined('DOING_AJAX') && DOING_AJAX);
+
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
+        $rate_key = 'avbk_chkmail_' . substr(hash('sha256', $ip), 0, 24);
+        $attempts = (int) get_transient($rate_key);
+        if ($attempts >= 15) {
+            if ($is_ajax) {
+                wp_send_json_error(['message' => 'Te veel controles vanaf dit IP-adres. Probeer het over een paar minuten opnieuw.', 'status' => 'rate_limited'], 429);
+            }
+            wp_safe_redirect(add_query_arg(['email_check' => 'rate_limited'], $page_url) . '#avbk-check-email-box');
+            exit;
+        }
+        set_transient($rate_key, $attempts + 1, 300);
+
+        $email    = sanitize_email(wp_unslash($_POST['check_email'] ?? ''));
 
         if (!is_email($email)) {
             if ($is_ajax) {
