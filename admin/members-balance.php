@@ -47,6 +47,13 @@ $current_book_year = (int) current_time('Y');
             }
             $combined_members = [$detail_member_id => $member] + $also_members;
             $show_member_column = (bool) $also_members;
+            // Full (unfiltered) household, keyed by id — needed by
+            // member-household-credit.php below, independent of which
+            // members are currently checked into the combined rekening.
+            $household_members = [$detail_member_id => $member];
+            foreach ($household as $hm) {
+                $household_members[(int) $hm->id] = $hm;
+            }
 
             $by_year = AVBK_DB::get_member_balance_by_year($detail_member_id, $show_all_years);
             // Default view: this book year only. A not-yet-closed previous
@@ -76,7 +83,6 @@ $current_book_year = (int) current_time('Y');
                 &nbsp;|&nbsp;
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
             </p>
-            <?php require AVBK_PLUGIN_DIR . 'admin/member-household-balance.php'; ?>
             <?php require AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; ?>
 
             <?php if (isset($_GET['credit_applied'])) : ?>
@@ -155,8 +161,24 @@ $current_book_year = (int) current_time('Y');
                     <button class="button" type="submit">Jaarstatus opslaan</button>
                 </form>
             </details>
-            <table class="wp-list-table widefat striped">
-                <thead><tr><th>Kies</th><?php if ($show_member_column) : ?><th>Lid</th><?php endif; ?><th>Omschrijving</th><th>Bedrag</th><th>Betaald</th><th>Betaling(en)</th><th>Openstaand</th><th>Status</th><th></th></tr></thead>
+            <p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
+            <div class="avbk-balance-table-tools">
+                <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
+                <div class="avbk-col-toggle-panel" hidden></div>
+            </div>
+            <div class="avbk-balance-table-wrap">
+            <table id="avbk-balance-table" data-storage-key="avbk_member_detail_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
+                <thead><tr class="avbk-balance-header-row">
+                    <th>Kies</th>
+                    <?php if ($show_member_column) : ?><th data-col="lid" data-filter="select">Lid</th><?php endif; ?>
+                    <th data-col="omschrijving">Omschrijving</th>
+                    <th data-col="bedrag" data-type="number">Bedrag</th>
+                    <th data-col="betaald" data-type="number">Betaald</th>
+                    <th>Betaling(en)</th>
+                    <th data-col="openstaand" data-type="number">Openstaand</th>
+                    <th data-col="status" data-filter="select">Status</th>
+                    <th></th>
+                </tr></thead>
                 <tbody>
                 <?php if ($available_credit > 0.005) :
                     $credit_transactions = AVBK_DB::get_credit_transactions_for_member($detail_member_id);
@@ -293,6 +315,7 @@ $current_book_year = (int) current_time('Y');
                     <?php endif; ?>
                 </tfoot>
             </table>
+            </div>
             <?php if ($shown_total > 0.005 || $available_credit > 0.005) :
                 ?>
                 <form id="avbk-payment-selection" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
