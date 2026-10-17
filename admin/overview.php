@@ -12,7 +12,14 @@ $camps_without_rate = AVBK_DB::get_camps_without_rate($show_all_years || !$close
 
 global $wpdb;
 $members = AVPVH_DB::get_members(['status' => 'active']);
-$current_book_year = (int) current_time('Y');
+// The "huidige" book year for these blokken is the first one that is
+// NOT yet afgesloten (see avbk_closed_through_year, used the same way
+// as the min_year filter on Alle transacties/Tweede controle/Te
+// controleren) — not simply the wall-clock year, so the overview keeps
+// pointing at a still-open prior year until the treasurer actually
+// closes it, instead of silently jumping to an empty new year on 1
+// januari.
+$current_book_year = $closed_through_year ? $closed_through_year + 1 : (int) current_time('Y');
 $previous_book_year = $current_book_year - 1;
 $shown_book_years = [$current_book_year, $previous_book_year];
 $open_by_year = array_fill_keys($shown_book_years, 0.0);
