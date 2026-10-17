@@ -1726,10 +1726,16 @@ class AVBK_DB {
         $cats = $category_aliases[$category] ?? [$category];
         $placeholders = implode(',', array_fill(0, count($cats), '%s'));
 
+        // $placeholders is a generated run of %s, one per entry in $cats,
+        // filled in by the prepare() call below — phpcs can't count the
+        // placeholders in a dynamically built string, hence the false
+        // "incorrect number of replacements" and "unfinished prepare" flags.
+        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id IS NULL AND category IN ({$placeholders}) AND status = 'open' ORDER BY id ASC LIMIT 1",
             $member_id, ...$cats
         )) ?: null;
+        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
     }
 
     public static function get_open_tshirt_fee_item(int $member_id): ?object {
@@ -4488,6 +4494,12 @@ class AVBK_DB {
 
         $where_sql = implode(' AND ', $where);
 
+        // $where_sql is built only from the hardcoded literal fragments
+        // above ('1=1', 'o.order_type = %s', ...) — every actual value
+        // from $args goes through %s/%d placeholders into $params and is
+        // bound below via prepare(); phpcs can't see that by just looking
+        // at the $sql variable passed to get_results().
+        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $sql = "SELECT o.*,
                        f.amount_due AS fee_amount_due,
                        f.status AS fee_status,
@@ -4504,14 +4516,20 @@ class AVBK_DB {
         }
 
         $results = $wpdb->get_results($sql) ?: [];
+        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
         // Pre-fetch line items for all retrieved orders
         if (!empty($results)) {
             $order_ids = array_map(fn($r) => (int) $r->id, $results);
             $in_ids = implode(',', $order_ids);
+            // $order_ids are int-cast ids just read back from our own
+            // get_results() call above, never raw user input, so $in_ids
+            // can only ever contain digits and commas.
+            // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $all_items = $wpdb->get_results(
                 "SELECT * FROM {$wpdb->prefix}avb_order_items WHERE order_id IN ({$in_ids}) ORDER BY id ASC"
             ) ?: [];
+            // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
             $items_by_order = [];
             foreach ($all_items as $it) {
