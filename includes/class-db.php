@@ -4005,7 +4005,6 @@ class AVBK_DB {
         $matches = AVPVH_DB::find_members_by_name($first_name, $last_name);
         if (count($matches) === 1) {
             $member_id = (int) $matches[0]->id;
-            AVPVH_DB::ensure_identity($member_id, 'email', $email);
             return ['member_id' => $member_id, 'match_type' => 'name', 'review_note' => ''];
         }
 

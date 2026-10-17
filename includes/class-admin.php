@@ -2394,6 +2394,30 @@ class AVBK_Admin {
         exit;
     }
 
+    /**
+     * Sanitizes a cell value to prevent CSV formula injection (CWE-1236).
+     * Any string cell starting with =, +, -, @, \t, or \r is prefixed with a single quote.
+     */
+    public static function sanitize_csv_cell(mixed $cell): mixed {
+        if (!is_string($cell)) {
+            return $cell;
+        }
+        if ($cell !== '' && preg_match('/^[\=\+\-\@\t\r]/', $cell)) {
+            return "'" . $cell;
+        }
+        return $cell;
+    }
+
+    /**
+     * Sanitizes an entire row array for CSV output.
+     *
+     * @param array<int|string, mixed> $row
+     * @return array<int|string, mixed>
+     */
+    public static function sanitize_csv_row(array $row): array {
+        return array_map([self::class, 'sanitize_csv_cell'], $row);
+    }
+
     public function handle_export_book_orders(): void {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
@@ -2468,7 +2492,7 @@ class AVBK_Admin {
                 default       => 'In afwachting',
             };
 
-            fputcsv($out, [
+            fputcsv($out, self::sanitize_csv_row([
                 $order->id,
                 $order->created_at,
                 $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
@@ -2492,7 +2516,7 @@ class AVBK_Admin {
                 !empty($order->attend_presentation) ? 'Ja' : 'Nee',
                 !empty($order->keep_updated) ? 'Ja' : 'Nee',
                 $order->notes ?: '',
-            ], ';');
+            ]), ';');
         }
 
         fclose($out);
@@ -2574,7 +2598,7 @@ class AVBK_Admin {
                 }
             }
 
-            fputcsv($out, [
+            fputcsv($out, self::sanitize_csv_row([
                 $order->id,
                 $order->created_at,
                 $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
@@ -2596,7 +2620,7 @@ class AVBK_Admin {
                 $pay_status_label,
                 $dist_label,
                 $order->notes ?: '',
-            ], ';');
+            ]), ';');
         }
 
         fclose($out);
@@ -2622,7 +2646,7 @@ class AVBK_Admin {
 
         // Headers
         $header_row = array_merge(['Design / Model'], $matrix['variants'], ['Totaal aantal shirts', 'Omzet (EUR)']);
-        fputcsv($out, $header_row, ';');
+        fputcsv($out, self::sanitize_csv_row($header_row), ';');
 
         foreach ($matrix['designs'] as $design) {
             $row_qty = $matrix['totals_by_design'][$design] ?? 0;
@@ -2633,7 +2657,7 @@ class AVBK_Admin {
             }
             $row_data[] = $row_qty;
             $row_data[] = number_format($row_eur, 2, ',', '');
-            fputcsv($out, $row_data, ';');
+            fputcsv($out, self::sanitize_csv_row($row_data), ';');
         }
 
         // Summary row
@@ -2643,7 +2667,7 @@ class AVBK_Admin {
         }
         $summary_row[] = $matrix['grand_total'];
         $summary_row[] = number_format((float) $matrix['total_revenue'], 2, ',', '');
-        fputcsv($out, $summary_row, ';');
+        fputcsv($out, self::sanitize_csv_row($summary_row), ';');
 
         fclose($out);
         exit;
