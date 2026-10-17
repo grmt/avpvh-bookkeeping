@@ -3217,8 +3217,15 @@ class AVBK_DB {
         ) ?: [];
     }
 
-    public static function count_pending_second_approval(): int {
+    public static function count_pending_second_approval(int $min_year = 0): int {
         global $wpdb;
+        if ($min_year) {
+            return (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions
+                 WHERE status = 'matched' AND second_approved_by IS NULL AND YEAR(transaction_date) >= %d",
+                $min_year
+            ));
+        }
         return (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions WHERE status = 'matched' AND second_approved_by IS NULL"
         );
@@ -3330,6 +3337,21 @@ class AVBK_DB {
              ORDER BY (t.draft_data IS NOT NULL) ASC, t.transaction_date {$sql_order}, t.id {$sql_order}"
         ) ?: [];
         // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    public static function count_review_queue(int $min_year = 0): int {
+        global $wpdb;
+        if ($min_year) {
+            return (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions
+                 WHERE direction = 'in' AND status IN ('suggested', 'unmatched') AND YEAR(transaction_date) >= %d",
+                $min_year
+            ));
+        }
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions
+             WHERE direction = 'in' AND status IN ('suggested', 'unmatched')"
+        );
     }
 
     /**
