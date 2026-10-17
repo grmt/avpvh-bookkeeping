@@ -364,4 +364,32 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
     updateTotals();
+
+    // --- Payment-selection buttons: keep them disabled until a relevant
+    // checkbox is actually ticked, mirroring what the server itself
+    // requires (handle_balance_selection() needs fee_item_ids[],
+    // settle_credit_selection() needs both fee_item_ids[] and apply_credit).
+    var selectionForm = document.getElementById('avbk-payment-selection');
+    if (selectionForm) {
+        var itemCheckboxes = Array.prototype.slice.call(
+            document.querySelectorAll('input[type="checkbox"][name="fee_item_ids[]"][form="avbk-payment-selection"]')
+        );
+        var creditCheckbox = document.querySelector('input[type="checkbox"][name="apply_credit"][form="avbk-payment-selection"]');
+        var requestButtons = Array.prototype.slice.call(selectionForm.querySelectorAll('button[name="request_mode"]'));
+        var settleButton = selectionForm.querySelector('button[name="do_settle_credit"]');
+
+        var updateSelectionButtons = function () {
+            var anyItemChecked = false;
+            itemCheckboxes.forEach(function (cb) {
+                if (cb.checked) anyItemChecked = true;
+            });
+            var creditChecked = !!(creditCheckbox && creditCheckbox.checked);
+            requestButtons.forEach(function (btn) { btn.disabled = !anyItemChecked; });
+            if (settleButton) settleButton.disabled = !(anyItemChecked && creditChecked);
+        };
+
+        itemCheckboxes.forEach(function (cb) { cb.addEventListener('change', updateSelectionButtons); });
+        if (creditCheckbox) creditCheckbox.addEventListener('change', updateSelectionButtons);
+        updateSelectionButtons();
+    }
 });
