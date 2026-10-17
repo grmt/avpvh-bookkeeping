@@ -92,9 +92,15 @@ class AVBK_Admin {
         );
         add_submenu_page('avbk-overview', 'Overzicht', 'Overzicht', 'read', 'avbk-overview', [$this, 'render_overview']);
         add_submenu_page('avbk-overview', 'Bankexport uploaden', 'Bankexport uploaden', 'read', 'avbk-import', [$this, 'render_import']);
-        add_submenu_page('avbk-overview', 'Te controleren', 'Te controleren', 'read', 'avbk-review', [$this, 'render_review']);
 
-        $pending_second_approval = AVBK_DB::count_pending_second_approval();
+        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+        $min_year = $closed_through_year > 0 ? $closed_through_year + 1 : 0;
+
+        $pending_review = AVBK_DB::count_review_queue($min_year);
+        $review_label = 'Te controleren' . ($pending_review ? " <span class=\"awaiting-mod count-{$pending_review}\"><span class=\"pending-count\">{$pending_review}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Te controleren', $review_label, 'read', 'avbk-review', [$this, 'render_review']);
+
+        $pending_second_approval = AVBK_DB::count_pending_second_approval($min_year);
         $second_approval_label = 'Tweede controle' . ($pending_second_approval ? " <span class=\"awaiting-mod count-{$pending_second_approval}\"><span class=\"pending-count\">{$pending_second_approval}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Tweede controle', $second_approval_label, 'read', 'avbk-second-approval', [$this, 'render_second_approval']);
         add_submenu_page('avbk-overview', 'Alle transacties', 'Alle transacties', 'read', 'avbk-transactions', [$this, 'render_transactions']);

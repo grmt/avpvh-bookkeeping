@@ -191,7 +191,7 @@ function avbk_row_detail(array $row): ?array {
     ], $duplicate_candidates),
 ]); ?></script>
 <div class="wrap">
-    <h1>Te controleren transacties</h1>
+    <h1>Te controleren transacties<?php if (!empty($queue)) : ?> (<?php echo esc_html(count($queue)); ?>)<?php endif; ?></h1>
 
     <?php if ($closed_through_year) : ?>
         <p class="description">
