@@ -158,8 +158,10 @@ $ignore_reason_label = [
                         &mdash;
                     <?php elseif ($tx->status !== 'matched') : ?>
                         &mdash;
-                    <?php elseif ($shortfall > 0.005) : ?>
-                        <span style="color:#a00">&euro; <?php echo esc_html(number_format($allocated, 2, ',', '.')); ?> van &euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?> &mdash; niet volledig toegewezen</span>
+                    <?php elseif ($shortfall > 0.005) :
+                        $second_approval_url = add_query_arg(['page' => 'avbk-second-approval', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . (int) $tx->id;
+                        ?>
+                        <a href="<?php echo esc_url($second_approval_url); ?>" style="color:#a00">&euro; <?php echo esc_html(number_format($allocated, 2, ',', '.')); ?> van &euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?> &mdash; niet volledig toegewezen (verschil: &euro; <?php echo esc_html(number_format($shortfall, 2, ',', '.')); ?>)</a>
                     <?php else : ?>
                         &euro; <?php echo esc_html(number_format($allocated, 2, ',', '.')); ?>
                     <?php endif; ?>
