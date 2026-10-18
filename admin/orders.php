@@ -787,13 +787,13 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <?php foreach ($types as $idx => $t) : ?>
                         <tr>
                             <td>
-                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($t['id'] ?? ''); ?>" style="width:100%;" required aria-label="Type code voor kledingstuk <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_types[<?php echo (int) $idx; ?>][id]" value="<?php echo esc_attr($t['id'] ?? ''); ?>" style="width:100%;" required aria-label="Type code voor kledingstuk <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_types[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($t['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor kledingstuk <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_types[<?php echo (int) $idx; ?>][name]" value="<?php echo esc_attr($t['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor kledingstuk <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="number" step="0.50" name="tshirt_types[<?php echo $idx; ?>][price]" value="<?php echo esc_attr(number_format((float) ($t['price'] ?? 21.00), 2, '.', '')); ?>" style="width:100%;" required aria-label="Prijs voor kledingstuk <?php echo $idx + 1; ?>">
+                                <input type="number" step="0.50" name="tshirt_types[<?php echo (int) $idx; ?>][price]" value="<?php echo esc_attr(number_format((float) ($t['price'] ?? 21.00), 2, '.', '')); ?>" style="width:100%;" required aria-label="Prijs voor kledingstuk <?php echo (int) ($idx + 1); ?>">
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -818,22 +818,22 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <?php foreach ($designs as $idx => $d) : ?>
                         <tr>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][id]" value="<?php echo esc_attr($d['id'] ?? ''); ?>" style="width:100%;" required aria-label="ID / code voor design <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_designs[<?php echo (int) $idx; ?>][id]" value="<?php echo esc_attr($d['id'] ?? ''); ?>" style="width:100%;" required aria-label="ID / code voor design <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][name]" value="<?php echo esc_attr($d['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor design <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_designs[<?php echo (int) $idx; ?>][name]" value="<?php echo esc_attr($d['name'] ?? ''); ?>" style="width:100%;" required aria-label="Naam voor design <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][description]" value="<?php echo esc_attr($d['description'] ?? ''); ?>" style="width:100%;" aria-label="Omschrijving voor design <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_designs[<?php echo (int) $idx; ?>][description]" value="<?php echo esc_attr($d['description'] ?? ''); ?>" style="width:100%;" aria-label="Omschrijving voor design <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="text" name="tshirt_designs[<?php echo $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="assets/images/design-1.png" style="width:100%;" aria-label="Foto URL of pad voor design <?php echo $idx + 1; ?>">
+                                <input type="text" name="tshirt_designs[<?php echo (int) $idx; ?>][image]" value="<?php echo esc_attr($d['image'] ?? ''); ?>" placeholder="assets/images/design-1.png" style="width:100%;" aria-label="Foto URL of pad voor design <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td>
-                                <input type="number" step="0.50" name="tshirt_designs[<?php echo $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;" aria-label="Afwijkende prijs voor design <?php echo $idx + 1; ?>">
+                                <input type="number" step="0.50" name="tshirt_designs[<?php echo (int) $idx; ?>][price]" value="<?php echo isset($d['price']) && $d['price'] !== '' && (float) $d['price'] > 0 ? esc_attr(number_format((float) $d['price'], 2, '.', '')) : ''; ?>" placeholder="Standaard" style="width:100%;" aria-label="Afwijkende prijs voor design <?php echo (int) ($idx + 1); ?>">
                             </td>
                             <td style="text-align: center;">
-                                <input type="checkbox" name="tshirt_designs[<?php echo $idx; ?>][active]" value="1" <?php checked(!empty($d['active'])); ?> aria-label="Design <?php echo $idx + 1; ?> actief">
+                                <input type="checkbox" name="tshirt_designs[<?php echo (int) $idx; ?>][active]" value="1" <?php checked(!empty($d['active'])); ?> aria-label="Design <?php echo (int) ($idx + 1); ?> actief">
                             </td>
                         </tr>
                     <?php endforeach; ?>
