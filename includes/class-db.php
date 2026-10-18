@@ -1195,6 +1195,27 @@ class AVBK_DB {
             ) $charset;");
             update_option('avbk_db_version', '1.43');
         }
+        if (version_compare($version, '1.44', '<')) {
+            // get_credit_transactions_for_member() must only recognize a
+            // genuine account owner, never a housemate who merely had one
+            // item paid off by someone else's transfer (see that method's
+            // own docblock) — but remember_iban() is also called for every
+            // member in a split payment, purely so future imports from a
+            // shared account auto-suggest correctly (see class-import.php).
+            // Those two purposes were conflated: a split-payment sighting
+            // silently qualified someone for the other co-owners' leftover
+            // credit too (incident 2026-10-18 — a member whose Kamp-
+            // bijdrage happened to be settled from a family transfer could
+            // then also see, and in principle claim, that family's
+            // unrelated left-over balance on the same transaction).
+            // confirmed distinguishes a real single-payer/self-registered
+            // sighting from a split-payment-only one; existing rows default
+            // to 1 so nobody's already-working credit view changes today.
+            if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_known_ibans LIKE 'confirmed'")) {
+                $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_known_ibans ADD COLUMN confirmed TINYINT(1) UNSIGNED NOT NULL DEFAULT 1");
+            }
+            update_option('avbk_db_version', '1.44');
+        }
     }
 
     private static function install_dispute_history_schema(): bool {
@@ -2028,6 +2049,13 @@ class AVBK_DB {
      * a co-owner (or the treasurer, via settle_credit_selection()'s own
      * can_manage() check) can ever apply() this money anywhere — see
      * apply_credit(), which re-derives "available" from this same method.
+     * "Co-owns" here means avb_known_ibans.confirmed = 1 — see
+     * remember_iban()'s own docblock for why a split-payment sighting
+     * alone (every member in that split gets remembered, for future
+     * auto-match suggestions) must not by itself qualify as ownership
+     * (incident 2026-10-18: a member whose own item was settled out of a
+     * family transfer could otherwise also see, and apply(), that
+     * family's unrelated left-over balance on the very same transaction).
      *
      * Only a confirmed ('matched') transaction counts — an unreviewed bank
      * row isn't a real credit yet. apply_credit() re-checks the live
@@ -2049,7 +2077,7 @@ class AVBK_DB {
                AND t.counterparty_iban != ''
                AND EXISTS (
                    SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
-                   WHERE k.iban = t.counterparty_iban AND k.member_id = %d
+                   WHERE k.iban = t.counterparty_iban AND k.member_id = %d AND k.confirmed = 1
                )
              GROUP BY t.id
              HAVING allocated_total < t.amount
@@ -3549,8 +3577,24 @@ class AVBK_DB {
     // a generic description.
     // -------------------------------------------------------------------
 
-    /** Adds this (iban, member) pairing if it's new — never removes any other member already linked to the same IBAN (joint accounts genuinely belong to more than one person). */
-    public static function remember_iban(int $member_id, string $iban, string $account_name = ''): void {
+    /**
+     * Adds this (iban, member) pairing if it's new — never removes any
+     * other member already linked to the same IBAN (joint accounts
+     * genuinely belong to more than one person).
+     *
+     * $confirmed marks whether this sighting is confident enough to also
+     * grant credit eligibility (see get_credit_transactions_for_member()):
+     * true for a single-payer match or a member's own self-registered
+     * reimbursement IBAN, false for a sighting that only arose because
+     * this member was ONE OF SEVERAL people whose item got paid from a
+     * split transaction — that alone says this account paid for them, not
+     * that they own or co-own it. Matching suggestions (find_candidates_*)
+     * use every known IBAN regardless of $confirmed; only the credit
+     * calculation filters on it. A pairing can be upgraded from
+     * unconfirmed to confirmed by a later, more confident sighting, but
+     * never downgraded by an earlier call losing a race.
+     */
+    public static function remember_iban(int $member_id, string $iban, string $account_name = '', bool $confirmed = true): void {
         global $wpdb;
         $iban = strtoupper(str_replace(' ', '', $iban));
         if ($iban === '') {
@@ -3562,9 +3606,11 @@ class AVBK_DB {
         // a name we already have from an earlier, possibly more complete,
         // sighting of the same (iban, member) pair.
         $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}avb_known_ibans (member_id, iban, account_name) VALUES (%d, %s, %s)
-             ON DUPLICATE KEY UPDATE account_name = IF(account_name = '', VALUES(account_name), account_name)",
-            $member_id, $iban, $account_name
+            "INSERT INTO {$wpdb->prefix}avb_known_ibans (member_id, iban, account_name, confirmed) VALUES (%d, %s, %s, %d)
+             ON DUPLICATE KEY UPDATE
+                account_name = IF(account_name = '', VALUES(account_name), account_name),
+                confirmed = GREATEST(confirmed, VALUES(confirmed))",
+            $member_id, $iban, $account_name, $confirmed ? 1 : 0
         ));
     }
 
