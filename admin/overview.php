@@ -17,7 +17,12 @@ $previous_book_year = $current_book_year - 1;
 $shown_book_years = [$current_book_year, $previous_book_year];
 $open_by_year = array_fill_keys($shown_book_years, 0.0);
 $open_by_year_activity = array_fill_keys($shown_book_years, []);
-$members_with_balance = 0;
+$members_with_balance_by_year = array_fill_keys($shown_book_years, 0);
+// Het vorige boekjaar krijgt zijn eigen rij tegels zodra de kalender al
+// verder is dan dat jaar zelf, maar de penningmeester het nog niet heeft
+// afgesloten (avbk_closed_through_year) — anders verdwijnt het nog
+// openstaande saldo van dat jaar na 1 januari stilletjes uit beeld.
+$show_previous_year_blocks = $previous_book_year > $closed_through_year;
 $activity_names = [];
 $activity_years = [];
 $activity_links = [];
@@ -29,7 +34,7 @@ foreach (AVPVH_DB::get_activities() as $activity) {
 }
 foreach ($members as $m) {
     $balance = AVBK_DB::get_member_balance((int) $m->id);
-    $member_open_current_year = 0.0;
+    $member_open_by_year = array_fill_keys($shown_book_years, 0.0);
     foreach ($balance['items'] as $item) {
         if ($item->status === 'waived' || abs((float) $item->remaining) <= 0.005) {
             continue;
@@ -51,12 +56,12 @@ foreach ($members as $m) {
         $remaining = (float) $item->remaining;
         $open_by_year[$book_year] += $remaining;
         $open_by_year_activity[$book_year][$label] = ($open_by_year_activity[$book_year][$label] ?? 0.0) + $remaining;
-        if ($book_year === $current_book_year) {
-            $member_open_current_year += $remaining;
-        }
+        $member_open_by_year[$book_year] += $remaining;
     }
-    if ($member_open_current_year > 0.005) {
-        $members_with_balance++;
+    foreach ($shown_book_years as $year) {
+        if ($member_open_by_year[$year] > 0.005) {
+            $members_with_balance_by_year[$year]++;
+        }
     }
 }
 foreach ($open_by_year_activity as &$activity_amounts) {
@@ -84,7 +89,7 @@ $total_donations = AVBK_DB::get_total_donations();
             <span class="avbk-stat-label">Openstaand <?php echo esc_html($current_book_year); ?></span>
         </a>
         <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>" style="color:inherit;text-decoration:none">
-            <span class="avbk-stat-value"><?php echo esc_html($members_with_balance); ?></span>
+            <span class="avbk-stat-value"><?php echo esc_html($members_with_balance_by_year[$current_book_year]); ?></span>
             <span class="avbk-stat-label">Leden met openstaand saldo <?php echo esc_html($current_book_year); ?></span>
         </a>
         <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-review')); ?>" style="color:inherit;text-decoration:none">
@@ -100,6 +105,19 @@ $total_donations = AVBK_DB::get_total_donations();
             <span class="avbk-stat-label">Totaal geschonken</span>
         </a>
     </div>
+
+    <?php if ($show_previous_year_blocks) : ?>
+        <div class="avbk-stat-grid">
+            <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>" style="color:inherit;text-decoration:none">
+                <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($open_by_year[$previous_book_year], 2, ',', '.')); ?></span>
+                <span class="avbk-stat-label">Openstaand <?php echo esc_html($previous_book_year); ?> (nog niet afgesloten)</span>
+            </a>
+            <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>" style="color:inherit;text-decoration:none">
+                <span class="avbk-stat-value"><?php echo esc_html($members_with_balance_by_year[$previous_book_year]); ?></span>
+                <span class="avbk-stat-label">Leden met openstaand saldo <?php echo esc_html($previous_book_year); ?></span>
+            </a>
+        </div>
+    <?php endif; ?>
 
     <h2>Openstaand per boekjaar en activiteit</h2>
     <?php foreach ($shown_book_years as $book_year) : ?>
