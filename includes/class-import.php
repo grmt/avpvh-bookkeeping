@@ -325,9 +325,15 @@ class AVBK_Import {
             AVBK_DB::allocate($transaction_id, (int) $item->id, (int) $item->member_id, (float) $entry['remaining']);
             $member_ids[(int) $item->member_id] = true;
         }
+        // A sighting only confirms real IBAN ownership (and so credit
+        // eligibility, see get_credit_transactions_for_member()) when
+        // exactly one member was paid by this transaction — a multi-member
+        // QR reference split says this account paid for each of them, not
+        // that each of them owns or co-owns it.
+        $confirmed = count($member_ids) === 1;
         foreach (array_keys($member_ids) as $member_id) {
             if ($iban !== '') {
-                AVBK_DB::remember_iban((int) $member_id, $iban, $counterparty_name);
+                AVBK_DB::remember_iban((int) $member_id, $iban, $counterparty_name, $confirmed);
             }
         }
         if (count($member_ids) === 1) {
@@ -639,10 +645,15 @@ class AVBK_Import {
         // (see find_candidates_for_row()), never auto-applied — so this
         // never causes a silent misallocation, only a better default
         // suggestion the next time this account pays (e.g. a whole family
-        // sharing one account).
+        // sharing one account). But it must NOT by itself grant credit
+        // eligibility (see get_credit_transactions_for_member()'s
+        // docblock): having one item paid off in a split says this account
+        // paid for you, not that you own or co-own it, so only a
+        // single-payer match is remembered as $confirmed here.
         if ($tx->counterparty_iban !== '') {
+            $confirmed = count($paid_member_ids) === 1;
             foreach ($paid_member_ids as $member_id) {
-                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban, $tx->counterparty_name);
+                AVBK_DB::remember_iban($member_id, $tx->counterparty_iban, $tx->counterparty_name, $confirmed);
             }
         }
         // Initials backfill stays single-payer-only: it parses one name
