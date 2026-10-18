@@ -18,6 +18,16 @@ $page_url = admin_url('admin.php?page=avbk-orders');
     <?php if (isset($_GET['distribution_updated'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Status uitreiking bijgewerkt.</p></div>
     <?php endif; ?>
+    <?php if (isset($_GET['order_email_processed'])) : ?>
+        <div class="notice notice-success is-dismissible">
+            <p>Bestelling #<?php echo (int) $_GET['order_email_processed']; ?> succesvol bijgewerkt<?php echo !empty($_GET['mail_sent']) ? ' (bevestigingsmail verzonden naar besteller).' : ' (zonder e-mail).'; ?></p>
+        </div>
+    <?php endif; ?>
+    <?php if (isset($_GET['process_error'])) : ?>
+        <div class="notice notice-error is-dismissible">
+            <p><?php echo esc_html(urldecode((string) $_GET['process_error'])); ?></p>
+        </div>
+    <?php endif; ?>
     <?php if (isset($_GET['order_deleted'])) : ?>
         <div class="notice notice-success is-dismissible">
             <p>Bestelling #<?php echo (int) $_GET['order_deleted']; ?> succesvol verwijderd<?php echo !empty($_GET['email_sent']) ? ' (annuleringsmail verstuurd naar besteller).' : ' (zonder e-mail).'; ?></p>
@@ -28,6 +38,10 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <p><?php echo esc_html(urldecode((string) $_GET['delete_error'])); ?></p>
         </div>
     <?php endif; ?>
+
+    <?php
+    $all_members = class_exists('AVPVH_DB') ? AVPVH_DB::get_members() : [];
+    ?>
 
     <nav class="nav-tab-wrapper" style="margin-bottom: 1.5rem;">
         <a href="<?php echo esc_url(add_query_arg('tab', 'tshirt', $page_url)); ?>" class="nav-tab <?php echo $active_tab === 'tshirt' ? 'nav-tab-active' : ''; ?>">
@@ -46,6 +60,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         $status_filter       = sanitize_key(wp_unslash($_GET['status'] ?? ''));
         $distribution_filter = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
         $payment_filter      = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
+        $email_filter        = sanitize_key(wp_unslash($_GET['email_status'] ?? 'all'));
         $search_query        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
 
         $filter_args = ['order_type' => 'tshirt'];
@@ -57,6 +72,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         }
         if ($payment_filter !== '' && $payment_filter !== 'all') {
             $filter_args['payment_status'] = $payment_filter;
+        }
+        if ($email_filter !== '' && $email_filter !== 'all') {
+            $filter_args['email_status'] = $email_filter;
         }
         if ($search_query !== '') {
             $filter_args['search'] = $search_query;
@@ -199,6 +217,19 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </div>
         </div>
 
+        <?php
+        $failed_tshirt_emails = AVBK_DB::count_failed_order_emails('tshirt');
+        if ($failed_tshirt_emails > 0 && $email_filter !== 'failed') : ?>
+            <div class="notice notice-warning" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; margin: 1.25rem 0;">
+                <p style="margin: 0; font-size: 0.95rem;">
+                    <strong>&#9888; Let op:</strong> Er zijn <strong><?php echo (int) $failed_tshirt_emails; ?></strong> bestelling(en) waarbij de bevestigingsmail niet verzonden kon worden of een fout bevat (bijvoorbeeld door een typefout in het e-mailadres).
+                </p>
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt', 'email_status' => 'failed'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
+                    Toon mislukte e-mails &rarr;
+                </a>
+            </div>
+        <?php endif; ?>
+
         <!-- Filter form -->
         <form method="get" style="margin: 1.25rem 0; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;">
             <input type="hidden" name="page" value="avbk-orders">
@@ -229,9 +260,17 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 </select>
             </label>
 
+            <label for="filter_email">E-mail:
+                <select name="email_status" id="filter_email" onchange="this.form.submit()">
+                    <option value="all" <?php selected($email_filter, 'all'); ?>>Alle e-mailstatussen</option>
+                    <option value="failed" <?php selected($email_filter, 'failed'); ?>>Mislukt / niet verzonden</option>
+                    <option value="sent" <?php selected($email_filter, 'sent'); ?>>Succesvol verzonden</option>
+                </select>
+            </label>
+
             <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek kledingbestellingen">
             <button type="submit" class="button">Filteren</button>
-            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $status_filter !== '' || $search_query !== '') : ?>
+            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $status_filter !== '' || $email_filter !== 'all' || $search_query !== '') : ?>
                 <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt'], admin_url('admin.php'))); ?>" class="button">Reset</a>
             <?php endif; ?>
         </form>
@@ -249,7 +288,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th scope="col" style="width: 110px;">Betaling</th>
                     <th scope="col" style="width: 150px;">Uitreiking</th>
                     <th scope="col">Opmerkingen</th>
-                    <th scope="col" style="width: 100px;"><span class="screen-reader-text">Acties</span></th>
+                    <th scope="col" style="width: 130px;"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -259,9 +298,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) :
-                        $full_name = trim($order->first_name . ' ' . $order->suffix) . ' ' . $order->last_name;
-                        $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
+                        $full_name          = trim($order->first_name . ' ' . $order->suffix) . ' ' . $order->last_name;
+                        $is_paid            = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
                         $member_profile_url = $order->member_id ? admin_url('admin.php?page=avpvh-member-detail&id=' . (int) $order->member_id) : '';
+                        $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
+                        $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
                     ?>
                         <tr>
                             <td>#<?php echo (int) $order->id; ?></td>
@@ -277,6 +318,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <br><small><a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a></small>
                                 <?php if ($order->phone) : ?>
                                     <br><small><?php echo esc_html($order->phone); ?></small>
+                                <?php endif; ?>
+                                <?php if ($has_email_issue) : ?>
+                                    <br><span class="badge" style="background:#d63638;color:#fff;padding:1px 5px;border-radius:3px;font-size:.72rem;" title="<?php echo esc_attr($order->email_error ?? ''); ?>">&#9888; E-mail mislukt</span>
+                                    <?php if (!empty($order->email_error)) : ?>
+                                        <br><small style="color:#d63638; font-size:0.75rem;" title="<?php echo esc_attr($order->email_error); ?>"><?php echo esc_html(wp_trim_words($order->email_error, 5)); ?></small>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                                <?php if ($email_suggestion) : ?>
+                                    <br><small style="color:#2271b1; background:#f0f6fc; padding:1px 4px; border-radius:3px; font-size:0.75rem;">&#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>?</small>
                                 <?php endif; ?>
                                 <?php if ($order->status === 'pending_confirmation') : ?>
                                     <br><span class="badge" style="background:#f0ad4e;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75rem;">Niet bevestigd</span>
@@ -311,7 +361,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <?php else : ?>
                                     <span style="color: #d63638; font-weight: bold;">Open</span>
                                     <?php if (!empty($order->fee_item_id) && !empty($order->member_id)) : ?>
-                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk post in ledenoverzicht">Post #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
+                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk bestelling in ledenoverzicht">Bestelling #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
                                     <?php endif; ?>
                                     <?php if ((float) $order->fee_paid > 0.005) : ?>
                                         <br><small>(&euro;&nbsp;<?php echo number_format((float) $order->fee_paid, 2, ',', '.'); ?> ontvangen)</small>
@@ -335,12 +385,23 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
                             </td>
                             <td>
+                                <button type="button" class="button button-small avbk-process-email-btn"
+                                        data-order-id="<?php echo (int) $order->id; ?>"
+                                        data-order-name="<?php echo esc_attr($full_name); ?>"
+                                        data-order-email="<?php echo esc_attr($order->email); ?>"
+                                        data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                        data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                        data-order-status="<?php echo esc_attr($order->status); ?>"
+                                        data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                        style="margin-bottom: 4px; width: 100%; white-space: nowrap;">
+                                    &#9998; E-mail verwerken
+                                </button>
                                 <button type="button" class="button button-small button-link-delete avbk-delete-order-btn"
                                         data-order-id="<?php echo (int) $order->id; ?>"
                                         data-order-name="<?php echo esc_attr($full_name); ?>"
                                         data-order-email="<?php echo esc_attr($order->email); ?>"
                                         data-order-type="tshirt"
-                                        style="color: #b32d2e;">
+                                        style="color: #b32d2e; width: 100%;">
                                     &#128465; Verwijderen
                                 </button>
                             </td>
@@ -356,6 +417,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         $distribution_filter = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
         $payment_filter      = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
         $presentation_filter = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
+        $email_filter        = sanitize_key(wp_unslash($_GET['email_status'] ?? 'all'));
         $search_query        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
 
         $filter_args = ['order_type' => 'book'];
@@ -370,6 +432,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         }
         if ($presentation_filter !== '' && $presentation_filter !== 'all') {
             $filter_args['presentation'] = $presentation_filter;
+        }
+        if ($email_filter !== '' && $email_filter !== 'all') {
+            $filter_args['email_status'] = $email_filter;
         }
         if ($search_query !== '') {
             $filter_args['search'] = $search_query;
@@ -430,7 +495,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Totaalbedrag</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;">&euro; <?php echo number_format($stat_total_amount, 2, ',', '.'); ?></div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo number_format($stat_total_amount, 2, ',', '.'); ?></div>
                 <div style="font-size: .85rem; color: #00a32a;">&euro; <?php echo number_format($stat_paid_amount, 2, ',', '.'); ?> betaald</div>
                 <?php if ($stat_open_amount > 0.005) : ?>
                     <div style="font-size: .85rem; color: #d63638;">&euro; <?php echo number_format($stat_open_amount, 2, ',', '.'); ?> nog open</div>
@@ -447,6 +512,19 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <div style="font-size: .85rem; color: #646970;"><?php echo $stat_keep_updated; ?> wil op de hoogte blijven</div>
             </div>
         </div>
+
+        <?php
+        $failed_book_emails = AVBK_DB::count_failed_order_emails('book');
+        if ($failed_book_emails > 0 && $email_filter !== 'failed') : ?>
+            <div class="notice notice-warning" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; margin: 1.25rem 0;">
+                <p style="margin: 0; font-size: 0.95rem;">
+                    <strong>&#9888; Let op:</strong> Er zijn <strong><?php echo (int) $failed_book_emails; ?></strong> boekbestelling(en) waarbij de bevestigingsmail niet verzonden kon worden of een fout bevat (bijvoorbeeld door een typefout in het e-mailadres).
+                </p>
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book', 'email_status' => 'failed'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
+                    Toon mislukte e-mails &rarr;
+                </a>
+            </div>
+        <?php endif; ?>
 
         <form method="get" style="margin: 1.25rem 0; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;">
             <input type="hidden" name="page" value="avbk-orders">
@@ -485,9 +563,17 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 </select>
             </label>
 
+            <label for="filter_email_book">E-mail:
+                <select name="email_status" id="filter_email_book" onchange="this.form.submit()">
+                    <option value="all" <?php selected($email_filter, 'all'); ?>>Alle e-mailstatussen</option>
+                    <option value="failed" <?php selected($email_filter, 'failed'); ?>>Mislukt / niet verzonden</option>
+                    <option value="sent" <?php selected($email_filter, 'sent'); ?>>Succesvol verzonden</option>
+                </select>
+            </label>
+
             <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek boekbestellingen">
             <button type="submit" class="button">Filteren</button>
-            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $presentation_filter !== 'all' || $status_filter !== '' || $search_query !== '') : ?>
+            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $presentation_filter !== 'all' || $status_filter !== '' || $email_filter !== 'all' || $search_query !== '') : ?>
                 <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book'], admin_url('admin.php'))); ?>" class="button">Reset</a>
             <?php endif; ?>
         </form>
@@ -505,7 +591,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <th scope="col" style="width: 120px;">Presentatie</th>
                     <th scope="col" style="width: 150px;">Uitreiking</th>
                     <th scope="col">Opmerkingen</th>
-                    <th scope="col" style="width: 100px;"><span class="screen-reader-text">Acties</span></th>
+                    <th scope="col" style="width: 130px;"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -515,9 +601,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) :
-                        $full_name = trim($order->first_name . ' ' . $order->suffix) . ' ' . $order->last_name;
-                        $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
+                        $full_name          = trim($order->first_name . ' ' . $order->suffix) . ' ' . $order->last_name;
+                        $is_paid            = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
                         $member_profile_url = $order->member_id ? admin_url('admin.php?page=avpvh-member-detail&id=' . (int) $order->member_id) : '';
+                        $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
+                        $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
                     ?>
                         <tr>
                             <td>#<?php echo (int) $order->id; ?></td>
@@ -533,6 +621,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <br><small><a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a></small>
                                 <?php if ($order->phone) : ?>
                                     <br><small><?php echo esc_html($order->phone); ?></small>
+                                <?php endif; ?>
+                                <?php if ($has_email_issue) : ?>
+                                    <br><span class="badge" style="background:#d63638;color:#fff;padding:1px 5px;border-radius:3px;font-size:.72rem;" title="<?php echo esc_attr($order->email_error ?? ''); ?>">&#9888; E-mail mislukt</span>
+                                    <?php if (!empty($order->email_error)) : ?>
+                                        <br><small style="color:#d63638; font-size:0.75rem;" title="<?php echo esc_attr($order->email_error); ?>"><?php echo esc_html(wp_trim_words($order->email_error, 5)); ?></small>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                                <?php if ($email_suggestion) : ?>
+                                    <br><small style="color:#2271b1; background:#f0f6fc; padding:1px 4px; border-radius:3px; font-size:0.75rem;">&#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>?</small>
                                 <?php endif; ?>
                                 <?php if ($order->status === 'pending_confirmation') : ?>
                                     <br><span class="badge" style="background:#f0ad4e;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75rem;">Niet bevestigd</span>
@@ -553,7 +650,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <?php else : ?>
                                     <span style="color: #d63638; font-weight: bold;">Open</span>
                                     <?php if (!empty($order->fee_item_id) && !empty($order->member_id)) : ?>
-                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk post in ledenoverzicht">Post #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
+                                        <br><small><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . (int) $order->member_id)); ?>" title="Bekijk bestelling in ledenoverzicht">Bestelling #<?php echo (int) $order->fee_item_id; ?> &rarr;</a></small>
                                     <?php endif; ?>
                                     <?php if ((float) $order->fee_paid > 0.005) : ?>
                                         <br><small>(&euro;&nbsp;<?php echo number_format((float) $order->fee_paid, 2, ',', '.'); ?> ontvangen)</small>
@@ -588,12 +685,23 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
                             </td>
                             <td>
+                                <button type="button" class="button button-small avbk-process-email-btn"
+                                        data-order-id="<?php echo (int) $order->id; ?>"
+                                        data-order-name="<?php echo esc_attr($full_name); ?>"
+                                        data-order-email="<?php echo esc_attr($order->email); ?>"
+                                        data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                        data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                        data-order-status="<?php echo esc_attr($order->status); ?>"
+                                        data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                        style="margin-bottom: 4px; width: 100%; white-space: nowrap;">
+                                    &#9998; E-mail verwerken
+                                </button>
                                 <button type="button" class="button button-small button-link-delete avbk-delete-order-btn"
                                         data-order-id="<?php echo (int) $order->id; ?>"
                                         data-order-name="<?php echo esc_attr($full_name); ?>"
                                         data-order-email="<?php echo esc_attr($order->email); ?>"
                                         data-order-type="book"
-                                        style="color: #b32d2e;">
+                                        style="color: #b32d2e; width: 100%;">
                                     &#128465; Verwijderen
                                 </button>
                             </td>
@@ -823,51 +931,209 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         </div>
     </div>
 
+    <!-- Process order email modal -->
+    <div id="avbk-process-email-modal" style="display: none; position: fixed; z-index: 100000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center;">
+        <div style="background: #fff; border-radius: 4px; padding: 22px 24px; max-width: 520px; width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.3); box-sizing: border-box; max-height: 90vh; overflow-y: auto;">
+            <h3 style="margin-top: 0; color: #1d2327; font-size: 1.2rem;">E-mailadres bestelling verwerken</h3>
+            <p style="font-size: 0.95rem; margin-bottom: 0.75rem; color: #50575e;">
+                Bestelling <strong id="avbk-pe-order-id"></strong> van <strong id="avbk-pe-order-name"></strong>
+            </p>
+
+            <div id="avbk-pe-error-box" style="display: none; background: #fcf0f1; border-left: 4px solid #d63638; padding: 8px 12px; margin-bottom: 14px; font-size: 0.85rem; color: #b32d2e;">
+                <strong>Verzendfout:</strong> <span id="avbk-pe-error-text"></span>
+            </div>
+
+            <div id="avbk-pe-suggestion-box" style="display: none; background: #f0f6fc; border-left: 4px solid #2271b1; padding: 8px 12px; margin-bottom: 14px; font-size: 0.85rem; align-items: center; justify-content: space-between; gap: 8px;">
+                <div>
+                    <span>&#128161; Mogelijke typefout herkend: <strong id="avbk-pe-suggested-email"></strong></span>
+                </div>
+                <button type="button" class="button button-small" id="avbk-pe-apply-suggestion" style="white-space: nowrap;">Overnemen</button>
+            </div>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-process-email-form">
+                <?php wp_nonce_field('avbk_process_order_email'); ?>
+                <input type="hidden" name="action" value="avbk_process_order_email">
+                <input type="hidden" name="order_id" id="avbk-pe-form-order-id" value="">
+                <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? admin_url('admin.php?page=avbk-orders')); ?>">
+
+                <div style="margin-bottom: 14px;">
+                    <label for="avbk-pe-email" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem;">E-mailadres besteller:</label>
+                    <input type="email" name="email" id="avbk-pe-email" class="regular-text" style="width: 100%;" required>
+                </div>
+
+                <div style="margin-bottom: 14px;">
+                    <label for="avbk-pe-member" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem;">Koppel aan lid (optioneel):</label>
+                    <select name="member_id" id="avbk-pe-member" style="width: 100%; max-width: 100%;">
+                        <option value="">-- Geen lid (gastbestelling) --</option>
+                        <?php foreach ($all_members as $m) :
+                            $m_name = trim($m->first_name . ' ' . $m->suffix) . ' ' . $m->last_name;
+                        ?>
+                            <option value="<?php echo (int) $m->id; ?>"><?php echo esc_html($m_name . ' (' . $m->email . ')'); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description" style="margin-top: 4px; font-size: 0.8rem;">
+                        Als de besteller een lid is, wordt de bijbehorende boekhoudpost automatisch aan dit lid gekoppeld.
+                    </p>
+                </div>
+
+                <div id="avbk-pe-confirm-box" style="margin: 12px 0; padding: 10px; background: #fff8e5; border-radius: 4px; border: 1px solid #dba617;">
+                    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" name="confirm_order" id="avbk-pe-confirm" value="1" checked style="margin-top: 2px;">
+                        <span><strong>Bestelling direct bevestigen</strong><br><small style="color: #646970;">Status wijzigen van 'In afwachting van bevestiging' naar 'Bevestigd'.</small></span>
+                    </label>
+                </div>
+
+                <div style="margin: 12px 0; padding: 10px; background: #f0f0f1; border-radius: 4px; border: 1px solid #dcdcde;">
+                    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" name="resend_email" id="avbk-pe-resend" value="1" checked style="margin-top: 2px;">
+                        <span><strong>Bevestigingsmail (opnieuw) versturen</strong><br><small style="color: #646970;">Stuurt de e-mail met betaalinstructies direct naar het opgegeven e-mailadres.</small></span>
+                    </label>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                    <button type="button" class="button" id="avbk-pe-cancel">Annuleren</button>
+                    <button type="submit" class="button button-primary">Opslaan en verwerken</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        var modal = document.getElementById('avbk-delete-order-modal');
-        var cancelBtn = document.getElementById('avbk-delete-modal-cancel');
-        var formOrderId = document.getElementById('avbk-delete-modal-order-id');
-        var spanId = document.getElementById('avbk-delete-order-id');
-        var spanName = document.getElementById('avbk-delete-order-name');
-        var spanEmail = document.getElementById('avbk-delete-order-email');
-        var emailBox = document.getElementById('avbk-delete-email-option');
-        var checkbox = document.getElementById('avbk-delete-send-email');
+        // Delete order modal
+        var delModal     = document.getElementById('avbk-delete-order-modal');
+        var delCancelBtn = document.getElementById('avbk-delete-modal-cancel');
+        var delOrderId   = document.getElementById('avbk-delete-modal-order-id');
+        var delSpanId    = document.getElementById('avbk-delete-order-id');
+        var delSpanName  = document.getElementById('avbk-delete-order-name');
+        var delSpanEmail = document.getElementById('avbk-delete-order-email');
+        var delEmailBox  = document.getElementById('avbk-delete-email-option');
+        var delCheckbox  = document.getElementById('avbk-delete-send-email');
 
         document.querySelectorAll('.avbk-delete-order-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
-                var id = this.getAttribute('data-order-id');
-                var name = this.getAttribute('data-order-name');
+                var id    = this.getAttribute('data-order-id');
+                var name  = this.getAttribute('data-order-name');
                 var email = this.getAttribute('data-order-email');
 
-                formOrderId.value = id;
-                spanId.textContent = '#' + id;
-                spanName.textContent = name || 'de besteller';
+                delOrderId.value = id;
+                delSpanId.textContent = '#' + id;
+                delSpanName.textContent = name || 'de besteller';
 
                 if (email && email.trim() !== '') {
-                    spanEmail.textContent = email;
-                    emailBox.style.display = 'block';
-                    checkbox.checked = false;
+                    delSpanEmail.textContent = email;
+                    delEmailBox.style.display = 'block';
+                    delCheckbox.checked = false;
                 } else {
-                    emailBox.style.display = 'none';
-                    checkbox.checked = false;
+                    delEmailBox.style.display = 'none';
+                    delCheckbox.checked = false;
                 }
 
-                modal.style.display = 'flex';
+                delModal.style.display = 'flex';
             });
         });
 
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', function() {
-                modal.style.display = 'none';
+        if (delCancelBtn) {
+            delCancelBtn.addEventListener('click', function() {
+                delModal.style.display = 'none';
             });
         }
 
-        if (modal) {
-            modal.addEventListener('click', function(e) {
-                if (e.target === modal) {
-                    modal.style.display = 'none';
+        if (delModal) {
+            delModal.addEventListener('click', function(e) {
+                if (e.target === delModal) {
+                    delModal.style.display = 'none';
+                }
+            });
+        }
+
+        // Process order email modal
+        var peModal         = document.getElementById('avbk-process-email-modal');
+        var peCancelBtn     = document.getElementById('avbk-pe-cancel');
+        var peFormOrderId   = document.getElementById('avbk-pe-form-order-id');
+        var peSpanId        = document.getElementById('avbk-pe-order-id');
+        var peSpanName      = document.getElementById('avbk-pe-order-name');
+        var peInputEmail    = document.getElementById('avbk-pe-email');
+        var peSelectMember  = document.getElementById('avbk-pe-member');
+        var peConfirmBox    = document.getElementById('avbk-pe-confirm-box');
+        var peConfirmCheck  = document.getElementById('avbk-pe-confirm');
+        var peResendCheck   = document.getElementById('avbk-pe-resend');
+        var peErrorBox      = document.getElementById('avbk-pe-error-box');
+        var peErrorText     = document.getElementById('avbk-pe-error-text');
+        var peSuggBox       = document.getElementById('avbk-pe-suggestion-box');
+        var peSuggEmail     = document.getElementById('avbk-pe-suggested-email');
+        var peApplySuggBtn  = document.getElementById('avbk-pe-apply-suggestion');
+
+        var currentSuggestion = '';
+
+        document.querySelectorAll('.avbk-process-email-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                var id       = this.getAttribute('data-order-id');
+                var name     = this.getAttribute('data-order-name');
+                var email    = this.getAttribute('data-order-email');
+                var sugg     = this.getAttribute('data-order-suggestion');
+                var memberId = this.getAttribute('data-order-member-id');
+                var status   = this.getAttribute('data-order-status');
+                var error    = this.getAttribute('data-order-error');
+
+                peFormOrderId.value = id;
+                peSpanId.textContent = '#' + id;
+                peSpanName.textContent = name || 'de besteller';
+                peInputEmail.value = email || '';
+
+                if (peSelectMember) {
+                    peSelectMember.value = (memberId && memberId !== '0') ? memberId : '';
+                }
+
+                currentSuggestion = sugg || '';
+                if (currentSuggestion && currentSuggestion !== email) {
+                    peSuggEmail.textContent = currentSuggestion;
+                    peSuggBox.style.display = 'flex';
+                } else {
+                    peSuggBox.style.display = 'none';
+                }
+
+                if (error && error.trim() !== '') {
+                    peErrorText.textContent = error;
+                    peErrorBox.style.display = 'block';
+                } else {
+                    peErrorBox.style.display = 'none';
+                }
+
+                if (status === 'pending_confirmation') {
+                    peConfirmBox.style.display = 'block';
+                    peConfirmCheck.checked = true;
+                } else {
+                    peConfirmBox.style.display = 'none';
+                    peConfirmCheck.checked = false;
+                }
+
+                peResendCheck.checked = true;
+                peModal.style.display = 'flex';
+            });
+        });
+
+        if (peApplySuggBtn) {
+            peApplySuggBtn.addEventListener('click', function() {
+                if (currentSuggestion) {
+                    peInputEmail.value = currentSuggestion;
+                    peSuggBox.style.display = 'none';
+                }
+            });
+        }
+
+        if (peCancelBtn) {
+            peCancelBtn.addEventListener('click', function() {
+                peModal.style.display = 'none';
+            });
+        }
+
+        if (peModal) {
+            peModal.addEventListener('click', function(e) {
+                if (e.target === peModal) {
+                    peModal.style.display = 'none';
                 }
             });
         }

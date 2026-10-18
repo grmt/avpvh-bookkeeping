@@ -750,54 +750,76 @@ class AVBK_Book_Order {
             $price_note_opt = self::DEFAULT_PRICE_NOTE;
         }
 
-        // If user was logged in, order is confirmed immediately. Redirect to confirmation view.
-        if ($member) {
-            // Send courtesy confirmation mail
-            $subject = "Bevestiging bestelling — {$book_title}";
-            $price_note_html = !empty($price_note_opt)
-                ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
-                : '';
-            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
-                . '<p>Beste ' . esc_html($first_name) . ',</p>'
-                . '<p>Bedankt voor je bestelling van <strong>' . (int) $quantity . '</strong> exemplaar/exemplaren van &lsquo;<strong>' . esc_html($book_title) . '</strong>&rsquo;.</p>'
-                . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
-                . $price_note_html
-                . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).</p>'
-                . '<p style="margin: 25px 0;">'
-                . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling en betaal-QR bekijken &rarr;</a>'
-                . '</p>'
-                . '<p style="font-size: 13px; color: #646970;">'
-                . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je besteloverzicht te openen.'
-                . '</p>'
-                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
-                . '<p style="font-size: 13px; color: #646970;">'
-                . 'Met vriendelijke groet,<br>'
-                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
-                . '</p>'
-                . '</body></html>';
-            $headers = ['Content-Type: text/html; charset=UTF-8'];
-            wp_mail($email, $subject, $body, $headers);
+        $order_obj = (object) [
+            'id'            => (int) $order_result['id'],
+            'email'         => $email,
+            'first_name'    => $first_name,
+            'quantity'      => $quantity,
+            'total_amount'  => $total_amount,
+            'confirm_token' => $order_result['token'],
+            'status'        => $member ? 'confirmed' : 'pending_confirmation',
+        ];
 
+        $mail_result = self::send_order_email($order_obj);
+
+        if ($member) {
             wp_safe_redirect($confirm_link);
             exit;
         }
 
-        // For non-logged-in visitors: send confirmation email with token
-        $subject = "Bevestig je bestelling — {$book_title}";
+        if (!empty($mail_result['success'])) {
+            wp_safe_redirect(add_query_arg('book_ordered', '1', $page_url));
+        } else {
+            // Confirm immediately if mail fails so user is not stranded
+            AVBK_DB::confirm_book_order((int) $order_result['id']);
+            wp_safe_redirect(add_query_arg(['book_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
+        }
+        exit;
+    }
+
+    public static function send_order_email(object $order): array {
+        $email = $order->email;
+        if (!is_email($email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
+        }
+
+        $quantity = (int) ($order->quantity ?? 1);
+        if ($quantity < 1) {
+            $quantity = 1;
+        }
+        $total_amount = (float) ($order->total_amount ?? 0.0);
+        $first_name = trim((string) ($order->first_name ?? '')) ?: 'besteller';
+        $book_title = get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!';
+
+        $price_note_opt = get_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
+        if (in_array($price_note_opt, self::LEGACY_PRICE_NOTES, true) || empty($price_note_opt)) {
+            $price_note_opt = self::DEFAULT_PRICE_NOTE;
+        }
         $price_note_html = !empty($price_note_opt)
             ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
             : '';
+
+        $page_url = home_url('/boek/');
+        $confirm_link = add_query_arg('book_token', $order->confirm_token, $page_url);
+
+        $is_confirmed = ($order->status ?? '') === 'confirmed';
+        $subject = ($is_confirmed ? 'Bevestiging bestelling — ' : 'Bevestig je bestelling — ') . $book_title;
+        $btn_label = $is_confirmed ? 'Bestelling en betaal-QR bekijken &rarr;' : 'Bestelling definitief bevestigen &rarr;';
+        $notice_text = $is_confirmed
+            ? 'Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).'
+            : 'Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).';
+
         $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
             . '<p>Beste ' . esc_html($first_name) . ',</p>'
             . '<p>Bedankt voor je bestelling van <strong>' . (int) $quantity . '</strong> exemplaar/exemplaren van &lsquo;<strong>' . esc_html($book_title) . '</strong>&rsquo;.</p>'
             . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
             . $price_note_html
-            . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).</p>'
+            . '<p style="color: #50575e; font-size: 13px;">' . esc_html($notice_text) . '</p>'
             . '<p style="margin: 25px 0;">'
-            . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling definitief bevestigen &rarr;</a>'
+            . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">' . esc_html($btn_label) . '</a>'
             . '</p>'
             . '<p style="font-size: 13px; color: #646970;">'
-            . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je bestelling te bevestigen en de QR-code voor betaling te openen.'
+            . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je besteloverzicht te openen.'
             . '</p>'
             . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
             . '<p style="font-size: 13px; color: #646970;">'
@@ -812,19 +834,12 @@ class AVBK_Book_Order {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($email, $subject, $body, $headers);
+        $sent = (bool) wp_mail($email, $subject, $body, $headers);
         remove_action('wp_mail_failed', $capture_error);
 
-        AVBK_DB::mark_book_order_email_result((int) $order_result['id'], $sent, $mail_error);
+        AVBK_DB::mark_order_email_result((int) $order->id, $sent, $mail_error);
 
-        if ($sent) {
-            wp_safe_redirect(add_query_arg('book_ordered', '1', $page_url));
-        } else {
-            // Confirm immediately if mail fails so user is not stranded
-            AVBK_DB::confirm_book_order((int) $order_result['id']);
-            wp_safe_redirect(add_query_arg(['book_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
-        }
-        exit;
+        return ['success' => $sent, 'error' => $mail_error];
     }
 
     public function handle_check_email(): void {

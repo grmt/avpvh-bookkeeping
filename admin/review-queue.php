@@ -86,32 +86,63 @@ function avbk_member_select(string $name, array $members, int $selected_id = 0):
  */
 function avbk_activity_select(string $name, array $recent_activities, array $other_type_names, string $selected = '', int $member_id = 0): void {
     ?>
-    <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select" aria-label="Selecteer activiteit">
-        <option value="">&mdash; activiteit &mdash;</option>
+    <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select" aria-label="Selecteer activiteit of bestelling">
+        <option value="">&mdash; activiteit of bestelling &mdash;</option>
         <?php
         $open_fee_items = $member_id ? AVBK_DB::get_open_fee_items_for_member($member_id) : [];
         $selected_fee_shown = false;
-        if ($open_fee_items) : ?>
-        <optgroup label="Openstaande posten lid" class="avbk-member-open-fees-group">
-            <?php foreach ($open_fee_items as $ofi) :
-                $val = 'f' . $ofi->id;
-                if ($selected === $val) {
-                    $selected_fee_shown = true;
+        if ($open_fee_items) :
+            $order_items = [];
+            $other_items = [];
+            foreach ($open_fee_items as $ofi) {
+                if (in_array($ofi->category ?? '', ['tshirt', 'book'], true)) {
+                    $order_items[] = $ofi;
+                } else {
+                    $other_items[] = $ofi;
                 }
-                $rem = AVBK_DB::get_fee_item_remaining($ofi);
-                $label = 'Post #' . $ofi->id . ' — ' . $ofi->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')';
-                ?>
-                <option value="<?php echo esc_attr($val); ?>" <?php selected($selected, $val); ?>>
-                    <?php echo esc_html($label); ?>
-                </option>
-            <?php endforeach; ?>
-        </optgroup>
+            }
+            ?>
+            <?php if (!empty($order_items)) : ?>
+            <optgroup label="Openstaande bestellingen" class="avbk-member-open-orders-group">
+                <?php foreach ($order_items as $ofi) :
+                    $val = 'f' . $ofi->id;
+                    if ($selected === $val) {
+                        $selected_fee_shown = true;
+                    }
+                    $rem = AVBK_DB::get_fee_item_remaining($ofi);
+                    $label = 'Bestelling #' . $ofi->id . ' — ' . $ofi->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')';
+                    ?>
+                    <option value="<?php echo esc_attr($val); ?>" <?php selected($selected, $val); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($other_items)) : ?>
+            <optgroup label="Openstaande posten lid" class="avbk-member-open-fees-group">
+                <?php foreach ($other_items as $ofi) :
+                    $val = 'f' . $ofi->id;
+                    if ($selected === $val) {
+                        $selected_fee_shown = true;
+                    }
+                    $rem = AVBK_DB::get_fee_item_remaining($ofi);
+                    $label = 'Post #' . $ofi->id . ' — ' . $ofi->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')';
+                    ?>
+                    <option value="<?php echo esc_attr($val); ?>" <?php selected($selected, $val); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </optgroup>
+            <?php endif; ?>
         <?php endif; ?>
         <?php if (!$selected_fee_shown && preg_match('/^f(\d+)$/', $selected, $fee_match)) :
             $exact_item = AVBK_DB::get_fee_item((int) $fee_match[1]);
+            $is_order = $exact_item && in_array($exact_item->category ?? '', ['tshirt', 'book'], true);
+            $prefix = $is_order ? 'Bestelling #' : 'Post #';
+            $desc = $exact_item->description ?? ($is_order ? 'Ontbrekende bestelling' : 'Ontbrekende post');
             ?>
             <option value="<?php echo esc_attr($selected); ?>" selected>
-                <?php echo esc_html('Post #' . $fee_match[1] . ' — ' . ($exact_item->description ?? 'Ontbrekende post')); ?>
+                <?php echo esc_html($prefix . $fee_match[1] . ' — ' . $desc); ?>
             </option>
         <?php endif; ?>
         <?php if ($recent_activities) : ?>
@@ -327,35 +358,36 @@ function avbk_row_detail(array $row): ?array {
             foreach ($suggested_ids as $member_id) {
                 $member_had_a_row = false;
                 foreach ($suggested_types as $activity_name) {
+                    if ($activity_name === 'T-shirt') {
+                        $fee_item = AVBK_DB::get_open_tshirt_fee_item($member_id);
+                        if ($fee_item) {
+                            $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
+                            if ($rem > 0.005) {
+                                $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
+                                $known_amount_sum += $rem;
+                                $member_had_a_row = true;
+                                continue;
+                            }
+                        }
+                    } elseif ($activity_name === 'Boek') {
+                        $fee_item = AVBK_DB::get_open_book_fee_item($member_id);
+                        if ($fee_item) {
+                            $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
+                            if ($rem > 0.005) {
+                                $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
+                                $known_amount_sum += $rem;
+                                $member_had_a_row = true;
+                                continue;
+                            }
+                        }
+                    }
+
                     // Automatic matching is only against a concrete,
                     // registered activity. Loose categories remain in the
                     // dropdown for an explicit human choice, but a mere
                     // activity-type name never creates a suggestion.
                     $activity_obj = AVBK_DB::get_current_activity_for_type_name($activity_name);
                     if (!$activity_obj) {
-                        if ($activity_name === 'T-shirt') {
-                            $fee_item = AVBK_DB::get_open_tshirt_fee_item($member_id);
-                            if ($fee_item) {
-                                $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
-                                if ($rem > 0.005) {
-                                    $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
-                                    $known_amount_sum += $rem;
-                                    $member_had_a_row = true;
-                                    continue;
-                                }
-                            }
-                        } elseif ($activity_name === 'Boek') {
-                            $fee_item = AVBK_DB::get_open_book_fee_item($member_id);
-                            if ($fee_item) {
-                                $rem = max(0.0, AVBK_DB::get_fee_item_remaining($fee_item));
-                                if ($rem > 0.005) {
-                                    $rows[] = ['member_id' => $member_id, 'activity' => 'f' . $fee_item->id, 'description' => '', 'amount' => $rem];
-                                    $known_amount_sum += $rem;
-                                    $member_had_a_row = true;
-                                    continue;
-                                }
-                            }
-                        }
                         if (AVBK_Matcher::is_personal_one_off_type($activity_name)) {
                             $rows[] = ['member_id' => $member_id, 'activity' => $activity_name, 'description' => '', 'amount' => null];
                             $member_had_a_row = true;
@@ -467,7 +499,7 @@ function avbk_row_detail(array $row): ?array {
                 <?php endif; ?>
 
                 <table class="avbk-review-split">
-                    <thead><tr><th scope="col">Persoon</th><th scope="col">Activiteit</th><th scope="col">Bedrag</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
+                    <thead><tr><th scope="col">Persoon</th><th scope="col">Activiteit / bestelling</th><th scope="col">Bedrag</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) :
                         $d = avbk_row_detail($row);
