@@ -41,11 +41,23 @@ $current_user_id = get_current_user_id();
         $confirmer = $tx->confirmed_by ? get_userdata((int) $tx->confirmed_by) : null;
         $is_own = $tx->confirmed_by && (int) $tx->confirmed_by === $current_user_id;
         $allocations = AVBK_DB::get_allocations_for_transaction((int) $tx->id);
+        $allocated = 0.0;
+        foreach ($allocations as $a) {
+            $allocated += (float) $a->amount;
+        }
+        $shortfall = $tx->direction === 'in' ? round((float) $tx->amount - $allocated, 2) : 0.0;
         ?>
-        <div class="avbk-review-row" id="tx-<?php echo esc_attr($tx->id); ?>">
+        <div class="avbk-review-row" id="tx-<?php echo esc_attr($tx->id); ?>"<?php echo $shortfall > 0.005 ? ' style="background:#fcf0f1"' : ''; ?>>
             <table class="wp-list-table widefat striped" style="max-width:700px">
                 <tbody>
                     <tr><th>Excel regel</th><td><?php echo $tx->source_row ? esc_html($tx->source_row) : '&mdash;'; ?></td></tr>
+                    <tr><th>Import</th><td>
+                        <?php if ($tx->import_batch_id) : ?>
+                            <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-import'], admin_url('admin.php'))); ?>">#<?php echo esc_html($tx->import_batch_id); ?></a>
+                            <?php if (!empty($tx->import_uploaded_at)) : ?> &mdash; <?php echo esc_html(wp_date('d-m-Y', strtotime($tx->import_uploaded_at))); ?><?php endif; ?>
+                            <?php if (!empty($tx->import_filename)) : ?><br><span class="description"><?php echo esc_html($tx->import_filename); ?></span><?php endif; ?>
+                        <?php else : ?>&mdash;<?php endif; ?>
+                    </td></tr>
                     <tr><th>Datum</th><td><?php echo esc_html(wp_date('d-m-Y', strtotime($tx->transaction_date))); ?></td></tr>
                     <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></td></tr>
                     <tr><th>Naam</th><td><?php echo esc_html($tx->counterparty_name); ?></td></tr>
@@ -60,6 +72,11 @@ $current_user_id = get_current_user_id();
                             ?>
                             <?php echo esc_html(($member ? avpvh_format_name($member, 'list') : 'onbekend lid') . ($fee_item ? ' — ' . $fee_item->description : '') . ': € ' . number_format((float) $a->amount, 2, ',', '.')); ?><br>
                         <?php endforeach; endif; ?>
+                        <?php if ($shortfall > 0.005) :
+                            $transactions_url = add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . (int) $tx->id;
+                            ?>
+                            <a href="<?php echo esc_url($transactions_url); ?>" style="color:#a00">&euro; <?php echo esc_html(number_format($allocated, 2, ',', '.')); ?> van &euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?> &mdash; niet volledig toegewezen (verschil: &euro; <?php echo esc_html(number_format($shortfall, 2, ',', '.')); ?>)</a>
+                        <?php endif; ?>
                     </td></tr>
                 </tbody>
             </table>

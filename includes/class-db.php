@@ -3239,16 +3239,20 @@ class AVBK_DB {
         global $wpdb;
         if ($min_year) {
             return $wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}avb_transactions
-                 WHERE status = 'matched' AND second_approved_by IS NULL AND YEAR(transaction_date) >= %d
-                 ORDER BY transaction_date ASC, id ASC",
+                "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
+                 FROM {$wpdb->prefix}avb_transactions t
+                 LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
+                 WHERE t.status = 'matched' AND t.second_approved_by IS NULL AND YEAR(t.transaction_date) >= %d
+                 ORDER BY t.transaction_date ASC, t.id ASC",
                 $min_year
             )) ?: [];
         }
         return $wpdb->get_results(
-            "SELECT * FROM {$wpdb->prefix}avb_transactions
-             WHERE status = 'matched' AND second_approved_by IS NULL
-             ORDER BY transaction_date ASC, id ASC"
+            "SELECT t.*, b.filename AS import_filename, b.uploaded_at AS import_uploaded_at
+             FROM {$wpdb->prefix}avb_transactions t
+             LEFT JOIN {$wpdb->prefix}avb_import_batches b ON b.id = t.import_batch_id
+             WHERE t.status = 'matched' AND t.second_approved_by IS NULL
+             ORDER BY t.transaction_date ASC, t.id ASC"
         ) ?: [];
     }
 
