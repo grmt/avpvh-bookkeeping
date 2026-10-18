@@ -144,6 +144,7 @@ class AVBK_Google_Photos_Picker {
             }
             $session = self::create_session(['token' => $token['access_token'], 'expires' => time() + min(self::TTL, (int) ($token['expires_in'] ?? self::TTL))]);
             // Host checked against Google's picker domain above. No bearer token in this URL.
+            // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Host is verified Google Photos picker domain
             wp_redirect($session['url']);
             exit;
         } catch (RuntimeException $e) {
