@@ -264,7 +264,7 @@ class AVBK_Photo_Share {
             $name_slug = 'lid-' . (int) $share->id;
         }
 
-        $folder_name = date('Ymd') . '-' . $name_slug;
+        $folder_name = gmdate('Ymd') . '-' . $name_slug;
 
         if (class_exists('\Avpvh\Frontend\Share_Drive') && \Avpvh\Frontend\Share_Drive::has_account()) {
             try {

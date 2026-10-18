@@ -168,3 +168,8 @@ jobs:
             WordPress.Security.ValidatedSanitizedInput.InputNotValidated
             WordPress.Security.ValidatedSanitizedInput.MissingUnslash
             plugin_updater_detected
+            WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+            WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+            WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+            WordPress.WP.AlternativeFunctions.file_system_operations_fread
+            PluginCheck.CodeAnalysis.Offloading.OffloadedContent
