@@ -37,7 +37,7 @@ jobs:
         run: |
           STAGE_DIR="$(mktemp -d)/avpvh-bookkeeping"
           mkdir -p "$STAGE_DIR"
-          rsync -a --exclude='.git' --exclude='.github' --exclude='tests' --exclude='node_modules' ./ "$STAGE_DIR/"
+          rsync -a --exclude='.git' --exclude='.github' --exclude='tests' --exclude='bin' --exclude='node_modules' ./ "$STAGE_DIR/"
           (cd "$(dirname "$STAGE_DIR")" && zip -r "$GITHUB_WORKSPACE/avpvh-bookkeeping.zip" avpvh-bookkeeping)
 
       - name: Create or Update GitHub Release

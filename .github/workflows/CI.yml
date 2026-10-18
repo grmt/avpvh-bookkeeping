@@ -126,6 +126,7 @@ jobs:
           exclude-directories: |
             .claude
             .github
+            bin
             tests
           # Agent instruction docs live at the plugin root on purpose; they
           # aren't shipped plugin content (exact filenames only, globs are
