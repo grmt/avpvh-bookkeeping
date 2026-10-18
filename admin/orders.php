@@ -199,8 +199,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.5rem 0;">
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Shirts besteld</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo $stat_total_shirts; ?></div>
-                <div style="font-size: .85rem; color: #646970;"><?php echo $stat_confirmed_orders; ?> bevestigde bestellingen (van <?php echo $stat_total_orders; ?>)</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo (int) $stat_total_shirts; ?></div>
+                <div style="font-size: .85rem; color: #646970;"><?php echo (int) $stat_confirmed_orders; ?> bevestigde bestellingen (van <?php echo (int) $stat_total_orders; ?>)</div>
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Totaalbedrag</h3>
@@ -212,8 +212,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Uitreiking shirts</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #dba617;"><?php echo $stat_pending_dist; ?> open</div>
-                <div style="font-size: .85rem; color: #646970;"><?php echo $stat_collected_dist; ?> afgehaald &bull; <?php echo $stat_distributed_dist; ?> uitgereikt</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #dba617;"><?php echo (int) $stat_pending_dist; ?> open</div>
+                <div style="font-size: .85rem; color: #646970;"><?php echo (int) $stat_collected_dist; ?> afgehaald &bull; <?php echo (int) $stat_distributed_dist; ?> uitgereikt</div>
             </div>
         </div>
 
@@ -490,12 +490,12 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.5rem 0;">
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Exemplaren besteld</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo $stat_total_books; ?></div>
-                <div style="font-size: .85rem; color: #646970;"><?php echo $stat_confirmed_orders; ?> bevestigde bestellingen (van <?php echo $stat_total_orders; ?>)</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo (int) $stat_total_books; ?></div>
+                <div style="font-size: .85rem; color: #646970;"><?php echo (int) $stat_confirmed_orders; ?> bevestigde bestellingen (van <?php echo (int) $stat_total_orders; ?>)</div>
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Totaalbedrag</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;"><?php echo number_format($stat_total_amount, 2, ',', '.'); ?></div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1d2327;">&euro; <?php echo number_format($stat_total_amount, 2, ',', '.'); ?></div>
                 <div style="font-size: .85rem; color: #00a32a;">&euro; <?php echo number_format($stat_paid_amount, 2, ',', '.'); ?> betaald</div>
                 <?php if ($stat_open_amount > 0.005) : ?>
                     <div style="font-size: .85rem; color: #d63638;">&euro; <?php echo number_format($stat_open_amount, 2, ',', '.'); ?> nog open</div>
@@ -503,13 +503,13 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Uitreiking boeken</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #dba617;"><?php echo $stat_pending_dist; ?> open</div>
-                <div style="font-size: .85rem; color: #646970;"><?php echo $stat_collected_dist; ?> afgehaald &bull; <?php echo $stat_distributed_dist; ?> uitgereikt</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #dba617;"><?php echo (int) $stat_pending_dist; ?> open</div>
+                <div style="font-size: .85rem; color: #646970;"><?php echo (int) $stat_collected_dist; ?> afgehaald &bull; <?php echo (int) $stat_distributed_dist; ?> uitgereikt</div>
             </div>
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
                 <h3 style="margin: 0 0 .5rem; font-size: .9rem; color: #50575e; text-transform: uppercase;">Presentatie begin 2027</h3>
-                <div style="font-size: 1.8rem; font-weight: bold; color: #2271b1;"><?php echo $stat_attend_pres; ?> aanwezig</div>
-                <div style="font-size: .85rem; color: #646970;"><?php echo $stat_keep_updated; ?> wil op de hoogte blijven</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #2271b1;"><?php echo (int) $stat_attend_pres; ?> aanwezig</div>
+                <div style="font-size: .85rem; color: #646970;"><?php echo (int) $stat_keep_updated; ?> wil op de hoogte blijven</div>
             </div>
         </div>
 
