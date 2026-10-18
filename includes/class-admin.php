@@ -60,6 +60,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_delete_activity_payment_qr',     [$this, 'handle_delete_activity_payment_qr']);
         add_action('admin_post_avbk_update_order_distribution',      [$this, 'handle_update_order_distribution']);
         add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_order_distribution']);
+        add_action('admin_post_avbk_process_order_email',            [$this, 'handle_process_order_email']);
         add_action('admin_post_avbk_delete_order',                   [$this, 'handle_delete_order']);
         add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
         add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
@@ -2036,11 +2037,14 @@ class AVBK_Admin {
 
         $open_items_data = array_map(function($it) {
             $rem = max(0.0, AVBK_DB::get_fee_item_remaining($it));
+            $is_order = in_array($it->category ?? '', ['tshirt', 'book'], true);
+            $prefix = $is_order ? 'Bestelling #' : 'Post #';
             return [
                 'id'        => (int) $it->id,
                 'val'       => 'f' . $it->id,
-                'label'     => 'Post #' . $it->id . ' — ' . $it->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')',
+                'label'     => $prefix . $it->id . ' — ' . $it->description . ' (open: € ' . number_format($rem, 2, ',', '.') . ')',
                 'remaining' => $rem,
+                'is_order'  => $is_order,
             ];
         }, AVBK_DB::get_open_fee_items_for_member($member_id));
 
@@ -2050,12 +2054,15 @@ class AVBK_Admin {
             $payable = $item && (int) $item->member_id === $member_id && $item->status === 'open'
                 && (!$closed_year || AVBK_DB::fee_item_book_year($item) > $closed_year);
             $share = $payable ? max(0.0, AVBK_DB::get_fee_item_remaining($item)) : 0.0;
+            $is_order = $item && in_array($item->category ?? '', ['tshirt', 'book'], true);
+            $prefix = $is_order ? 'bestelling #' : 'bestaande post #';
+            $not_found = $is_order ? 'Bestelling bestaat niet meer.' : 'Post bestaat niet meer.';
             wp_send_json_success([
                 'share'             => $share,
                 'is_estimated'      => false,
                 'estimate_reason'   => '',
                 'found'             => $payable,
-                'fragments_html'    => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — bestaande post #' . $item->id : 'Post bestaat niet meer.'),
+                'fragments_html'    => esc_html($item ? 'Boekjaar ' . AVBK_DB::fee_item_book_year($item) . ' — ' . $prefix . $item->id : $not_found),
                 'estimated_text'    => '',
                 'estimated_warning' => false,
                 'open_fee_items'    => $open_items_data,
@@ -2396,6 +2403,55 @@ class AVBK_Admin {
                 'delete_error' => urlencode($result['error'] ?? 'Fout bij verwijderen.'),
             ], $redirect);
         }
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    public function handle_process_order_email(): void {
+        check_admin_referer('avbk_process_order_email');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $order_id      = (int) ($_POST['order_id'] ?? 0);
+        $new_email     = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+        $member_id     = !empty($_POST['member_id']) ? (int) $_POST['member_id'] : null;
+        $confirm_order = !empty($_POST['confirm_order']);
+        $resend_email  = !empty($_POST['resend_email']);
+        $redirect      = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders');
+
+        if (!is_email($new_email)) {
+            wp_safe_redirect(add_query_arg(['process_error' => urlencode('Ongeldig e-mailadres opgegeven.')], $redirect));
+            exit;
+        }
+
+        $update_res = AVBK_DB::update_order_email($order_id, $new_email, $member_id, $confirm_order);
+        if (empty($update_res['success'])) {
+            wp_safe_redirect(add_query_arg(['process_error' => urlencode($update_res['error'] ?? 'Fout bij bijwerken e-mailadres.')], $redirect));
+            exit;
+        }
+
+        $mail_sent = false;
+        $mail_error = '';
+        if ($resend_email) {
+            $mail_res = AVBK_DB::resend_order_email($order_id);
+            $mail_sent = !empty($mail_res['success']);
+            $mail_error = (string) ($mail_res['error'] ?? '');
+        }
+
+        if ($resend_email && !$mail_sent) {
+            $redirect = add_query_arg([
+                'order_email_processed' => $order_id,
+                'mail_sent'             => '0',
+                'process_error'         => urlencode('E-mailadres bijgewerkt, maar verzenden mislukte: ' . ($mail_error ?: 'onbekende fout')),
+            ], $redirect);
+        } else {
+            $redirect = add_query_arg([
+                'order_email_processed' => $order_id,
+                'mail_sent'             => $mail_sent ? '1' : '0',
+            ], $redirect);
+        }
+
         wp_safe_redirect($redirect);
         exit;
     }

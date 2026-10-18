@@ -934,49 +934,97 @@ class AVBK_Tshirt_Order {
             ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
             : '';
 
-        // If user was logged in, order is confirmed immediately.
-        if ($member) {
-            $subject = "Bevestiging bestelling — {$title_opt}";
-            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
-                . '<p>Beste ' . esc_html($first_name) . ',</p>'
-                . '<p>Bedankt voor je bestelling van <strong>' . (int) $total_quantity . ' kledingstuk(ken)</strong> van &lsquo;<strong>' . esc_html($title_opt) . '</strong>&rsquo;:</p>'
-                . $items_html
-                . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
-                . $price_note_html
-                . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).</p>'
-                . '<p style="margin: 25px 0;">'
-                . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling en betaal-QR bekijken &rarr;</a>'
-                . '</p>'
-                . '<p style="font-size: 13px; color: #646970;">'
-                . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je besteloverzicht te openen.'
-                . '</p>'
-                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
-                . '<p style="font-size: 13px; color: #646970;">'
-                . 'Met vriendelijke groet,<br>'
-                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
-                . '</p>'
-                . '</body></html>';
-            $headers = ['Content-Type: text/html; charset=UTF-8'];
-            wp_mail($email, $subject, $body, $headers);
+        $order_obj = (object) [
+            'id'            => (int) $order_result['id'],
+            'email'         => $email,
+            'first_name'    => $first_name,
+            'quantity'      => $total_quantity,
+            'total_amount'  => $total_amount,
+            'confirm_token' => $order_result['token'],
+            'status'        => $status,
+            'items'         => $items,
+        ];
 
+        $mail_result = self::send_order_email($order_obj);
+
+        if ($member) {
             wp_safe_redirect($confirm_link);
             exit;
         }
 
-        // Guest visitor: send verification link
-        $subject = "Bevestig je bestelling — {$title_opt}";
+        if (!empty($mail_result['success'])) {
+            wp_safe_redirect(add_query_arg('tshirt_ordered', '1', $page_url));
+        } else {
+            AVBK_DB::confirm_order((int) $order_result['id']);
+            wp_safe_redirect(add_query_arg(['tshirt_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
+        }
+        exit;
+    }
+
+    public static function send_order_email(object $order): array {
+        $email = $order->email;
+        if (!is_email($email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
+        }
+
+        $items = !empty($order->items) ? $order->items : AVBK_DB::get_order_items((int) $order->id);
+        $total_quantity = (int) ($order->quantity ?? 0);
+        if ($total_quantity === 0 && !empty($items)) {
+            $total_quantity = array_sum(array_map(fn($it) => (int) ($it->quantity ?? $it['quantity'] ?? 1), $items));
+        }
+        if ($total_quantity === 0) {
+            $total_quantity = 1;
+        }
+        $total_amount = (float) ($order->total_amount ?? 0.0);
+        $first_name = trim((string) ($order->first_name ?? '')) ?: 'besteller';
+
+        $items_html = '<ul style="margin: 10px 0; padding-left: 20px;">';
+        if (!empty($items)) {
+            foreach ($items as $it) {
+                $qty = (int) ($it->quantity ?? $it['quantity'] ?? 1);
+                $title = (string) ($it->title ?? $it['title'] ?? 'T-shirt');
+                $variant = (string) ($it->variant ?? $it['variant'] ?? '');
+                $line_total = (float) ($it->total_price ?? $it['total_price'] ?? 0.0);
+                $items_html .= '<li><strong>' . $qty . '&times;</strong> '
+                    . esc_html($title) . ($variant !== '' ? ' (Maat: ' . esc_html($variant) . ')' : '') . ' &mdash; &euro;&nbsp;'
+                    . number_format($line_total, 2, ',', '.') . '</li>';
+            }
+        } else {
+            $items_html .= '<li><strong>' . $total_quantity . '&times;</strong> T-shirt &mdash; &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</li>';
+        }
+        $items_html .= '</ul>';
+
+        $title_opt = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
+        $price_note_opt = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
+        if (in_array($price_note_opt, self::LEGACY_PRICE_NOTES, true) || empty($price_note_opt)) {
+            $price_note_opt = self::DEFAULT_PRICE_NOTE;
+        }
+        $price_note_html = !empty($price_note_opt)
+            ? '<p style="font-size: 13px; color: #646970; margin: 12px 0;"><em>Prijsnotitie: ' . esc_html($price_note_opt) . '</em></p>'
+            : '';
+
+        $page_url = home_url('/tshirt/');
+        $confirm_link = add_query_arg('tshirt_token', $order->confirm_token, $page_url);
+
+        $is_confirmed = ($order->status ?? '') === 'confirmed';
+        $subject = ($is_confirmed ? 'Bevestiging bestelling — ' : 'Bevestig je bestelling — ') . $title_opt;
+        $btn_label = $is_confirmed ? 'Bestelling en betaal-QR bekijken &rarr;' : 'Bestelling definitief bevestigen &rarr;';
+        $notice_text = $is_confirmed
+            ? 'Let op: met deze bestelling is een betalingsverplichting ontstaan (bestellen betekent betalen).'
+            : 'Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).';
+
         $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
             . '<p>Beste ' . esc_html($first_name) . ',</p>'
             . '<p>Bedankt voor je bestelling van <strong>' . (int) $total_quantity . ' kledingstuk(ken)</strong> van &lsquo;<strong>' . esc_html($title_opt) . '</strong>&rsquo;:</p>'
             . $items_html
             . '<p style="font-size: 16px;"><strong>Totaalbedrag:</strong> &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</p>'
             . $price_note_html
-            . '<p style="color: #50575e; font-size: 13px;">Let op: met deze bestelling ga je een betalingsverplichting aan (bestellen betekent betalen).</p>'
+            . '<p style="color: #50575e; font-size: 13px;">' . esc_html($notice_text) . '</p>'
             . '<p style="margin: 25px 0;">'
-            . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">Bestelling definitief bevestigen &rarr;</a>'
+            . '<a href="' . esc_url($confirm_link) . '" style="display: inline-block; background-color: #2271b1; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 4px; font-weight: 600; font-size: 15px;">' . esc_html($btn_label) . '</a>'
             . '</p>'
             . '<p style="font-size: 13px; color: #646970;">'
-            . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je bestelling te bevestigen en de QR-code voor betaling te openen.'
+            . 'Werkt de knop niet? Klik dan op <a href="' . esc_url($confirm_link) . '" style="color: #2271b1; text-decoration: underline;">deze directe link</a> om je besteloverzicht te openen.'
             . '</p>'
             . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
             . '<p style="font-size: 13px; color: #646970;">'
@@ -991,18 +1039,12 @@ class AVBK_Tshirt_Order {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($email, $subject, $body, $headers);
+        $sent = (bool) wp_mail($email, $subject, $body, $headers);
         remove_action('wp_mail_failed', $capture_error);
 
-        AVBK_DB::mark_order_email_result((int) $order_result['id'], $sent, $mail_error);
+        AVBK_DB::mark_order_email_result((int) $order->id, $sent, $mail_error);
 
-        if ($sent) {
-            wp_safe_redirect(add_query_arg('tshirt_ordered', '1', $page_url));
-        } else {
-            AVBK_DB::confirm_order((int) $order_result['id']);
-            wp_safe_redirect(add_query_arg(['tshirt_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
-        }
-        exit;
+        return ['success' => $sent, 'error' => $mail_error];
     }
 
     public function handle_check_email(): void {

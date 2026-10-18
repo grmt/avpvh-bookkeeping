@@ -4260,6 +4260,7 @@ class AVBK_DB {
         $order->items = self::get_order_items((int) $order->id);
         $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
         $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
+        $order->email_status = (!empty($order->email_sent) && empty($order->email_error)) ? 'sent' : 'failed';
         return $order;
     }
 
@@ -4274,6 +4275,7 @@ class AVBK_DB {
         $order->items = self::get_order_items((int) $order->id);
         $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
         $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
+        $order->email_status = (!empty($order->email_sent) && empty($order->email_error)) ? 'sent' : 'failed';
         return $order;
     }
 
@@ -4324,6 +4326,10 @@ class AVBK_DB {
             $fee_item_id ?: null,
             $id
         ));
+
+        if ($fee_item_id > 0 && $member_id > 0) {
+            $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => $fee_item_id]);
+        }
     }
 
     public static function delete_order(int $id, bool $send_email = false): array {
@@ -4397,6 +4403,117 @@ class AVBK_DB {
             'email_sent'  => (int) $sent,
             'email_error' => $error,
         ], ['id' => $id]);
+    }
+
+    public static function suggest_email_fix(string $email): ?string {
+        $email = trim(mb_strtolower($email));
+        $parts = explode('@', $email);
+        if (count($parts) !== 2) {
+            return null;
+        }
+        [$local, $domain] = $parts;
+        if ($local === '' || $domain === '') {
+            return null;
+        }
+
+        $popular_domains = [
+            'gmail.com',
+            'hotmail.com',
+            'outlook.com',
+            'live.nl',
+            'ziggo.nl',
+            'kpnmail.nl',
+            'kpnplanet.nl',
+            'planet.nl',
+            'hetnet.nl',
+            'home.nl',
+            'chello.nl',
+            'upcmail.nl',
+            'xs4all.nl',
+            'yahoo.com',
+            'icloud.com',
+            'msn.com',
+            'online.nl',
+            'zonnet.nl',
+            'tele2.nl',
+            'telfort.nl',
+        ];
+
+        if (in_array($domain, $popular_domains, true)) {
+            return null;
+        }
+
+        foreach ($popular_domains as $pop) {
+            $lev = levenshtein($domain, $pop);
+            if ($lev === 1 || ($lev === 2 && strlen($pop) >= 6 && count_chars($domain, 1) === count_chars($pop, 1))) {
+                return $local . '@' . $pop;
+            }
+        }
+
+        return null;
+    }
+
+    public static function count_failed_order_emails(string $order_type = 'all'): int {
+        global $wpdb;
+        $where = ["status != 'cancelled'", "(email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL))"];
+        $params = [];
+        if ($order_type !== 'all' && $order_type !== '') {
+            $where[] = "order_type = %s";
+            $params[] = $order_type;
+        }
+        $where_sql = implode(' AND ', $where);
+        $sql = "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE {$where_sql}";
+        if (!empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+        return (int) $wpdb->get_var($sql);
+    }
+
+    public static function update_order_email(int $id, string $new_email, ?int $member_id = null, bool $confirm = false): array {
+        global $wpdb;
+        $order = self::get_order($id);
+        if (!$order) {
+            return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
+        }
+
+        $new_email = sanitize_email($new_email);
+        if (!is_email($new_email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres opgegeven.'];
+        }
+
+        $update_fields = ['email' => $new_email];
+        if ($member_id !== null && $member_id > 0) {
+            $update_fields['member_id'] = $member_id;
+        }
+
+        $wpdb->update("{$wpdb->prefix}avb_orders", $update_fields, ['id' => $id]);
+
+        if ($member_id !== null && $member_id > 0 && !empty($order->fee_item_id)) {
+            $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => (int) $order->fee_item_id]);
+        }
+
+        if ($confirm && $order->status === 'pending_confirmation') {
+            self::confirm_order($id);
+        } elseif ($member_id !== null && $member_id > 0 && empty($order->fee_item_id)) {
+            self::confirm_order($id);
+        }
+
+        return ['success' => true];
+    }
+
+    public static function resend_order_email(int $id): array {
+        $order = self::get_order($id);
+        if (!$order) {
+            return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
+        }
+
+        if ($order->order_type === 'tshirt' && class_exists('AVBK_Tshirt_Order')) {
+            return AVBK_Tshirt_Order::send_order_email($order);
+        } elseif ($order->order_type === 'book' && class_exists('AVBK_Book_Order')) {
+            return AVBK_Book_Order::send_order_email($order);
+        }
+
+        return ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
     }
 
     public static function update_order_distribution(int $id, string $distribution_status): bool {
@@ -4485,6 +4602,11 @@ class AVBK_DB {
             $params[] = $like;
             $params[] = $like;
         }
+        if (!empty($args['email_status']) && $args['email_status'] === 'failed') {
+            $where[] = "(o.email_sent = 0 OR (o.email_error != '' AND o.email_error IS NOT NULL))";
+        } elseif (!empty($args['email_status']) && $args['email_status'] === 'sent') {
+            $where[] = "(o.email_sent = 1 AND (o.email_error = '' OR o.email_error IS NULL))";
+        }
 
         $where_sql = implode(' AND ', $where);
 
@@ -4522,6 +4644,11 @@ class AVBK_DB {
                 $row->items = $items_by_order[(int) $row->id] ?? [];
                 $row->quantity = !empty($row->items) ? array_sum(array_column($row->items, 'quantity')) : 1;
                 $row->unit_price = !empty($row->items) ? (float) $row->items[0]->unit_price : (float) $row->total_amount;
+                $row->email_status = (!empty($row->email_sent) && empty($row->email_error)) ? 'sent' : 'failed';
+            }
+        } else {
+            foreach ($results as $row) {
+                $row->email_status = (!empty($row->email_sent) && empty($row->email_error)) ? 'sent' : 'failed';
             }
         }
 
