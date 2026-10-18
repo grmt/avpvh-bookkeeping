@@ -128,7 +128,7 @@ class AVBK_Book_Order {
             <div class="avbk-book-intro-card">
                 <h3>Over het boek</h3>
                 <div class="avbk-book-flaptekst">
-                    <?php echo self::format_flaptekst($flaptekst); ?>
+                    <?php echo wp_kses_post(self::format_flaptekst($flaptekst)); ?>
                 </div>
             </div>
 
@@ -236,7 +236,7 @@ class AVBK_Book_Order {
                                             <?php
                                             $payment_request = class_exists('AVBK_Product_Payment') ? AVBK_Product_Payment::render('book', $remaining, (int) $ord->id) : '';
                                             if ($payment_request) {
-                                                echo '<div class="avbk-book-order-payment-request">' . $payment_request . '</div>';
+                                                echo '<div class="avbk-book-order-payment-request">' . $payment_request . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- rendered payment component
                                             } elseif (!empty($ord->confirm_token)) {
                                                 $confirm_url = add_query_arg('book_token', $ord->confirm_token, $page_url);
                                                 echo '<div style="margin-top:.4rem;"><a href="' . esc_url($confirm_url) . '" class="button button-small">Betaalinstructies &amp; QR openen &rarr;</a></div>';
@@ -363,7 +363,7 @@ class AVBK_Book_Order {
                         <label for="avbk_quantity">Aantal exemplaren *</label>
                         <select id="avbk_quantity" name="quantity">
                             <?php for ($i = 1; $i <= 10; $i++) : ?>
-                                <option value="<?php echo $i; ?>"><?php echo $i . ($i === 1 ? ' exemplaar' : ' exemplaren') . ' (€ ' . number_format($price * $i, 2, ',', '.') . ')'; ?></option>
+                                <option value="<?php echo (int) $i; ?>"><?php echo esc_html($i . ($i === 1 ? ' exemplaar' : ' exemplaren') . ' (€ ' . number_format($price * $i, 2, ',', '.') . ')'); ?></option>
                             <?php endfor; ?>
                         </select>
                     </p>

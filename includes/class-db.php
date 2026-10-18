@@ -1310,14 +1310,14 @@ class AVBK_DB {
             return null;
         }
         $placeholders = implode(',', array_fill(0, count($flag_ids), '%d'));
-        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $placeholders is a generated run of %d, one per id, filled in by prepare() below.
+        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $placeholders is a generated run of %d, one per id, filled in by prepare() below.
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_activity_rates
              WHERE activity_id = %d AND flag_id IN ($placeholders)
              ORDER BY rate ASC LIMIT 1",
             array_merge([$activity_id], $flag_ids)
         )) ?: null;
-        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
     /**
@@ -1730,12 +1730,12 @@ class AVBK_DB {
         // filled in by the prepare() call below — phpcs can't count the
         // placeholders in a dynamically built string, hence the false
         // "incorrect number of replacements" and "unfinished prepare" flags.
-        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+        // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE member_id = %d AND activity_id IS NULL AND category IN ({$placeholders}) AND status = 'open' ORDER BY id ASC LIMIT 1",
             $member_id, ...$cats
         )) ?: null;
-        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+        // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
     public static function get_open_tshirt_fee_item(int $member_id): ?object {
@@ -3118,6 +3118,7 @@ class AVBK_DB {
         ]);
         if ($inserted === false) {
             throw new \RuntimeException(
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception message not rendered to browser
                 'Kon transactie niet opslaan (regel ' . ($row['source_row'] ?? '?') . '): ' . $wpdb->last_error
             );
         }
@@ -4461,18 +4462,15 @@ class AVBK_DB {
 
     public static function count_failed_order_emails(string $order_type = 'all'): int {
         global $wpdb;
-        $where = ["status != 'cancelled'", "(email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL))"];
-        $params = [];
         if ($order_type !== 'all' && $order_type !== '') {
-            $where[] = "order_type = %s";
-            $params[] = $order_type;
+            return (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND (email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL)) AND order_type = %s",
+                $order_type
+            ));
         }
-        $where_sql = implode(' AND ', $where);
-        $sql = "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE {$where_sql}";
-        if (!empty($params)) {
-            $sql = $wpdb->prepare($sql, ...$params);
-        }
-        return (int) $wpdb->get_var($sql);
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND (email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL))"
+        );
     }
 
     public static function update_order_email(int $id, string $new_email, ?int $member_id = null, bool $confirm = false): array {
@@ -4621,7 +4619,7 @@ class AVBK_DB {
         // from $args goes through %s/%d placeholders into $params and is
         // bound below via prepare(); phpcs can't see that by just looking
         // at the $sql variable passed to get_results().
-        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
         $sql = "SELECT o.*,
                        f.amount_due AS fee_amount_due,
                        f.status AS fee_status,
@@ -4638,7 +4636,7 @@ class AVBK_DB {
         }
 
         $results = $wpdb->get_results($sql) ?: [];
-        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
 
         // Pre-fetch line items for all retrieved orders
         if (!empty($results)) {
