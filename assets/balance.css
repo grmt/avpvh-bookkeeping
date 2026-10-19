@@ -35,10 +35,6 @@
     text-align: right;
 }
 
-.avbk-balance-table th[data-type="number"] {
-    text-align: right;
-}
-
 .avbk-balance-table .avbk-cell-wrap-words {
     /* Wrap between words (e.g. after the first name) instead of the
        table squeezing this column so narrow it breaks mid-word. */
