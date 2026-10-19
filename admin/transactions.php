@@ -81,6 +81,7 @@ $ignore_reason_label = [
             }
             $allocated_activity_names = [];
             $has_donation_allocation = false;
+            $allocated_order_links = [];
             foreach ($allocations as $allocation) {
                 $fee_item = AVBK_DB::get_fee_item((int) $allocation->fee_item_id);
                 if ($fee_item && !empty($fee_item->activity_id) && isset($activity_names[(int) $fee_item->activity_id])) {
@@ -88,6 +89,20 @@ $ignore_reason_label = [
                 }
                 if ($fee_item && ($fee_item->category ?? '') === 'Schenking') {
                     $has_donation_allocation = true;
+                }
+                // "Toegewezen zonder activiteit" is wrong for a boek-/
+                // t-shirtbestelling — die ís toegewezen, alleen niet aan
+                // een avb_activities-rij (fee_item->activity_id blijft
+                // leeg voor merchandise). Link in plaats daarvan door naar
+                // de bestelling zelf.
+                if ($fee_item && in_array($fee_item->category ?? '', ['tshirt', 'book'], true)) {
+                    $order = AVBK_DB::get_order_by_fee_item((int) $fee_item->id);
+                    if ($order) {
+                        $allocated_order_links[(int) $order->id] = [
+                            'label' => $fee_item->category === 'tshirt' ? 'T-shirt' : 'Jubileumboek',
+                            'url'   => add_query_arg(['page' => 'avbk-orders', 'tab' => $fee_item->category], admin_url('admin.php')) . '#order-' . (int) $order->id,
+                        ];
+                    }
                 }
             }
             $shortfall = $tx->direction === 'in' && $tx->status === 'matched' ? round((float) $tx->amount - $allocated, 2) : 0.0;
@@ -110,15 +125,28 @@ $ignore_reason_label = [
                 <td><?php echo esc_html($tx->counterparty_name); ?></td>
                 <?php $clean_description = AVBK_Matcher::strip_name_field($tx->description); ?>
                 <td data-filter-value="<?php echo esc_attr($clean_description); ?>"><?php echo esc_html(mb_strimwidth($clean_description, 0, 100, '…')); ?></td>
-                <?php $tag_label = $allocations
-                    ? trim(
-                        ($allocated_activity_names ? implode(', ', $allocated_activity_names) : ($has_donation_allocation ? '' : 'Toegewezen zonder activiteit'))
-                        . ($has_donation_allocation ? ($allocated_activity_names ? ', Schenking' : 'Schenking') : '')
-                    )
-                    : (!empty($tx->activity_id) && isset($activity_names[(int) $tx->activity_id]) ? $activity_names[(int) $tx->activity_id] : 'Geen activiteit'); ?>
+                <?php
+                $label_parts = [];
+                $display_parts = [];
+                if ($allocated_activity_names) {
+                    $label_parts[] = implode(', ', $allocated_activity_names);
+                    $display_parts[] = esc_html(implode(', ', $allocated_activity_names));
+                }
+                foreach ($allocated_order_links as $link) {
+                    $label_parts[] = $link['label'];
+                    $display_parts[] = '<a href="' . esc_url($link['url']) . '">' . esc_html($link['label']) . '</a>';
+                }
+                if ($has_donation_allocation) {
+                    $label_parts[] = 'Schenking';
+                    $display_parts[] = 'Schenking';
+                }
+                $tag_label = $allocations
+                    ? ($label_parts ? implode(', ', $label_parts) : 'Toegewezen zonder activiteit')
+                    : (!empty($tx->activity_id) && isset($activity_names[(int) $tx->activity_id]) ? $activity_names[(int) $tx->activity_id] : 'Geen activiteit');
+                ?>
                 <td data-filter-value="<?php echo esc_attr($tag_label); ?>">
                     <?php if ($allocations) : ?>
-                        <?php echo esc_html($tag_label); ?>
+                        <?php echo $display_parts ? implode(', ', $display_parts) : esc_html($tag_label); ?>
                     <?php elseif ($tx->direction !== 'in') : ?>
                         &mdash;
                     <?php else : ?>

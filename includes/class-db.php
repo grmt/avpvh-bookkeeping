@@ -4336,6 +4336,19 @@ class AVBK_DB {
         return $order;
     }
 
+    /**
+     * Lightweight lookup for linking a paid merchandise/book fee item
+     * (category 'tshirt'/'book') back to its bestelling — just enough
+     * (id, order_type) to build a link to admin.php?page=avbk-orders,
+     * not the full get_order() with items/quantity.
+     */
+    public static function get_order_by_fee_item(int $fee_item_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT id, order_type FROM {$wpdb->prefix}avb_orders WHERE fee_item_id = %d", $fee_item_id
+        )) ?: null;
+    }
+
     public static function get_order_by_token(string $token): ?object {
         global $wpdb;
         $order = $wpdb->get_row($wpdb->prepare(
