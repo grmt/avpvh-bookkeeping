@@ -57,31 +57,10 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
     <?php if ($active_tab === 'tshirt') : ?>
         <?php
-        $status_filter       = sanitize_key(wp_unslash($_GET['status'] ?? ''));
-        $distribution_filter = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
-        $payment_filter      = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
-        $email_filter        = sanitize_key(wp_unslash($_GET['email_status'] ?? 'all'));
-        $search_query        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
-
-        $filter_args = ['order_type' => 'tshirt'];
-        if ($status_filter !== '' && $status_filter !== 'all') {
-            $filter_args['status'] = $status_filter;
-        }
-        if ($distribution_filter !== '' && $distribution_filter !== 'all') {
-            $filter_args['distribution_status'] = $distribution_filter;
-        }
-        if ($payment_filter !== '' && $payment_filter !== 'all') {
-            $filter_args['payment_status'] = $payment_filter;
-        }
-        if ($email_filter !== '' && $email_filter !== 'all') {
-            $filter_args['email_status'] = $email_filter;
-        }
-        if ($search_query !== '') {
-            $filter_args['search'] = $search_query;
-        }
-
-        $orders = AVBK_DB::get_orders($filter_args);
+        // Filtering/sorting now happens client-side in the table itself
+        // (avbk-balance-table, see balance.js) — always load the full set.
         $all_orders = AVBK_DB::get_orders(['order_type' => 'tshirt']);
+        $orders = $all_orders;
         $matrix = AVBK_DB::get_order_matrix('tshirt');
 
         // Statistics over all confirmed T-shirt orders
@@ -219,76 +198,36 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
         <?php
         $failed_tshirt_emails = AVBK_DB::count_failed_order_emails('tshirt');
-        if ($failed_tshirt_emails > 0 && $email_filter !== 'failed') : ?>
+        if ($failed_tshirt_emails > 0) : ?>
             <div class="notice notice-warning" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; margin: 1.25rem 0;">
                 <p style="margin: 0; font-size: 0.95rem;">
                     <strong>&#9888; Let op:</strong> Er zijn <strong><?php echo (int) $failed_tshirt_emails; ?></strong> bestelling(en) waarbij de bevestigingsmail niet verzonden kon worden of een fout bevat (bijvoorbeeld door een typefout in het e-mailadres).
                 </p>
-                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt', 'email_status' => 'failed'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt', 'f_besteller' => 'mislukt'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
                     Toon mislukte e-mails &rarr;
                 </a>
             </div>
         <?php endif; ?>
 
-        <!-- Filter form -->
-        <form method="get" style="margin: 1.25rem 0; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;">
-            <input type="hidden" name="page" value="avbk-orders">
-            <input type="hidden" name="tab" value="tshirt">
-
-            <label for="filter_dist">Uitreiking:
-                <select name="distribution_status" id="filter_dist" onchange="this.form.submit()">
-                    <option value="all" <?php selected($distribution_filter, 'all'); ?>>Alle uitreikstatussen</option>
-                    <option value="pending" <?php selected($distribution_filter, 'pending'); ?>>In afwachting</option>
-                    <option value="collected" <?php selected($distribution_filter, 'collected'); ?>>Opgehaald</option>
-                    <option value="distributed" <?php selected($distribution_filter, 'distributed'); ?>>Uitgereikt</option>
-                </select>
-            </label>
-
-            <label for="filter_pay">Betaling:
-                <select name="payment_status" id="filter_pay" onchange="this.form.submit()">
-                    <option value="all" <?php selected($payment_filter, 'all'); ?>>Alle betaalstatussen</option>
-                    <option value="paid" <?php selected($payment_filter, 'paid'); ?>>Betaald</option>
-                    <option value="open" <?php selected($payment_filter, 'open'); ?>>Open</option>
-                </select>
-            </label>
-
-            <label for="filter_status">Bestelstatus:
-                <select name="status" id="filter_status" onchange="this.form.submit()">
-                    <option value="all" <?php selected($status_filter, 'all'); ?>>Alle bestellingen</option>
-                    <option value="confirmed" <?php selected($status_filter, 'confirmed'); ?>>Bevestigd</option>
-                    <option value="pending_confirmation" <?php selected($status_filter, 'pending_confirmation'); ?>>In afwachting van bevestiging</option>
-                </select>
-            </label>
-
-            <label for="filter_email">E-mail:
-                <select name="email_status" id="filter_email" onchange="this.form.submit()">
-                    <option value="all" <?php selected($email_filter, 'all'); ?>>Alle e-mailstatussen</option>
-                    <option value="failed" <?php selected($email_filter, 'failed'); ?>>Mislukt / niet verzonden</option>
-                    <option value="sent" <?php selected($email_filter, 'sent'); ?>>Succesvol verzonden</option>
-                </select>
-            </label>
-
-            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek kledingbestellingen">
-            <button type="submit" class="button">Filteren</button>
-            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $status_filter !== '' || $email_filter !== 'all' || $search_query !== '') : ?>
-                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt'], admin_url('admin.php'))); ?>" class="button">Reset</a>
-            <?php endif; ?>
-        </form>
-
         <!-- Orders Table -->
-        <table class="wp-list-table widefat fixed striped">
+        <div class="avbk-balance-table-tools">
+            <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
+            <div class="avbk-col-toggle-panel" hidden></div>
+        </div>
+        <div class="avbk-balance-table-wrap">
+        <table id="avbk-balance-table" data-storage-key="avbk_orders_tshirt_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
             <thead>
-                <tr>
-                    <th scope="col" style="width: 50px;">ID</th>
-                    <th scope="col" style="width: 90px;">Datum</th>
-                    <th scope="col" style="width: 170px;">Besteller</th>
-                    <th scope="col">Adres</th>
-                    <th scope="col" style="width: 240px;">Bestelde shirts</th>
-                    <th scope="col" style="width: 90px;">Bedrag</th>
-                    <th scope="col" style="width: 110px;">Betaling</th>
-                    <th scope="col" style="width: 150px;">Uitreiking</th>
-                    <th scope="col">Opmerkingen</th>
-                    <th scope="col" style="width: 130px;"><span class="screen-reader-text">Acties</span></th>
+                <tr class="avbk-balance-header-row">
+                    <th scope="col" data-col="id" data-type="number">ID</th>
+                    <th scope="col" data-col="datum" data-type="date">Datum</th>
+                    <th scope="col" data-col="besteller">Besteller</th>
+                    <th scope="col" data-col="adres">Adres</th>
+                    <th scope="col" data-col="shirts">Bestelde shirts</th>
+                    <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
+                    <th scope="col" data-col="betaling" data-filter="select">Betaling</th>
+                    <th scope="col" data-col="uitreiking" data-filter="select">Uitreiking</th>
+                    <th scope="col" data-col="opmerkingen">Opmerkingen</th>
+                    <th scope="col"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -304,9 +243,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                         $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
                         $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
                     ?>
-                        <tr>
+                        <tr id="order-<?php echo (int) $order->id; ?>">
                             <td>#<?php echo (int) $order->id; ?></td>
-                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($order->created_at))); ?></td>
+                            <td data-sort-value="<?php echo esc_attr(wp_date('Y-m-d', strtotime($order->created_at))); ?>"><?php echo esc_html(wp_date('d-m-Y', strtotime($order->created_at))); ?></td>
                             <td>
                                 <strong>
                                     <?php if ($member_profile_url) : ?>
@@ -354,8 +293,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <em><?php echo (int) $order->quantity; ?> shirt(s)</em>
                                 <?php endif; ?>
                             </td>
-                            <td>&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
-                            <td>
+                            <td data-sort-value="<?php echo esc_attr(number_format((float) $order->total_amount, 2, '.', '')); ?>">&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
+                            <td data-filter-value="<?php echo $is_paid ? 'Betaald' : 'Open'; ?>">
                                 <?php if ($is_paid) : ?>
                                     <span style="color: #00a32a; font-weight: bold;">&#10004; Betaald</span>
                                 <?php else : ?>
@@ -368,7 +307,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </td>
-                            <td>
+                            <td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
                                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
                                     <?php wp_nonce_field('avbk_update_order_distribution'); ?>
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
@@ -410,38 +349,14 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <?php endif; ?>
             </tbody>
         </table>
+        </div>
 
     <?php elseif ($active_tab === 'book') : ?>
         <?php
-        $status_filter       = sanitize_key(wp_unslash($_GET['status'] ?? ''));
-        $distribution_filter = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
-        $payment_filter      = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
-        $presentation_filter = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
-        $email_filter        = sanitize_key(wp_unslash($_GET['email_status'] ?? 'all'));
-        $search_query        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
-
-        $filter_args = ['order_type' => 'book'];
-        if ($status_filter !== '' && $status_filter !== 'all') {
-            $filter_args['status'] = $status_filter;
-        }
-        if ($distribution_filter !== '' && $distribution_filter !== 'all') {
-            $filter_args['distribution_status'] = $distribution_filter;
-        }
-        if ($payment_filter !== '' && $payment_filter !== 'all') {
-            $filter_args['payment_status'] = $payment_filter;
-        }
-        if ($presentation_filter !== '' && $presentation_filter !== 'all') {
-            $filter_args['presentation'] = $presentation_filter;
-        }
-        if ($email_filter !== '' && $email_filter !== 'all') {
-            $filter_args['email_status'] = $email_filter;
-        }
-        if ($search_query !== '') {
-            $filter_args['search'] = $search_query;
-        }
-
-        $orders = AVBK_DB::get_orders($filter_args);
+        // Filtering/sorting now happens client-side in the table itself
+        // (avbk-balance-table, see balance.js) — always load the full set.
         $all_orders = AVBK_DB::get_orders(['order_type' => 'book']);
+        $orders = $all_orders;
 
         // Calculate statistics over all book orders
         $stat_total_orders      = count($all_orders);
@@ -515,83 +430,36 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
         <?php
         $failed_book_emails = AVBK_DB::count_failed_order_emails('book');
-        if ($failed_book_emails > 0 && $email_filter !== 'failed') : ?>
+        if ($failed_book_emails > 0) : ?>
             <div class="notice notice-warning" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; margin: 1.25rem 0;">
                 <p style="margin: 0; font-size: 0.95rem;">
                     <strong>&#9888; Let op:</strong> Er zijn <strong><?php echo (int) $failed_book_emails; ?></strong> boekbestelling(en) waarbij de bevestigingsmail niet verzonden kon worden of een fout bevat (bijvoorbeeld door een typefout in het e-mailadres).
                 </p>
-                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book', 'email_status' => 'failed'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book', 'f_besteller' => 'mislukt'], admin_url('admin.php'))); ?>" class="button button-secondary" style="white-space: nowrap; margin-left: 15px;">
                     Toon mislukte e-mails &rarr;
                 </a>
             </div>
         <?php endif; ?>
 
-        <form method="get" style="margin: 1.25rem 0; display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;">
-            <input type="hidden" name="page" value="avbk-orders">
-            <input type="hidden" name="tab" value="book">
-
-            <label for="filter_dist_book">Uitreiking:
-                <select name="distribution_status" id="filter_dist_book" onchange="this.form.submit()">
-                    <option value="all" <?php selected($distribution_filter, 'all'); ?>>Alle uitreikstatussen</option>
-                    <option value="pending" <?php selected($distribution_filter, 'pending'); ?>>In afwachting</option>
-                    <option value="collected" <?php selected($distribution_filter, 'collected'); ?>>Opgehaald</option>
-                    <option value="distributed" <?php selected($distribution_filter, 'distributed'); ?>>Uitgereikt</option>
-                </select>
-            </label>
-
-            <label for="filter_pay_book">Betaling:
-                <select name="payment_status" id="filter_pay_book" onchange="this.form.submit()">
-                    <option value="all" <?php selected($payment_filter, 'all'); ?>>Alle betaalstatussen</option>
-                    <option value="paid" <?php selected($payment_filter, 'paid'); ?>>Betaald</option>
-                    <option value="open" <?php selected($payment_filter, 'open'); ?>>Open</option>
-                </select>
-            </label>
-
-            <label for="filter_pres_book">Presentatie:
-                <select name="presentation" id="filter_pres_book" onchange="this.form.submit()">
-                    <option value="all" <?php selected($presentation_filter, 'all'); ?>>Alle presentatiekeuzes</option>
-                    <option value="attend" <?php selected($presentation_filter, 'attend'); ?>>Aanwezig willen zijn</option>
-                    <option value="update" <?php selected($presentation_filter, 'update'); ?>>Op de hoogte houden</option>
-                </select>
-            </label>
-
-            <label for="filter_status_book">Bestelstatus:
-                <select name="status" id="filter_status_book" onchange="this.form.submit()">
-                    <option value="all" <?php selected($status_filter, 'all'); ?>>Alle bestellingen</option>
-                    <option value="confirmed" <?php selected($status_filter, 'confirmed'); ?>>Bevestigd</option>
-                    <option value="pending_confirmation" <?php selected($status_filter, 'pending_confirmation'); ?>>In afwachting van bevestiging</option>
-                </select>
-            </label>
-
-            <label for="filter_email_book">E-mail:
-                <select name="email_status" id="filter_email_book" onchange="this.form.submit()">
-                    <option value="all" <?php selected($email_filter, 'all'); ?>>Alle e-mailstatussen</option>
-                    <option value="failed" <?php selected($email_filter, 'failed'); ?>>Mislukt / niet verzonden</option>
-                    <option value="sent" <?php selected($email_filter, 'sent'); ?>>Succesvol verzonden</option>
-                </select>
-            </label>
-
-            <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" placeholder="Zoek op naam, e-mail, plaats..." style="min-width: 200px;" aria-label="Zoek boekbestellingen">
-            <button type="submit" class="button">Filteren</button>
-            <?php if ($distribution_filter !== 'all' || $payment_filter !== 'all' || $presentation_filter !== 'all' || $status_filter !== '' || $email_filter !== 'all' || $search_query !== '') : ?>
-                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-orders', 'tab' => 'book'], admin_url('admin.php'))); ?>" class="button">Reset</a>
-            <?php endif; ?>
-        </form>
-
-        <table class="wp-list-table widefat fixed striped">
+        <div class="avbk-balance-table-tools">
+            <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
+            <div class="avbk-col-toggle-panel" hidden></div>
+        </div>
+        <div class="avbk-balance-table-wrap">
+        <table id="avbk-balance-table" data-storage-key="avbk_orders_book_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
             <thead>
-                <tr>
-                    <th scope="col" style="width: 50px;">ID</th>
-                    <th scope="col" style="width: 90px;">Datum</th>
-                    <th scope="col" style="width: 170px;">Besteller</th>
-                    <th scope="col">Adres</th>
-                    <th scope="col" style="width: 80px;">Aantal</th>
-                    <th scope="col" style="width: 90px;">Bedrag</th>
-                    <th scope="col" style="width: 110px;">Betaling</th>
-                    <th scope="col" style="width: 120px;">Presentatie</th>
-                    <th scope="col" style="width: 150px;">Uitreiking</th>
-                    <th scope="col">Opmerkingen</th>
-                    <th scope="col" style="width: 130px;"><span class="screen-reader-text">Acties</span></th>
+                <tr class="avbk-balance-header-row">
+                    <th scope="col" data-col="id" data-type="number">ID</th>
+                    <th scope="col" data-col="datum" data-type="date">Datum</th>
+                    <th scope="col" data-col="besteller">Besteller</th>
+                    <th scope="col" data-col="adres">Adres</th>
+                    <th scope="col" data-col="aantal" data-type="number">Aantal</th>
+                    <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
+                    <th scope="col" data-col="betaling" data-filter="select">Betaling</th>
+                    <th scope="col" data-col="presentatie" data-filter="select">Presentatie</th>
+                    <th scope="col" data-col="uitreiking" data-filter="select">Uitreiking</th>
+                    <th scope="col" data-col="opmerkingen">Opmerkingen</th>
+                    <th scope="col"><span class="screen-reader-text">Acties</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -607,9 +475,9 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                         $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
                         $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
                     ?>
-                        <tr>
+                        <tr id="order-<?php echo (int) $order->id; ?>">
                             <td>#<?php echo (int) $order->id; ?></td>
-                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($order->created_at))); ?></td>
+                            <td data-sort-value="<?php echo esc_attr(wp_date('Y-m-d', strtotime($order->created_at))); ?>"><?php echo esc_html(wp_date('d-m-Y', strtotime($order->created_at))); ?></td>
                             <td>
                                 <strong>
                                     <?php if ($member_profile_url) : ?>
@@ -643,8 +511,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                 <?php endif; ?>
                             </td>
                             <td><strong><?php echo (int) $order->quantity; ?></strong></td>
-                            <td>&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
-                            <td>
+                            <td data-sort-value="<?php echo esc_attr(number_format((float) $order->total_amount, 2, '.', '')); ?>">&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
+                            <td data-filter-value="<?php echo $is_paid ? 'Betaald' : 'Open'; ?>">
                                 <?php if ($is_paid) : ?>
                                     <span style="color: #00a32a; font-weight: bold;">&#10004; Betaald</span>
                                 <?php else : ?>
@@ -657,7 +525,12 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </td>
-                            <td>
+                            <td data-filter-value="<?php
+                                $presentatie_parts = [];
+                                if (!empty($order->attend_presentation)) { $presentatie_parts[] = 'Aanwezig'; }
+                                if (!empty($order->keep_updated)) { $presentatie_parts[] = 'Info'; }
+                                echo esc_attr($presentatie_parts ? implode(', ', $presentatie_parts) : 'Geen keuze');
+                            ?>">
                                 <?php if (!empty($order->attend_presentation)) : ?>
                                     <span title="Aanwezig bij presentatie">&#128077; Aanwezig</span><br>
                                 <?php endif; ?>
@@ -668,7 +541,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     &mdash;
                                 <?php endif; ?>
                             </td>
-                            <td>
+                            <td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
                                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
                                     <?php wp_nonce_field('avbk_update_order_distribution'); ?>
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
@@ -710,6 +583,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <?php endif; ?>
             </tbody>
         </table>
+        </div>
 
     <?php elseif ($active_tab === 'settings') : ?>
         <?php

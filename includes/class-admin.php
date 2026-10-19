@@ -144,7 +144,7 @@ class AVBK_Admin {
             return;
         }
         wp_enqueue_style('avbk-admin', AVBK_PLUGIN_URL . 'assets/admin.css', [], avbk_asset_version('assets/admin.css'));
-        if (str_contains($hook, 'avbk-members') || str_contains($hook, 'avbk-transactions') || str_contains($hook, 'avbk-activity-payments')) {
+        if (str_contains($hook, 'avbk-members') || str_contains($hook, 'avbk-transactions') || str_contains($hook, 'avbk-activity-payments') || str_contains($hook, 'avbk-orders')) {
             wp_enqueue_style('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.css', [], avbk_asset_version('assets/balance.css'));
             wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', [], avbk_asset_version('assets/balance.js'), true);
         }
