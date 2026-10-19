@@ -751,11 +751,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 var activitySelect = row.querySelector('select[name="activity[]"]');
                 if (activitySelect) {
-                    activitySelect.value = 'Anders';
+                    activitySelect.value = 'Schenking';
                     activitySelect.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 var descriptionInput = row.querySelector('.avbk-row-description');
-                if (descriptionInput) descriptionInput.value = 'Schenking';
+                if (descriptionInput) descriptionInput.value = '';
                 var amountInput = row.querySelector('.avbk-amount-input');
                 if (amountInput) amountInput.value = remaining.toFixed(2).replace('.', ',');
                 var donationFlag = row.querySelector('.avbk-donation-email-flag');
