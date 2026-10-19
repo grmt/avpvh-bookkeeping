@@ -1216,6 +1216,21 @@ class AVBK_DB {
             }
             update_option('avbk_db_version', '1.44');
         }
+        if (version_compare($version, '1.45', '<')) {
+            // "Markeer rest als schenking" (review-queue.js) used to file
+            // its fee item under the generic "Anders"-categorie instead of
+            // "Schenking" (fixed alongside this migration), so
+            // get_total_donations() and the "Schenking"-filter on Alle
+            // transacties silently missed every donation booked that way
+            // (incident 2026-10-19). One-time correction for the rows
+            // already created through that path; description is distinctive
+            // enough ("Anders (Schenking)") that this can't match anything
+            // else.
+            $wpdb->query(
+                "UPDATE {$wpdb->prefix}avb_fee_items SET category = 'Schenking', description = 'Schenking' WHERE category = 'Anders' AND description = 'Anders (Schenking)'"
+            );
+            update_option('avbk_db_version', '1.45');
+        }
     }
 
     private static function install_dispute_history_schema(): bool {
