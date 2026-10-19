@@ -254,18 +254,54 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                         <?php echo esc_html($full_name); ?>
                                     <?php endif; ?>
                                 </strong>
-                                <br><small><a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a></small>
+                                <br><small>
+                                    <a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a>
+                                    <button type="button" class="button-link avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="E-mailadres wijzigen of verwerken"
+                                            style="color: #2271b1; text-decoration: none; margin-left: 4px; vertical-align: middle; cursor: pointer;">
+                                        &#9998;
+                                    </button>
+                                </small>
                                 <?php if ($order->phone) : ?>
                                     <br><small><?php echo esc_html($order->phone); ?></small>
                                 <?php endif; ?>
                                 <?php if ($has_email_issue) : ?>
-                                    <br><span class="badge" style="background:#d63638;color:#fff;padding:1px 5px;border-radius:3px;font-size:.72rem;" title="<?php echo esc_attr($order->email_error ?? ''); ?>">&#9888; E-mail mislukt</span>
+                                    <br><button type="button" class="avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="<?php echo esc_attr($order->email_error ? 'Fout: ' . $order->email_error . ' — Klik om te corrigeren' : 'E-mail niet verzonden — Klik om te corrigeren'); ?>"
+                                            style="margin-top: 3px; padding: 2px 7px; border: 1px solid #d63638; border-radius: 3px; font-size: .75rem; font-weight: 500; background: #d63638; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1.3;">
+                                        &#9888; E-mail mislukt &bull; Corrigeer &rarr;
+                                    </button>
                                     <?php if (!empty($order->email_error)) : ?>
                                         <br><small style="color:#d63638; font-size:0.75rem;" title="<?php echo esc_attr($order->email_error); ?>"><?php echo esc_html(wp_trim_words($order->email_error, 5)); ?></small>
                                     <?php endif; ?>
                                 <?php endif; ?>
                                 <?php if ($email_suggestion) : ?>
-                                    <br><small style="color:#2271b1; background:#f0f6fc; padding:1px 4px; border-radius:3px; font-size:0.75rem;">&#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>?</small>
+                                    <br><button type="button" class="avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="Klik om suggestie toe te passen"
+                                            style="margin-top: 3px; padding: 2px 7px; border: 1px solid #72aee6; border-radius: 3px; font-size: .75rem; background: #f0f6fc; color: #2271b1; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1.3;">
+                                        &#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>? &rarr;
+                                    </button>
                                 <?php endif; ?>
                                 <?php if ($order->status === 'pending_confirmation') : ?>
                                     <br><span class="badge" style="background:#f0ad4e;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75rem;">Niet bevestigd</span>
@@ -486,18 +522,54 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                         <?php echo esc_html($full_name); ?>
                                     <?php endif; ?>
                                 </strong>
-                                <br><small><a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a></small>
+                                <br><small>
+                                    <a href="mailto:<?php echo esc_attr($order->email); ?>"><?php echo esc_html($order->email); ?></a>
+                                    <button type="button" class="button-link avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="E-mailadres wijzigen of verwerken"
+                                            style="color: #2271b1; text-decoration: none; margin-left: 4px; vertical-align: middle; cursor: pointer;">
+                                        &#9998;
+                                    </button>
+                                </small>
                                 <?php if ($order->phone) : ?>
                                     <br><small><?php echo esc_html($order->phone); ?></small>
                                 <?php endif; ?>
                                 <?php if ($has_email_issue) : ?>
-                                    <br><span class="badge" style="background:#d63638;color:#fff;padding:1px 5px;border-radius:3px;font-size:.72rem;" title="<?php echo esc_attr($order->email_error ?? ''); ?>">&#9888; E-mail mislukt</span>
+                                    <br><button type="button" class="avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion ?? ''); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="<?php echo esc_attr($order->email_error ? 'Fout: ' . $order->email_error . ' — Klik om te corrigeren' : 'E-mail niet verzonden — Klik om te corrigeren'); ?>"
+                                            style="margin-top: 3px; padding: 2px 7px; border: 1px solid #d63638; border-radius: 3px; font-size: .75rem; font-weight: 500; background: #d63638; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1.3;">
+                                        &#9888; E-mail mislukt &bull; Corrigeer &rarr;
+                                    </button>
                                     <?php if (!empty($order->email_error)) : ?>
                                         <br><small style="color:#d63638; font-size:0.75rem;" title="<?php echo esc_attr($order->email_error); ?>"><?php echo esc_html(wp_trim_words($order->email_error, 5)); ?></small>
                                     <?php endif; ?>
                                 <?php endif; ?>
                                 <?php if ($email_suggestion) : ?>
-                                    <br><small style="color:#2271b1; background:#f0f6fc; padding:1px 4px; border-radius:3px; font-size:0.75rem;">&#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>?</small>
+                                    <br><button type="button" class="avbk-process-email-btn"
+                                            data-order-id="<?php echo (int) $order->id; ?>"
+                                            data-order-name="<?php echo esc_attr($full_name); ?>"
+                                            data-order-email="<?php echo esc_attr($order->email); ?>"
+                                            data-order-suggestion="<?php echo esc_attr($email_suggestion); ?>"
+                                            data-order-member-id="<?php echo (int) ($order->member_id ?? 0); ?>"
+                                            data-order-status="<?php echo esc_attr($order->status); ?>"
+                                            data-order-error="<?php echo esc_attr($order->email_error ?? ''); ?>"
+                                            title="Klik om suggestie toe te passen"
+                                            style="margin-top: 3px; padding: 2px 7px; border: 1px solid #72aee6; border-radius: 3px; font-size: .75rem; background: #f0f6fc; color: #2271b1; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1.3;">
+                                        &#128161; Bedoelde: <code><?php echo esc_html($email_suggestion); ?></code>? &rarr;
+                                    </button>
                                 <?php endif; ?>
                                 <?php if ($order->status === 'pending_confirmation') : ?>
                                     <br><span class="badge" style="background:#f0ad4e;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75rem;">Niet bevestigd</span>
