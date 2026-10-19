@@ -53,6 +53,12 @@ $other_activity_type_names = array_values(array_diff(
     array_keys($fee_type_map)
 ));
 $other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschrijving met de bank-omschrijving), niet uit de tabel
+// fixed fallback for "Markeer rest als schenking" (review-queue.js) — a
+// real category, not just a free-text label, so it's counted by
+// AVBK_DB::get_total_donations() and the "Schenking"-filter on Alle
+// transacties (incident 2026-10-19: used to fall into the generic
+// "Anders"-categorie and was invisible in both places).
+$other_activity_type_names[] = 'Schenking';
 
 
 function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
