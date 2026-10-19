@@ -31,8 +31,8 @@ class Mock_Order_Recovery_WPDB {
             } elseif (str_contains($query, "order_type = 'book'")) {
                 $filtered = array_filter($filtered, fn($o) => ($o['order_type'] ?? '') === 'book');
             }
-            if (str_contains($query, "email_sent = 0")) {
-                $filtered = array_filter($filtered, fn($o) => empty($o['email_sent']) || !empty($o['email_error']));
+            if (str_contains($query, "email_error != ''")) {
+                $filtered = array_filter($filtered, fn($o) => !empty($o['email_error']));
             }
             if (str_contains($query, "status != 'cancelled'")) {
                 $filtered = array_filter($filtered, fn($o) => ($o['status'] ?? '') !== 'cancelled');
