@@ -241,7 +241,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                         $is_paid            = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
                         $member_profile_url = $order->member_id ? admin_url('admin.php?page=avpvh-member-detail&id=' . (int) $order->member_id) : '';
                         $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
-                        $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
+                        // email_sent = 0 by itself isn't reliable evidence of
+                        // failure (see AVBK_DB::get_order()'s email_status
+                        // comment, incident 2026-10-19) — only a captured
+                        // email_error is.
+                        $has_email_issue    = !empty($order->email_error);
                     ?>
                         <tr id="order-<?php echo (int) $order->id; ?>">
                             <td>#<?php echo (int) $order->id; ?></td>
@@ -509,7 +513,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                         $is_paid            = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
                         $member_profile_url = $order->member_id ? admin_url('admin.php?page=avpvh-member-detail&id=' . (int) $order->member_id) : '';
                         $email_suggestion   = AVBK_DB::suggest_email_fix((string) $order->email);
-                        $has_email_issue    = ($order->email_status === 'failed') || empty($order->email_sent) || !empty($order->email_error);
+                        // email_sent = 0 by itself isn't reliable evidence of
+                        // failure (see AVBK_DB::get_order()'s email_status
+                        // comment, incident 2026-10-19) — only a captured
+                        // email_error is.
+                        $has_email_issue    = !empty($order->email_error);
                     ?>
                         <tr id="order-<?php echo (int) $order->id; ?>">
                             <td>#<?php echo (int) $order->id; ?></td>

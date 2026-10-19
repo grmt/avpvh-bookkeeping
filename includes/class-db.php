@@ -4332,7 +4332,15 @@ class AVBK_DB {
         $order->items = self::get_order_items((int) $order->id);
         $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
         $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
-        $order->email_status = (!empty($order->email_sent) && empty($order->email_error)) ? 'sent' : 'failed';
+        // email_sent alone is not reliable evidence of failure: FluentSMTP's
+        // Gmail-API connector sometimes has wp_mail() return false even
+        // though the message was actually handed off and delivered (no
+        // wp_mail_failed error ever fires for those) — confirmed by cross-
+        // checking several "mislukt" orders against the actual mailbox,
+        // which showed no bounce at all (incident 2026-10-19). email_error
+        // is the only signal that has never been wrong in that check, so
+        // only a real captured error counts as failed.
+        $order->email_status = empty($order->email_error) ? 'sent' : 'failed';
         return $order;
     }
 
@@ -4360,7 +4368,15 @@ class AVBK_DB {
         $order->items = self::get_order_items((int) $order->id);
         $order->quantity = !empty($order->items) ? array_sum(array_column($order->items, 'quantity')) : 1;
         $order->unit_price = !empty($order->items) ? (float) $order->items[0]->unit_price : (float) $order->total_amount;
-        $order->email_status = (!empty($order->email_sent) && empty($order->email_error)) ? 'sent' : 'failed';
+        // email_sent alone is not reliable evidence of failure: FluentSMTP's
+        // Gmail-API connector sometimes has wp_mail() return false even
+        // though the message was actually handed off and delivered (no
+        // wp_mail_failed error ever fires for those) — confirmed by cross-
+        // checking several "mislukt" orders against the actual mailbox,
+        // which showed no bounce at all (incident 2026-10-19). email_error
+        // is the only signal that has never been wrong in that check, so
+        // only a real captured error counts as failed.
+        $order->email_status = empty($order->email_error) ? 'sent' : 'failed';
         return $order;
     }
 
@@ -4538,16 +4554,17 @@ class AVBK_DB {
         return null;
     }
 
+    /** See get_order()'s own email_status comment — email_sent = 0 alone isn't reliable, only a captured email_error counts as failed. */
     public static function count_failed_order_emails(string $order_type = 'all'): int {
         global $wpdb;
         if ($order_type !== 'all' && $order_type !== '') {
             return (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND (email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL)) AND order_type = %s",
+                "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND email_error != '' AND email_error IS NOT NULL AND order_type = %s",
                 $order_type
             ));
         }
         return (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND (email_sent = 0 OR (email_error != '' AND email_error IS NOT NULL))"
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE status != 'cancelled' AND email_error != '' AND email_error IS NOT NULL"
         );
     }
 
@@ -4738,11 +4755,13 @@ class AVBK_DB {
                 $row->items = $items_by_order[(int) $row->id] ?? [];
                 $row->quantity = !empty($row->items) ? array_sum(array_column($row->items, 'quantity')) : 1;
                 $row->unit_price = !empty($row->items) ? (float) $row->items[0]->unit_price : (float) $row->total_amount;
-                $row->email_status = (!empty($row->email_sent) && empty($row->email_error)) ? 'sent' : 'failed';
+                // See get_order()'s own email_status comment — email_sent
+                // alone isn't reliable, only a captured email_error is.
+                $row->email_status = empty($row->email_error) ? 'sent' : 'failed';
             }
         } else {
             foreach ($results as $row) {
-                $row->email_status = (!empty($row->email_sent) && empty($row->email_error)) ? 'sent' : 'failed';
+                $row->email_status = empty($row->email_error) ? 'sent' : 'failed';
             }
         }
 
