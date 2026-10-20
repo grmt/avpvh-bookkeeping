@@ -93,9 +93,13 @@ class AVPVH_Roles {
 
 class AVPVH_DB {
     public static array $ensured_identities = [];
+    public static array $updated_members = [];
     public static function find_members_by_name(string $first, string $last): array {
         if ($first === 'Anna' && $last === 'Jansen') {
             return [(object) ['id' => 42, 'first_name' => 'Anna', 'last_name' => 'Jansen']];
+        }
+        if ($first === 'Bram' && $last === 'Bakker') {
+            return [(object) ['id' => 43, 'first_name' => 'Bram', 'last_name' => 'Bakker']];
         }
         return [];
     }
@@ -104,10 +108,16 @@ class AVPVH_DB {
         if ($id === 42) {
             return (object) ['id' => 42, 'first_name' => 'Anna', 'last_name' => 'Jansen', 'email' => 'anna@example.test'];
         }
+        if ($id === 43) {
+            return (object) ['id' => 43, 'first_name' => 'Bram', 'last_name' => 'Bakker', 'email' => 'bram.bakker@avpvh.local'];
+        }
         return null;
     }
     public static function ensure_identity(int $member_id, string $type, string $val): void {
         self::$ensured_identities[] = [$member_id, $type, $val];
+    }
+    public static function update_member_with_audit(int $member_id, array $fields, array $formats): void {
+        self::$updated_members[] = [$member_id, $fields];
     }
 }
 
@@ -184,6 +194,24 @@ $res = AVBK_DB::find_or_create_member_for_registration('Anna', '', 'Jansen', 'ha
 assert_test($res['member_id'] === 42, 'Matched Anna Jansen by name');
 assert_test($res['match_type'] === 'name', 'Match type is name');
 assert_test(empty(AVPVH_DB::$ensured_identities), 'Unauthenticated name match DID NOT call ensure_identity on existing member');
+
+// A name match whose existing record only has the @avpvh.local placeholder
+// e-mail (no real address on file yet) gets the freshly submitted real
+// e-mail stored instead of silently keeping the stale placeholder.
+AVPVH_DB::$updated_members = [];
+$res = AVBK_DB::find_or_create_member_for_registration('Bram', '', 'Bakker', 'bram@example.test', '');
+assert_test($res['member_id'] === 43, 'Matched Bram Bakker by name');
+assert_test(
+    AVPVH_DB::$updated_members === [[43, ['email' => 'bram@example.test']]],
+    'Placeholder e-mail on existing name match is replaced with the submitted real e-mail'
+);
+
+// A name match whose existing record already has a different real e-mail
+// is left alone — that may be deliberate, not a stale placeholder.
+AVPVH_DB::$updated_members = [];
+$res = AVBK_DB::find_or_create_member_for_registration('Anna', '', 'Jansen', 'anna.new@example.test', '');
+assert_test($res['member_id'] === 42, 'Matched Anna Jansen by name again');
+assert_test(empty(AVPVH_DB::$updated_members), 'Existing real e-mail on name match is NOT overwritten');
 
 // -----------------------------------------------------------------------------
 // SEC-03: Rate Limiting on Email Check Endpoints
