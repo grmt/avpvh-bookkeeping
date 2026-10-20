@@ -4099,6 +4099,22 @@ class AVBK_DB {
         $matches = AVPVH_DB::find_members_by_name($first_name, $last_name);
         if (count($matches) === 1) {
             $member_id = (int) $matches[0]->id;
+            // The existing row may only have the placeholder e-mail (or
+            // none at all, same "no real address on file" convention as
+            // maybe_send_donation_emails()) if this member was created
+            // from an earlier registration/import without one — a fresh,
+            // real e-mail submitted now should replace it rather than be
+            // silently dropped (incident 2026-10-20: a congress registrant
+            // kept showing up with a stale @avpvh.local address afterwards).
+            // A member who already has a different real e-mail on file is
+            // left alone — that may be a deliberate choice, not a typo.
+            // find_members_by_name() doesn't select email, so re-fetch the
+            // full row rather than assume one is present on $matches[0].
+            $existing_member = AVPVH_DB::get_member($member_id);
+            $existing_email = strtolower((string) ($existing_member->email ?? ''));
+            if ($email !== '' && ($existing_email === '' || str_ends_with($existing_email, '@avpvh.local'))) {
+                AVPVH_DB::update_member_with_audit($member_id, ['email' => $email], ['%s']);
+            }
             return ['member_id' => $member_id, 'match_type' => 'name', 'review_note' => ''];
         }
 
