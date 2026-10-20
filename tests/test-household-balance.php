@@ -110,14 +110,14 @@ function render(array $query = []): string {
         ob_end_clean();
     }
 }
-function table(string $html, string $id): string {
-    preg_match('/<table id="' . preg_quote($id, '/') . '".*?<\/table>/s', $html, $match);
+function table(string $html, string $storageKey): string {
+    preg_match('/<table data-storage-key="' . preg_quote($storageKey, '/') . '".*?<\/table>/s', $html, $match);
     return $match[0] ?? '';
 }
 reset_case();
 $html = render();
 $preview = $html;
-$table = table($html, 'avbk-balance-table');
+$table = table($html, 'avbk_member_detail_hidden_cols');
 check(!str_contains($html, 'data-col="lid"'), 'no Lid column when no household members are combined into the table');
 check(!str_contains($table, 'Gedeeltelijk betaald'), 'own table does not include other household members\' items by default');
 check(str_contains($html, 'Rekening combineren met'), 'household combine checkboxes are offered when a household is registered');
@@ -127,7 +127,7 @@ check(!str_contains($html, 'Niet gekoppeld') && !str_contains($html, 'Kosten bui
 check(!str_contains($html, 'id="avbk-payment-selection"'), 'no empty payment request form for a settled individual');
 
 $combined = render(['also' => ['11']]);
-$combined_table = table($combined, 'avbk-balance-table');
+$combined_table = table($combined, 'avbk_member_detail_hidden_cols');
 check(str_contains($combined, 'data-col="lid"'), 'Lid column appears once a household member is combined in');
 check((bool) preg_match('/name="also\[\]" value="11"\s+checked="checked"/', $combined), 'combined member\'s checkbox reflects the selection');
 check(str_contains($combined_table, 'Gedeeltelijk betaald') && str_contains($combined_table, 'Lid B'), 'combined member\'s own open item and name appear in the same table');
@@ -139,7 +139,7 @@ $ignored = render(['also' => ['99']]);
 check(!str_contains($ignored, 'data-col="lid"') && !str_contains($ignored, 'Niet gekoppeld'), 'a member outside the household cannot be combined in via a crafted also[] value');
 
 $with_closed = render(['also' => ['11'], 'show_all_years' => '1', 'per_year' => '1']);
-check(str_contains(table($with_closed, 'avbk-balance-table'), 'Afgesloten jaar'), 'show_all_years reveals closed-year items for a combined member too, same as for the viewed member');
+check(str_contains(table($with_closed, 'avbk_member_detail_hidden_cols'), 'Afgesloten jaar'), 'show_all_years reveals closed-year items for a combined member too, same as for the viewed member');
 
 reset_case();
 $fees[] = fee(9, 10, 2026, 5, 0, 'Eigen open post');
@@ -149,7 +149,7 @@ check(str_contains($html, 'id="avbk-payment-selection"') && str_contains($html, 
 reset_case();
 $fees[6]->activity_id = 7;
 $per_year_combined = render(['also' => ['12'], 'per_year' => '1']);
-check(str_contains(table($per_year_combined, 'avbk-balance-table'), 'Overige kosten zonder jaar'), 'a combined member\'s fee without a year uses its activity book year, same as for the viewed member');
+check(str_contains(table($per_year_combined, 'avbk_member_detail_hidden_cols'), 'Overige kosten zonder jaar'), 'a combined member\'s fee without a year uses its activity book year, same as for the viewed member');
 
 $members[11]->name = '<script>name</script>';
 $fees[1]->description = '<script>fee</script>';
@@ -175,7 +175,7 @@ try {
     check($error->getMessage() === 'Access denied', 'unauthorized viewers cannot see the member balance page');
 }
 $admin = true;
-check(str_contains(render(), 'id="avbk-balance-table"'), 'administrator retains access');
+check(str_contains(render(), 'data-storage-key="avbk_member_detail_hidden_cols"'), 'administrator retains access');
 
 if (in_array('--render', $_SERVER['argv'] ?? [], true)) {
     echo '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><title>Fictief familieoverzicht</title></head><body>' . $preview . '</body></html>';

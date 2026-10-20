@@ -58,7 +58,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
     <?php if ($active_tab === 'tshirt') : ?>
         <?php
         // Filtering/sorting now happens client-side in the table itself
-        // (avbk-balance-table, see balance.js) — always load the full set.
+        // (avpvh-sortable-table, see avpvh-members/assets/sortable-table.js) — always load the full set.
         $all_orders = AVBK_DB::get_orders(['order_type' => 'tshirt']);
         $orders = $all_orders;
         $matrix = AVBK_DB::get_order_matrix('tshirt');
@@ -210,14 +210,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         <?php endif; ?>
 
         <!-- Orders Table -->
-        <div class="avbk-balance-table-tools">
-            <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-            <div class="avbk-col-toggle-panel" hidden></div>
+        <div data-avpvh-sortable>
+        <div class="avpvh-table-tools">
+            <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+            <span class="avpvh-col-toggle-panel" hidden></span>
         </div>
-        <div class="avbk-balance-table-wrap">
-        <table id="avbk-balance-table" data-storage-key="avbk_orders_tshirt_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
+        <div class="avpvh-table-wrap">
+        <table data-storage-key="avbk_orders_tshirt_hidden_cols" class="widefat striped avpvh-sortable-table">
             <thead>
-                <tr class="avbk-balance-header-row">
+                <tr>
                     <th scope="col" data-col="id" data-type="number">ID</th>
                     <th scope="col" data-col="datum" data-type="date">Datum</th>
                     <th scope="col" data-col="besteller">Besteller</th>
@@ -390,11 +391,12 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </tbody>
         </table>
         </div>
+        </div>
 
     <?php elseif ($active_tab === 'book') : ?>
         <?php
         // Filtering/sorting now happens client-side in the table itself
-        // (avbk-balance-table, see balance.js) — always load the full set.
+        // (avpvh-sortable-table, see avpvh-members/assets/sortable-table.js) — always load the full set.
         $all_orders = AVBK_DB::get_orders(['order_type' => 'book']);
         $orders = $all_orders;
 
@@ -481,14 +483,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             </div>
         <?php endif; ?>
 
-        <div class="avbk-balance-table-tools">
-            <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-            <div class="avbk-col-toggle-panel" hidden></div>
+        <div data-avpvh-sortable>
+        <div class="avpvh-table-tools">
+            <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+            <span class="avpvh-col-toggle-panel" hidden></span>
         </div>
-        <div class="avbk-balance-table-wrap">
-        <table id="avbk-balance-table" data-storage-key="avbk_orders_book_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
+        <div class="avpvh-table-wrap">
+        <table data-storage-key="avbk_orders_book_hidden_cols" class="widefat striped avpvh-sortable-table">
             <thead>
-                <tr class="avbk-balance-header-row">
+                <tr>
                     <th scope="col" data-col="id" data-type="number">ID</th>
                     <th scope="col" data-col="datum" data-type="date">Datum</th>
                     <th scope="col" data-col="besteller">Besteller</th>
@@ -663,6 +666,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <?php endif; ?>
             </tbody>
         </table>
+        </div>
         </div>
 
     <?php elseif ($active_tab === 'settings') : ?>

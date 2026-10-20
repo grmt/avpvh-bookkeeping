@@ -24,9 +24,10 @@
     color: #555;
 }
 
-/* The shared sortable/filterable table stylesheet is also used on admin
-   screens; keep WordPress admin's normal readable font size there. */
-.wrap .avbk-balance-table {
+/* The shared sortable/filterable table stylesheet (avpvh-members'
+   sortable-table.css) is also used on admin screens; keep WordPress
+   admin's normal readable font size there. */
+.wrap .avpvh-sortable-table {
     font-size: inherit;
 }
 

@@ -42,14 +42,15 @@ $ignore_reason_label = [
         </p>
     <?php endif; ?>
     <p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
-    <div class="avbk-balance-table-tools">
-        <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-        <div class="avbk-col-toggle-panel" hidden></div>
+    <div data-avpvh-sortable>
+    <div class="avpvh-table-tools">
+        <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+        <span class="avpvh-col-toggle-panel" hidden></span>
     </div>
-    <div class="avbk-balance-table-wrap">
-    <table id="avbk-balance-table" data-storage-key="avbk_transactions_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
+    <div class="avpvh-table-wrap">
+    <table data-storage-key="avbk_transactions_hidden_cols" class="widefat striped avpvh-sortable-table">
         <thead>
-            <tr class="avbk-balance-header-row">
+            <tr>
                 <th scope="col" data-col="regel" data-type="number">Regel</th>
                 <th scope="col" data-col="import" data-type="number">Import</th>
                 <th scope="col" data-col="datum" data-type="date">Datum</th>
@@ -203,6 +204,7 @@ $ignore_reason_label = [
         <?php endforeach; endif; ?>
         </tbody>
     </table>
+    </div>
     </div>
     <p class="description">Een rood gemarkeerde regel is <strong>gekoppeld</strong> aan een lid, maar het bedrag is niet (volledig) op een bijdrage afgeboekt &mdash; vaak doordat de betaling werd bevestigd vóórdat de bijbehorende bijdrage-regel bestond (bijv. een activiteitsbetaling vóór de aanmeldingen-sheet is geïmporteerd). Ga naar "Tweede controle" om zo'n transactie via "Terugzetten voor correctie" terug te zetten en opnieuw te bevestigen, nu de bijdrage wel bestaat.</p>
 </div>

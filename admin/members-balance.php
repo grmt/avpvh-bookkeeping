@@ -162,13 +162,14 @@ $current_book_year = (int) current_time('Y');
                 </form>
             </details>
             <p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
-            <div class="avbk-balance-table-tools">
-                <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-                <div class="avbk-col-toggle-panel" hidden></div>
+            <div data-avpvh-sortable>
+            <div class="avpvh-table-tools">
+                <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+                <span class="avpvh-col-toggle-panel" hidden></span>
             </div>
-            <div class="avbk-balance-table-wrap">
-            <table id="avbk-balance-table" data-storage-key="avbk_member_detail_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
-                <thead><tr class="avbk-balance-header-row">
+            <div class="avpvh-table-wrap">
+            <table data-storage-key="avbk_member_detail_hidden_cols" class="widefat striped avpvh-sortable-table">
+                <thead><tr>
                     <th>Kies</th>
                     <?php if ($show_member_column) : ?><th data-col="lid" data-filter="select">Lid</th><?php endif; ?>
                     <th data-col="omschrijving">Omschrijving</th>
@@ -316,6 +317,7 @@ $current_book_year = (int) current_time('Y');
                 </tfoot>
             </table>
             </div>
+            </div>
             <?php if ($shown_total > 0.005 || $available_credit > 0.005) :
                 ?>
                 <form id="avbk-payment-selection" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -355,13 +357,14 @@ $current_book_year = (int) current_time('Y');
                 <a href="<?php echo esc_url(add_query_arg('per_year', '1')); ?>">Toon per boekjaar</a>.
             <?php endif; ?>
         </p>
-        <div class="avbk-balance-table-tools">
-            <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-            <div class="avbk-col-toggle-panel" hidden></div>
+        <div data-avpvh-sortable>
+        <div class="avpvh-table-tools">
+            <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+            <span class="avpvh-col-toggle-panel" hidden></span>
         </div>
-        <div class="avbk-balance-table-wrap">
-        <table id="avbk-balance-table" data-storage-key="avbk_members_hidden_cols" class="wp-list-table widefat striped avbk-balance-table">
-            <thead><tr class="avbk-balance-header-row">
+        <div class="avpvh-table-wrap">
+        <table data-storage-key="avbk_members_hidden_cols" class="widefat striped avpvh-sortable-table">
+            <thead><tr>
                 <th data-col="naam">Naam</th>
                 <?php if ($per_year) : ?>
                     <th data-col="huidig" data-type="number">Huidig boekjaar</th>
@@ -413,6 +416,7 @@ $current_book_year = (int) current_time('Y');
             <?php endforeach; ?>
             </tbody>
         </table>
+        </div>
         </div>
     <?php endif; ?>
 </div>
