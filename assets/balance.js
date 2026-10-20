@@ -1,369 +1,52 @@
+/*
+ * Sorting, filtering, and column show/hide for the avbk-balance-table pages
+ * now live in avpvh-members' assets/sortable-table.js (shared component,
+ * see avpvh-members PR #64/#65) instead of being duplicated here. This file
+ * only keeps the two bits that are specific to avpvh-bookkeeping:
+ *  - keeping a <tfoot> cell marked data-total-col="<col>" in sync with the
+ *    currently-visible rows, since sortable-table.js only toggles a
+ *    tfoot cell's visibility on column show/hide, not its content;
+ *  - enabling/disabling the payment-selection buttons based on which
+ *    checkboxes are ticked.
+ */
 document.addEventListener('DOMContentLoaded', function () {
-    var table = document.getElementById('avbk-balance-table');
-    if (!table) return;
-
-    var thead = table.tHead;
-    var headerRow = thead.querySelector('.avbk-balance-header-row');
-    var headerCells = Array.prototype.slice.call(headerRow.children);
-    var tbody = table.tBodies[0];
-
-    function dataRows() {
-        return Array.prototype.slice.call(tbody.rows).filter(function (row) {
-            return row.children.length === headerCells.length;
-        });
-    }
-
-    var rows = dataRows();
-    if (!rows.length) return;
-
-    // --- Sorting ---
-    function cellValue(row, index, type) {
-        var cell = row.children[index];
-        var text = cell.dataset.sortValue || cell.textContent.trim();
-        if (type !== 'number') return text.toLowerCase();
-        var n = parseFloat(text.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.'));
-        return isNaN(n) ? 0 : n;
-    }
-
-    headerCells.forEach(function (th, index) {
-        if (!th.dataset.col) return;
-        th.classList.add('avbk-sortable');
-        var indicator = document.createElement('span');
-        indicator.className = 'avbk-sort-indicator';
-        th.appendChild(indicator);
-
-        th.addEventListener('click', function () {
-            var previousScroll = window.scrollY;
-            var type = th.dataset.type || 'text';
-            var dir = th.dataset.sortDir === 'asc' ? 'desc' : 'asc';
-            headerCells.forEach(function (other) {
-                delete other.dataset.sortDir;
-                var ind = other.querySelector('.avbk-sort-indicator');
-                if (ind) ind.textContent = '';
-            });
-            th.dataset.sortDir = dir;
-            indicator.textContent = dir === 'asc' ? ' ▲' : ' ▼';
-
-            var sorted = dataRows().sort(function (a, b) {
-                var av = cellValue(a, index, type);
-                var bv = cellValue(b, index, type);
-                if (type === 'number') {
-                    return dir === 'asc' ? av - bv : bv - av;
-                }
-                return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-            });
-            sorted.forEach(function (row) { tbody.appendChild(row); });
-            window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
-        });
-    });
-
-    // --- Filter row ---
-    var filterRow = document.createElement('tr');
-    filterRow.className = 'avbk-balance-filter-row';
-    var filters = {};
-
-    headerCells.forEach(function (th, index) {
-        var col = th.dataset.col;
-        var filterTh = document.createElement('th');
-        if (!col) {
-            filterRow.appendChild(filterTh);
-            return;
-        }
-
-        var control;
-        if (th.dataset.filter === 'select') {
-            // A cell can carry several comma-separated values (e.g. a
-            // member with two different banks) — split into individual
-            // options rather than listing "ING, Rabobank" as one single
-            // combined checkbox, and match a row if ANY of its own
-            // values matches, not the whole joined string.
-            function splitValues(cell) {
-                return (cell.dataset.filterValue || cell.textContent)
-                    .split(',')
-                    .map(function (s) { return s.trim(); })
-                    .filter(function (s) { return s !== ''; });
-            }
-
-            var wrapper = document.createElement('div');
-            wrapper.className = 'avbk-checklist-filter';
-            var toggle = document.createElement('button');
-            toggle.type = 'button';
-            toggle.className = 'avbk-checklist-toggle';
-            toggle.textContent = 'Alle';
-            var menu = document.createElement('div');
-            menu.className = 'avbk-checklist-menu';
-            menu.hidden = true;
-            // value (lowercased) -> 'include' | 'exclude', absent = no filter on it.
-            var states = {};
-            var values = [];
-            dataRows().forEach(function (row) {
-                splitValues(row.children[index]).forEach(function (v) {
-                    if (values.indexOf(v) === -1) values.push(v);
-                });
-            });
-            values.sort(function (a, b) {
-                return a.localeCompare(b);
-            });
-
-            function updateToggleLabel() {
-                var included = 0, excluded = 0;
-                Object.keys(states).forEach(function (v) {
-                    if (states[v] === 'include') included++;
-                    else if (states[v] === 'exclude') excluded++;
-                });
-                if (!included && !excluded) {
-                    toggle.textContent = 'Alle';
-                } else {
-                    var parts = [];
-                    if (included) parts.push(included + ' geselecteerd');
-                    if (excluded) parts.push(excluded + ' uitgesloten');
-                    toggle.textContent = parts.join(', ');
-                }
-            }
-
-            var optionsByKey = {};
-            values.forEach(function (v) {
-                var key = v.toLowerCase();
-                var option = document.createElement('button');
-                option.type = 'button';
-                option.className = 'avbk-tristate-option';
-                option.dataset.state = 'none';
-                var icon = document.createElement('span');
-                icon.className = 'avbk-tristate-icon';
-                option.appendChild(icon);
-                option.appendChild(document.createTextNode(' ' + v));
-                optionsByKey[key] = option;
-                option.addEventListener('click', function () {
-                    var next = option.dataset.state === 'none' ? 'include'
-                        : option.dataset.state === 'include' ? 'exclude'
-                        : 'none';
-                    option.dataset.state = next;
-                    icon.textContent = next === 'include' ? '✓' : next === 'exclude' ? '−' : '';
-                    if (next === 'none') delete states[key];
-                    else states[key] = next;
-                    updateToggleLabel();
-                    applyFiltersPreservingScroll();
-                });
-                menu.appendChild(option);
-            });
-            // The menu is deliberately NOT nested inside .avbk-balance-
-            // table-wrap (which needs overflow-x:auto for a wide table on
-            // a narrow screen — see balance.css). Setting overflow-x on an
-            // element forces its overflow-y to an implicit "auto" too
-            // (can't have one axis clip and the other not), so with the
-            // menu positioned inside that wrapper, it got silently cut off
-            // by the wrapper's own bottom edge whenever the table was
-            // short — most noticeably once a filter already hid every
-            // row, shrinking the wrapper down to roughly header-height,
-            // which left the dropdown's options rendered but doesn't
-            // reliably clickable/even visible. Appending to <body> and
-            // positioning it with fixed coordinates computed from the
-            // toggle's own on-screen position sidesteps the whole problem.
-            document.body.appendChild(menu);
-            menu.style.position = 'fixed';
-
-            function positionMenu() {
-                var rect = toggle.getBoundingClientRect();
-                menu.style.top = rect.bottom + 'px';
-                menu.style.left = rect.left + 'px';
-                menu.style.minWidth = rect.width + 'px';
-            }
-
-            toggle.addEventListener('click', function (event) {
-                event.stopPropagation();
-                if (menu.hidden) positionMenu();
-                menu.hidden = !menu.hidden;
-            });
-            document.addEventListener('click', function (event) {
-                if (!wrapper.contains(event.target) && !menu.contains(event.target)) {
-                    menu.hidden = true;
-                }
-            });
-            // The menu moves with the toggle on scroll/resize only while
-            // open — closed, there's nothing on screen to keep aligned.
-            window.addEventListener('scroll', function () {
-                if (!menu.hidden) positionMenu();
-            }, true);
-            window.addEventListener('resize', function () {
-                if (!menu.hidden) positionMenu();
-            });
-            wrapper.appendChild(toggle);
-            control = {
-                element: wrapper,
-                // Named avbkMatches, not matches — Element.prototype.matches()
-                // is a native DOM method every plain <input> already has, so
-                // "typeof control.matches === 'function'" was true for those
-                // too and wrongly routed them into this branch.
-                // A row is visible if it has no values matching any
-                // 'exclude', and — only when at least one 'include' is
-                // set anywhere — it matches at least one of those.
-                avbkMatches: function (cellValues) {
-                    var hasInclude = false;
-                    for (var key in states) {
-                        if (states[key] === 'include') { hasInclude = true; break; }
-                    }
-                    var matchesInclude = !hasInclude;
-                    for (var i = 0; i < cellValues.length; i++) {
-                        var v = cellValues[i];
-                        if (states[v] === 'exclude') return false;
-                        if (states[v] === 'include') matchesInclude = true;
-                    }
-                    return matchesInclude;
-                },
-                splitValues: splitValues,
-                avbkOptions: optionsByKey
-            };
-            filterTh.appendChild(wrapper);
-        } else {
-            control = document.createElement('input');
-            control.type = 'text';
-            control.placeholder = 'Filter…';
-            control.addEventListener('input', applyFiltersPreservingScroll);
-            filterTh.appendChild(control);
-        }
-        if (control.nodeType) control.className = 'avbk-filter-control';
-        filterRow.appendChild(filterTh);
-        filters[index] = control;
-    });
-    thead.appendChild(filterRow);
-
-    // --- Deep-linked filters, e.g. ?f_toegewezen=niet or ?f_activiteit=Schenking
-    // — used by the overzicht-tegels on het Overzicht om hier direct met de
-    // juiste selectie te landen, zonder zelf te hoeven filteren.
-    var urlParams = new URLSearchParams(window.location.search);
-    headerCells.forEach(function (th, index) {
-        var col = th.dataset.col;
-        if (!col) return;
-        var wanted = urlParams.get('f_' + col);
-        if (wanted === null) return;
-        var control = filters[index];
-        if (!control) return;
-        if (control.avbkOptions) {
-            var option = control.avbkOptions[wanted.toLowerCase()];
-            if (option) option.click();
-        } else if (control.nodeType) {
-            control.value = wanted;
-            control.dispatchEvent(new Event('input'));
-        }
-    });
-
-    function applyFilters() {
-        dataRows().forEach(function (row) {
-            var visible = true;
-            Object.keys(filters).forEach(function (idxStr) {
-                if (!visible) return;
-                var idx = parseInt(idxStr, 10);
-                var control = filters[idx];
-                var cell = row.children[idx];
-                if (control && typeof control.avbkMatches === 'function') {
-                    var cellValues = control.splitValues(cell).map(function (v) { return v.toLowerCase(); });
-                    if (!control.avbkMatches(cellValues)) visible = false;
-                } else {
-                    var cellText = (cell.dataset.filterValue || cell.textContent).trim().toLowerCase();
-                    var filterVal = control.value.trim().toLowerCase();
-                    if (filterVal && cellText.indexOf(filterVal) === -1) visible = false;
-                }
-            });
-            row.style.display = visible ? '' : 'none';
-        });
-        updateTotals();
-    }
-
-    function updateTotals() {
+    // --- Footer totals ---
+    function updateTotals(table) {
         var foot = table.tFoot;
         if (!foot || !foot.rows[0]) return;
-        var cells = foot.rows[0].children;
-        var paid = 0;
-        var due = 0;
-        dataRows().forEach(function (row) {
-            if (row.style.display === 'none') return;
-            var paidValue = parseFloat((row.children[4].dataset.sortValue || '0').replace(',', '.'));
-            var dueValue = parseFloat((row.children[5].dataset.sortValue || '0').replace(',', '.'));
-            if (!isNaN(paidValue)) paid += paidValue;
-            if (!isNaN(dueValue)) due += dueValue;
+        var totalCells = Array.prototype.slice.call(foot.rows[0].cells).filter(function (cell) {
+            return cell.dataset.totalCol;
         });
-        if (cells[4]) cells[4].textContent = '€ ' + paid.toLocaleString('nl-NL', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        if (cells[5]) cells[5].textContent = '€ ' + due.toLocaleString('nl-NL', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    }
+        if (!totalCells.length) return;
 
-    function applyFiltersPreservingScroll() {
-        var previousScroll = window.scrollY;
-        applyFilters();
-        window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
-    }
+        var colIndex = {};
+        Array.prototype.slice.call(table.tHead.rows[0].cells).forEach(function (th, index) {
+            if (th.dataset.col) colIndex[th.dataset.col] = index;
+        });
 
-    // --- Column show/hide ---
-    var storageKey = table.dataset.storageKey || 'avbk_balance_hidden_cols';
-    var panel = document.querySelector('.avbk-col-toggle-panel');
-    var toggleBtn = document.querySelector('.avbk-col-toggle-btn');
-    var footRow = table.tFoot ? table.tFoot.rows[0] : null;
-
-    function storedHidden() {
-        try {
-            var raw = window.localStorage.getItem(storageKey);
-            return raw ? JSON.parse(raw) : null;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    function saveHidden(list) {
-        try {
-            window.localStorage.setItem(storageKey, JSON.stringify(list));
-        } catch (e) { /* ignore */ }
-    }
-
-    function setColumnVisibility(index, visible) {
-        // Explicit 'table-cell' (not '') so this inline style reliably wins
-        // over the .avbk-col-optional{display:none} mobile media-query rule
-        // when the visitor re-enables a column by hand. tfoot has one cell
-        // per column (no colspan) precisely so it can be toggled the same
-        // way as thead/tbody without drifting out of alignment.
-        var rows = [headerRow, filterRow].concat(dataRows());
-        if (footRow) rows.push(footRow);
-        rows.forEach(function (row) {
-            var cell = row.children[index];
-            if (cell) cell.style.display = visible ? 'table-cell' : 'none';
+        var sums = {};
+        totalCells.forEach(function (cell) { sums[cell.dataset.totalCol] = 0; });
+        Array.prototype.slice.call(table.tBodies[0].rows).forEach(function (row) {
+            if (row.hidden) return;
+            totalCells.forEach(function (cell) {
+                var index = colIndex[cell.dataset.totalCol];
+                var dataCell = index === undefined ? null : row.cells[index];
+                var value = dataCell ? parseFloat(dataCell.dataset.sortValue || '0') : NaN;
+                if (!isNaN(value)) sums[cell.dataset.totalCol] += value;
+            });
+        });
+        totalCells.forEach(function (cell) {
+            cell.textContent = '€ ' + sums[cell.dataset.totalCol].toLocaleString('nl-NL', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         });
     }
 
-    var stored = storedHidden();
-    var hidden = stored !== null
-        ? stored
-        : (window.matchMedia && window.matchMedia('(max-width: 600px)').matches
-            ? headerCells.filter(function (th) { return th.classList.contains('avbk-col-optional'); }).map(function (th) { return th.dataset.col; })
-            : []);
-
-    headerCells.forEach(function (th, index) {
-        var col = th.dataset.col;
-        if (!col) return;
-        var isHidden = hidden.indexOf(col) !== -1;
-        if (isHidden) setColumnVisibility(index, false);
-
-        var label = document.createElement('label');
-        var cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !isHidden;
-        cb.addEventListener('change', function () {
-            var previousScroll = window.scrollY;
-            setColumnVisibility(index, cb.checked);
-            var current = storedHidden() || [];
-            current = current.filter(function (c) { return c !== col; });
-            if (!cb.checked) current.push(col);
-            saveHidden(current);
-            window.requestAnimationFrame(function () { window.scrollTo(0, previousScroll); });
-        });
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(' ' + th.textContent.replace(/[▲▼]/g, '').trim()));
-        panel.appendChild(label);
+    // sortable-table.js dispatches this on the <table> itself after every
+    // filter change, including the initial (possibly deep-linked) state —
+    // the first one arrives asynchronously, but a listener added here still
+    // catches it since this whole handler already runs on DOMContentLoaded.
+    document.addEventListener('avpvh-table-filtered', function (event) {
+        updateTotals(event.target);
     });
-
-    if (toggleBtn && panel) {
-        toggleBtn.addEventListener('click', function () {
-            panel.hidden = !panel.hidden;
-        });
-    }
-    updateTotals();
 
     // --- Payment-selection buttons: keep them disabled until a relevant
     // checkbox is actually ticked, mirroring what the server itself

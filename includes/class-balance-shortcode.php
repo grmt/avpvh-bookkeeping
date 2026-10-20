@@ -21,8 +21,11 @@ class AVBK_Balance_Shortcode {
     public function __construct() {
         add_shortcode('avpvh_bk_balance', [$this, 'render']);
         add_action('wp_enqueue_scripts', function () {
-            wp_enqueue_style('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.css', [], avbk_asset_version('assets/balance.css'));
-            wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', [], avbk_asset_version('assets/balance.js'), true);
+            // avpvh-members registers 'avpvh-sortable-table' on its own
+            // wp_enqueue_scripts callback at priority 5, ahead of this
+            // default-priority one — see enqueue_assets() in class-admin.php.
+            wp_enqueue_style('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.css', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.css'));
+            wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         });
         add_action('admin_post_avbk_submit_dispute', [$this, 'handle_dispute']);
         add_action('admin_post_avbk_apply_own_credit', [$this, 'handle_apply_own_credit']);
@@ -219,21 +222,22 @@ class AVBK_Balance_Shortcode {
                 </form>
             <?php endif; ?>
 
-            <div class="avbk-balance-table-tools">
-                <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-                <div class="avbk-col-toggle-panel" hidden></div>
+            <div data-avpvh-sortable>
+            <div class="avpvh-table-tools">
+                <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+                <span class="avpvh-col-toggle-panel" hidden></span>
             </div>
-            <div class="avbk-balance-table-wrap">
-            <table class="avbk-balance-table" id="avbk-balance-table">
+            <div class="avpvh-table-wrap">
+            <table class="avpvh-sortable-table" data-storage-key="avbk_balance_hidden_cols">
                 <thead>
-                    <tr class="avbk-balance-header-row">
+                    <tr>
                         <?php if ($balance['balance'] > 0.005) : ?><th scope="col" data-col="betalen">Betalen</th><?php endif; ?>
                         <?php if ($show_member_column) : ?><th scope="col" data-col="lid" data-filter="select">Lid</th><?php endif; ?>
                         <th scope="col" data-col="omschrijving">Omschrijving</th>
-                        <th scope="col" data-col="tarief" class="avbk-col-optional">Tarief</th>
-                        <th scope="col" data-col="aantal" class="avbk-col-optional">Aantal</th>
+                        <th scope="col" data-col="tarief" class="avpvh-col-optional">Tarief</th>
+                        <th scope="col" data-col="aantal" class="avpvh-col-optional">Aantal</th>
                         <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
-                        <th scope="col" data-col="betaald" data-type="number" class="avbk-col-optional">Betaald</th>
+                        <th scope="col" data-col="betaald" data-type="number" class="avpvh-col-optional">Betaald</th>
                         <th scope="col" data-col="openstaand" data-type="number">Openstaand</th>
                         <th scope="col" data-col="status" data-filter="select">Status</th>
                     </tr>
@@ -292,15 +296,16 @@ class AVBK_Balance_Shortcode {
                         <?php if ($balance['balance'] > 0.005) : ?><td></td><?php endif; ?>
                         <?php if ($show_member_column) : ?><th scope="row">Totaal</th><?php else : ?><th scope="row" class="avbk-col-description">Totaal</th><?php endif; ?>
                         <?php if ($show_member_column) : ?><td class="avbk-col-description"></td><?php endif; ?>
-                        <td class="avbk-col-optional"></td>
-                        <td class="avbk-col-optional"></td>
+                        <td class="avpvh-col-optional"></td>
+                        <td class="avpvh-col-optional"></td>
                         <td></td>
-                        <td class="avbk-col-optional"></td>
+                        <td class="avpvh-col-optional"></td>
                         <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $balance['balance'], 2, ',', '.')); ?></td>
                         <td></td>
                     </tr>
                 </tfoot>
             </table>
+            </div>
             </div>
             <?php if ($balance['balance'] > 0.005) : ?>
                 <form id="avbk-balance-payment-selection" method="get" action="#bijdrage" class="avbk-balance-also-form">

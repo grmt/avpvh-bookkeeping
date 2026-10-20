@@ -545,20 +545,21 @@ sort($activity_types);
             <p>Nog geen deelnemers.</p>
         <?php else : ?>
             <p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
-            <div class="avbk-balance-table-tools">
-                <button type="button" class="button button-small avbk-col-toggle-btn">Kolommen</button>
-                <div class="avbk-col-toggle-panel" hidden></div>
+            <div data-avpvh-sortable>
+            <div class="avpvh-table-tools">
+                <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+                <span class="avpvh-col-toggle-panel" hidden></span>
             </div>
-            <div class="avbk-balance-table-wrap">
-            <table id="avbk-balance-table" data-storage-key="avbk_activity_payments_hidden_cols_<?php echo esc_attr($activity_id); ?>" class="wp-list-table widefat striped avbk-balance-table">
-                <thead><tr class="avbk-balance-header-row">
+            <div class="avpvh-table-wrap">
+            <table data-storage-key="avbk_activity_payments_hidden_cols_<?php echo esc_attr($activity_id); ?>" class="widefat striped avpvh-sortable-table">
+                <thead><tr>
                     <th scope="col" data-col="naam">Naam</th>
-                    <th scope="col" data-col="bank" class="avbk-col-optional">Bank(en)</th>
-                    <th scope="col" data-col="bank_naam" data-filter="select" class="avbk-col-optional">Bank</th>
-                    <th scope="col" data-col="land" data-filter="select" class="avbk-col-optional">Land</th>
+                    <th scope="col" data-col="bank" class="avpvh-col-optional">Bank(en)</th>
+                    <th scope="col" data-col="bank_naam" data-filter="select" class="avpvh-col-optional">Bank</th>
+                    <th scope="col" data-col="land" data-filter="select" class="avpvh-col-optional">Land</th>
                     <th scope="col" data-col="ingeschreven" data-filter="select">Ingeschreven op</th>
-                    <th scope="col" data-col="allergieen" class="avbk-col-optional">Allergieën</th>
-                    <th scope="col" data-col="notities" class="avbk-col-optional">Notities</th>
+                    <th scope="col" data-col="allergieen" class="avpvh-col-optional">Allergieën</th>
+                    <th scope="col" data-col="notities" class="avpvh-col-optional">Notities</th>
                     <th scope="col" data-col="betaald" data-type="number">Betaald</th>
                     <th scope="col" data-col="totaal" data-type="number">Berekend totaal</th>
                     <th scope="col" data-col="betaalverzoek" data-filter="select">Betaalverzoek</th>
@@ -667,6 +668,7 @@ sort($activity_types);
                     <td></td>
                 </tr></tfoot>
             </table>
+            </div>
             </div>
         <?php endif; ?>
     <?php endif; ?>

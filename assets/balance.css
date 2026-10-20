@@ -4,207 +4,64 @@
     margin: 1.5rem auto;
 }
 
-.avbk-balance-table-wrap {
-    overflow-x: auto;
-}
-
-.avbk-balance-table {
+/* Sorting, filtering, and column show/hide are now avpvh-members'
+   sortable-table.js/.css (assets/sortable-table.css: toolbar, filter row,
+   checklist filter, col-toggle panel, sort indicator, the 782px
+   .avpvh-col-optional breakpoint — see avpvh-members PR #64/#65). What's
+   left here is base cell styling for .avpvh-sortable-table (not part of
+   the shared stylesheet, since avpvh-members' own tables rely on WP core's
+   widefat/striped styling instead) plus a few bookkeeping-specific
+   tweaks (compact font size, cell wrapping, mobile bleed margin). */
+.avpvh-sortable-table {
     width: 100%;
     border-collapse: collapse;
     table-layout: auto;
     font-size: .82rem;
 }
 
-.avbk-balance-table th,
-.avbk-balance-table td {
+.avpvh-sortable-table th,
+.avpvh-sortable-table td {
     padding: .35rem .4rem;
     border-bottom: 1px solid #ddd;
     text-align: left;
 }
 
-.avbk-balance-table thead th {
-    white-space: nowrap;
-}
-
-.avbk-balance-table td {
+.avpvh-sortable-table td {
     overflow-wrap: break-word;
 }
 
-.avbk-balance-table .avbk-cell-nowrap {
+.avbk-cell-nowrap {
     white-space: nowrap;
     text-align: right;
 }
 
-.avbk-balance-table .avbk-cell-wrap-words {
+.avbk-cell-wrap-words {
     /* Wrap between words (e.g. after the first name) instead of the
        table squeezing this column so narrow it breaks mid-word. */
     word-break: normal;
     overflow-wrap: normal;
 }
 
-.avbk-balance-table tfoot th {
+.avpvh-sortable-table tfoot th {
     border-top: 2px solid #333;
     border-bottom: none;
 }
 
-.avbk-balance-table th.avbk-sortable {
-    cursor: pointer;
-    user-select: none;
-}
-
-.avbk-sort-indicator {
-    font-size: .8em;
-    color: #555;
-}
-
-.avbk-balance-filter-row th {
-    padding: .25rem .3rem;
-    border-bottom: 2px solid #ccc;
-}
-
-/* Both the element+class form (input.avbk-filter-control) AND !important
-   are needed here: wp-admin's own input[type="text"] { padding: 3px 5px; }
-   rule has HIGHER specificity than a bare class selector (an attribute
-   selector outweighs a class), so it silently overrode our padding/height
-   here even though this rule appears later in the cascade — that's what
-   made the "Filter…" box render taller than the "Alle" button next to it
-   despite both declaring the same height.
-   A later WP core update added input[type="text"] { min-height: 40px; }
-   (forms.min.css) — min-height isn't the same property as height, so
-   !important on height alone doesn't stop it clamping the box back up to
-   40px regardless; min-height must be overridden explicitly too. */
-input.avbk-filter-control,
-.avbk-checklist-toggle {
-    box-sizing: border-box !important;
-    /* A fixed width (not 100% of the column) so every filter box is the
-       same compact size regardless of how wide its own column happens to
-       render (e.g. "Omschrijving" vs. "Status") — a column still widens
-       to fit its data, just no longer its filter control too. */
-    width: 9em !important;
-    height: 1.7rem !important;
-    min-height: 0 !important;
-    line-height: 1.7rem !important;
-    margin: 0 !important;
-    padding: 0 .3rem !important;
-    border: 1px solid #8c8f94 !important;
-    border-radius: 4px !important;
-    background: #fff !important;
-    font-family: inherit !important;
-    font-size: .85em !important;
-    font-weight: normal !important;
-    color: #2c3338 !important;
-}
-
-/* Not .button/.button-small — those bring wp-admin's own min-height and
-   line-height, which made this box noticeably taller than the plain
-   .avbk-filter-control text inputs next to it. */
-.avbk-checklist-toggle {
-    text-align: left;
-    cursor: pointer;
-}
-
-.avbk-checklist-filter {
-    position: relative;
-}
-
-.avbk-checklist-menu {
-    position: absolute;
-    z-index: 20;
-    top: 100%;
-    left: 0;
-    min-width: 12em;
-    max-height: 16em;
-    overflow: auto;
-    padding: .4rem .55rem;
-    background: #fff;
-    border: 1px solid #999;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
-}
-
-.avbk-tristate-option {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    padding: .15rem 0;
-    background: none;
-    border: none;
-    font-size: .85em;
-    font-weight: normal;
-    text-align: left;
-    white-space: nowrap;
-    cursor: pointer;
-}
-
-.avbk-tristate-icon {
-    display: inline-block;
-    width: 1.1em;
-    height: 1.1em;
-    line-height: 1.1em;
-    margin-right: .3em;
-    text-align: center;
-    vertical-align: middle;
-    border: 1px solid #888;
-    border-radius: 2px;
-    font-size: .95em;
-    font-weight: 700;
-}
-
-.avbk-tristate-option[data-state="include"] .avbk-tristate-icon {
-    background: #2271b1;
-    border-color: #2271b1;
-    color: #fff;
-}
-
-.avbk-tristate-option[data-state="exclude"] .avbk-tristate-icon {
-    background: #b32d2e;
-    border-color: #b32d2e;
-    color: #fff;
-}
-
-.avbk-balance-table-tools {
-    position: relative;
-    margin-bottom: .4rem;
-}
-
-.avbk-col-toggle-panel[hidden] {
-    display: none;
-}
-
-.avbk-col-toggle-panel {
-    position: absolute;
-    z-index: 10;
-    top: 100%;
-    left: 0;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
-    padding: .5rem .75rem;
-    display: flex;
-    flex-direction: column;
-    gap: .25rem;
-    white-space: nowrap;
-}
-
 @media (max-width: 600px) {
-    .avbk-balance-table {
+    .avpvh-sortable-table {
         font-size: .75rem;
     }
 
-    .avbk-balance-table th,
-    .avbk-balance-table td {
+    .avpvh-sortable-table th,
+    .avpvh-sortable-table td {
         padding: .3rem .25rem;
-    }
-
-    .avbk-balance-table .avbk-col-optional {
-        display: none;
     }
 
     /* The theme's own content column keeps a fairly wide side gutter
        (min(6.5rem, 8vw), still ~30px on a phone) even in portrait. This
        table needs all the width it can get, so pull it out to the edges
        of the viewport instead of inheriting that gutter. */
-    .avbk-balance-table-wrap {
+    .avpvh-table-wrap {
         margin-left: calc(-1 * var(--wp--style--root--padding-left, min(6.5rem, 8vw)));
         margin-right: calc(-1 * var(--wp--style--root--padding-right, min(6.5rem, 8vw)));
         padding-left: .5rem;
@@ -214,8 +71,8 @@ input.avbk-filter-control,
     /* Omschrijving is usually the longest cell but the least important to
        keep on one line — cap it so it wraps before Lid (names) gets
        squeezed instead. */
-    .avbk-balance-table th[data-col="omschrijving"],
-    .avbk-balance-table td.avbk-col-description {
+    .avpvh-sortable-table th[data-col="omschrijving"],
+    .avpvh-sortable-table td.avbk-col-description {
         max-width: 38vw;
     }
 }

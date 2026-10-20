@@ -145,8 +145,14 @@ class AVBK_Admin {
         }
         wp_enqueue_style('avbk-admin', AVBK_PLUGIN_URL . 'assets/admin.css', [], avbk_asset_version('assets/admin.css'));
         if (str_contains($hook, 'avbk-members') || str_contains($hook, 'avbk-transactions') || str_contains($hook, 'avbk-activity-payments') || str_contains($hook, 'avbk-orders')) {
-            wp_enqueue_style('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.css', [], avbk_asset_version('assets/balance.css'));
-            wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', [], avbk_asset_version('assets/balance.js'), true);
+            // Sorting/filtering/column show-hide is avpvh-members' shared
+            // sortable-table.js/.css (its own admin_enqueue_scripts hook
+            // registers the handle at priority 5, ahead of this default-
+            // priority callback) — balance.css/.js only add the bits
+            // specific to this plugin (base cell styling, footer totals,
+            // payment-selection buttons).
+            wp_enqueue_style('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.css', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.css'));
+            wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         }
         if (str_contains($hook, 'avbk-review')) {
             wp_enqueue_script('avbk-review-queue', AVBK_PLUGIN_URL . 'assets/review-queue.js', [], avbk_asset_version('assets/review-queue.js'), true);
