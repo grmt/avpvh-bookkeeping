@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Boekhouding
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.17.0
+ * Version:     1.17.1
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -71,6 +71,11 @@ add_action('plugins_loaded', function () {
 
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
     AVBK_DB::maybe_upgrade();
+
+    // Lets avpvh-members' "Activiteit verwijderen" (PR #67) know what in
+    // this plugin still references an activity, and clean up afterwards.
+    add_filter('avpvh_activity_delete_blockers', ['AVBK_DB', 'activity_delete_blockers'], 10, 2);
+    add_action('avpvh_activity_deleted', ['AVBK_DB', 'cleanup_deleted_activity']);
 
     require_once AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
