@@ -4064,6 +4064,52 @@ class AVBK_DB {
     }
 
     // -------------------------------------------------------------------
+    // Activity deletion — answers avpvh-members' avpvh_activity_delete_blockers
+    // filter (see avpvh-members PR #67, "Activiteit verwijderen" on de
+    // Activiteiten-pagina) so a delete only succeeds once nothing here still
+    // references the activity. avpvh-members checks its own participants;
+    // this covers every avb_* table with its own activity_id column.
+    // -------------------------------------------------------------------
+
+    /** @param string[] $reasons */
+    public static function activity_delete_blockers(array $reasons, int $activity_id): array {
+        global $wpdb;
+
+        // [singular label, plural label, COUNT query] — one per avb_* table
+        // that carries activity_id. avb_book_orders/avb_orders/
+        // avb_congress_registrations only reference an activity indirectly
+        // via fee_item_id, so they're already covered: a still-open order
+        // or registration implies its fee_item_id's avb_fee_items row is
+        // still there too, which already blocks below.
+        $sources = [
+            ['tarief', 'tarieven', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_activity_rates WHERE activity_id = %d"],
+            ['contributie-/bijdragepost', 'contributie-/bijdrageposten', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_fee_items WHERE activity_id = %d"],
+            ['transactie', 'transacties', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions WHERE activity_id = %d"],
+            ['aanmelding (sheet-import)', 'aanmeldingen (sheet-import)', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_sheet_participation_meta WHERE activity_id = %d"],
+            ['betaalverzoek', 'betaalverzoeken', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_payment_requests WHERE activity_id = %d"],
+            ['generiek betaalverzoek (link/QR)', 'generieke betaalverzoeken (link/QR)', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d"],
+        ];
+        foreach ($sources as [$singular, $plural, $sql]) {
+            $count = (int) $wpdb->get_var($wpdb->prepare($sql, $activity_id));
+            if ($count > 0) {
+                $reasons[] = $count . ' ' . ($count === 1 ? $singular : $plural);
+            }
+        }
+        return $reasons;
+    }
+
+    /**
+     * The sheet-import config saved per activity (AVBK_Sheet_Import::
+     * get_config()/save_config(), option avbk_sheet_import_<id>) is just a
+     * column-mapping/cache, never financial data — safe to discard once
+     * activity_delete_blockers() already guaranteed nothing else references
+     * the activity.
+     */
+    public static function cleanup_deleted_activity(int $activity_id): void {
+        delete_option("avbk_sheet_import_{$activity_id}");
+    }
+
+    // -------------------------------------------------------------------
     // Congress/reunion public registration — see AVBK_Congress.
     // -------------------------------------------------------------------
 
