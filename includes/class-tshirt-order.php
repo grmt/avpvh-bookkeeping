@@ -534,8 +534,8 @@ class AVBK_Tshirt_Order {
 
                 <!-- Address (Optional) -->
                 <fieldset class="avbk-book-fieldset">
-                    <legend>Adresgegevens (optioneel)</legend>
-                    <p class="description" style="margin: 0 0 1rem; color: #646970;">Optioneel: alleen nodig indien het kledingstuk per post verzonden moet worden omdat afhalen of uitreiken niet mogelijk is.</p>
+                    <legend>Verzendadres (optioneel)</legend>
+                    <p class="description" style="margin: 0 0 1rem; color: #646970;">Optioneel: alleen nodig indien het kledingstuk per post verzonden moet worden omdat afhalen of uitreiken niet mogelijk is. Dit is alleen het verzendadres voor deze bestelling; je geregistreerde adres wordt hiermee niet gewijzigd.</p>
                     <div class="avbk-form-row avbk-form-row-2">
                         <p class="avbk-form-field avbk-form-field-street">
                             <label for="street">Straatnaam</label>
@@ -686,7 +686,7 @@ class AVBK_Tshirt_Order {
                 <table class="avbk-book-summary-table">
                     <?php if (!empty($order->street) || !empty($order->city)) : ?>
                         <tr>
-                            <th>Geregistreerd adres:</th>
+                            <th>Verzendadres:</th>
                             <td><?php echo esc_html(trim($order->street . ' ' . $order->house_number . ', ' . $order->postal_code . ' ' . $order->city . ', ' . $order->country, ', ')); ?></td>
                         </tr>
                     <?php endif; ?>
@@ -872,8 +872,12 @@ class AVBK_Tshirt_Order {
             $member_id = (int) ($match['member_id'] ?? 0);
         }
 
-        // Save active address only if logged in or a newly created visitor
-        $can_save_member_address = $member || (($match['match_type'] ?? '') === 'new');
+        // A logged-in member's address here is only a shipping address for
+        // this order (see the "Verzendadres" fieldset) — it must never
+        // silently overwrite their registered member address. Only save it
+        // as the registered address for a brand-new visitor, who has none
+        // yet.
+        $can_save_member_address = !$member && (($match['match_type'] ?? '') === 'new');
         if ($can_save_member_address && $member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
             AVBK_DB::save_member_address($member_id, [
                 'street'       => $street,
