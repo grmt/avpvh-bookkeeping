@@ -696,6 +696,20 @@ $_GET = [];
 $GLOBALS['current_user_id'] = 1;
 $GLOBALS['wp_user_member'][1] = $GLOBALS['members'][1]; // Bram Jansen
 
+// A pre-existing registered address for the logged-in member — the order's
+// own (different) address fields must be treated as a one-off shipping
+// address for this order and must not overwrite this record.
+$GLOBALS['wpdb']->insert('wp_avm_addresses', [
+    'member_id'    => 1,
+    'street'       => 'Kerkstraat',
+    'house_number' => '1',
+    'postal_code'  => '6000AA',
+    'city'         => 'Weert',
+    'country'      => 'Nederland',
+    'valid_until'  => null,
+]);
+$addresses_before = count($GLOBALS['wpdb']->addresses);
+
 $_POST = [
     '_wpnonce'     => 'test-nonce',
     'street'       => 'Molenstraat',
@@ -726,6 +740,9 @@ check($member_order->status === 'confirmed', 'Member order confirmed immediately
 check((int) $member_order->quantity === 2, 'Member order quantity is 2');
 check((float) $member_order->total_amount === 42.00, 'Member order total amount is 42.00 (fallback unit price)');
 check((int) $member_order->member_id === 1, 'Order linked to member ID 1');
+check($member_order->street === 'Molenstraat', "Order keeps the submitted address as this order's own shipping address");
+check(count($GLOBALS['wpdb']->addresses) === $addresses_before, 'Logged-in member order does not add a registered-address row');
+check(AVBK_DB::get_member_active_address(1)->street === 'Kerkstraat', "Logged-in member's registered address is left untouched by the order's shipping address");
 
 // -------------------------------------------------------------
 // Test 8: Admin distribution update and settings handlers
