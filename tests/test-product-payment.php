@@ -12,9 +12,12 @@ class WP_Error {
 }
 class AVPVH_Roles { public static function current_user_has_role($role) { return $GLOBALS['treasurer'] ?? false; } }
 class AVBK_QR { public static function svg($payload) { return '<svg data-url="' . htmlspecialchars($payload, ENT_QUOTES) . '"></svg>'; } }
+class AVBK_DB { public static function get_open_other_fee_item($member_id, $category) { return $GLOBALS['open_fee_items'][$member_id][$category] ?? null; } }
 class Response extends RuntimeException {}
 function current_user_can($cap) { return $GLOBALS['admin'] ?? false; }
 function get_current_user_id() { return 7; }
+function is_user_logged_in() { return $GLOBALS['logged_in'] ?? false; }
+function avpvh_get_member_by_wp_user($wp_user_id) { return $GLOBALS['member_by_wp_user'][$wp_user_id] ?? null; }
 function get_option($name, $default = false) { return $GLOBALS['options'][$name] ?? $default; }
 function update_option($name, $value, $autoload = null) { $GLOBALS['options'][$name] = $value; $GLOBALS['autoload'] = $autoload; return true; }
 function wp_parse_url($url, $component) { return parse_url($url, $component); }
@@ -51,12 +54,23 @@ function wp_nonce_field($action) { echo '<input name="_wpnonce" value="' . hash(
 function submit_button($label) { echo '<button>' . esc_html($label) . '</button>'; }
 function set_transient($key, $value, $ttl) { $GLOBALS['transients'][$key] = $value; }
 function admin_url($path) { return 'https://example.test/wp-admin/' . $path; }
-function add_query_arg($args, $url) { return $url . '?' . http_build_query($args); }
+function add_query_arg($key, $value = null, $url = null) {
+    if (is_array($key)) { $args = $key; $url = $value; } else { $args = [$key => $value]; }
+    return $url . '?' . http_build_query($args);
+}
+function home_url($path = '') { return 'https://example.test' . $path; }
+function get_permalink() { return $GLOBALS['permalink'] ?? 'https://example.test/kleding-pagina/'; }
 function wp_safe_redirect($url) { throw new Response($url, 302); }
 function check($condition, $message) { if (!$condition) { throw new RuntimeException('FAIL: ' . $message); } echo 'PASS: ' . $message . "\n"; }
 require dirname(__DIR__) . '/includes/class-product-payment.php';
 try {
     $controller = new AVBK_Product_Payment();
+    // A logged-in member with an open order for both products, so the rest
+    // of this file exercises the generic payment box as if it were visible —
+    // the box's own logged-in/open-order gating is tested separately below.
+    $GLOBALS['logged_in'] = true;
+    $GLOBALS['member_by_wp_user'] = [7 => (object) ['id' => 501]];
+    $GLOBALS['open_fee_items'] = [501 => ['tshirt' => (object) ['id' => 1], 'book' => (object) ['id' => 2]]];
     check(AVBK_Product_Payment::render('book') === '', 'unconfigured products have no shared request');
     check(is_wp_error(AVBK_Product_Payment::save('tshirt', 'https://pay.example.test/shirt', [], false)), 'visitors cannot change requests');
     $GLOBALS['treasurer'] = true;
@@ -135,6 +149,24 @@ try {
     $_POST['_wpnonce'] = hash('sha256', 'avbk_save_product_payment_book');
     try { $controller->handle_save(); } catch (Response $response) { check($response->getCode() === 302 && str_contains($response->getMessage(), 'product_payment_saved=1'), 'confirmed save redirects to product settings'); }
     check(AVBK_Product_Payment::get('book')['url'] === 'https://pay.example.test/new-book', 'controller saves selected product');
+
+    // --- Logged-in-with-open-order gating of the generic payment box ---
+    $GLOBALS['logged_in'] = false;
+    $prompt = AVBK_Product_Payment::render('tshirt');
+    check(str_contains($prompt, 'Log in') && str_contains($prompt, '/avpvh-login/'), 'logged-out visitors see a login prompt instead of the box');
+    check(!str_contains($prompt, 'pay.example.test'), 'login prompt does not leak the payment link itself');
+
+    $GLOBALS['logged_in'] = true;
+    $GLOBALS['member_by_wp_user'][7] = null;
+    check(AVBK_Product_Payment::render('tshirt') === '', 'logged in without a linked member hides the box entirely');
+
+    $GLOBALS['member_by_wp_user'][7] = (object) ['id' => 501];
+    $GLOBALS['open_fee_items'][501]['tshirt'] = null;
+    check(AVBK_Product_Payment::render('tshirt') === '', 'logged in member without an open order hides the box');
+
+    $GLOBALS['open_fee_items'][501]['tshirt'] = (object) ['id' => 9];
+    check(str_contains(AVBK_Product_Payment::render('tshirt'), 'Bestaande bestelling betalen'), 'logged in member with an open order sees the box');
+
     echo "All product payment tests passed.\n";
 } finally {
     foreach (glob($fixture . 'wp-admin/includes/*') as $file) { unlink($file); }

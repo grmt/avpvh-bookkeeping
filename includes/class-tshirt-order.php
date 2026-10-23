@@ -218,9 +218,6 @@ class AVBK_Tshirt_Order {
             <?php endif; ?>
 
             <!-- Design Showcase Gallery -->
-            <?php if (is_user_logged_in()) : ?>
-                <?php echo AVBK_Product_Payment::render('tshirt'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped payment component ?>
-            <?php endif; ?>
             <div class="avbk-tshirt-gallery">
                 <h3>1. Bekijk de designs</h3>
                 <div class="avbk-tshirt-cards-grid">
