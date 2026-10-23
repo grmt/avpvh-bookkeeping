@@ -128,8 +128,44 @@ class AVBK_Product_Payment {
         return self::render((string) $attributes['product']);
     }
 
+    /**
+     * Does the logged-in visitor have an open (unpaid) fee item for this
+     * product? Without this, the generic "Bestaande bestelling betalen" box
+     * (the $amount === null path below) would show to every member
+     * regardless of whether they ever ordered anything.
+     */
+    private static function member_has_open_order(string $product): bool {
+        $current_user_id = get_current_user_id();
+        $member = ($current_user_id && function_exists('avpvh_get_member_by_wp_user'))
+            ? avpvh_get_member_by_wp_user($current_user_id)
+            : null;
+        if (!$member || empty($member->id)) {
+            return false;
+        }
+        return (bool) AVBK_DB::get_open_other_fee_item((int) $member->id, $product);
+    }
+
+    /** Prompts a logged-out visitor to log in instead of showing the box outright — we can't tell yet whether they have an open order. */
+    private static function render_login_prompt(): string {
+        $login_url = add_query_arg('redirect_to', get_permalink() ?: home_url('/'), home_url('/avpvh-login/'));
+        ob_start(); ?>
+        <div class="avbk-product-payment avbk-book-payment-box">
+            <h3>Bestaande bestelling betalen</h3>
+            <p>Heb je al besteld? <a href="<?php echo esc_url($login_url); ?>">Log in</a> om je openstaande bedrag te zien en te betalen.</p>
+        </div>
+        <?php return ob_get_clean();
+    }
+
     /** An uploaded image takes precedence; a link can also generate its own QR. */
     public static function render(string $product, ?float $amount = null, int $order_id = 0): string {
+        if ($amount === null) {
+            if (!is_user_logged_in()) {
+                return self::render_login_prompt();
+            }
+            if (!self::member_has_open_order($product)) {
+                return '';
+            }
+        }
         $saved = self::get($product);
         $file_url = $saved['attachment_id'] ? wp_get_attachment_url($saved['attachment_id']) : '';
         $mime = $saved['attachment_id'] ? get_post_mime_type($saved['attachment_id']) : '';
