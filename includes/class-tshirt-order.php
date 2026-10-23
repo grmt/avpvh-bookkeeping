@@ -535,7 +535,7 @@ class AVBK_Tshirt_Order {
                 <!-- Address (Optional) -->
                 <fieldset class="avbk-book-fieldset">
                     <legend>Verzendadres (optioneel)</legend>
-                    <p class="description" style="margin: 0 0 1rem; color: #646970;">Dit adres wordt gebruikt als je bestelling per post verzonden wordt (zie &quot;Afhalen &amp; uitreiken&quot; hierboven). We vullen alvast je bekende adres in; moet dit kledingstuk naar een ander adres, pas het dan hieronder aan. Dit is alleen het verzendadres voor deze bestelling — je geregistreerde adres wordt hiermee niet gewijzigd.</p>
+                    <p class="description" style="margin: 0 0 1rem; color: #646970;">Alleen nodig als je bestelling per post verzonden wordt (zie &quot;Afhalen &amp; uitreiken&quot; hierboven) — dat mag ook later nog, zodra je betaling bevestigd is. Dit is het verzendadres voor deze bestelling; je geregistreerde adres wordt hiermee niet gewijzigd.</p>
                     <div class="avbk-form-row avbk-form-row-2">
                         <p class="avbk-form-field avbk-form-field-street">
                             <label for="street">Straatnaam</label>
