@@ -8,6 +8,10 @@
 
 /* Design gallery cards */
 .avbk-tshirt-gallery {
+    background: #fafafa;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
     margin: 1.75rem 0;
 }
 
