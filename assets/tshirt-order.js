@@ -2,6 +2,21 @@
  * Dynamic line-item repeater and design card interactions for T-shirt ordering.
  */
 document.addEventListener('DOMContentLoaded', function () {
+    // Guard against an accidental double order: a double-click or a slow
+    // page reload re-firing the POST produces two separate order rows
+    // server-side (same item, seconds apart) — one confirmed/paid, the
+    // other stuck "Niet bevestigd" forever.
+    const orderForm = document.querySelector('.avbk-tshirt-order-form');
+    if (orderForm) {
+        orderForm.addEventListener('submit', function () {
+            const submitBtn = orderForm.querySelector('.avbk-submit-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Bezig met verzenden...';
+            }
+        });
+    }
+
     const tableBody = document.getElementById('avbk-tshirt-items-body');
     const addBtn = document.getElementById('avbk-add-shirt-btn');
     const grandTotalVal = document.getElementById('avbk-grand-total-val');

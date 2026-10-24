@@ -396,6 +396,24 @@ class AVBK_Book_Order {
                     Met het afronden van je bestelling ga je een betalingsverplichting aan. Na het plaatsen ontvang je direct de betaalinstructies (via een betaalverzoek of bankoverschrijving) om het bedrag over te maken.
                 </div>
             </form>
+            <script>
+            (function() {
+                // Guard against an accidental double order: a double-click or
+                // a slow page reload re-firing the POST produces two separate
+                // order rows server-side (same item, seconds apart) — one
+                // confirmed/paid, the other stuck "Niet bevestigd" forever.
+                var orderForm = document.querySelector('.avbk-book-order-form');
+                if (orderForm) {
+                    orderForm.addEventListener('submit', function() {
+                        var submitBtn = orderForm.querySelector('.avbk-book-submit-btn');
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.textContent = 'Bezig met verzenden...';
+                        }
+                    });
+                }
+            })();
+            </script>
             <?php if (!$member) : ?>
                 <script>
                 (function() {
