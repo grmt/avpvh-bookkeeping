@@ -354,7 +354,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
                                     <input type="hidden" name="order_id" value="<?php echo (int) $order->id; ?>">
                                     <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? add_query_arg(['page' => 'avbk-orders', 'tab' => 'tshirt'], admin_url('admin.php'))); ?>">
-                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
+                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 24px 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
                                         <option value="pending" <?php selected($order->distribution_status, 'pending'); ?>>In afwachting</option>
                                         <option value="collected" <?php selected($order->distribution_status, 'collected'); ?>>Opgehaald</option>
                                         <option value="distributed" <?php selected($order->distribution_status, 'distributed'); ?>>Uitgereikt</option>
@@ -630,7 +630,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <input type="hidden" name="action" value="avbk_update_order_distribution">
                                     <input type="hidden" name="order_id" value="<?php echo (int) $order->id; ?>">
                                     <input type="hidden" name="redirect_url" value="<?php echo esc_url($_SERVER['REQUEST_URI'] ?? add_query_arg(['page' => 'avbk-orders', 'tab' => 'book'], admin_url('admin.php'))); ?>">
-                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
+                                    <select name="distribution_status" onchange="this.form.submit()" style="font-size: .85rem; padding: 2px 24px 2px 6px;" aria-label="Uitgiftestatus voor bestelling <?php echo (int) $order->id; ?>">
                                         <option value="pending" <?php selected($order->distribution_status, 'pending'); ?>>In afwachting</option>
                                         <option value="collected" <?php selected($order->distribution_status, 'collected'); ?>>Opgehaald</option>
                                         <option value="distributed" <?php selected($order->distribution_status, 'distributed'); ?>>Uitgereikt</option>
