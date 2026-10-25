@@ -139,6 +139,24 @@ class AVBK_Balance_Shortcode {
             $items,
             fn($item) => (int) $item->member_id === $target_id && $item->status !== 'waived' && $item->remaining > 0.005
         ));
+        // A joint ("en/of") account's leftover is one shared pot that every
+        // co-owner independently sees as "their" credit (see
+        // AVBK_DB::get_credit_transactions_for_member()) — applying it is
+        // already safe (whoever does it first shrinks what the other still
+        // sees), but it must stay a deliberate choice: never pre-ticked by
+        // default like a solo credit is, and called out by name, so two
+        // household members don't each casually "verreken" it via an
+        // unrelated QR-update click without realizing it's the same money.
+        $credit_coowner_ids = [];
+        foreach (AVBK_DB::get_credit_transactions_for_member($target_id) as $credit_row) {
+            foreach ($credit_row->shared_with_ids as $coowner_id) {
+                $credit_coowner_ids[$coowner_id] = true;
+            }
+        }
+        $credit_coowners = array_filter(array_map(
+            fn($id) => AVPVH_DB::get_member($id),
+            array_keys($credit_coowner_ids)
+        ));
         $credit_item = null;
         if ($available_credit > 0.005 && $target_id === (int) $own_member->id && $own_open_items) {
             $credit_item = (object) [
@@ -162,8 +180,12 @@ class AVBK_Balance_Shortcode {
             fn($item) => (int) $item->id,
             array_values(array_filter($items, fn($item) => $item->status !== 'waived' && $item->remaining > 0.005))
         );
+        $default_pay_ids = $open_item_ids;
         if ($credit_item) {
             $open_item_ids[] = self::CREDIT_ROW_ID;
+            if (!$credit_coowners) {
+                $default_pay_ids[] = self::CREDIT_ROW_ID;
+            }
         }
         $requested_pay_ids = array_values(array_unique(array_filter(array_map(
             'intval',
@@ -171,7 +193,7 @@ class AVBK_Balance_Shortcode {
         ))));
         $selected_pay_ids = isset($_GET['pay'])
             ? array_values(array_intersect($requested_pay_ids, $open_item_ids))
-            : $open_item_ids;
+            : $default_pay_ids;
         $selected_items = array_values(array_filter(
             $display_items,
             fn($item) => in_array((int) $item->id, $selected_pay_ids, true)
@@ -192,7 +214,11 @@ class AVBK_Balance_Shortcode {
                 <p class="avbk-balance-notice">Tegoed verrekend.</p>
             <?php endif; ?>
             <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id && !$own_open_items) : ?>
-                <p class="avbk-balance-credit">Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond). Er staat op dit moment niets open om dit mee te verrekenen.</p>
+                <p class="avbk-balance-credit">Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond). Er staat op dit moment niets open om dit mee te verrekenen.
+                <?php if ($credit_coowners) : ?>Dit komt van een rekening die ook op naam staat van <?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?> &mdash; die/diegene ziet dit bedrag ook, het is maar één keer te verrekenen.<?php endif; ?></p>
+            <?php endif; ?>
+            <?php if ($credit_item && $credit_coowners) : ?>
+                <p class="avbk-balance-credit">Het tegoed hieronder komt van een rekening die ook op naam staat van <strong><?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?></strong> &mdash; die/diegene ziet dit bedrag ook op hun eigen overzicht. Het is maar één keer te verrekenen, dus de regel staat hieronder niet automatisch aangevinkt &mdash; stem eerst af wie het gebruikt.</p>
             <?php endif; ?>
 
             <?php
