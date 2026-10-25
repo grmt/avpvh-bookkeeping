@@ -16,14 +16,35 @@
 ## Productieomgeving
 
 - `DEPLOY_HOST` wordt lokaal geladen uit `.env.local` (bevat `DEPLOY_HOST=avpvh.nl`, wat dezelfde server is als `rechtspreker.nl`). Dit bestand is opgenomen in `.gitignore` zodat het lokaal blijft en nooit op GitHub terechtkomt.
-- **Deployen**: rsync de gewijzigde bestanden naar
-  `$DEPLOY_HOST:/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/`,
-  bijv.:
+- **Deployen**: regel: de server krijgt alléén wat nodig is om een lid te
+  bedienen — geen tests, geen dev-tooling, geen secrets. Daarom deployen we
+  via `git archive` (die `.gitattributes`' `export-ignore` respecteert —
+  zie dat bestand voor wat precies wordt uitgesloten: `tests/`, `.github/`,
+  `bin/`, `docs/`, `*.md`, dotfiles, `composer.json`/`.lock`), **niet** een
+  rsync van de working tree:
   ```
-  rsync -av includes/class-db.php "$DEPLOY_HOST":/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping/ --relative
+  REMOTE_DIR=/opt/docker/volumes/html/wp-content-pvh/plugins/avpvh-bookkeeping
+  TMP=/tmp/avbk-deploy-$(date +%s)
+  ssh "$DEPLOY_HOST" "mkdir -p $TMP" \
+    && git archive HEAD | ssh "$DEPLOY_HOST" "tar -x -C $TMP" \
+    && ssh "$DEPLOY_HOST" "rsync -a --delete --exclude=vendor --exclude=output $TMP/ $REMOTE_DIR/ && rm -rf $TMP"
   ```
-  Dit is de live WordPress-install, gedraaid in Docker
-  (webserver-container `scripts-wordpress-pvh-1`).
+  `vendor/` en `output/` staan niet in git (zie `.gitignore`) maar zijn wel
+  nodig op productie resp. gegenereerd materiaal dat er mag blijven staan —
+  vandaar de `--exclude` erop, zodat `--delete` ze met rust laat. Wijzigt
+  `vendor/` (composer-afhankelijkheden), sync die dan apart:
+  `rsync -a --delete vendor/ "$DEPLOY_HOST":$REMOTE_DIR/vendor/`.
+  Check vóór elke deploy dat de archive schoon is:
+  `git archive HEAD | tar -t | grep -E '\.md$|\.sh$|\.env|^\.|(^|/)test'`
+  moet niets teruggeven. Dit is de live WordPress-install, gedraaid in
+  Docker (webserver-container `scripts-wordpress-pvh-1`).
+  Voor een losse bugfix aan één bestand (tussen volledige deploys in) mag
+  je nog steeds gericht rsyncen, bijv.
+  `rsync -av includes/class-db.php "$DEPLOY_HOST":$REMOTE_DIR/ --relative` —
+  maar doe daarna op een logisch moment alsnog een volledige archive-deploy,
+  anders ontstaat weer drift tussen wat git denkt dat er staat en wat er
+  werkelijk staat (zoals ontdekt tijdens deze sessie: 129 bestanden op
+  productie die niet in git zaten, waaronder `.env.local` en `.claude/`).
 - **Database / WP-CLI**: gebruik de daarvoor bedoelde `wpcli-pvh`
   service uit `docker-compose.yml` — **niet** `docker exec` direct op
   de webserver-container (`scripts-wordpress-pvh-1`): die heeft buiten
