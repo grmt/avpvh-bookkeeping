@@ -2083,7 +2083,7 @@ class AVBK_DB {
     public static function get_credit_transactions_for_member(int $member_id): array {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name,
+            "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name, t.counterparty_iban,
                     COALESCE(SUM(a.amount), 0) AS allocated_total
              FROM {$wpdb->prefix}avb_transactions t
              LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
@@ -2101,6 +2101,16 @@ class AVBK_DB {
         )) ?: [];
         foreach ($rows as $row) {
             $row->credit = round((float) $row->amount - (float) $row->allocated_total, 2);
+            // A joint ("en/of") account's leftover shows up this same way for
+            // every co-owner — allocated_total above sums every allocation on
+            // this transaction regardless of whose, so it's already one
+            // shared, correctly-shrinking pot rather than separately-tracked
+            // per-owner copies; this is only who else currently sees it too,
+            // for callers that want to warn before letting someone spend it.
+            $row->shared_with_ids = array_values(array_diff(
+                self::get_member_ids_by_iban((string) $row->counterparty_iban),
+                [$member_id]
+            ));
         }
         return $rows;
     }
