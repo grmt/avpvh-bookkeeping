@@ -217,11 +217,20 @@ class AVBK_Import {
      * confidence candidates before falling back to name matching. A single-
      * owner IBAN is handled earlier as an auto-apply, not here.
      */
+    /**
+     * Drank/Eten/Overig really is one person's own running account — a
+     * fuzzy name match should win over expanding a shared IBAN to every
+     * household member. T-shirt/Boek are per-item orders instead: two
+     * people sharing a joint account can each have their own separate
+     * order (incident: a transfer from "van X - van Y", a couple's joint
+     * account, covering both of their own kledingbestellingen — narrowing
+     * to a single best-guess candidate meant the second person's exact-
+     * amount order was never even offered as a suggestion).
+     */
+    private const SINGLE_PAYER_ONE_OFF_TYPES = ['Drank', 'Eten', 'Overig'];
+
     private static function find_candidates_for_row(string $counterparty_iban, string $counterparty_name, string $description, array $type_hints = []): array {
-        // Drank/Eten/etc. is one person's own running account, not a family
-        // contribution. Prefer the single best name match over expanding a
-        // shared IBAN to every remembered household member.
-        if (array_filter($type_hints, [AVBK_Matcher::class, 'is_personal_one_off_type'])) {
+        if (array_filter($type_hints, fn($t) => in_array($t, self::SINGLE_PAYER_ONE_OFF_TYPES, true))) {
             $name_candidates = AVBK_Matcher::find_candidates($counterparty_name, $description);
             if (!$name_candidates) {
                 return [];
