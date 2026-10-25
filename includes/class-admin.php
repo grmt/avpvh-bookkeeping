@@ -66,6 +66,7 @@ class AVBK_Admin {
         add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
         add_action('admin_post_avbk_export_tshirt_matrix',           [$this, 'handle_export_tshirt_matrix']);
         add_action('admin_post_avbk_save_order_settings',            [$this, 'handle_save_order_settings']);
+        add_action('admin_post_avbk_generate_flyer',                 [$this, 'handle_generate_flyer']);
         add_action('wp_ajax_avbk_member_fee_detail', [$this, 'ajax_member_fee_detail']);
         add_action('wp_ajax_avbk_household_candidates', [$this, 'ajax_household_candidates']);
         add_action('wp_ajax_avbk_activity_participants', [$this, 'ajax_activity_participants']);
@@ -122,6 +123,7 @@ class AVBK_Admin {
         $pending_orders = AVBK_DB::count_pending_distribution_orders();
         $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
+        add_submenu_page('avbk-overview', 'QR-flyers', 'QR-flyers', 'read', 'avbk-flyers', [$this, 'render_flyers']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -180,6 +182,7 @@ class AVBK_Admin {
     public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
     public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
     public function render_orders(): void { require AVBK_PLUGIN_DIR . 'admin/orders.php'; }
+    public function render_flyers(): void { require AVBK_PLUGIN_DIR . 'admin/flyers.php'; }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
@@ -2831,6 +2834,66 @@ class AVBK_Admin {
         }
 
         wp_safe_redirect(add_query_arg('settings_saved', '1', $redirect));
+        exit;
+    }
+
+    public function handle_generate_flyer(): void {
+        check_admin_referer('avbk_generate_flyer');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+
+        $format = strtolower(sanitize_key(wp_unslash($_POST['format'] ?? 'html')));
+        if (!in_array($format, ['html', 'svg'], true)) {
+            $format = 'html';
+        }
+
+        $preset_key = sanitize_key(wp_unslash($_POST['preset'] ?? ''));
+        $item = null;
+
+        if ($preset_key !== '') {
+            $item = AVBK_Flyer::get_preset($preset_key);
+        } else {
+            $raw_url = trim((string) wp_unslash($_POST['url'] ?? ''));
+            $url = esc_url_raw($raw_url, ['http', 'https']);
+            if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL)) {
+                $item = AVBK_Flyer::build_custom_item(
+                    $url,
+                    sanitize_text_field(wp_unslash($_POST['title'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['subtitle'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['display_url'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['instructions'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['badge'] ?? ''))
+                );
+            }
+        }
+
+        if ($item === null) {
+            wp_safe_redirect(add_query_arg([
+                'page'        => 'avbk-flyers',
+                'flyer_error' => '1',
+            ], admin_url('admin.php')));
+            exit;
+        }
+
+        if ($format === 'svg') {
+            $svg = AVBK_Flyer::generate_qr_svg($item['url']);
+            $filename = sanitize_file_name($item['name'] . '-qr.svg');
+            header('Content-Type: image/svg+xml; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+            echo $svg;
+            exit;
+        }
+
+        $html = AVBK_Flyer::render_flyer_html($item);
+        $filename = sanitize_file_name($item['name'] . '-flyer.html');
+        header('Content-Type: text/html; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        echo $html;
         exit;
     }
 }
