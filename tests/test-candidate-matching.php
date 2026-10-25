@@ -26,6 +26,9 @@ class AVBK_DB {
         return isset($GLOBALS['members'][$member_id]) ? [$GLOBALS['members'][$member_id]] : [];
     }
     public static function get_current_activity_for_type_name(string $name): ?object { return null; }
+    public static function get_open_tshirt_fee_item(int $member_id): ?object { return $GLOBALS['open_tshirt'][$member_id] ?? null; }
+    public static function get_open_book_fee_item(int $member_id): ?object { return $GLOBALS['open_book'][$member_id] ?? null; }
+    public static function get_fee_item_remaining(object $item): float { return (float) ($item->amount_due ?? 0.0); }
 }
 function avpvh_format_name(object $member, string $format = ''): string { return $member->first_name . ' ' . $member->last_name; }
 function current_time(string $format): string { return $format === 'Y' ? '2026' : '2026-10-10'; }
@@ -67,5 +70,34 @@ check(count($candidates) === 2, 'Boek from a joint account also suggests both kn
 // still narrow to a single best-guess payer.
 $candidates = find_candidates_for_row('NL00TEST0123456789', 'Hoef A. - Erp L.', 'Drankrekening', ['Drank']);
 check(count($candidates) === 1, 'Drank from a joint account still narrows to a single best-guess payer');
+
+// When only one of the joint-account owners actually has an open T-shirt
+// order, narrow directly to that owner instead of also suggesting the
+// co-owner without an order (which would otherwise fall through to a
+// generic activity rate).
+$GLOBALS['open_tshirt'] = [
+    2 => (object) ['id' => 618, 'member_id' => 2, 'amount_due' => 29.00],
+];
+$candidates = find_candidates_for_row('NL00TEST0123456789', 'Hoef A. - Erp L.', 'Trui 10 10 2026', ['T-shirt']);
+$ids = array_map(fn($c) => $c['member']->id, $candidates);
+check($ids === [2], 'T-shirt from a joint account narrows to the owner who actually has an open order');
+
+// When both joint-account owners have their own open T-shirt order, keep both.
+$GLOBALS['open_tshirt'] = [
+    1 => (object) ['id' => 610, 'member_id' => 1, 'amount_due' => 22.00],
+    2 => (object) ['id' => 618, 'member_id' => 2, 'amount_due' => 29.00],
+];
+$candidates = find_candidates_for_row('NL00TEST0123456789', 'Hoef A. - Erp L.', 'Trui 10 10 2026', ['T-shirt']);
+$ids = array_map(fn($c) => $c['member']->id, $candidates);
+check(count($ids) === 2 && in_array(1, $ids, true) && in_array(2, $ids, true), 'T-shirt from a joint account keeps both owners when both have an open order');
+
+// When a single named payer on a shared IBAN has no open order of her own,
+// fall back to the co-owner on that IBAN who does have an open order.
+$GLOBALS['open_tshirt'] = [
+    2 => (object) ['id' => 618, 'member_id' => 2, 'amount_due' => 29.00],
+];
+$candidates = find_candidates_for_row('NL00TEST0123456789', 'Mw A Hoef', 'Kleding-2de lichting (2026)', ['T-shirt']);
+$ids = array_map(fn($c) => $c['member']->id, $candidates);
+check($ids === [2], 'T-shirt paid by a co-owner without an order suggests the IBAN co-owner who has an open order');
 
 echo "All candidate-matching checks passed.\n";

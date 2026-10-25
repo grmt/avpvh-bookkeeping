@@ -343,6 +343,30 @@ function avbk_row_detail(array $row): ?array {
             // unselected. Member suggestions remain stored; a saved draft
             // above remains an explicit treasurer choice.
             $suggested_types = AVBK_Matcher::classify_types((string) $tx->description);
+            $order_types = array_values(array_intersect($suggested_types, ['T-shirt', 'Boek']));
+            if ($order_types && !array_diff($suggested_types, ['T-shirt', 'Boek'])) {
+                $ids_with_order = array_values(array_filter(
+                    $suggested_ids,
+                    fn($id) => AVBK_Import::member_has_open_order((int) $id, $order_types)
+                ));
+                if ($ids_with_order) {
+                    $suggested_ids = $ids_with_order;
+                } else {
+                    $fresh = AVBK_Import::find_candidates_for_row(
+                        (string) $tx->counterparty_iban,
+                        (string) $tx->counterparty_name,
+                        (string) $tx->description,
+                        $suggested_types
+                    );
+                    $fresh_ids = array_values(array_filter(
+                        array_map(fn($c) => (int) $c['member']->id, $fresh),
+                        fn($id) => AVBK_Import::member_has_open_order($id, $order_types)
+                    ));
+                    if ($fresh_ids) {
+                        $suggested_ids = $fresh_ids;
+                    }
+                }
+            }
 
             // Default each candidate's split to what they actually owe
             // (nights x day-rate for a camp, hun leeftijdstarief voor

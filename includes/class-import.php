@@ -222,14 +222,39 @@ class AVBK_Import {
      * fuzzy name match should win over expanding a shared IBAN to every
      * household member. T-shirt/Boek are per-item orders instead: two
      * people sharing a joint account can each have their own separate
-     * order (incident: a transfer from "van X - van Y", a couple's joint
-     * account, covering both of their own kledingbestellingen — narrowing
-     * to a single best-guess candidate meant the second person's exact-
-     * amount order was never even offered as a suggestion).
+     * order, or one partner can pay from the joint account for the other
+     * partner's order. When open order fee items exist, prefer the
+     * candidate(s) who actually have an open order for that type so a
+     * co-owner without an order isn't suggested against a generic
+     * activity rate instead of the partner's real order.
      */
     private const SINGLE_PAYER_ONE_OFF_TYPES = ['Drank', 'Eten', 'Overig'];
+    private const ORDER_ONE_OFF_TYPES = ['T-shirt', 'Boek'];
 
-    private static function find_candidates_for_row(string $counterparty_iban, string $counterparty_name, string $description, array $type_hints = []): array {
+    public static function member_has_open_order(int $member_id, array $order_types): bool {
+        if (in_array('T-shirt', $order_types, true) && method_exists(AVBK_DB::class, 'get_open_tshirt_fee_item')) {
+            $item = AVBK_DB::get_open_tshirt_fee_item($member_id);
+            if ($item && (!method_exists(AVBK_DB::class, 'get_fee_item_remaining') || AVBK_DB::get_fee_item_remaining($item) > 0.005)) {
+                return true;
+            }
+        }
+        if (in_array('Boek', $order_types, true) && method_exists(AVBK_DB::class, 'get_open_book_fee_item')) {
+            $item = AVBK_DB::get_open_book_fee_item($member_id);
+            if ($item && (!method_exists(AVBK_DB::class, 'get_fee_item_remaining') || AVBK_DB::get_fee_item_remaining($item) > 0.005)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function filter_candidates_with_open_order(array $candidates, array $order_types): array {
+        return array_values(array_filter(
+            $candidates,
+            fn($c) => isset($c['member']->id) && self::member_has_open_order((int) $c['member']->id, $order_types)
+        ));
+    }
+
+    public static function find_candidates_for_row(string $counterparty_iban, string $counterparty_name, string $description, array $type_hints = []): array {
         if (array_filter($type_hints, fn($t) => in_array($t, self::SINGLE_PAYER_ONE_OFF_TYPES, true))) {
             $name_candidates = AVBK_Matcher::find_candidates($counterparty_name, $description);
             if (!$name_candidates) {
@@ -271,6 +296,61 @@ class AVBK_Import {
                 }
             }
             return [$best];
+        }
+
+        $order_types = array_values(array_intersect($type_hints, self::ORDER_ONE_OFF_TYPES));
+        if ($order_types && !array_diff($type_hints, self::ORDER_ONE_OFF_TYPES)) {
+            $name_candidates = AVBK_Matcher::find_candidates($counterparty_name, $description);
+            if ($name_candidates && ($name_candidates[0]['source'] ?? '') === 'beneficiary') {
+                return $name_candidates;
+            }
+
+            $iban_members = [];
+            if ($counterparty_iban !== '') {
+                foreach (AVBK_DB::get_member_ids_by_iban($counterparty_iban) as $iban_member_id) {
+                    $iban_member = AVPVH_DB::get_member((int) $iban_member_id);
+                    if ($iban_member) {
+                        $iban_members[] = $iban_member;
+                    }
+                }
+            }
+
+            $iban_matches = $iban_members
+                ? AVBK_Matcher::find_payer_candidates($counterparty_name, $iban_members)
+                : [];
+            $with_order = self::filter_candidates_with_open_order($iban_matches, $order_types);
+            if ($with_order) {
+                return $with_order;
+            }
+            $with_order = self::filter_candidates_with_open_order($name_candidates, $order_types);
+            if ($with_order) {
+                return $with_order;
+            }
+
+            $payer_candidates = $iban_matches ?: $name_candidates;
+            $pool = [];
+            foreach ($iban_members as $m) {
+                $pool[(int) $m->id] = ['member' => $m, 'score' => 90, 'source' => 'payer'];
+            }
+            foreach ($payer_candidates as $c) {
+                foreach (AVBK_DB::get_payment_household_candidates((int) $c['member']->id) as $hm) {
+                    $pool[(int) $hm->id] ??= ['member' => $hm, 'score' => $c['score'] ?? 80, 'source' => 'payer'];
+                }
+            }
+            $pool_with_order = self::filter_candidates_with_open_order(array_values($pool), $order_types);
+            if ($pool_with_order) {
+                return $pool_with_order;
+            }
+
+            if (count($iban_members) >= 2) {
+                $fallback = $iban_matches ?: array_values($pool);
+                usort($fallback, fn($a, $b) =>
+                    (int) AVBK_Matcher::member_is_minor($a['member']) <=> (int) AVBK_Matcher::member_is_minor($b['member'])
+                );
+                return $fallback;
+            }
+
+            return $payer_candidates ? [reset($payer_candidates)] : [];
         }
         if ($counterparty_iban !== '') {
             $joint_owner_ids = AVBK_DB::get_member_ids_by_iban($counterparty_iban);
