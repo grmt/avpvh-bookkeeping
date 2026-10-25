@@ -19,50 +19,15 @@ if (!file_exists($autoloadPath)) {
 }
 require_once $autoloadPath;
 
-use chillerlan\QRCode\QRCode;
-use chillerlan\QRCode\QROptions;
-use chillerlan\QRCode\Output\QROutputInterface;
-use chillerlan\QRCode\Common\EccLevel;
+if (!defined('ABSPATH')) {
+    define('ABSPATH', dirname(__DIR__) . '/');
+}
+if (!defined('AVBK_PLUGIN_DIR')) {
+    define('AVBK_PLUGIN_DIR', dirname(__DIR__) . '/');
+}
+require_once AVBK_PLUGIN_DIR . 'includes/class-flyer.php';
 
-$presets = [
-    'boek' => [
-        'name'         => 'boek',
-        'title'        => '50 Jaar Jubileumboek',
-        'subtitle'     => 'Bestel het jubileumboek "DoorGraven" eenvoudig online via je smartphone',
-        'url'          => 'https://avpvh.nl/boek',
-        'display_url'  => 'avpvh.nl/boek',
-        'instructions' => 'Scan de QR-code met je smartphone camera om direct naar de bestelpagina te gaan.',
-        'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
-    ],
-    'tshirt' => [
-        'name'         => 'tshirt',
-        'title'        => '50 Jaar Jubileumkleding',
-        'subtitle'     => 'Bestel T-shirts en hoodies in jouw favoriete design, kleur en maat online',
-        'url'          => 'https://avpvh.nl/tshirt',
-        'display_url'  => 'avpvh.nl/tshirt',
-        'instructions' => 'Scan de QR-code met je smartphone camera om direct naar de bestelpagina te gaan.',
-        'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
-    ],
-    'foto-delen' => [
-        'name'         => 'foto-delen',
-        'title'        => "Foto's & Herinneringen Delen",
-        'subtitle'     => "Deel eenvoudig jouw foto's en herinneringen van 50 jaar opgravingen en activiteiten",
-        'url'          => 'https://avpvh.nl/foto-delen',
-        'display_url'  => 'avpvh.nl/foto-delen',
-        'instructions' => "Scan de QR-code met je smartphone camera om direct foto's en herinneringen te uploaden.",
-        'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
-    ],
-    'tshirts-betalen' => [
-        'name'         => 'tshirts-betalen',
-        'title'        => 'T-shirts betalen',
-        'subtitle'     => 'Betaal je huidige bestelling van jubileumkleding eenvoudig via je smartphone',
-        'url'          => 'https://www.ing.nl/payreq/m/aFbdfoIoWem2exURVabPmWck5AoW7WMT',
-        'qr_image'     => __DIR__ . '/../assets/images/tshirts-betalen-qr.png',
-        'display_url'  => 'avpvh.nl/t-shirts-betalen',
-        'instructions' => 'Scan de QR-code met je smartphone camera om je bestaande bestelling via ING te betalen.',
-        'badge'        => '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
-    ],
-];
+$presets = AVBK_Flyer::get_presets();
 // Alias voor foto-delen
 $presets['share'] = $presets['foto-delen'];
 
@@ -92,8 +57,7 @@ if (!is_dir($outputDir)) {
     mkdir($outputDir, 0755, true);
 }
 
-$troffelSvgPath = __DIR__ . '/../assets/images/troffel.svg';
-$troffelSvg = file_exists($troffelSvgPath) ? file_get_contents($troffelSvgPath) : '';
+$troffelSvg = AVBK_Flyer::get_troffel_svg();
 
 $printer = $options['printer'] ?? detectPrinter();
 $doPrint = isset($options['print']);
@@ -117,22 +81,14 @@ if (isset($options['preset'])) {
         exit(1);
     }
 } elseif (isset($options['url'])) {
-    $url = trim((string)$options['url']);
-    $displayUrl = $options['display-url'] ?? preg_replace('#^https?://(www\.)?#i', '', rtrim($url, '/'));
-    $title = $options['title'] ?? 'Informatie & Aanmelden';
-    $subtitle = $options['subtitle'] ?? 'Scan de QR-code met je smartphone om direct te openen';
-    $name = preg_replace('/[^a-z0-9_-]/i', '-', strtolower($title));
-    $name = trim(preg_replace('/-+/', '-', $name), '-');
-
-    $itemsToProcess[] = [
-        'name'         => $name ?: 'flyer',
-        'title'        => $title,
-        'subtitle'     => $subtitle,
-        'url'          => $url,
-        'display_url'  => $displayUrl,
-        'instructions' => $options['instructions'] ?? 'Scan de QR-code met je smartphone camera om direct naar de pagina te gaan.',
-        'badge'        => $options['badge'] ?? '1976 – 2026 • 50 Jaar Archeologie in Weert en omstreken',
-    ];
+    $itemsToProcess[] = AVBK_Flyer::build_custom_item(
+        (string) $options['url'],
+        (string) ($options['title'] ?? ''),
+        (string) ($options['subtitle'] ?? ''),
+        (string) ($options['display-url'] ?? ''),
+        (string) ($options['instructions'] ?? ''),
+        (string) ($options['badge'] ?? '')
+    );
 } else {
     fwrite(STDERR, "Fout: Geef een --preset=<naam> of een --url=<url> op.\n");
     fwrite(STDERR, "Draai met --help voor alle opties.\n");
@@ -211,168 +167,11 @@ echo "Klaar! Bestanden opgeslagen in: {$outputDir}\n\n";
 // -------------------------------------------------------------
 
 function generateQrSvg(string $url): string {
-    $qrOptions = new QROptions([
-        'outputType'   => QROutputInterface::MARKUP_SVG,
-        'eccLevel'     => EccLevel::H,
-        'outputBase64' => false,
-        'addQuietzone' => true,
-    ]);
-
-    $svg = (new QRCode($qrOptions))->render($url);
-    // Zorg voor responsive/vaste viewbox dimensies
-    return preg_replace('/<svg /', '<svg width="100%" height="100%" ', $svg, 1);
+    return AVBK_Flyer::generate_qr_svg($url);
 }
 
 function renderFlyerHtml(array $item, string $qrSvg, string $troffelSvg): string {
-    $escapedTitle        = htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8');
-    $escapedSubtitle     = htmlspecialchars($item['subtitle'], ENT_QUOTES, 'UTF-8');
-    $escapedDisplayUrl   = htmlspecialchars($item['display_url'], ENT_QUOTES, 'UTF-8');
-    $escapedInstructions = htmlspecialchars($item['instructions'], ENT_QUOTES, 'UTF-8');
-    $escapedBadge        = htmlspecialchars($item['badge'], ENT_QUOTES, 'UTF-8');
-
-    return <<<HTML
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-<meta charset="UTF-8">
-<title>{$escapedTitle}</title>
-<style>
-  @page {
-    size: A4 portrait;
-    margin: 18mm 20mm;
-  }
-  * {
-    box-sizing: border-box;
-  }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #1e293b;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 88vh;
-    text-align: center;
-    -webkit-font-smoothing: antialiased;
-  }
-  .header-brand {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-  .troffel-wrap {
-    width: 64px;
-    height: 64px;
-    margin-bottom: 12px;
-  }
-  .troffel-wrap svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-  .org-line-1 {
-    font-size: 16pt;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: #475569;
-    line-height: 1.2;
-  }
-  .org-line-2 {
-    font-size: 22pt;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 2.5px;
-    color: #0f4c81;
-    margin-top: 4px;
-    line-height: 1.2;
-  }
-  h1 {
-    font-size: 32pt;
-    font-weight: 800;
-    margin: 10px 0 10px 0;
-    color: #0f172a;
-    line-height: 1.2;
-  }
-  p.subtitle {
-    font-size: 16pt;
-    color: #475569;
-    max-width: 580px;
-    margin: 0 auto 26px auto;
-    line-height: 1.4;
-  }
-  .qr-box {
-    background: #ffffff;
-    padding: 24px;
-    border-radius: 16px;
-    border: 3px solid #0f4c81;
-    display: inline-block;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.06);
-    margin-bottom: 22px;
-    width: 368px;
-    height: 368px;
-  }
-  .qr-box svg,
-  .qr-box img {
-    width: 320px;
-    height: 320px;
-    display: block;
-  }
-  .qr-box img {
-    image-rendering: pixelated;
-  }
-  .url-label {
-    font-size: 22pt;
-    font-weight: 700;
-    color: #0f4c81;
-    margin-bottom: 8px;
-    font-family: monospace;
-    letter-spacing: 1px;
-  }
-  .instructions {
-    font-size: 14pt;
-    color: #64748b;
-    margin-top: 8px;
-    max-width: 500px;
-  }
-  .badge {
-    display: inline-block;
-    background: #f1f5f9;
-    color: #334155;
-    padding: 8px 18px;
-    border-radius: 20px;
-    font-size: 11pt;
-    font-weight: 600;
-    margin-top: 25px;
-  }
-</style>
-</head>
-<body>
-  <div class="header-brand">
-    <div class="troffel-wrap">
-      {$troffelSvg}
-    </div>
-    <div class="org-line-1">Archeologische Vereniging</div>
-    <div class="org-line-2">Philips van Horne</div>
-  </div>
-
-  <h1>{$escapedTitle}</h1>
-  <p class="subtitle">{$escapedSubtitle}</p>
-
-  <div class="qr-box">
-    {$qrSvg}
-  </div>
-
-  <div class="url-label">{$escapedDisplayUrl}</div>
-  <div class="instructions">{$escapedInstructions}</div>
-
-  <div class="badge">{$escapedBadge}</div>
-</body>
-</html>
-HTML;
+    return AVBK_Flyer::render_flyer_html($item, $qrSvg, $troffelSvg);
 }
 
 function detectPrinter(): ?string {

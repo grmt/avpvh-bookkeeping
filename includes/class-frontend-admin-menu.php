@@ -58,6 +58,7 @@ class AVBK_Frontend_Admin_Menu {
                 ['label' => 'Deelname en betalingen', 'url' => admin_url('admin.php?page=avbk-activity-payments')],
                 ['label' => 'Bezwaren', 'url' => admin_url('admin.php?page=avbk-disputes')],
                 ['label' => 'Declaraties', 'url' => admin_url('admin.php?page=avbk-reimbursements')],
+                ['label' => 'QR-flyers', 'url' => admin_url('admin.php?page=avbk-flyers')],
             ];
             $sections[] = [
                 'label' => 'Boekhouding',
