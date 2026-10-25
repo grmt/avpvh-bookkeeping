@@ -1,0 +1,13 @@
+# What `git archive` ships to production (see CLAUDE.md "Deployen"). Deploys
+# use `git archive`, not a raw rsync of the working tree, so anything that
+# isn't needed to serve a member request never reaches the live server —
+# tests, CI config, docs, dev scripts, dotfiles.
+/tests export-ignore
+/.github export-ignore
+/bin export-ignore
+/docs export-ignore
+/*.md export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+/composer.json export-ignore
+/composer.lock export-ignore
