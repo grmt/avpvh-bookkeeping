@@ -18,6 +18,13 @@ defined('ABSPATH') || exit;
  */
 class AVBK_Balance_Shortcode {
 
+    /**
+     * Pseudo fee-item id for the "Tegoed" row injected into the table
+     * below — a real fee_item.id is always a positive DB auto-increment,
+     * so a negative sentinel can never collide with one.
+     */
+    private const CREDIT_ROW_ID = -1;
+
     public function __construct() {
         add_shortcode('avpvh_bk_balance', [$this, 'render']);
         add_action('wp_enqueue_scripts', function () {
@@ -28,7 +35,7 @@ class AVBK_Balance_Shortcode {
             wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         });
         add_action('admin_post_avbk_submit_dispute', [$this, 'handle_dispute']);
-        add_action('admin_post_avbk_apply_own_credit', [$this, 'handle_apply_own_credit']);
+        add_action('admin_post_avbk_apply_balance_selection', [$this, 'handle_apply_balance_selection']);
     }
 
     public function render(): string {
@@ -116,10 +123,48 @@ class AVBK_Balance_Shortcode {
         // behavior. IDs are intersected with the already access-checked
         // combined item list, so a crafted URL cannot expose/pay another
         // member's fee item.
+        // Credit (teveel betaald, nog te verrekenen) — always the viewer's
+        // own, never the combined household's: see AVBK_DB::apply_credit(),
+        // which only ever applies a member's credit to that same member's
+        // own open item. Shown as a negative-amount row in the same table
+        // as every other item, selectable with the same checkbox, so
+        // verrekenen is just "tick this plus whatever it covers" instead of
+        // a separate form — only when there's actually something open to
+        // net it against; AVBK_QR::remittance_for_balance()/
+        // remittance_for_combined() already skip any item (real or this
+        // one) with remaining <= 0.005, so a negative row never leaks into
+        // the QR description or reference code on its own.
+        $available_credit = AVBK_DB::get_total_credit_for_member($target_id);
+        $own_open_items = array_values(array_filter(
+            $items,
+            fn($item) => (int) $item->member_id === $target_id && $item->status !== 'waived' && $item->remaining > 0.005
+        ));
+        $credit_item = null;
+        if ($available_credit > 0.005 && $target_id === (int) $own_member->id && $own_open_items) {
+            $credit_item = (object) [
+                'id'              => self::CREDIT_ROW_ID,
+                'member_id'       => $target_id,
+                'description'     => 'Tegoed (eerder teveel betaald)',
+                'type'            => '',
+                'category'        => '',
+                'activity_id'     => 0,
+                'amount_due'      => -$available_credit,
+                'paid'            => 0.0,
+                'remaining'       => -$available_credit,
+                'status'          => 'open',
+                'is_estimated'    => 0,
+                'estimate_reason' => '',
+            ];
+        }
+        $display_items = $credit_item ? array_merge($items, [$credit_item]) : $items;
+
         $open_item_ids = array_map(
             fn($item) => (int) $item->id,
             array_values(array_filter($items, fn($item) => $item->status !== 'waived' && $item->remaining > 0.005))
         );
+        if ($credit_item) {
+            $open_item_ids[] = self::CREDIT_ROW_ID;
+        }
         $requested_pay_ids = array_values(array_unique(array_filter(array_map(
             'intval',
             (array) ($_GET['pay'] ?? [])
@@ -128,20 +173,10 @@ class AVBK_Balance_Shortcode {
             ? array_values(array_intersect($requested_pay_ids, $open_item_ids))
             : $open_item_ids;
         $selected_items = array_values(array_filter(
-            $items,
+            $display_items,
             fn($item) => in_array((int) $item->id, $selected_pay_ids, true)
         ));
         $selected_total = round(array_sum(array_map(fn($item) => (float) $item->remaining, $selected_items)), 2);
-
-        // Credit (teveel betaald, nog te verrekenen) — always the viewer's
-        // own, never the combined household's: see AVBK_DB::apply_credit(),
-        // which only ever applies a member's credit to that same member's
-        // own open item.
-        $available_credit = AVBK_DB::get_total_credit_for_member($target_id);
-        $own_open_items = array_values(array_filter(
-            $items,
-            fn($item) => (int) $item->member_id === $target_id && $item->status !== 'waived' && $item->remaining > 0.005
-        ));
 
         ob_start();
         ?>
@@ -156,33 +191,8 @@ class AVBK_Balance_Shortcode {
             <?php if (!empty($_GET['credit_applied'])) : ?>
                 <p class="avbk-balance-notice">Tegoed verrekend.</p>
             <?php endif; ?>
-            <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id) : ?>
-                <div class="avbk-balance-credit">
-                    <p>Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond).</p>
-                    <?php if ($own_open_items) : ?>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-balance-also-form">
-                            <?php wp_nonce_field('avbk_apply_own_credit'); ?>
-                            <input type="hidden" name="action" value="avbk_apply_own_credit">
-                            <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
-                            <label>Verreken met:
-                                <select name="fee_item_id">
-                                    <?php foreach ($own_open_items as $item) : ?>
-                                        <option value="<?php echo esc_attr($item->id); ?>">
-                                            <?php echo esc_html($item->description . ' (openstaand € ' . number_format((float) $item->remaining, 2, ',', '.') . ')'); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </label>
-                            <label>Bedrag:
-                                &euro; <input type="text" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>" size="6">
-                            </label>
-                            <button type="submit" class="button">Tegoed verrekenen</button>
-                        </form>
-                        <p class="description">De penningmeester krijgt hier automatisch een melding van.</p>
-                    <?php else : ?>
-                        <p class="description">Er staat op dit moment niets open om het tegoed mee te verrekenen.</p>
-                    <?php endif; ?>
-                </div>
+            <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id && !$own_open_items) : ?>
+                <p class="avbk-balance-credit">Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond). Er staat op dit moment niets open om dit mee te verrekenen.</p>
             <?php endif; ?>
 
             <?php
@@ -243,22 +253,23 @@ class AVBK_Balance_Shortcode {
                     </tr>
                 </thead>
                 <tbody>
-                <?php if (!$balance['items']) : ?>
+                <?php if (!$display_items) : ?>
                     <tr><td colspan="<?php echo ($show_member_column ? 8 : 7) + ($balance['balance'] > 0.005 ? 1 : 0); ?>">Nog geen bijdragen geregistreerd.</td></tr>
-                <?php else : foreach ($balance['items'] as $item) :
-                    $status = $item->status === 'waived'
-                        ? 'Kwijtgescholden'
-                        : ($item->remaining <= 0.005 ? 'Betaald' : 'Open');
-                    $status_class = $item->status === 'waived'
-                        ? 'avbk-status-waived'
-                        : ($item->remaining <= 0.005 ? 'avbk-status-paid' : 'avbk-status-open');
+                <?php else : foreach ($display_items as $item) :
+                    $is_credit_row = (int) $item->id === self::CREDIT_ROW_ID;
+                    $status = $is_credit_row
+                        ? 'Tegoed'
+                        : ($item->status === 'waived' ? 'Kwijtgescholden' : ($item->remaining <= 0.005 ? 'Betaald' : 'Open'));
+                    $status_class = $is_credit_row
+                        ? 'avbk-status-credit'
+                        : ($item->status === 'waived' ? 'avbk-status-waived' : ($item->remaining <= 0.005 ? 'avbk-status-paid' : 'avbk-status-open'));
                     $parts = AVBK_DB::split_fee_description((string) $item->description);
                     $qty = AVBK_DB::fee_item_quantity_label($item);
                     ?>
                     <tr class="<?php echo esc_attr($status_class); ?>">
                         <?php if ($balance['balance'] > 0.005) : ?>
                             <td>
-                                <?php if ($item->status !== 'waived' && $item->remaining > 0.005) : ?>
+                                <?php if ($is_credit_row || ($item->status !== 'waived' && $item->remaining > 0.005)) : ?>
                                     <input type="checkbox" name="pay[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?> aria-label="<?php echo esc_attr(sprintf('Selecteer %s voor betaling', $parts['base'])); ?>">
                                 <?php else : ?>&mdash;<?php endif; ?>
                             </td>
@@ -308,13 +319,19 @@ class AVBK_Balance_Shortcode {
             </div>
             </div>
             <?php if ($balance['balance'] > 0.005) : ?>
-                <form id="avbk-balance-payment-selection" method="get" action="#bijdrage" class="avbk-balance-also-form">
+                <form id="avbk-balance-payment-selection" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-balance-also-form">
+                    <?php wp_nonce_field('avbk_apply_balance_selection'); ?>
+                    <input type="hidden" name="action" value="avbk_apply_balance_selection">
+                    <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
                     <input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>">
                     <?php foreach ($also_ids as $also_id) : ?>
                         <input type="hidden" name="also[]" value="<?php echo esc_attr($also_id); ?>">
                     <?php endforeach; ?>
                     <button type="submit" class="button">QR voor selectie bijwerken</button>
                     <span>Geselecteerd: &euro; <?php echo esc_html(number_format($selected_total, 2, ',', '.')); ?></span>
+                    <?php if ($credit_item) : ?>
+                        <p class="description">Vink je tegoed aan samen met andere posten? Dan wordt het automatisch verrekend; de penningmeester krijgt hier een melding van.</p>
+                    <?php endif; ?>
                 </form>
                 <?php
                 if ($show_member_column) {
@@ -421,46 +438,80 @@ class AVBK_Balance_Shortcode {
     }
 
     /**
-     * Self-service: een lid verrekent het eigen tegoed (zie
-     * AVBK_DB::get_credit_transactions_for_member()) met een eigen
-     * openstaande post — nooit met die van een huisgenoot, dezelfde
-     * beperking die AVBK_DB::apply_credit() zelf al afdwingt. De
-     * penningmeester krijgt hierna altijd een mailtje, zodat een
-     * stilletjes verschoven boeking nooit alleen in de database blijft.
+     * The balance page's single "QR voor selectie bijwerken" form posts
+     * here with whatever was checked. Most submissions are a plain
+     * selection update (no DB change — just which items the QR/total
+     * below should reflect), but when the synthetic "Tegoed" row
+     * (self::CREDIT_ROW_ID) is among the checked ids, this also applies
+     * that credit — oldest-transaction-first via AVBK_DB::apply_credit_fifo()
+     * — to the other checked, still-open items before redirecting, so
+     * ticking the credit row alongside what it should cover is itself the
+     * "verrekenen" action. Always the logged-in member's own credit
+     * against their own items, never a household member's — the same
+     * restriction AVBK_DB::apply_credit() itself enforces, and the only
+     * reason the "Tegoed" row is ever rendered for $own_member in the
+     * first place. The penningmeester gets a mailtje whenever credit was
+     * actually applied, same as the self-service flow this replaces.
      */
-    public function handle_apply_own_credit(): void {
-        check_admin_referer('avbk_apply_own_credit');
+    public function handle_apply_balance_selection(): void {
+        check_admin_referer('avbk_apply_balance_selection');
         if (!is_user_logged_in()) {
             wp_die('Je moet ingelogd zijn.', 'Fout', ['response' => 403]);
         }
         $redirect_url = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: home_url('/');
         $own_member = avpvh_get_member_by_wp_user(get_current_user_id());
-        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
-        $amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
-        if (!$own_member || !$fee_item_id || $amount <= 0) {
+        if (!$own_member) {
             wp_safe_redirect($redirect_url);
             exit;
         }
 
-        $applied = AVBK_DB::apply_credit_fifo((int) $own_member->id, $fee_item_id, $amount);
-        if ($applied <= 0.005) {
-            wp_safe_redirect($redirect_url);
-            exit;
+        $member_id = (int) ($_POST['member_id'] ?? $own_member->id);
+        $also_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['also'] ?? [])))));
+        $requested_pay_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['pay'] ?? [])))));
+        $credit_selected = in_array(self::CREDIT_ROW_ID, $requested_pay_ids, true);
+        $real_pay_ids = array_values(array_filter($requested_pay_ids, fn($id) => $id !== self::CREDIT_ROW_ID));
+
+        $applied_total = 0.0;
+        $applied_count = 0;
+        if ($credit_selected) {
+            $own_open_items = array_values(array_filter(
+                AVBK_DB::get_member_balance_excluding_closed((int) $own_member->id)['items'],
+                fn($item) => in_array((int) $item->id, $real_pay_ids, true) && $item->status !== 'waived' && (float) $item->remaining > 0.005
+            ));
+            foreach ($own_open_items as $item) {
+                $available = AVBK_DB::get_total_credit_for_member((int) $own_member->id);
+                if ($available <= 0.005) {
+                    break;
+                }
+                $applied = AVBK_DB::apply_credit_fifo((int) $own_member->id, (int) $item->id, min($available, (float) $item->remaining));
+                if ($applied > 0.005) {
+                    $applied_total = round($applied_total + $applied, 2);
+                    $applied_count++;
+                }
+            }
+            if ($applied_total > 0.005) {
+                $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
+                $subject = sprintf('[AV-PvH] %s heeft tegoed verrekend', avpvh_format_name($own_member));
+                $body = sprintf(
+                    "%s heeft zelf € %s tegoed verrekend met %d openstaande post(en).\n\nOverzicht: %s",
+                    avpvh_format_name($own_member),
+                    number_format($applied_total, 2, ',', '.'),
+                    $applied_count,
+                    admin_url('admin.php?page=avbk-members&member_id=' . $own_member->id)
+                );
+                wp_mail($to, $subject, $body);
+            }
         }
 
-        $item = AVBK_DB::get_fee_item($fee_item_id);
-        $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
-        $subject = sprintf('[AV-PvH] %s heeft tegoed verrekend', avpvh_format_name($own_member));
-        $body = sprintf(
-            "%s heeft zelf € %s tegoed verrekend met \"%s\".\n\nOverzicht: %s",
-            avpvh_format_name($own_member),
-            number_format($applied, 2, ',', '.'),
-            $item->description ?? '',
-            admin_url('admin.php?page=avbk-members&member_id=' . $own_member->id)
-        );
-        wp_mail($to, $subject, $body);
-
-        wp_safe_redirect(add_query_arg('credit_applied', '1', $redirect_url));
+        $redirect = add_query_arg(array_filter([
+            'member_id' => $member_id,
+            'also'      => $also_ids ?: null,
+            'pay'       => $real_pay_ids ?: null,
+        ]), $redirect_url);
+        if ($applied_total > 0.005) {
+            $redirect = add_query_arg('credit_applied', '1', $redirect);
+        }
+        wp_safe_redirect($redirect . '#bijdrage');
         exit;
     }
 }

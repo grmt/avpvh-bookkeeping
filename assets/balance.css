@@ -110,13 +110,6 @@
     padding: .75rem 1rem;
     margin-bottom: 1rem;
 }
-.avbk-balance-credit .avbk-balance-also-form {
-    margin-top: .5rem;
-}
-.avbk-balance-credit .avbk-balance-also-form button {
-    display: inline-block;
-    margin-top: 0;
-}
 
 .avbk-balance-also-form fieldset {
     border: 1px solid #ddd;
@@ -217,6 +210,11 @@
 .avbk-status-waived .avbk-status-badge {
     background: #eee;
     color: #666;
+}
+
+.avbk-status-credit .avbk-status-badge {
+    background: #e5f1fb;
+    color: #2271b1;
 }
 
 .avbk-profile-book-card {
