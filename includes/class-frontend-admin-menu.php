@@ -18,32 +18,78 @@ class AVBK_Frontend_Admin_Menu {
 
         $is_admin = current_user_can('manage_options');
         $is_treasurer = $is_admin || AVPVH_Roles::current_user_has_role('penningmeester');
-        $is_secretary = $is_admin || AVPVH_Roles::current_user_has_role('secretaris');
-        $is_chair = $is_admin || AVPVH_Roles::current_user_has_role('voorzitter');
-        if (!$is_treasurer && !$is_secretary && !$is_chair) return [];
+        $is_board = $is_admin || AVPVH_Roles::current_user_has_role('bestuur');
+
+        $can_members = $is_admin || (method_exists('AVPVH_Roles', 'can_manage_members')
+            ? AVPVH_Roles::can_manage_members()
+            : AVPVH_Roles::current_user_has_role('secretaris'));
+        $can_activities = $is_admin || (method_exists('AVPVH_Roles', 'can_manage_activities')
+            ? AVPVH_Roles::can_manage_activities()
+            : false);
+        $can_newsletter = $is_admin || (method_exists('AVPVH_Roles', 'can_send_newsletter')
+            ? AVPVH_Roles::can_send_newsletter()
+            : false);
+        $can_login_attempts = $is_admin || (method_exists('AVPVH_Roles', 'can_view_login_attempts')
+            ? AVPVH_Roles::can_view_login_attempts()
+            : false);
+        $can_dmarc = $is_admin || (method_exists('AVPVH_Roles', 'can_view_dmarc')
+            ? AVPVH_Roles::can_view_dmarc()
+            : false);
+        $can_roles = $is_admin || (method_exists('AVPVH_Roles', 'can_view_roles_page')
+            ? AVPVH_Roles::can_view_roles_page()
+            : $is_board);
+        $can_page_permissions = $is_admin || (method_exists('AVPVH_Roles', 'can_manage_page_permissions')
+            ? AVPVH_Roles::can_manage_page_permissions()
+            : false);
+
+        if (
+            !$is_treasurer && !$is_board && !$can_members && !$can_activities
+            && !$can_newsletter && !$can_login_attempts && !$can_dmarc
+            && !$can_roles && !$can_page_permissions
+        ) {
+            return [];
+        }
 
         $members = [];
-        if ($is_secretary) {
+        if ($can_members) {
             $members[] = ['label' => 'Ledenbeheer', 'url' => admin_url('admin.php?page=avpvh-members')];
-            $members[] = ['label' => 'Nieuw lid', 'url' => admin_url('admin.php?page=avpvh-add-member')];
-        } else {
+            $members[] = ['label' => 'Nieuwe persoon', 'url' => admin_url('admin.php?page=avpvh-add-member')];
+        } elseif ($is_board) {
             $members[] = ['label' => 'Ledenlijst', 'url' => home_url('/?page_id=1864')];
         }
-        // Every officer role implies bestuur; this page is explicitly
-        // registered for bestuur by the members plugin.
-        $members[] = ['label' => 'Rollen & delegatie', 'url' => admin_url('admin.php?page=avpvh-roles')];
         if ($is_admin) {
+            $members[] = ['label' => 'Leden samenvoegen', 'url' => admin_url('admin.php?page=avpvh-merge-members')];
+        }
+        if ($can_activities) {
             $members[] = ['label' => 'Activiteiten', 'url' => admin_url('admin.php?page=avpvh-activity-participation')];
-            $members[] = ['label' => 'Nieuwsbrief', 'url' => admin_url('admin.php?page=avpvh-newsletter')];
+        }
+        if ($can_login_attempts) {
             $members[] = ['label' => 'Loginpogingen', 'url' => admin_url('admin.php?page=avpvh-login-attempts')];
+        }
+        if ($can_dmarc) {
+            $members[] = ['label' => 'DMARC-rapporten', 'url' => admin_url('admin.php?page=avpvh-dmarc')];
+        }
+        if ($can_newsletter) {
+            $members[] = ['label' => 'Nieuwsbrief', 'url' => admin_url('admin.php?page=avpvh-newsletter')];
+        }
+        if ($is_admin) {
             $members[] = ['label' => 'Instellingen', 'url' => admin_url('admin.php?page=avpvh-settings')];
         }
+        if ($can_roles) {
+            $members[] = ['label' => 'Rollen & delegatie', 'url' => admin_url('admin.php?page=avpvh-roles')];
+        }
+        if ($can_page_permissions) {
+            $members[] = ['label' => 'Paginarechten', 'url' => admin_url('admin.php?page=avpvh-page-permissions')];
+        }
 
-        $sections = [[
-            'label' => 'Leden',
-            'url' => $members[0]['url'],
-            'children' => $members,
-        ]];
+        $sections = [];
+        if ($members) {
+            $sections[] = [
+                'label' => 'Leden',
+                'url' => $members[0]['url'],
+                'children' => $members,
+            ];
+        }
 
         if ($is_treasurer) {
             $bookkeeping = [
@@ -56,6 +102,7 @@ class AVBK_Frontend_Admin_Menu {
                 ['label' => 'Tarieven', 'url' => admin_url('admin.php?page=avbk-rates')],
                 ['label' => 'IBAN-bankcodes', 'url' => admin_url('admin.php?page=avbk-iban-bank-codes')],
                 ['label' => 'Deelname en betalingen', 'url' => admin_url('admin.php?page=avbk-activity-payments')],
+                ['label' => 'Bestellingen', 'url' => admin_url('admin.php?page=avbk-orders')],
                 ['label' => 'Bezwaren', 'url' => admin_url('admin.php?page=avbk-disputes')],
                 ['label' => 'Declaraties', 'url' => admin_url('admin.php?page=avbk-reimbursements')],
                 ['label' => 'QR-flyers', 'url' => admin_url('admin.php?page=avbk-flyers')],
@@ -65,6 +112,10 @@ class AVBK_Frontend_Admin_Menu {
                 'url' => $bookkeeping[0]['url'],
                 'children' => $bookkeeping,
             ];
+        }
+
+        if (!$sections) {
+            return [];
         }
 
         return [[
