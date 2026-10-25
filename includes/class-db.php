@@ -2107,8 +2107,13 @@ class AVBK_DB {
             // shared, correctly-shrinking pot rather than separately-tracked
             // per-owner copies; this is only who else currently sees it too,
             // for callers that want to warn before letting someone spend it.
+            // Confirmed owners only (same condition this method's own WHERE
+            // uses) — an unconfirmed avb_known_ibans row (e.g. a housemate's
+            // contribution that CAN be matched from a parent's account) does
+            // not make that housemate a co-owner who'd independently see
+            // this credit too.
             $row->shared_with_ids = array_values(array_diff(
-                self::get_member_ids_by_iban((string) $row->counterparty_iban),
+                self::get_confirmed_member_ids_by_iban((string) $row->counterparty_iban),
                 [$member_id]
             ));
         }
@@ -2121,15 +2126,21 @@ class AVBK_DB {
 
     /**
      * Applies part (or all) of a member's own leftover credit — see
-     * get_credit_transactions_for_member() — to one of their own open fee
-     * items. Just an ordinary allocate() against the original transaction,
-     * dated whenever this is called rather than when that transaction
-     * first came in. Re-validates both sides itself (available credit,
-     * remaining due) rather than trusting the caller's numbers, since both
-     * self-service (the member) and the treasurer can reach this.
+     * get_credit_transactions_for_member() — to an open fee item of theirs
+     * or of someone in their own household (AVPVH_DB::get_extended_household()
+     * — the same "Betaal ook voor"/camp-fee household boundary used
+     * everywhere else a member can act on a housemate's behalf, e.g. paying
+     * a partner's camp fee). Just an ordinary allocate() against the
+     * original transaction, dated whenever this is called rather than when
+     * that transaction first came in, still attributed to the credit's own
+     * owner (not the fee item's) so it's traceable whose leftover payment
+     * this was. Re-validates both sides itself (available credit, household
+     * membership, remaining due) rather than trusting the caller's numbers,
+     * since both self-service (the member) and the treasurer can reach this.
      *
      * @return int The new allocation id, or 0 if the request doesn't check
-     *     out (wrong member, amount exceeds what either side actually has).
+     *     out (fee item outside the credit owner's household, amount
+     *     exceeds what either side actually has).
      */
     public static function apply_credit(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
         $amount = round($amount, 2);
@@ -2147,7 +2158,11 @@ class AVBK_DB {
             return 0;
         }
         $item = self::get_fee_item($fee_item_id);
-        if (!$item || (int) $item->member_id !== $member_id || $item->status !== 'open') {
+        if (!$item || $item->status !== 'open') {
+            return 0;
+        }
+        $household_ids = array_merge([$member_id], wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id'));
+        if (!in_array((int) $item->member_id, array_map('intval', $household_ids), true)) {
             return 0;
         }
         if ($amount > self::get_fee_item_remaining($item) + 0.005) {
@@ -3667,6 +3682,26 @@ class AVBK_DB {
         }
         return array_map('intval', $wpdb->get_col($wpdb->prepare(
             "SELECT member_id FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s", $iban
+        )));
+    }
+
+    /**
+     * Same as get_member_ids_by_iban(), but confirmed owners only — e.g. a
+     * housemate's known_ibans row that lets their own transfers be matched
+     * from a parent's account, but isn't a confirmed claim that they're a
+     * real co-owner of it. This is the narrower set that should actually be
+     * treated as "also owns this account" (get_credit_transactions_for_member()
+     * itself only grants a member visibility into a transaction's leftover
+     * credit via a confirmed row).
+     */
+    public static function get_confirmed_member_ids_by_iban(string $iban): array {
+        global $wpdb;
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        if ($iban === '') {
+            return [];
+        }
+        return array_map('intval', $wpdb->get_col($wpdb->prepare(
+            "SELECT member_id FROM {$wpdb->prefix}avb_known_ibans WHERE iban = %s AND confirmed = 1", $iban
         )));
     }
 

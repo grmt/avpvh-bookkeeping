@@ -123,22 +123,26 @@ class AVBK_Balance_Shortcode {
         // behavior. IDs are intersected with the already access-checked
         // combined item list, so a crafted URL cannot expose/pay another
         // member's fee item.
+        $open_item_ids = array_map(
+            fn($item) => (int) $item->id,
+            array_values(array_filter($items, fn($item) => $item->status !== 'waived' && $item->remaining > 0.005))
+        );
+        $has_open_items = (bool) $open_item_ids;
+
         // Credit (teveel betaald, nog te verrekenen) — always the viewer's
-        // own, never the combined household's: see AVBK_DB::apply_credit(),
-        // which only ever applies a member's credit to that same member's
-        // own open item. Shown as a negative-amount row in the same table
-        // as every other item, selectable with the same checkbox, so
-        // verrekenen is just "tick this plus whatever it covers" instead of
-        // a separate form — only when there's actually something open to
+        // own, but (like paying a partner's camp fee) spendable on any open
+        // item in this same combined view, own or a household member's: see
+        // AVBK_DB::apply_credit(), which checks the fee item's member_id
+        // against the credit owner's own AVPVH_DB::get_extended_household().
+        // Shown as a negative-amount row in the same table as every other
+        // item, selectable with the same checkbox, so verrekenen is just
+        // "tick this plus whatever it covers" instead of a separate form —
+        // only when there's actually something open (own or combined-in) to
         // net it against; AVBK_QR::remittance_for_balance()/
         // remittance_for_combined() already skip any item (real or this
         // one) with remaining <= 0.005, so a negative row never leaks into
         // the QR description or reference code on its own.
         $available_credit = AVBK_DB::get_total_credit_for_member($target_id);
-        $own_open_items = array_values(array_filter(
-            $items,
-            fn($item) => (int) $item->member_id === $target_id && $item->status !== 'waived' && $item->remaining > 0.005
-        ));
         // A joint ("en/of") account's leftover is one shared pot that every
         // co-owner independently sees as "their" credit (see
         // AVBK_DB::get_credit_transactions_for_member()) — applying it is
@@ -158,7 +162,7 @@ class AVBK_Balance_Shortcode {
             array_keys($credit_coowner_ids)
         ));
         $credit_item = null;
-        if ($available_credit > 0.005 && $target_id === (int) $own_member->id && $own_open_items) {
+        if ($available_credit > 0.005 && $target_id === (int) $own_member->id && $has_open_items) {
             $credit_item = (object) [
                 'id'              => self::CREDIT_ROW_ID,
                 'member_id'       => $target_id,
@@ -176,10 +180,6 @@ class AVBK_Balance_Shortcode {
         }
         $display_items = $credit_item ? array_merge($items, [$credit_item]) : $items;
 
-        $open_item_ids = array_map(
-            fn($item) => (int) $item->id,
-            array_values(array_filter($items, fn($item) => $item->status !== 'waived' && $item->remaining > 0.005))
-        );
         $default_pay_ids = $open_item_ids;
         if ($credit_item) {
             $open_item_ids[] = self::CREDIT_ROW_ID;
@@ -213,7 +213,7 @@ class AVBK_Balance_Shortcode {
             <?php if (!empty($_GET['credit_applied'])) : ?>
                 <p class="avbk-balance-notice">Tegoed verrekend.</p>
             <?php endif; ?>
-            <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id && !$own_open_items) : ?>
+            <?php if ($available_credit > 0.005 && $target_id === (int) $own_member->id && !$has_open_items) : ?>
                 <p class="avbk-balance-credit">Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond). Er staat op dit moment niets open om dit mee te verrekenen.
                 <?php if ($credit_coowners) : ?>Dit komt van een rekening die ook op naam staat van <?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?> &mdash; die/diegene ziet dit bedrag ook, het is maar één keer te verrekenen.<?php endif; ?></p>
             <?php endif; ?>
@@ -472,12 +472,12 @@ class AVBK_Balance_Shortcode {
      * that credit — oldest-transaction-first via AVBK_DB::apply_credit_fifo()
      * — to the other checked, still-open items before redirecting, so
      * ticking the credit row alongside what it should cover is itself the
-     * "verrekenen" action. Always the logged-in member's own credit
-     * against their own items, never a household member's — the same
-     * restriction AVBK_DB::apply_credit() itself enforces, and the only
-     * reason the "Tegoed" row is ever rendered for $own_member in the
-     * first place. The penningmeester gets a mailtje whenever credit was
-     * actually applied, same as the self-service flow this replaces.
+     * "verrekenen" action. Always the logged-in member's own credit, but —
+     * same as paying a partner's camp fee — spendable on their own items or
+     * a household member's checked-in-via-"Betaal ook voor" items alike;
+     * AVBK_DB::apply_credit() independently re-checks that household
+     * membership itself. The penningmeester gets a mailtje whenever credit
+     * was actually applied, same as the self-service flow this replaces.
      */
     public function handle_apply_balance_selection(): void {
         check_admin_referer('avbk_apply_balance_selection');
@@ -500,11 +500,26 @@ class AVBK_Balance_Shortcode {
         $applied_total = 0.0;
         $applied_count = 0;
         if ($credit_selected) {
-            $own_open_items = array_values(array_filter(
-                AVBK_DB::get_member_balance_excluding_closed((int) $own_member->id)['items'],
-                fn($item) => in_array((int) $item->id, $real_pay_ids, true) && $item->status !== 'waived' && (float) $item->remaining > 0.005
-            ));
-            foreach ($own_open_items as $item) {
+            // Same household boundary as the "Betaal ook voor" picker
+            // (AVPVH_DB::get_extended_household()) — a parent's leftover
+            // credit can settle a partner's or housemate's checked item
+            // too, not just the credit owner's own, exactly like paying a
+            // partner's camp fee already works. $also_ids is re-validated
+            // against the credit owner's own real household rather than
+            // trusted from the POST, same as render() does for $target_id.
+            $household = AVPVH_DB::get_extended_household((int) $own_member->id);
+            $allowed_also_ids = array_values(array_intersect($also_ids, wp_list_pluck($household, 'id')));
+            $combined_ids = array_merge([(int) $own_member->id], $allowed_also_ids);
+            $combined_open_items = [];
+            foreach ($combined_ids as $mid) {
+                $b = AVBK_DB::get_member_balance_excluding_closed((int) $mid);
+                foreach ($b['items'] as $item) {
+                    if (in_array((int) $item->id, $real_pay_ids, true) && $item->status !== 'waived' && (float) $item->remaining > 0.005) {
+                        $combined_open_items[] = $item;
+                    }
+                }
+            }
+            foreach ($combined_open_items as $item) {
                 $available = AVBK_DB::get_total_credit_for_member((int) $own_member->id);
                 if ($available <= 0.005) {
                     break;
