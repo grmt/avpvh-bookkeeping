@@ -67,6 +67,9 @@ class AVBK_DB {
     public static function get_open_fee_items_for_member(int $member_id): array {
         return array_values(array_filter(self::$fees, fn($f) => $f->member_id === $member_id && $f->status === 'open'));
     }
+    public static function get_payable_fee_items_for_member(int $member_id): array {
+        return array_values(array_filter(self::get_open_fee_items_for_member($member_id), fn($f) => self::get_fee_item_remaining($f) > 0.005));
+    }
     public static function get_open_tshirt_fee_item(int $member_id): ?object {
         foreach (self::$fees as $f) {
             if ($f->member_id === $member_id && $f->status === 'open' && in_array($f->category ?? '', ['tshirt', 'T-shirt'], true)) return $f;

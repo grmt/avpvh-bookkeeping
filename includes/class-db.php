@@ -1959,6 +1959,19 @@ class AVBK_DB {
             : $items;
     }
 
+    /**
+     * Open fee items that still have something left to pay — for the review
+     * queue's pickers. status 'open' only means "not waived": a fully paid
+     * item (or one with amount_due 0) stays 'open', since paid-ness is
+     * derived from allocations rather than stored.
+     */
+    public static function get_payable_fee_items_for_member(int $member_id): array {
+        return array_values(array_filter(
+            self::get_open_fee_items_for_member($member_id),
+            fn($item) => self::get_fee_item_remaining($item) > 0.005
+        ));
+    }
+
     public static function waive_fee_item(int $id): void {
         global $wpdb;
         $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $id]);

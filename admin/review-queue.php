@@ -95,7 +95,7 @@ function avbk_activity_select(string $name, array $recent_activities, array $oth
     <select name="<?php echo esc_attr($name); ?>" class="avbk-activity-select" aria-label="Selecteer activiteit of bestelling">
         <option value="">&mdash; activiteit of bestelling &mdash;</option>
         <?php
-        $open_fee_items = $member_id ? AVBK_DB::get_open_fee_items_for_member($member_id) : [];
+        $open_fee_items = $member_id ? AVBK_DB::get_payable_fee_items_for_member($member_id) : [];
         $selected_fee_shown = false;
         if ($open_fee_items) :
             $order_items = [];
@@ -448,7 +448,7 @@ function avbk_row_detail(array $row): ?array {
                     $member_had_a_row = true;
                 }
                 if (!$member_had_a_row) {
-                    $open_items = AVBK_DB::get_open_fee_items_for_member($member_id);
+                    $open_items = AVBK_DB::get_payable_fee_items_for_member($member_id);
                     if (count($open_items) === 1) {
                         $rem = max(0.0, AVBK_DB::get_fee_item_remaining($open_items[0]));
                         if (abs($rem - (float) $tx->amount) < 0.01) {

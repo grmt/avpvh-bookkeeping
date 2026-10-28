@@ -64,6 +64,9 @@ jobs:
       - name: "Product payment requests and uploads regression checks"
         run: php tests/test-product-payment.php
 
+      - name: "Review queue payable fee items regression checks"
+        run: php tests/test-payable-fee-items.php
+
   plugin-check:
     name: "WordPress Plugin Check"
     runs-on: ubuntu-latest

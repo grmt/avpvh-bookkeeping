@@ -2055,7 +2055,7 @@ class AVBK_Admin {
                 'remaining' => $rem,
                 'is_order'  => $is_order,
             ];
-        }, AVBK_DB::get_open_fee_items_for_member($member_id));
+        }, AVBK_DB::get_payable_fee_items_for_member($member_id));
 
         if ($fee_item_id) {
             $item = AVBK_DB::get_fee_item($fee_item_id);
