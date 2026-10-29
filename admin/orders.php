@@ -28,6 +28,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <p><?php echo esc_html(urldecode((string) $_GET['process_error'])); ?></p>
         </div>
     <?php endif; ?>
+    <?php if (isset($_GET['order_added'])) : ?>
+        <div class="notice notice-success is-dismissible">
+            <p>Bestelling #<?php echo (int) $_GET['order_added']; ?> toegevoegd.</p>
+        </div>
+    <?php endif; ?>
     <?php if (isset($_GET['order_deleted'])) : ?>
         <div class="notice notice-success is-dismissible">
             <p>Bestelling #<?php echo (int) $_GET['order_deleted']; ?> succesvol verwijderd<?php echo !empty($_GET['email_sent']) ? ' (annuleringsmail verstuurd naar besteller).' : ' (zonder e-mail).'; ?></p>
@@ -100,6 +105,102 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <a href="<?php echo esc_url($export_matrix_url); ?>" class="button button-secondary">&#128202; Exporteer inkoopmatrix (CSV)</a>
             <a href="<?php echo esc_url(home_url('/tshirt/')); ?>" class="button button-link" target="_blank" rel="noopener">&#128279; Bekijk bestelpagina</a>
         </div>
+
+        <!-- Handmatig een bestelling toevoegen — voor een bestelling die buiten
+             het bestelformulier om is gedaan (bijv. op papier) en niet in een
+             bulk-import stond, zodat er alsnog een fee item + order voor
+             bestaat om te verrekenen en mee te nemen in de inkoopmatrix. -->
+        <details class="card" style="max-width: 100%; margin: 0 0 1.5rem; padding: 1.25rem 1.5rem;">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 1.1rem;">&#10133; Bestelling toevoegen (handmatig)</summary>
+            <p class="description">Voor een bestelling die niet via het bestelformulier binnenkwam — bijv. gemist in een import, of op papier besteld. Maakt dezelfde post + bestelling aan als een normale bestelling (status: bevestigd); betalen/verrekenen en uitreiking-status gaan daarna via de gebruikelijke tools hieronder.</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('avbk_admin_add_tshirt_order'); ?>
+                <input type="hidden" name="action" value="avbk_admin_add_tshirt_order">
+                <input type="hidden" name="redirect_url" value="<?php echo esc_url(add_query_arg('tab', 'tshirt', $page_url)); ?>">
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="avbk-add-order-member">Lid</label></th>
+                        <td>
+                            <select name="member_id" id="avbk-add-order-member" required style="min-width: 260px;">
+                                <option value="">&mdash; kies lid &mdash;</option>
+                                <?php
+                                $order_form_members = $all_members;
+                                usort($order_form_members, fn($a, $b) => strcasecmp($a->last_name . $a->first_name, $b->last_name . $b->first_name));
+                                foreach ($order_form_members as $m) :
+                                ?>
+                                    <option value="<?php echo esc_attr($m->id); ?>"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Kledingstukken</th>
+                        <td>
+                            <table class="widefat" style="max-width: 820px;">
+                                <thead>
+                                    <tr>
+                                        <th>Design</th><th>Type</th><th>Kleur</th><th>Maat</th><th>Aantal</th><th>Prijs (optioneel)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php for ($i = 0; $i < 3; $i++) : ?>
+                                    <tr>
+                                        <td>
+                                            <select name="items[<?php echo $i; ?>][design]">
+                                                <?php foreach (AVBK_Tshirt_Order::get_available_designs() as $d) : ?>
+                                                    <option value="<?php echo esc_attr($d['id']); ?>"><?php echo esc_html($d['name']); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select name="items[<?php echo $i; ?>][product_type]">
+                                                <?php foreach (AVBK_Tshirt_Order::get_available_types() as $t) : ?>
+                                                    <option value="<?php echo esc_attr($t['id']); ?>"><?php echo esc_html($t['name']); ?> (&euro;<?php echo esc_html(number_format((float) $t['price'], 2, ',', '.')); ?>)</option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select name="items[<?php echo $i; ?>][color]">
+                                                <?php foreach (AVBK_Tshirt_Order::get_available_colors() as $c) : ?>
+                                                    <option value="<?php echo esc_attr($c); ?>"><?php echo esc_html($c); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select name="items[<?php echo $i; ?>][size]">
+                                                <?php foreach (AVBK_Tshirt_Order::get_available_sizes() as $s) : ?>
+                                                    <option value="<?php echo esc_attr($s); ?>"><?php echo esc_html($s); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <input type="number" name="items[<?php echo $i; ?>][quantity]" value="0" min="0" max="20" style="width: 4em;">
+                                        </td>
+                                        <td style="white-space: nowrap;">
+                                            &euro; <input type="text" name="items[<?php echo $i; ?>][price]" placeholder="auto" style="width: 5em;">
+                                        </td>
+                                    </tr>
+                                    <?php endfor; ?>
+                                </tbody>
+                            </table>
+                            <p class="description">Laat "Aantal" op 0 staan voor een regel die je niet gebruikt. Laat "Prijs" leeg voor de huidige design/type-prijs, of vul een destijds afgesproken andere prijs in (bijv. pre-congres).</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Uitreiking</th>
+                        <td>
+                            <label><input type="checkbox" name="already_distributed" value="1"> Dit is al geleverd/uitgereikt</label>
+                            <p class="description">Vink aan voor een bestelling die al bij het lid is &mdash; telt dan niet mee in de inkoopmatrix hierboven (die is voor wat nog bij de leverancier besteld moet worden).</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="avbk-add-order-notes">Notitie</label></th>
+                        <td><input type="text" id="avbk-add-order-notes" name="notes" class="regular-text" placeholder="bijv. reden voor handmatige toevoeging"></td>
+                    </tr>
+                </table>
+                <button type="submit" class="button button-primary">Bestelling toevoegen</button>
+            </form>
+        </details>
 
         <!-- Inkoopmatrix Card -->
         <div class="card" style="max-width: 100%; margin: 0 0 1.5rem; padding: 1.25rem 1.5rem;">
@@ -443,6 +544,62 @@ $page_url = admin_url('admin.php?page=avbk-orders');
             <a href="<?php echo esc_url($export_url); ?>" class="button button-secondary">&#128229; Exporteer naar CSV</a>
             <a href="<?php echo esc_url(home_url('/boek/')); ?>" class="button button-link" target="_blank" rel="noopener">&#128279; Bekijk bestelpagina</a>
         </div>
+
+        <!-- Handmatig een bestelling toevoegen — zie de T-shirts-tab voor
+             dezelfde functie. Prijs per exemplaar is hier een vrij veld
+             (niet automatisch de huidige avbk_book_price) zodat een oude,
+             destijds afgesproken prijs (bijv. een pre-congres bestelling)
+             kan worden ingevoerd zoals die toen gold, niet zoals de prijs
+             nu toevallig is. -->
+        <details class="card" style="max-width: 100%; margin: 0 0 1.5rem; padding: 1.25rem 1.5rem;">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 1.1rem;">&#10133; Bestelling toevoegen (handmatig)</summary>
+            <p class="description">Voor een bestelling die niet via het bestelformulier binnenkwam — bijv. een pre-congres bestelling tegen een andere prijs dan nu, of op papier besteld. Maakt dezelfde post + bestelling aan als een normale bestelling (status: bevestigd); betalen/verrekenen en uitreiking-status gaan daarna via de gebruikelijke tools hieronder.</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('avbk_admin_add_book_order'); ?>
+                <input type="hidden" name="action" value="avbk_admin_add_book_order">
+                <input type="hidden" name="redirect_url" value="<?php echo esc_url(add_query_arg('tab', 'book', $page_url)); ?>">
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="avbk-add-book-member">Lid</label></th>
+                        <td>
+                            <select name="member_id" id="avbk-add-book-member" required style="min-width: 260px;">
+                                <option value="">&mdash; kies lid &mdash;</option>
+                                <?php
+                                $order_form_members = $all_members;
+                                usort($order_form_members, fn($a, $b) => strcasecmp($a->last_name . $a->first_name, $b->last_name . $b->first_name));
+                                foreach ($order_form_members as $m) :
+                                ?>
+                                    <option value="<?php echo esc_attr($m->id); ?>"><?php echo esc_html(avpvh_format_name($m, 'list')); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="avbk-add-book-qty">Aantal</label></th>
+                        <td><input type="number" id="avbk-add-book-qty" name="quantity" value="1" min="1" max="20" style="width: 6em;"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="avbk-add-book-price">Prijs per exemplaar</label></th>
+                        <td>
+                            &euro; <input type="text" id="avbk-add-book-price" name="unit_price" value="<?php echo esc_attr(number_format((float) (get_option('avbk_book_price', AVBK_Book_Order::DEFAULT_PRICE) ?: AVBK_Book_Order::DEFAULT_PRICE), 2, ',', '.')); ?>" style="width: 6em;">
+                            <p class="description">Standaard de huidige prijs &mdash; pas aan voor een destijds afgesproken andere prijs (bijv. pre-congres).</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Uitreiking</th>
+                        <td>
+                            <label><input type="checkbox" name="already_distributed" value="1"> Dit is al geleverd/uitgereikt</label>
+                            <p class="description">Vink aan voor een bestelling die al bij het lid is &mdash; staat dan direct op "Uitgereikt" in plaats van "In afwachting".</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="avbk-add-book-notes">Notitie</label></th>
+                        <td><input type="text" id="avbk-add-book-notes" name="notes" class="regular-text" placeholder="bijv. reden voor handmatige toevoeging"></td>
+                    </tr>
+                </table>
+                <button type="submit" class="button button-primary">Bestelling toevoegen</button>
+            </form>
+        </details>
 
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.5rem 0;">
             <div class="card" style="flex: 1 1 180px; margin: 0; padding: 1rem;">
