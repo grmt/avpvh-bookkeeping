@@ -3609,7 +3609,20 @@ class AVBK_DB {
             $wpdb->delete("{$wpdb->prefix}avb_transaction_allocations", ['id' => $a->id]);
             if (!$other_allocations) {
                 $fee_item = self::get_fee_item((int) $a->fee_item_id);
-                if ($fee_item && $fee_item->type === 'other') {
+                // Only the ad-hoc regels (Drank/Eten/Weekend/Overig, with
+                // no avb_orders row) are safe to delete here — confirming
+                // again just recreates one via create_other_fee_item(). A
+                // tshirt/book order's fee item has no such recreation path
+                // (incident 2026-10-29: reverting a transaction deleted an
+                // order's only fee item, orphaning avb_orders.fee_item_id
+                // and leaving nothing to re-pick for that order's amount on
+                // re-confirm), so it must survive the revert — it goes back
+                // to simply being open and unallocated, exactly as intended.
+                $has_order = $fee_item ? (bool) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE fee_item_id = %d",
+                    $a->fee_item_id
+                )) : false;
+                if ($fee_item && $fee_item->type === 'other' && !$has_order) {
                     $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $a->fee_item_id]);
                 }
             }
@@ -4902,7 +4915,14 @@ class AVBK_DB {
     }
 
     /**
-     * Aggregated inkoopmatrix for merchandise (e.g. T-shirts).
+     * Aggregated inkoopmatrix for merchandise (e.g. T-shirts) — what's left
+     * to order from the supplier/printer, not a running sales total (see
+     * the stat cards above this table on the orders page for that).
+     * Excludes an already-'distributed' order: it was already produced and
+     * handed out, so it must not inflate what still needs to be ordered —
+     * this matters in particular for an order added after the fact via
+     * "Bestelling toevoegen (handmatig)" for something that was already
+     * delivered before it ever entered this system.
      * Returns structured matrix: designs as rows, variants (sizes) as columns,
      * cell counts, row totals, column totals, grand total and revenue.
      */
@@ -4913,6 +4933,7 @@ class AVBK_DB {
              FROM {$wpdb->prefix}avb_order_items i
              JOIN {$wpdb->prefix}avb_orders o ON o.id = i.order_id
              WHERE o.order_type = %s AND o.status = 'confirmed'
+               AND o.distribution_status != 'distributed'
              GROUP BY i.title, i.variant
              ORDER BY i.title ASC, i.variant ASC",
             $order_type

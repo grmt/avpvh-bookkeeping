@@ -217,6 +217,11 @@ class AVBK_Balance_Shortcode {
                 <p class="avbk-balance-credit">Je hebt <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond). Er staat op dit moment niets open om dit mee te verrekenen.
                 <?php if ($credit_coowners) : ?>Dit komt van een rekening die ook op naam staat van <?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?> &mdash; die/diegene ziet dit bedrag ook, het is maar één keer te verrekenen.<?php endif; ?></p>
             <?php endif; ?>
+            <?php if ($available_credit > 0.005 && $target_id !== (int) $own_member->id) : ?>
+                <p class="avbk-balance-credit"><?php echo esc_html(avpvh_format_name($target_member)); ?> heeft <strong>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?> tegoed</strong> (van een eerdere betaling die meer was dan op dat moment openstond).
+                <?php if ($credit_coowners) : ?> Dit komt van een rekening die ook op naam staat van <?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?>.<?php endif; ?>
+                Dit lid (of een huisgenoot, via hun eigen overzicht) kan dit zelf verrekenen &mdash; vanuit dit beheerdersoverzicht (via <code>?member_id=</code>) kan het niet worden toegepast.</p>
+            <?php endif; ?>
             <?php if ($credit_item && $credit_coowners) : ?>
                 <p class="avbk-balance-credit">Het tegoed hieronder komt van een rekening die ook op naam staat van <strong><?php echo esc_html(implode(', ', array_map('avpvh_format_name', $credit_coowners))); ?></strong> &mdash; die/diegene ziet dit bedrag ook op hun eigen overzicht. Het is maar één keer te verrekenen, dus de regel staat hieronder niet automatisch aangevinkt &mdash; stem eerst af wie het gebruikt.</p>
             <?php endif; ?>

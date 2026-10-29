@@ -72,6 +72,7 @@ class AVBK_Tshirt_Order {
         add_action('admin_post_nopriv_avbk_check_tshirt_email', [$this, 'handle_check_email']);
         add_action('wp_ajax_avbk_check_tshirt_email',           [$this, 'handle_check_email']);
         add_action('wp_ajax_nopriv_avbk_check_tshirt_email',    [$this, 'handle_check_email']);
+        add_action('admin_post_avbk_admin_add_tshirt_order',    [$this, 'handle_admin_add_order']);
     }
 
     public static function get_available_types(): array {
@@ -961,6 +962,126 @@ class AVBK_Tshirt_Order {
             AVBK_DB::confirm_order((int) $order_result['id']);
             wp_safe_redirect(add_query_arg(['tshirt_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
         }
+        exit;
+    }
+
+    /**
+     * Penningmeester-only: register an order that was placed outside the
+     * self-service form entirely (e.g. collected on paper, or missing from
+     * a bulk sheet import — incident 2026-10-29: a jubileum-kleding import
+     * left one member's order out, so the only trace of it was an incoming
+     * bank transfer with no matching avb_orders/avb_fee_items row to
+     * settle against). Creates the same fee item + order + order items as
+     * the self-service path, already 'confirmed' since the treasurer is
+     * backfilling a real, already-placed order rather than starting a new
+     * one — distribution/payment are handled afterward through the
+     * existing tools (uitreiking-status, credit-verrekenen) same as any
+     * other order.
+     */
+    public function handle_admin_add_order(): void {
+        check_admin_referer('avbk_admin_add_tshirt_order');
+        if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
+            wp_die('Geen toegang.');
+        }
+
+        $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders&tab=tshirt');
+
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+        if (!$member) {
+            wp_safe_redirect(add_query_arg('process_error', rawurlencode('Kies een lid.'), $redirect));
+            exit;
+        }
+
+        $unit_price = (float) (get_option('avbk_tshirt_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
+        $designs_map = [];
+        $designs_price_map = [];
+        foreach (self::get_available_designs() as $d) {
+            $designs_map[$d['id']] = $d['name'];
+            if (isset($d['price']) && (float) $d['price'] > 0) {
+                $designs_price_map[$d['id']] = (float) $d['price'];
+            }
+        }
+        $types_map = [];
+        foreach (self::get_available_types() as $t) {
+            $types_map[$t['id']] = ['name' => $t['name'], 'price' => (float) ($t['price'] ?? $unit_price)];
+        }
+
+        $items = [];
+        $total_quantity = 0;
+        $total_amount = 0.0;
+        foreach ((array) ($_POST['items'] ?? []) as $raw_item) {
+            $qty = max(0, (int) ($raw_item['quantity'] ?? 0));
+            if ($qty <= 0) {
+                continue;
+            }
+            $design_id = sanitize_key($raw_item['design'] ?? '');
+            $type_id   = sanitize_key($raw_item['product_type'] ?? 'tshirt');
+            $size      = sanitize_text_field(wp_unslash($raw_item['size'] ?? ''));
+            $color     = sanitize_text_field(wp_unslash($raw_item['color'] ?? ''));
+
+            $design_name = $designs_map[$design_id] ?? ($design_id ?: 'Design 1');
+            $type_info   = $types_map[$type_id] ?? ['name' => 'T-shirt', 'price' => $unit_price];
+            $item_price  = isset($designs_price_map[$design_id]) && $designs_price_map[$design_id] > 0
+                ? $designs_price_map[$design_id]
+                : (float) $type_info['price'];
+            // Manual-add only: an explicit price overrides the design/type
+            // lookup above, for a destijds afgesproken andere prijs (e.g. a
+            // pre-congres order) that no longer matches today's catalogue.
+            $price_override = isset($raw_item['price']) ? trim((string) $raw_item['price']) : '';
+            if ($price_override !== '') {
+                $item_price = max(0.0, (float) str_replace(',', '.', $price_override));
+            }
+
+            $full_title = "{$design_name} — {$type_info['name']}";
+            if ($color !== '') {
+                $full_title .= " ({$color})";
+            }
+            $line_total = round($qty * $item_price, 2);
+            $items[] = [
+                'item_key'    => $design_id . ($type_id !== '' ? '_' . $type_id : ''),
+                'title'       => $full_title,
+                'variant'     => $size,
+                'quantity'    => $qty,
+                'unit_price'  => $item_price,
+                'total_price' => $line_total,
+            ];
+            $total_quantity += $qty;
+            $total_amount   += $line_total;
+        }
+
+        if (empty($items)) {
+            wp_safe_redirect(add_query_arg('process_error', rawurlencode('Vul minimaal één kledingstuk (aantal > 0) in.'), $redirect));
+            exit;
+        }
+
+        $title_opt = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
+        $fee_item_id = AVBK_DB::create_tshirt_fee_item($member_id, $total_quantity, $total_amount, $title_opt);
+
+        $address = AVBK_DB::get_member_active_address($member_id);
+        $order_result = AVBK_DB::create_order([
+            'order_type'   => 'tshirt',
+            'member_id'    => $member_id,
+            'fee_item_id'  => $fee_item_id ?: null,
+            'first_name'   => (string) $member->first_name,
+            'suffix'       => (string) ($member->suffix ?? ''),
+            'last_name'    => (string) $member->last_name,
+            'email'        => (string) $member->email,
+            'phone'        => (string) ($member->phone ?? ''),
+            'street'       => (string) ($address->street ?? ''),
+            'house_number' => (string) ($address->house_number ?? ''),
+            'postal_code'  => (string) ($address->postal_code ?? ''),
+            'city'         => (string) ($address->city ?? ''),
+            'country'      => (string) ($address->country ?? 'Nederland'),
+            'quantity'     => $total_quantity,
+            'unit_price'   => $total_quantity > 0 ? round($total_amount / $total_quantity, 2) : $unit_price,
+            'total_amount' => $total_amount,
+            'notes'        => sanitize_textarea_field(wp_unslash($_POST['notes'] ?? '')),
+            'status'       => 'confirmed',
+            'distribution_status' => !empty($_POST['already_distributed']) ? 'distributed' : 'pending',
+        ], $items);
+
+        wp_safe_redirect(add_query_arg('order_added', (int) $order_result['id'], $redirect));
         exit;
     }
 
