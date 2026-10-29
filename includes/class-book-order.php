@@ -44,6 +44,7 @@ class AVBK_Book_Order {
         add_action('wp_ajax_avbk_check_book_email',           [$this, 'handle_check_email']);
         add_action('wp_ajax_nopriv_avbk_check_book_email',    [$this, 'handle_check_email']);
         add_action('admin_post_avbk_update_book_notes',       [$this, 'handle_update_notes']);
+        add_action('admin_post_avbk_admin_add_book_order',    [$this, 'handle_admin_add_order']);
     }
 
     public function enqueue_assets(): void {
@@ -792,6 +793,69 @@ class AVBK_Book_Order {
             AVBK_DB::confirm_book_order((int) $order_result['id']);
             wp_safe_redirect(add_query_arg(['book_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
         }
+        exit;
+    }
+
+    /**
+     * Penningmeester-only: register a book order placed outside the
+     * self-service form — same reasoning as
+     * AVBK_Tshirt_Order::handle_admin_add_order() (e.g. a pre-congres order
+     * agreed at a different price than the current avbk_book_price option,
+     * never entered because it predates/bypassed the form). Unit price is
+     * a free field here rather than always reading the current option, so
+     * an old agreed price can be entered as-is instead of being overwritten
+     * by whatever the price happens to be today.
+     */
+    public function handle_admin_add_order(): void {
+        check_admin_referer('avbk_admin_add_book_order');
+        if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
+            wp_die('Geen toegang.');
+        }
+
+        $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders&tab=book');
+
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+        if (!$member) {
+            wp_safe_redirect(add_query_arg('process_error', rawurlencode('Kies een lid.'), $redirect));
+            exit;
+        }
+
+        $quantity = max(1, (int) ($_POST['quantity'] ?? 1));
+        $unit_price = isset($_POST['unit_price']) && $_POST['unit_price'] !== ''
+            ? (float) str_replace(',', '.', (string) $_POST['unit_price'])
+            : (float) (get_option('avbk_book_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
+        if ($unit_price < 0) {
+            $unit_price = 0.0;
+        }
+        $total_amount = round($unit_price * $quantity, 2);
+        $book_title = get_option('avbk_book_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
+
+        $fee_item_id = AVBK_DB::create_book_fee_item($member_id, $quantity, $total_amount, $book_title);
+
+        $address = AVBK_DB::get_member_active_address($member_id);
+        $order_result = AVBK_DB::create_book_order([
+            'member_id'    => $member_id,
+            'fee_item_id'  => $fee_item_id ?: null,
+            'first_name'   => (string) $member->first_name,
+            'suffix'       => (string) ($member->suffix ?? ''),
+            'last_name'    => (string) $member->last_name,
+            'email'        => (string) $member->email,
+            'phone'        => (string) ($member->phone ?? ''),
+            'street'       => (string) ($address->street ?? ''),
+            'house_number' => (string) ($address->house_number ?? ''),
+            'postal_code'  => (string) ($address->postal_code ?? ''),
+            'city'         => (string) ($address->city ?? ''),
+            'country'      => (string) ($address->country ?? 'Nederland'),
+            'quantity'     => $quantity,
+            'unit_price'   => $unit_price,
+            'total_amount' => $total_amount,
+            'notes'        => sanitize_textarea_field(wp_unslash($_POST['notes'] ?? '')),
+            'status'       => 'confirmed',
+            'distribution_status' => !empty($_POST['already_distributed']) ? 'distributed' : 'pending',
+        ]);
+
+        wp_safe_redirect(add_query_arg('order_added', (int) $order_result['id'], $redirect));
         exit;
     }
 

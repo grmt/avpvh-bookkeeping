@@ -4915,7 +4915,14 @@ class AVBK_DB {
     }
 
     /**
-     * Aggregated inkoopmatrix for merchandise (e.g. T-shirts).
+     * Aggregated inkoopmatrix for merchandise (e.g. T-shirts) — what's left
+     * to order from the supplier/printer, not a running sales total (see
+     * the stat cards above this table on the orders page for that).
+     * Excludes an already-'distributed' order: it was already produced and
+     * handed out, so it must not inflate what still needs to be ordered —
+     * this matters in particular for an order added after the fact via
+     * "Bestelling toevoegen (handmatig)" for something that was already
+     * delivered before it ever entered this system.
      * Returns structured matrix: designs as rows, variants (sizes) as columns,
      * cell counts, row totals, column totals, grand total and revenue.
      */
@@ -4926,6 +4933,7 @@ class AVBK_DB {
              FROM {$wpdb->prefix}avb_order_items i
              JOIN {$wpdb->prefix}avb_orders o ON o.id = i.order_id
              WHERE o.order_type = %s AND o.status = 'confirmed'
+               AND o.distribution_status != 'distributed'
              GROUP BY i.title, i.variant
              ORDER BY i.title ASC, i.variant ASC",
             $order_type
