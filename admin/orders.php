@@ -926,11 +926,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                         <?php foreach ($all_members as $m) :
                             $m_name = trim($m->first_name . ' ' . $m->suffix) . ' ' . $m->last_name;
                         ?>
-                            <option value="<?php echo (int) $m->id; ?>"><?php echo esc_html($m_name . ' (' . $m->email . ')'); ?></option>
+                            <option value="<?php echo (int) $m->id; ?>" data-email="<?php echo esc_attr($m->email); ?>"><?php echo esc_html($m_name . ' (' . $m->email . ')'); ?></option>
                         <?php endforeach; ?>
                     </select>
                     <p class="description" style="margin-top: 4px; font-size: 0.8rem;">
-                        Als de besteller een lid is, wordt de bijbehorende boekhoudpost automatisch aan dit lid gekoppeld.
+                        Als de besteller een lid is, wordt de bijbehorende boekhoudpost automatisch aan dit lid gekoppeld. Leeg e-mailadres hierboven? Kies hier het lid en het e-mailadres wordt overgenomen.
                     </p>
                 </div>
 
@@ -1025,6 +1025,22 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
         var currentSuggestion = '';
 
+        function fillEmailFromSelectedMember() {
+            if (!peSelectMember || !peInputEmail) return;
+            var opt = peSelectMember.options[peSelectMember.selectedIndex];
+            var memberEmail = opt ? opt.getAttribute('data-email') : '';
+            if (memberEmail) {
+                peInputEmail.value = memberEmail;
+            }
+        }
+        if (peSelectMember) {
+            peSelectMember.addEventListener('change', function () {
+                if (!peInputEmail.value) {
+                    fillEmailFromSelectedMember();
+                }
+            });
+        }
+
         document.querySelectorAll('.avbk-process-email-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -1043,6 +1059,13 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
                 if (peSelectMember) {
                     peSelectMember.value = (memberId && memberId !== '0') ? memberId : '';
+                }
+                // Order already correctly linked to a member (e.g. a name
+                // mismatch resolved via "Koppel aan lid") but has no e-mail
+                // of its own — pull the member's known e-mail instead of
+                // leaving a required field empty with nothing to type.
+                if (!peInputEmail.value) {
+                    fillEmailFromSelectedMember();
                 }
 
                 currentSuggestion = sugg || '';
