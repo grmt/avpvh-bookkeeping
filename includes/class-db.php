@@ -3609,7 +3609,20 @@ class AVBK_DB {
             $wpdb->delete("{$wpdb->prefix}avb_transaction_allocations", ['id' => $a->id]);
             if (!$other_allocations) {
                 $fee_item = self::get_fee_item((int) $a->fee_item_id);
-                if ($fee_item && $fee_item->type === 'other') {
+                // Only the ad-hoc regels (Drank/Eten/Weekend/Overig, with
+                // no avb_orders row) are safe to delete here — confirming
+                // again just recreates one via create_other_fee_item(). A
+                // tshirt/book order's fee item has no such recreation path
+                // (incident 2026-10-29: reverting a transaction deleted an
+                // order's only fee item, orphaning avb_orders.fee_item_id
+                // and leaving nothing to re-pick for that order's amount on
+                // re-confirm), so it must survive the revert — it goes back
+                // to simply being open and unallocated, exactly as intended.
+                $has_order = $fee_item ? (bool) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->prefix}avb_orders WHERE fee_item_id = %d",
+                    $a->fee_item_id
+                )) : false;
+                if ($fee_item && $fee_item->type === 'other' && !$has_order) {
                     $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $a->fee_item_id]);
                 }
             }

@@ -525,32 +525,69 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function updateOpenFeeItemsInSelect(selectEl, openItems) {
             if (!selectEl) return;
-            var existingGroup = selectEl.querySelector('.avbk-member-open-fees-group');
-            if (existingGroup) {
-                existingGroup.remove();
+            // Capture the current selection *before* touching the DOM:
+            // removing an optgroup drops whichever <option> is currently
+            // selected if that option lives inside it — which resets
+            // selectEl.value to the placeholder. Read too late, that reset
+            // value would never match any rebuilt option below, so the
+            // user's pick silently reverted to "— activiteit of bestelling
+            // —" right after this ran on every change (incident: confirming
+            // then failed with "kies minimaal... activiteit" even though a
+            // post was clearly selected).
+            var currentValue = selectEl.value;
+            var existingFeesGroup = selectEl.querySelector('.avbk-member-open-fees-group');
+            if (existingFeesGroup) {
+                existingFeesGroup.remove();
             }
-            if (!openItems || !openItems.length) return;
+            var existingOrdersGroup = selectEl.querySelector('.avbk-member-open-orders-group');
+            if (existingOrdersGroup) {
+                existingOrdersGroup.remove();
+            }
 
-            var group = document.createElement('optgroup');
-            group.label = 'Openstaande posten lid';
-            group.className = 'avbk-member-open-fees-group';
-
-            openItems.forEach(function (item) {
-                var opt = document.createElement('option');
-                opt.value = item.val;
-                opt.textContent = item.label;
-                if (selectEl.value === item.val) {
-                    opt.selected = true;
-                }
-                group.appendChild(opt);
-            });
-
+            // Both groups are rebuilt from this same response, not just the
+            // "posten lid" one — a row with no member picked at initial
+            // page load (e.g. an unmatched transaction) never got either
+            // group server-rendered at all, so this AJAX response is the
+            // *only* source for an order (tshirt/book) too, not just a
+            // fallback for it (incident 2026-10-29: an already-known
+            // member's open kleding-bestelling never appeared after picking
+            // them fresh in the Persoon field, because this function used
+            // to only ever (re)build the "posten lid" group and silently
+            // dropped every is_order item instead).
+            var items = openItems || [];
+            var orderItems = items.filter(function (item) { return item.is_order; });
+            var feeItems = items.filter(function (item) { return !item.is_order; });
             var firstOpt = selectEl.querySelector('option[value=""]');
-            if (firstOpt && firstOpt.nextSibling) {
-                selectEl.insertBefore(group, firstOpt.nextSibling);
-            } else {
-                selectEl.appendChild(group);
+
+            function buildGroup(groupItems, label, className) {
+                if (!groupItems.length) return null;
+                var group = document.createElement('optgroup');
+                group.label = label;
+                group.className = className;
+                groupItems.forEach(function (item) {
+                    var opt = document.createElement('option');
+                    opt.value = item.val;
+                    opt.textContent = item.label;
+                    if (currentValue === item.val) {
+                        opt.selected = true;
+                    }
+                    group.appendChild(opt);
+                });
+                return group;
             }
+
+            // Inserted in the same order as the PHP-rendered groups
+            // (avbk_activity_select()): bestellingen first, then posten.
+            var feesGroup = buildGroup(feeItems, 'Openstaande posten lid', 'avbk-member-open-fees-group');
+            var ordersGroup = buildGroup(orderItems, 'Openstaande bestellingen', 'avbk-member-open-orders-group');
+            [feesGroup, ordersGroup].forEach(function (group) {
+                if (!group) return;
+                if (firstOpt && firstOpt.nextSibling) {
+                    selectEl.insertBefore(group, firstOpt.nextSibling);
+                } else {
+                    selectEl.appendChild(group);
+                }
+            });
         }
 
         function lookupDetail(isExplicitActivityChange) {
