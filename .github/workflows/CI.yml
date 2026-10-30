@@ -40,32 +40,26 @@ jobs:
         run: |
           find . -path ./vendor -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l
 
-      - name: "Exact reference and chronological import regression checks"
-        run: php tests/test-exact-reference.php
-
-      - name: "Dispute reply and history regression checks"
-        run: php tests/test-disputes.php
-
-      - name: "Photo upload share regression checks"
-        run: php tests/test-photo-share.php
-
-      - name: "Photo upload and Google Photos Picker security checks"
-        run: php tests/test-photo-upload.php
-
-      - name: "Book order flow regression checks"
-        run: php tests/test-book-order.php
-
-      - name: "Household balance overview regression checks"
-        run: php tests/test-household-balance.php
-
-      - name: "Login payment popup option regression checks"
-        run: php tests/test-login-payment-popup.php
-
-      - name: "Product payment requests and uploads regression checks"
-        run: php tests/test-product-payment.php
-
-      - name: "Review queue payable fee items regression checks"
-        run: php tests/test-payable-fee-items.php
+      - name: "Run test suite"
+        # Loops over every tests/*.php file instead of listing each one as
+        # its own step — a new test file used to need a matching step
+        # added here by hand, and nothing caught it if that was forgotten
+        # (found 2026-10-30: 7 of 16 test files had no step at all, so they
+        # never ran in CI). ::group::/::endgroup:: keeps each test's output
+        # foldable in the Actions log, same readability as separate steps.
+        run: |
+          status=0
+          for f in tests/*.php; do
+            echo "::group::$f"
+            if php "$f"; then
+              echo "PASS: $f"
+            else
+              echo "FAIL: $f"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
 
   plugin-check:
     name: "WordPress Plugin Check"
