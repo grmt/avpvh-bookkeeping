@@ -1877,6 +1877,10 @@ class AVBK_DB {
             return array_values($candidates);
         }
 
+        // The addition has its own column since avpvh-members db 2.27.
+        $has_addition = property_exists($address, 'house_number_addition');
+        $addition_clause = $has_addition ? $wpdb->prepare(' AND LOWER(TRIM(a.house_number_addition)) = LOWER(TRIM(%s))', $address->house_number_addition) : '';
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $addition_clause is prepared above
         $member_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT m.id
              FROM {$wpdb->prefix}avm_members m
@@ -1891,13 +1895,14 @@ class AVBK_DB {
              WHERE m.status IN ('active', 'visitor')
                AND LOWER(TRIM(a.street)) = LOWER(TRIM(%s))
                AND LOWER(TRIM(a.house_number)) = LOWER(TRIM(%s))
-               AND LOWER(TRIM(a.postal_code)) = LOWER(TRIM(%s))",
+               AND LOWER(TRIM(a.postal_code)) = LOWER(TRIM(%s))" . $addition_clause,
             current_time('Y-m-d'),
             current_time('Y-m-d'),
             $address->street,
             $address->house_number,
             $address->postal_code
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         foreach ($member_ids as $candidate_id) {
             $candidate = AVPVH_DB::get_member((int) $candidate_id);
             if ($candidate) {
@@ -5027,14 +5032,31 @@ class AVBK_DB {
         return (int) $wpdb->insert_id;
     }
 
+    /**
+     * A member's current address, with house_number including the addition
+     * ("40-1"): orders keep one house number field, while avpvh-members
+     * (db 2.27) stores the addition in its own column.
+     */
     public static function get_member_active_address(int $member_id): ?object {
         global $wpdb;
-        return $wpdb->get_row($wpdb->prepare(
+        $address = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avm_addresses
              WHERE member_id = %d AND (valid_until IS NULL OR valid_until >= %s)
              ORDER BY valid_from DESC, id DESC LIMIT 1",
             $member_id, current_time('Y-m-d')
         )) ?: null;
+        if ($address && ($address->house_number_addition ?? '') !== '' && method_exists('AVPVH_Address_Normalizer', 'format_house_number')) {
+            $address->house_number = AVPVH_Address_Normalizer::format_house_number((string) $address->house_number, (string) $address->house_number_addition);
+        }
+        return $address;
+    }
+
+    /** "40-1" = "40 1 hoog" once avpvh-members can normalize; otherwise case-insensitive. */
+    private static function same_house_number(string $left, string $right): bool {
+        if (method_exists('AVPVH_Address_Normalizer', 'normalize_house_number')) {
+            return AVPVH_Address_Normalizer::normalize_house_number($left) === AVPVH_Address_Normalizer::normalize_house_number($right);
+        }
+        return strcasecmp($left, $right) === 0;
     }
 
     public static function save_member_address(int $member_id, array $address_data): void {
@@ -5053,7 +5075,7 @@ class AVBK_DB {
         if ($current) {
             $same = (
                 strcasecmp($current->street, $street) === 0 &&
-                strcasecmp($current->house_number, $house_number) === 0 &&
+                self::same_house_number((string) $current->house_number, $house_number) &&
                 strcasecmp(str_replace(' ', '', $current->postal_code), str_replace(' ', '', $postal_code)) === 0 &&
                 strcasecmp($current->city, $city) === 0 &&
                 strcasecmp($current->country, $country) === 0
@@ -5071,7 +5093,7 @@ class AVBK_DB {
             ));
         }
 
-        $wpdb->insert("{$wpdb->prefix}avm_addresses", [
+        $row = [
             'member_id'    => $member_id,
             'street'       => $street,
             'house_number' => $house_number,
@@ -5080,7 +5102,12 @@ class AVBK_DB {
             'country'      => $country,
             'valid_from'   => current_time('Y-m-d'),
             'valid_until'  => null,
-        ]);
+        ];
+        // avpvh-members db 2.27 keeps the addition apart: "40-1" -> 40 / 1.
+        if (method_exists('AVPVH_Address_Normalizer', 'split_house_number')) {
+            [$row['house_number'], $row['house_number_addition']] = AVPVH_Address_Normalizer::split_house_number($house_number);
+        }
+        $wpdb->insert("{$wpdb->prefix}avm_addresses", $row);
     }
 
     // -------------------------------------------------------------------
