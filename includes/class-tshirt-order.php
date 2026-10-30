@@ -534,7 +534,13 @@ class AVBK_Tshirt_Order {
                 <?php endif; ?>
 
                 <!-- Address (Optional) -->
-                <fieldset class="avbk-book-fieldset">
+                <?php
+                // Address checked against the government register while typed (avpvh-members).
+                if (class_exists('AVPVH_Address_Entry_Check')) {
+                    AVPVH_Address_Entry_Check::enqueue();
+                }
+                ?>
+                <fieldset class="avbk-book-fieldset" data-avpvh-address>
                     <legend>Verzendadres (optioneel)</legend>
                     <p class="description" style="margin: 0 0 1rem; color: #646970;">Alleen nodig als je bestelling per post verzonden wordt (zie &quot;Afhalen &amp; uitreiken&quot; hierboven) — dat mag ook later nog, zodra je betaling bevestigd is. Dit is het verzendadres voor deze bestelling; je geregistreerde adres wordt hiermee niet gewijzigd.</p>
                     <div class="avbk-form-row avbk-form-row-2">

@@ -329,7 +329,13 @@ class AVBK_Book_Order {
                     </fieldset>
                 <?php endif; ?>
 
-                <fieldset class="avbk-book-fieldset">
+                <?php
+                // Address checked against the government register while typed (avpvh-members).
+                if (class_exists('AVPVH_Address_Entry_Check')) {
+                    AVPVH_Address_Entry_Check::enqueue();
+                }
+                ?>
+                <fieldset class="avbk-book-fieldset" data-avpvh-address>
                     <legend>Adresgegevens (optioneel)</legend>
                     <p class="description" style="margin: 0 0 1rem; color: #646970;">Optioneel: alleen nodig indien het boek per post verzonden moet worden omdat afhalen of uitreiken niet mogelijk is.</p>
                     <div class="avbk-form-row avbk-form-row-2">
