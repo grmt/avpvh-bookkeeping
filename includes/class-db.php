@@ -1877,10 +1877,25 @@ class AVBK_DB {
             return array_values($candidates);
         }
 
-        // The addition has its own column since avpvh-members db 2.27.
+        // The addition has its own column since avpvh-members db 2.27. The
+        // clause text is a fixed literal (not user input) so it's safe to
+        // splice into the query string; its one placeholder is filled by
+        // the single $wpdb->prepare() call below, together with everything
+        // else, rather than being pre-prepared on its own and concatenated
+        // in — that split tripped plugin-check's static analysis even
+        // though it was already safe (see PR #81 investigation).
         $has_addition = property_exists($address, 'house_number_addition');
-        $addition_clause = $has_addition ? $wpdb->prepare(' AND LOWER(TRIM(a.house_number_addition)) = LOWER(TRIM(%s))', $address->house_number_addition) : '';
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $addition_clause is prepared above
+        $addition_clause = $has_addition ? ' AND LOWER(TRIM(a.house_number_addition)) = LOWER(TRIM(%s))' : '';
+        $args = [
+            current_time('Y-m-d'),
+            current_time('Y-m-d'),
+            $address->street,
+            $address->house_number,
+            $address->postal_code,
+        ];
+        if ($has_addition) {
+            $args[] = $address->house_number_addition;
+        }
         $member_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT m.id
              FROM {$wpdb->prefix}avm_members m
@@ -1896,13 +1911,8 @@ class AVBK_DB {
                AND LOWER(TRIM(a.street)) = LOWER(TRIM(%s))
                AND LOWER(TRIM(a.house_number)) = LOWER(TRIM(%s))
                AND LOWER(TRIM(a.postal_code)) = LOWER(TRIM(%s))" . $addition_clause,
-            current_time('Y-m-d'),
-            current_time('Y-m-d'),
-            $address->street,
-            $address->house_number,
-            $address->postal_code
+            ...$args
         ));
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         foreach ($member_ids as $candidate_id) {
             $candidate = AVPVH_DB::get_member((int) $candidate_id);
             if ($candidate) {
@@ -4166,6 +4176,7 @@ class AVBK_DB {
             ['generiek betaalverzoek (link/QR)', 'generieke betaalverzoeken (link/QR)', "SELECT COUNT(*) FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d"],
         ];
         foreach ($sources as [$singular, $plural, $sql]) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is one of the hardcoded literal query templates in $sources above, not user input.
             $count = (int) $wpdb->get_var($wpdb->prepare($sql, $activity_id));
             if ($count > 0) {
                 $reasons[] = $count . ' ' . ($count === 1 ? $singular : $plural);

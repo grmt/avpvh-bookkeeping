@@ -163,12 +163,14 @@ class AVBK_Flyer {
         $escaped_instructions = htmlspecialchars((string) ($item['instructions'] ?? ''), ENT_QUOTES, 'UTF-8');
         $escaped_badge        = htmlspecialchars((string) ($item['badge'] ?? ''), ENT_QUOTES, 'UTF-8');
 
-        return <<<HTML
-<!DOCTYPE html>
+        // Built via concatenation, not heredoc (<<<), on purpose: the
+        // WordPress.org plugin-check tooling forbids heredoc syntax outright.
+        return
+'<!DOCTYPE html>
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
-<title>{$escaped_title}</title>
+<title>' . $escaped_title . '</title>
 <style>
   @page {
     size: A4 portrait;
@@ -286,25 +288,25 @@ class AVBK_Flyer {
 <body>
   <div class="header-brand">
     <div class="troffel-wrap">
-      {$troffel_svg}
+      ' . $troffel_svg . '
     </div>
     <div class="org-line-1">Archeologische Vereniging</div>
     <div class="org-line-2">Philips van Horne</div>
   </div>
 
-  <h1>{$escaped_title}</h1>
-  <p class="subtitle">{$escaped_subtitle}</p>
+  <h1>' . $escaped_title . '</h1>
+  <p class="subtitle">' . $escaped_subtitle . '</p>
 
   <div class="qr-box">
-    {$qr_markup}
+    ' . $qr_markup . '
   </div>
 
-  <div class="url-label">{$escaped_display_url}</div>
-  <div class="instructions">{$escaped_instructions}</div>
+  <div class="url-label">' . $escaped_display_url . '</div>
+  <div class="instructions">' . $escaped_instructions . '</div>
 
-  <div class="badge">{$escaped_badge}</div>
+  <div class="badge">' . $escaped_badge . '</div>
 </body>
 </html>
-HTML;
+';
     }
 }

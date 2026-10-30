@@ -2883,6 +2883,7 @@ class AVBK_Admin {
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             header('Pragma: no-cache');
             header('Expires: 0');
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded SVG file body, not HTML page output; escaping would corrupt the markup.
             echo $svg;
             exit;
         }
@@ -2893,6 +2894,7 @@ class AVBK_Admin {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Pragma: no-cache');
         header('Expires: 0');
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded HTML file body, not output into an existing page; escaping would corrupt the markup.
         echo $html;
         exit;
     }
