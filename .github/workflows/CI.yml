@@ -107,16 +107,12 @@ jobs:
         run: |
           echo '{ "plugins": ["./avpvh-members"], "testsEnvironment": false }' > .wp-env.override.json
 
-      # continue-on-error (not ignore-warnings/ignore-errors) — those get
-      # passed straight to the underlying `wp plugin check` CLI and stop
-      # it from evaluating warnings/errors at all, which silently
-      # suppresses every finding rather than just the pass/fail call (see
-      # avpvh-members' same workflow, which hit this first). Triaged once
-      # on 2026-08-24: the license/escaping/prepared-SQL findings from that
-      # pass were fixed directly in code (see git log); what's left here is
-      # excluded deliberately, not just deferred.
+      # No continue-on-error here (found 2026-10-30: it had been silently
+      # masking real exit-1 failures on every run — fixed in PRs #82/#83).
+      # Everything that's excluded below is excluded deliberately via
+      # exclude-checks/exclude-files/exclude-directories/ignore-codes, not
+      # by swallowing the step's own exit code.
       - name: "Run plugin check"
-        continue-on-error: true
         uses: wordpress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
         with:
           build-dir: avpvh-bookkeeping
