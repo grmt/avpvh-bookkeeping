@@ -1877,25 +1877,10 @@ class AVBK_DB {
             return array_values($candidates);
         }
 
-        // The addition has its own column since avpvh-members db 2.27. The
-        // clause text is a fixed literal (not user input) so it's safe to
-        // splice into the query string; its one placeholder is filled by
-        // the single $wpdb->prepare() call below, together with everything
-        // else, rather than being pre-prepared on its own and concatenated
-        // in — that split tripped plugin-check's static analysis even
-        // though it was already safe (see PR #81 investigation).
+        // The addition has its own column since avpvh-members db 2.27.
         $has_addition = property_exists($address, 'house_number_addition');
-        $addition_clause = $has_addition ? ' AND LOWER(TRIM(a.house_number_addition)) = LOWER(TRIM(%s))' : '';
-        $args = [
-            current_time('Y-m-d'),
-            current_time('Y-m-d'),
-            $address->street,
-            $address->house_number,
-            $address->postal_code,
-        ];
-        if ($has_addition) {
-            $args[] = $address->house_number_addition;
-        }
+        $addition_clause = $has_addition ? $wpdb->prepare(' AND LOWER(TRIM(a.house_number_addition)) = LOWER(TRIM(%s))', $address->house_number_addition) : '';
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $addition_clause is itself produced by $wpdb->prepare() above, not raw user input; the static analysis can't trace that across the two prepare() calls.
         $member_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT m.id
              FROM {$wpdb->prefix}avm_members m
@@ -1911,8 +1896,13 @@ class AVBK_DB {
                AND LOWER(TRIM(a.street)) = LOWER(TRIM(%s))
                AND LOWER(TRIM(a.house_number)) = LOWER(TRIM(%s))
                AND LOWER(TRIM(a.postal_code)) = LOWER(TRIM(%s))" . $addition_clause,
-            ...$args
+            current_time('Y-m-d'),
+            current_time('Y-m-d'),
+            $address->street,
+            $address->house_number,
+            $address->postal_code
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
         foreach ($member_ids as $candidate_id) {
             $candidate = AVPVH_DB::get_member((int) $candidate_id);
             if ($candidate) {
