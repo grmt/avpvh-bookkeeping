@@ -147,7 +147,7 @@ $ignore_reason_label = [
                 ?>
                 <td data-filter-value="<?php echo esc_attr($tag_label); ?>">
                     <?php if ($allocations) : ?>
-                        <?php echo $display_parts ? implode(', ', $display_parts) : esc_html($tag_label); ?>
+                        <?php echo $display_parts ? wp_kses_post(implode(', ', $display_parts)) : esc_html($tag_label); ?>
                     <?php elseif ($tx->direction !== 'in') : ?>
                         &mdash;
                     <?php else : ?>

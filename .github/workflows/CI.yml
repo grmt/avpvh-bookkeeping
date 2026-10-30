@@ -130,6 +130,7 @@ jobs:
           # not matched by plugin-check-action).
           exclude-files: |
             .gitignore
+            .gitattributes
             AGENTS.md
             CLAUDE.md
           # direct_db_queries: this plugin's whole DB layer is custom
