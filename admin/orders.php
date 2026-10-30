@@ -146,38 +146,38 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                     <?php for ($i = 0; $i < 3; $i++) : ?>
                                     <tr>
                                         <td>
-                                            <select name="items[<?php echo $i; ?>][design]">
+                                            <select name="items[<?php echo (int) $i; ?>][design]">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_designs() as $d) : ?>
                                                     <option value="<?php echo esc_attr($d['id']); ?>"><?php echo esc_html($d['name']); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo $i; ?>][product_type]">
+                                            <select name="items[<?php echo (int) $i; ?>][product_type]">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_types() as $t) : ?>
                                                     <option value="<?php echo esc_attr($t['id']); ?>"><?php echo esc_html($t['name']); ?> (&euro;<?php echo esc_html(number_format((float) $t['price'], 2, ',', '.')); ?>)</option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo $i; ?>][color]">
+                                            <select name="items[<?php echo (int) $i; ?>][color]">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_colors() as $c) : ?>
                                                     <option value="<?php echo esc_attr($c); ?>"><?php echo esc_html($c); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo $i; ?>][size]">
+                                            <select name="items[<?php echo (int) $i; ?>][size]">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_sizes() as $s) : ?>
                                                     <option value="<?php echo esc_attr($s); ?>"><?php echo esc_html($s); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <input type="number" name="items[<?php echo $i; ?>][quantity]" value="0" min="0" max="20" style="width: 4em;">
+                                            <input type="number" name="items[<?php echo (int) $i; ?>][quantity]" value="0" min="0" max="20" style="width: 4em;">
                                         </td>
                                         <td style="white-space: nowrap;">
-                                            &euro; <input type="text" name="items[<?php echo $i; ?>][price]" placeholder="auto" style="width: 5em;">
+                                            &euro; <input type="text" name="items[<?php echo (int) $i; ?>][price]" placeholder="auto" style="width: 5em;">
                                         </td>
                                     </tr>
                                     <?php endfor; ?>
