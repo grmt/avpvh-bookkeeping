@@ -72,11 +72,10 @@ jobs:
         with:
           path: avpvh-bookkeeping
 
-      # Bookkeeping refuses to activate without avpvh-members' AVPVH_DB/
-      # AVPVH_Roles (every lookup goes through those) — check it out as a
-      # sibling so the .wp-env.override.json below can hand it to wp-env
-      # as a second plugin to install and activate alongside this one.
-      # It's public, so no token/auth needed.
+      # Keep checking association compatibility alongside the standalone
+      # company mode. The sibling members plugin supplies AVPVH_DB and
+      # AVPVH_Roles to the association workflows; it is public, so no
+      # token is needed.
       - name: "Checkout avpvh-members"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

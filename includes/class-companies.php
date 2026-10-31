@@ -178,10 +178,12 @@ class AVBK_Companies {
             $raw_amount = AVBK_Bank_Import_Layout::value($row, $layout, 'amount');
             $direction = mb_strtolower(AVBK_Bank_Import_Layout::value($row, $layout, 'direction'));
             if ($own_iban !== $company->iban || !$date || $date < $start || $date >= $end || !preg_match('/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D', $raw_amount) || !in_array($direction, ['bij', 'af', 'credit', 'debit'], true)) {
-                throw new \RuntimeException("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie en dit kwartaal horen.");
+                throw new \RuntimeException("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie en dit kwartaal horen."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
             }
             $tx = AVBK_Matcher::parse_row($row, $layout);
-            if (!$tx || $tx['amount'] <= 0 || $tx['amount'] >= 1000000000000) throw new \RuntimeException("Rij {$line}: ongeldig bedrag.");
+            if (!$tx || $tx['amount'] <= 0 || $tx['amount'] >= 1000000000000) {
+                throw new \RuntimeException("Rij {$line}: ongeldig bedrag."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
+            }
             $hash = hash('sha256', wp_json_encode([$date, number_format($tx['amount'], 2, '.', ''), $tx['direction'], $tx['counterparty_iban'], $tx['counterparty_name'], $tx['description']]));
             $raw = array_filter($row, fn($key) => !str_starts_with((string) $key, '__'), ARRAY_FILTER_USE_KEY);
             $result[] = [
