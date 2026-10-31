@@ -166,7 +166,7 @@ class AVBK_Companies {
         ));
     }
 
-    /** Validate the entire export before storing any rows, including its own bank account. */
+    /** Validate the entire export, then select rows for the requested quarter. */
     public static function prepare_import(object $company, array $parsed, int $year, int $quarter): array {
         [$start, $end] = self::period($year, $quarter);
         $result = [];
@@ -177,13 +177,15 @@ class AVBK_Companies {
             $date = AVBK_Bank_Import_Layout::parse_date(AVBK_Bank_Import_Layout::value($row, $layout, 'date'), 'auto');
             $raw_amount = AVBK_Bank_Import_Layout::value($row, $layout, 'amount');
             $direction = mb_strtolower(AVBK_Bank_Import_Layout::value($row, $layout, 'direction'));
-            if ($own_iban !== $company->iban || !$date || $date < $start || $date >= $end || !preg_match('/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D', $raw_amount) || !in_array($direction, ['bij', 'af', 'credit', 'debit'], true)) {
-                throw new \RuntimeException("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie en dit kwartaal horen."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
+            if ($own_iban !== $company->iban || !$date || !preg_match('/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D', $raw_amount) || !in_array($direction, ['bij', 'af', 'credit', 'debit'], true)) {
+                throw new \RuntimeException("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie horen en geldige transactiegegevens bevatten."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
             }
             $tx = AVBK_Matcher::parse_row($row, $layout);
             if (!$tx || $tx['amount'] <= 0 || $tx['amount'] >= 1000000000000) {
                 throw new \RuntimeException("Rij {$line}: ongeldig bedrag."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
             }
+            // Longer exports are accepted, but even excluded rows must pass validation.
+            if ($date < $start || $date >= $end) continue;
             $hash = hash('sha256', wp_json_encode([$date, number_format($tx['amount'], 2, '.', ''), $tx['direction'], $tx['counterparty_iban'], $tx['counterparty_name'], $tx['description']]));
             $raw = array_filter($row, fn($key) => !str_starts_with((string) $key, '__'), ARRAY_FILTER_USE_KEY);
             $result[] = [
@@ -193,7 +195,8 @@ class AVBK_Companies {
                 'raw_data' => wp_json_encode($raw), 'dedupe_hash' => $hash,
             ];
         }
-        if (!$result) throw new \RuntimeException('Geen transacties gevonden. Upload een ING-bankexport met kopregel.');
+        if (!$parsed['rows']) throw new \RuntimeException('Geen transacties gevonden. Upload een ING-bankexport met kopregel.');
+        if (!$result) throw new \RuntimeException('Geen transacties gevonden voor het gekozen kwartaal. Controleer de gekozen periode en het bankexportbestand.');
         return $result;
     }
 
@@ -220,6 +223,6 @@ class AVBK_Companies {
             $wpdb->query('ROLLBACK');
             throw $e;
         }
-        return ['added' => $added, 'duplicates' => $duplicates];
+        return ['added' => $added, 'duplicates' => $duplicates, 'outside_period' => count($parsed['rows']) - count($rows)];
     }
 }

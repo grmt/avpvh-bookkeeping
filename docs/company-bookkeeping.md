@@ -33,8 +33,11 @@ hosting separately; this feature does not change DNS or deploy a new site.
 ## Bank upload and workbook update
 
 Select a company, year, and quarter; upload an ING CSV or Excel transaction export.
-Every row must have that company's own IBAN and a date within that quarter. The
-whole file is checked before anything is inserted. Both incoming and outgoing
+Every row must have that company's own IBAN and valid transaction data. Exports
+covering multiple quarters or years are accepted: only rows in the selected year
+and quarter are imported, and the result reports the number outside that period.
+The whole file, including excluded rows, is checked before anything is inserted.
+An export with no transactions in the selected period is rejected. Both incoming and outgoing
 transactions are stored, with the importing user and original row data. A unique
 company/hash index prevents overlapping imports from adding the same records again.
 

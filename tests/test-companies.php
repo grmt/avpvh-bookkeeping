@@ -111,9 +111,21 @@ try {
     $parsed = ['rows' => [$bank]];
     $prepared = AVBK_Companies::prepare_import($wpdb->companies[1], $parsed, 2026, 3);
     company_check($prepared[0]['direction'] === 'out' && $prepared[0]['amount'] === '121.00', 'outgoing expenses are kept without assigning VAT');
-    foreach (['Account' => 'NL02ABNA0123456789', 'Date' => '20250930', 'Amount (EUR)' => 'nonsense', 'Debit/credit' => ''] as $field => $bad) {
+    foreach (['Account' => 'NL02ABNA0123456789', 'Date' => '20260931', 'Amount (EUR)' => 'nonsense', 'Debit/credit' => ''] as $field => $bad) {
         $invalid = $bank; $invalid[$field] = $bad;
         company_reject(fn() => AVBK_Companies::prepare_import($wpdb->companies[1], ['rows' => [$bank, $invalid]], 2026, 3), 'whole import rejects invalid ' . $field);
+    }
+    $spanning = [];
+    foreach (['20260630', '20260701', '20260930', '20261001', '20250930', '20270930'] as $date) {
+        $row = $bank; $row['Date'] = $date; $spanning[] = $row;
+    }
+    $selected = AVBK_Companies::prepare_import($wpdb->companies[1], ['rows' => $spanning], 2026, 3);
+    company_check(array_column($selected, 'transaction_date') === ['2026-07-01', '2026-09-30'], 'longer exports select the exact quarter and year boundaries');
+    $previous = $bank; $previous['Date'] = '20260630';
+    company_reject(fn() => AVBK_Companies::prepare_import($wpdb->companies[1], ['rows' => [$previous]], 2026, 3), 'export without selected-quarter transactions is rejected');
+    foreach (['Account' => 'NL02ABNA0123456789', 'Amount (EUR)' => 'nonsense', 'Debit/credit' => '', 'Date' => '20260230'] as $field => $bad) {
+        $invalid = $previous; $invalid[$field] = $bad;
+        company_reject(fn() => AVBK_Companies::prepare_import($wpdb->companies[1], ['rows' => [$bank, $invalid]], 2026, 3), 'excluded rows still require valid ' . $field);
     }
     foreach (['1.234,56' => '1234.56', '1234.56' => '1234.56', '1234' => '1234.00'] as $amount => $expected) {
         $row = $bank; $row['Amount (EUR)'] = (string) $amount;
@@ -124,10 +136,12 @@ try {
     $csv = $dir . '/bank.csv';
     $handle = fopen($csv, 'w');
     $csv_bank = $bank; unset($csv_bank['__row_number']);
-    fputcsv($handle, array_keys($csv_bank), ';'); fputcsv($handle, $csv_bank, ';'); fclose($handle);
+    fputcsv($handle, array_keys($csv_bank), ';'); fputcsv($handle, $csv_bank, ';');
+    $csv_previous = $csv_bank; $csv_previous['Date'] = '20260630';
+    fputcsv($handle, $csv_previous, ';'); fclose($handle);
     $result = AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3);
-    company_check($result === ['added' => 1, 'duplicates' => 0], 'CSV upload persists company transaction');
-    company_check(AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3) === ['added' => 0, 'duplicates' => 1], 'overlapping uploads do not duplicate transactions');
+    company_check($result === ['added' => 1, 'duplicates' => 0, 'outside_period' => 1], 'semicolon CSV upload stores selected-quarter rows and reports excluded rows');
+    company_check(AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3) === ['added' => 0, 'duplicates' => 1, 'outside_period' => 1], 'overlapping longer exports do not duplicate transactions');
     company_reject(fn() => AVBK_Companies::import(2, $csv, 'bank.csv', 2026, 3), 'import cannot target an unassigned company');
     $document_id = AVBK_Company_Documents::add(1, $wpdb->transactions[0]->id, 'https://example.test/invoices/TEST-1.pdf');
     company_check(AVBK_Company_Documents::document(1, $document_id)->document_data === null, 'invoice pointer stored without fetching external data');

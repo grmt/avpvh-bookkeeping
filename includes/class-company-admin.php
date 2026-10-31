@@ -104,7 +104,9 @@ class AVBK_Company_Admin {
                 AVBK_Companies::company($company_id, 'import');
                 [$path, $filename] = $this->uploaded('bank_export', ['csv', 'xlsx']);
                 $result = AVBK_Companies::import($company_id, $path, $filename, $year, $quarter);
-                $message = sprintf('%d transacties toegevoegd; %d al aanwezig. Werk nu het kwartaalwerkblad bij en controleer de BTW per factuur.', $result['added'], $result['duplicates']);
+                $message = sprintf('%d transacties toegevoegd; %d al aanwezig. ', $result['added'], $result['duplicates']);
+                if ($result['outside_period']) $message .= sprintf('%d transacties buiten het gekozen kwartaal overgeslagen. ', $result['outside_period']);
+                $message .= 'Werk nu het kwartaalwerkblad bij en controleer de BTW per factuur.';
             } elseif ($operation === 'export') {
                 $company = AVBK_Companies::company($company_id, 'export');
                 [$path] = $this->uploaded('workbook', ['xlsx']);

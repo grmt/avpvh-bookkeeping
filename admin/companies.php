@@ -37,7 +37,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
         <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
             <section class="avbk-company-card">
                 <h3>1. Bankexport uploaden</h3>
-                <p>Kies een ING-export (.csv of .xlsx) voor deze bankrekening en dit kwartaal. Ontvangsten en uitgaven worden bewaard. Overlappende imports slaan bestaande transacties over.</p>
+                <p>Kies een ING-export (.csv of .xlsx) voor deze bankrekening. Een export over meerdere kwartalen is toegestaan: alleen transacties uit het gekozen boekjaar en kwartaal worden verwerkt. Je ziet na de import hoeveel transacties buiten die periode zijn overgeslagen. Ontvangsten en uitgaven worden bewaard. Overlappende imports slaan bestaande transacties over.</p>
                 <?php $form_start('import', true); ?>
                     <label for="avbk-company-bank">Bankexport</label>
                     <div class="avbk-dropzone"><span class="avbk-dropzone-text">Sleep een bestand hierheen, of klik om te kiezen</span><input id="avbk-company-bank" name="bank_export" type="file" accept=".csv,.xlsx" required></div>
