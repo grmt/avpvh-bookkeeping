@@ -82,7 +82,7 @@ class AVBK_Company_Report {
                 'name' => (string) ($v[1] ?? ''), 'direction' => $direction, 'gross_cents' => $gross,
                 'code' => trim((string) ($v[8] ?? '')), 'vat_cents' => $vat, 'net_cents' => $net,
                 'source' => $card ? 'Creditcard' : ($bank ? 'Bank' : 'Detail'),
-                'status' => $settlement ? 'settlement' : (!$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? 'suggested' : 'checked'))),
+                'status' => $settlement ? 'settlement' : (!$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? (str_starts_with((string) ($v[15] ?? ''), 'BTW-indeling gebruiker:') ? 'instructed' : 'suggested') : 'checked'))),
                 'note' => trim(preg_replace('/;?\s*CC:\d{4}-\d{2}-\d{2}:[a-f0-9]{64}\b/', '', (string) ($v[15] ?? '')))];
         }
         if (!$bank_rows) throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');

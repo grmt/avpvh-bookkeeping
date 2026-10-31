@@ -36,7 +36,7 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                     <td><?php echo esc_html($result_row['code'] === '' ? '—' : ($result_row['code'] === 'x' ? 'Vast bedrag' : $result_row['code'] . '%')); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['vat_cents'])); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['net_cents'])); ?></td>
-                    <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'checked' => 'Zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?></td>
+                    <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?></td>
                 </tr>
             <?php endforeach; ?></tbody>
         </table></div>

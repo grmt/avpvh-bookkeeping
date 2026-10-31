@@ -256,7 +256,7 @@ class AVBK_Company_Workbook {
                     self::replace_cell($doc, $row, 'I', $suggestion['code'], is_numeric($suggestion['code']));
                     self::replace_cell($doc, $row, 'J', $vat, true, 'IF(I' . $n . '="","",IF(I' . $n . '="x",' . $fixed . ',' . $gross_formula . '-ROUND(' . $gross_formula . '/(1+I' . $n . '/100),2)))');
                     self::replace_cell($doc, $row, 'K', $net, true, 'IF(J' . $n . '="","",' . $gross_formula . '-J' . $n . ')');
-                    self::replace_cell($doc, $row, 'P', 'BTW-suggestie: ' . $suggestion['source'] . '; controleer factuur; CC:' . $card->transaction_date . ':' . $card->dedupe_hash);
+                    self::replace_cell($doc, $row, 'P', ($suggestion['status'] === 'instructed' ? 'BTW-indeling gebruiker: ' : 'BTW-suggestie: ') . $suggestion['source'] . '; controleer factuur; CC:' . $card->transaction_date . ':' . $card->dedupe_hash);
                     $suggested++;
                     continue;
                 }
@@ -267,7 +267,7 @@ class AVBK_Company_Workbook {
                     $net = round($signed - $vat, 2); $suggested++;
                 }
                 $tag = 'CC:' . $card->transaction_date . ':' . $card->dedupe_hash;
-                $note = 'BTW-' . ($suggestion['code'] === null ? 'controleren: ' : 'suggestie: ') . $suggestion['source'] . '; ' . $tag;
+                $note = 'BTW-' . ($suggestion['code'] === null ? 'controleren: ' : ($suggestion['status'] === 'instructed' ? 'indeling gebruiker: ' : 'suggestie: ')) . $suggestion['source'] . '; ' . $tag;
                 $v = ['', $card->description, $card->card_account, '', '', $card->direction === 'out' ? 'Debit' : 'Credit', $card->amount,
                     '', $suggestion['code'] ?? '', '', '', '', 'Creditcard ' . $card->card_last4,
                     $card->transaction_date . '; ' . $card->currency . ' ' . $card->original_amount, '', $note];

@@ -402,6 +402,20 @@ try {
     company_check($filled_report['totals']['confirmed_vat_cents'] === 0, 'historical card matches retain invoice review markers');
     $filled_again = $dir . '/filled-card-again.xlsx';
     company_check(AVBK_Company_Workbook::update($filled_card_path, $filled_again, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$cloud_card])['suggested'] === 0, 'existing VAT annotations are preserved on a later update');
+    AVBK_Vat_Patterns::record_card_classifications(1, 2026, 3, [['merchant' => 'Microsoft', 'code' => '0', 'source' => 'Explicit quarter instruction']]);
+    $instructed = AVBK_Vat_Patterns::suggest_card(AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 3), (object) ['counterparty_name' => 'Microsoft-G000004', 'direction' => 'out']);
+    company_check($instructed['code'] === '0' && $instructed['status'] === 'instructed', 'explicit current-quarter classification takes precedence over historical evidence');
+    company_check(AVBK_Vat_Patterns::suggest_card(AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 4), (object) ['counterparty_name' => 'Microsoft-G000004', 'direction' => 'out'])['status'] !== 'instructed', 'current-quarter instructions do not leak into another quarter');
+    AVBK_Vat_Patterns::record_card_classifications(1, 2026, 3, [['merchant' => 'Microsoft', 'code' => '21', 'source' => 'Updated quarter instruction']]);
+    company_check(AVBK_Vat_Patterns::suggest_card(AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 3), (object) ['counterparty_name' => 'Microsoft-G000004', 'direction' => 'out'])['code'] === '21', 'a later explicit quarter instruction replaces the earlier one');
+    $zero_card = clone $cloud_card; $zero_card->description = 'Unclassified service'; $zero_card->dedupe_hash = hash('sha256', 'synthetic-zero-purchase');
+    $zero_source = $dir . '/zero-source.xlsx'; $zero_output = $dir . '/zero-output.xlsx';
+    AVBK_Company_Workbook::update($source, $zero_source, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$zero_card]);
+    AVBK_Vat_Patterns::record_card_classifications(1, 2026, 3, [['merchant' => 'Unclassified service', 'code' => '0', 'source' => 'User supplied zero treatment']]);
+    AVBK_Company_Workbook::update($zero_source, $zero_output, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$zero_card]);
+    $zero_report = AVBK_Company_Report::build($zero_output, $wpdb->companies[1], [$settlement_tx], 2026, 3, 'zero.xlsx', [$zero_card]);
+    $instructed_rows = array_filter($zero_report['rows'], fn($row) => $row['source'] === 'Creditcard' && $row['status'] === 'instructed');
+    company_check(count($instructed_rows) === 1 && $zero_report['totals']['known_vat_cents'] === 0 && $zero_report['totals']['known_net_cents'] === 12100 && $zero_report['totals']['unknown_rows'] === 0, 'an explicit zero classification produces known zero VAT and the full net purchase amount');
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);

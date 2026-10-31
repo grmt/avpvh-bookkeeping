@@ -30,14 +30,28 @@ class AVBK_Vat_Patterns {
             $date = AVBK_Bank_Import_Layout::parse_date((string) ($entry['date'] ?? ''), 'Y-m-d');
             $source = trim((string) ($entry['source'] ?? ''));
             $direction = (string) ($entry['direction'] ?? 'out');
+            $period = trim((string) ($entry['period_start'] ?? ''));
             if ($merchant === '' || mb_strlen($merchant) > 255 || !in_array($code, ['0', '9', '21'], true) || !$date || $source === '' || mb_strlen($source) > 1000 || !in_array($direction, ['out', 'in'], true)) {
                 throw new \RuntimeException('Vul een leverancier, historisch BTW-percentage, datum en controleerbare bron in.');
             }
             $record = ['merchant' => $merchant, 'code' => $code, 'date' => $date, 'source' => $source, 'direction' => $direction];
             $identity = hash('sha256', wp_json_encode($record));
+            if ($period !== '') {
+                $period_date = AVBK_Bank_Import_Layout::parse_date($period, 'Y-m-d');
+                if (!$period_date || AVBK_Companies::period((int) substr($period, 0, 4), (int) ceil((int) substr($period, 5, 2) / 3))[0] !== $period) throw new \RuntimeException('Ongeldige periode voor de opgegeven BTW-indeling.');
+                $record['period_start'] = $period;
+                $identity = 'period:' . hash('sha256', wp_json_encode([$merchant, $direction, $period]));
+            }
             $stored[$identity] = $record + ['recorded_by' => get_current_user_id()];
         }
         if (!update_option($key, $stored, false) && get_option($key) !== $stored) throw new \RuntimeException('De historische BTW-patronen konden niet worden opgeslagen.');
+    }
+
+    public static function record_card_classifications(int $company_id, int $year, int $quarter, array $entries): void {
+        [$period] = AVBK_Companies::period($year, $quarter);
+        foreach ($entries as &$entry) { $entry['period_start'] = $period; $entry['date'] = gmdate('Y-m-d'); }
+        unset($entry);
+        self::record_card_history($company_id, $entries);
     }
     public static function is_settlement(string $name, string $description): bool {
         return (bool) preg_match('/ING.*(?:Commercial\s*Cards|Business\s*Card)|creditcard.*(?:afrekening|settlement)/iu', $name . ' ' . $description);
@@ -67,9 +81,11 @@ class AVBK_Vat_Patterns {
         if (AVBK_Companies::can((int) $company->id, 'view')) {
             $recorded = get_option('avbk_company_card_vat_history_' . (int) $company->id, []);
             foreach (is_array($recorded) ? $recorded : [] as $entry) {
-                if (($entry['date'] ?? '') >= $cutoff) continue;
+                if (!empty($entry['period_start'])) {
+                    if ($entry['period_start'] !== $cutoff) continue;
+                } elseif (($entry['date'] ?? '') >= $cutoff) continue;
                 $key = 'card:' . $entry['direction'] . ':' . $entry['merchant'];
-                $patterns[$key][] = ['code' => $entry['code'], 'vat' => null, 'source' => $entry['source'], 'date' => $entry['date']];
+                $patterns[$key][] = ['code' => $entry['code'], 'vat' => null, 'source' => $entry['source'], 'date' => $entry['date'], 'explicit' => !empty($entry['period_start'])];
             }
         }
         return $patterns;
@@ -87,6 +103,8 @@ class AVBK_Vat_Patterns {
     public static function suggest_card(array $history, object $transaction): array {
         $entries = $history['card:' . $transaction->direction . ':' . self::card_merchant($transaction->counterparty_name)] ?? [];
         $entries = array_merge($entries, $history[self::supplier('', $transaction->counterparty_name, $transaction->direction)] ?? []);
+        $explicit = array_values(array_filter($entries, fn($entry) => !empty($entry['explicit'])));
+        if ($explicit) $entries = $explicit;
         return self::resolve($entries);
     }
 
@@ -101,6 +119,6 @@ class AVBK_Vat_Patterns {
             if (count($amounts) !== 1 || $amounts[0] === '') return ['status' => 'conflict', 'code' => null, 'source' => 'Het eerdere vaste BTW-bedrag is niet consistent.'];
             $fixed = (float) $amounts[0];
         }
-        return ['status' => 'suggested', 'code' => $code, 'fixed_vat' => $fixed, 'source' => $entries[0]['source'], 'observations' => count($entries)];
+        return ['status' => !empty($entries[0]['explicit']) ? 'instructed' : 'suggested', 'code' => $code, 'fixed_vat' => $fixed, 'source' => $entries[0]['source'], 'observations' => count($entries)];
     }
 }

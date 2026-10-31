@@ -131,6 +131,10 @@ can fill previously unknown, marked card rows on the next workbook update; exist
 VAT annotations and manually changed prices are preserved. All inferred values
 keep their invoice-review markers. Recorded zero treatment is retained as provided,
 without deciding the VAT-return classification of those purchases.
+Explicit user classifications are scoped to a company and quarter and take
+precedence over earlier evidence for that period. Their provenance is labelled
+as a user instruction rather than historical inference; invoice-review markers
+remain in place. Later instructions replace earlier ones for that same period.
 
 Company invoices can be uploaded as PDF, JPEG, PNG, or WebP, or recorded as a source
 reference (a URL or local file path). References are stored without automatically
