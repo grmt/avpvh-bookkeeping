@@ -7,6 +7,7 @@ class AVBK_Company_Admin {
         add_action('admin_menu', [$this, 'menus']);
         add_action('admin_post_avbk_company', [$this, 'handle']);
         add_action('admin_post_avbk_company_document', [$this, 'download_document']);
+        add_action('admin_post_avbk_company_workbook', [$this, 'download_workbook']);
         add_shortcode('avbk_company_bookkeeping', [$this, 'shortcode']);
         add_action('admin_enqueue_scripts', function ($hook) {
             if (str_contains($hook, 'avbk-companies')) $this->assets();
@@ -106,6 +107,26 @@ class AVBK_Company_Admin {
         header('Content-Disposition: attachment; filename="' . sanitize_file_name($doc->filename) . '"');
         header('X-Content-Type-Options: nosniff');
         echo $bytes; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- private binary download, after company access and nonce checks
+        exit;
+    }
+
+    public function download_workbook(): void {
+        check_admin_referer('avbk_company_workbook');
+        try {
+            $company_id = (int) ($_GET['company_id'] ?? 0); $year = (int) ($_GET['book_year'] ?? 0); $quarter = (int) ($_GET['quarter'] ?? 0);
+            AVBK_Companies::company($company_id, 'export');
+            $report = AVBK_Company_Report::get($company_id, $year, $quarter);
+            if (!$report || empty($report['workbook_data'])) throw new \RuntimeException('Werk de BTW-werkmap opnieuw bij om een download te maken.');
+            if ($report['transactions_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Companies::transactions($company_id, $year, $quarter))
+                || $report['cards_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Company_Cards::transactions($company_id, $year, $quarter))) throw new \RuntimeException('De bank- of creditcardgegevens zijn gewijzigd. Werk de werkmap eerst opnieuw bij.');
+            $bytes = base64_decode($report['workbook_data'], true);
+            if ($bytes === false || strlen($bytes) > 3 * 1024 * 1024 || hash('sha256', $bytes) !== $report['workbook_hash']) throw new \RuntimeException('De opgeslagen werkmap kon niet worden gecontroleerd.');
+        } catch (\RuntimeException $e) { wp_die(esc_html($e->getMessage()), '', ['response' => 403]); }
+        nocache_headers();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . sanitize_file_name($report['filename']) . '"');
+        header('X-Content-Type-Options: nosniff');
+        echo $bytes; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- verified private workbook after company access, freshness and nonce checks
         exit;
     }
 

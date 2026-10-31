@@ -246,6 +246,7 @@ try {
     company_check(count($report['rows']) === 1 && $report['bank_rows'] === 1, 'result excludes the provisional worksheet footer');
     company_check($report['totals']['known_vat_cents'] === 2100 && $report['totals']['known_net_cents'] === 10000, 'result totals show VAT and ex-VAT amounts from row values');
     company_check($report['totals']['pending_rows'] === 1 && $report['totals']['confirmed_vat_cents'] === 0 && $report['totals']['confirmed_net_cents'] === 0, 'unreviewed suggestions are separate from unmarked totals');
+    company_check(hash('sha256', base64_decode($report['workbook_data'], true)) === $report['workbook_hash'], 'private downloadable working copy matches the reviewed workbook');
     AVBK_Company_Report::save($report);
     company_check(AVBK_Company_Report::get(1, 2026, 3) === $report, 'last workbook result persists privately per company and period');
     AVBK_Company_Report::save($report);
@@ -277,6 +278,7 @@ try {
     $income_report = AVBK_Company_Report::build($signed_path, $wpdb->companies[1], [], 2026, 3, 'income.xlsx');
     company_check($income_report['totals']['gross_cents'] === -12100 && $income_report['totals']['confirmed_vat_cents'] === -2100 && $income_report['totals']['confirmed_net_cents'] === -10000, 'incoming VAT and net values keep workbook signs and ignore cached footer totals');
     $report['rows'][0]['name'] = '<script>alert(1)</script>';
+    $report['workbook_data'] = null;
     $report_stale = false;
     ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-report.php'; $html = ob_get_clean();
     company_check(str_contains($html, '&lt;script&gt;') && !str_contains($html, '<script>'), 'result display escapes imported worksheet text');
@@ -310,6 +312,15 @@ try {
     fputcsv($handle, $card_parsed['headers']); foreach ($card_parsed['rows'] as $r) fputcsv($handle, $r); fclose($handle);
     company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3) === ['added' => 4, 'duplicates' => 0, 'outside_account' => 1, 'outside_period' => 1], 'card CSV is saved separately from bank records');
     company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3)['duplicates'] === 4, 'overlapping card statements do not duplicate purchases');
+    $pdf_row = $card_row; $pdf_row['Boekingsdatum'] = '';
+    $pdf_statement = ['headers' => array_keys($pdf_row), 'rows' => [$pdf_row], 'card_account' => '12345678901', 'customer_reference' => '417164300', 'statement_total' => '121.00'];
+    $pdf_plan = AVBK_Company_Cards::prepare($wpdb->companies[1], $pdf_statement, 2026, 3, true);
+    company_check($pdf_plan['rows'][0]['booking_date'] === null && $pdf_plan['rows'][0]['dedupe_hash'] === $card_plan['rows'][0]['dedupe_hash'], 'PDF booking dates remain unknown and overlapping CSV purchases have the same identity');
+    company_check(AVBK_Company_Cards::import_statement(1, $pdf_statement, 'statement.pdf', 2026, 3)['duplicates'] === 1, 'interpreted statement and CSV do not duplicate the same purchase');
+    $bad_statement = $pdf_statement; $bad_statement['customer_reference'] = '999999999';
+    company_reject(fn() => AVBK_Company_Cards::import_statement(1, $bad_statement, 'statement.pdf', 2026, 3), 'PDF customer reference must match the company bank account');
+    $bad_statement = $pdf_statement; $bad_statement['statement_total'] = '242.00';
+    company_reject(fn() => AVBK_Company_Cards::import_statement(1, $bad_statement, 'statement.pdf', 2026, 3), 'PDF purchase rows must reconcile to the statement total');
     $broken_card_csv = $dir . '/card-rollback.csv'; $handle = fopen($broken_card_csv, 'w');
     $new_purchase = $card_row; $new_purchase['Bedrag in EUR'] = '-242,00';
     fputcsv($handle, $card_parsed['headers']); fputcsv($handle, $new_purchase); fclose($handle);

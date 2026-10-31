@@ -62,6 +62,9 @@ jobs:
           done
           exit $status
 
+      - name: "Invoice mailbox and statement extraction tests"
+        run: python3 -m unittest discover -s tests -p 'test_company_*.py'
+
   plugin-check:
     name: "WordPress Plugin Check"
     runs-on: ubuntu-latest

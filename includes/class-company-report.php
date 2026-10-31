@@ -83,7 +83,7 @@ class AVBK_Company_Report {
                 'code' => trim((string) ($v[8] ?? '')), 'vat_cents' => $vat, 'net_cents' => $net,
                 'source' => $card ? 'Creditcard' : ($bank ? 'Bank' : 'Detail'),
                 'status' => $settlement ? 'settlement' : (!$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? 'suggested' : 'checked'))),
-                'note' => (string) ($v[15] ?? '')];
+                'note' => trim(preg_replace('/;?\s*CC:\d{4}-\d{2}-\d{2}:[a-f0-9]{64}\b/', '', (string) ($v[15] ?? '')))];
         }
         if (!$bank_rows) throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
         foreach ($transactions as $tx) {
@@ -101,6 +101,7 @@ class AVBK_Company_Report {
             'sheet' => $sheet, 'filename' => sanitize_file_name($filename), 'generated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
             'workbook_hash' => hash_file('sha256', $path), 'transactions_hash' => self::fingerprint($transactions),
             'cards_hash' => self::fingerprint($card_transactions), 'card_rows' => count($card_keys),
+            'workbook_data' => filesize($path) <= 3 * 1024 * 1024 ? base64_encode(file_get_contents($path)) : null,
             'bank_rows' => $bank_rows, 'totals' => $totals, 'rows' => $rows];
     }
 

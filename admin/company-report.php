@@ -8,6 +8,9 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         <p>Werk hieronder de BTW-werkmap bij. Daarna verschijnen hier de regels, BTW en bedragen exclusief BTW van het bijgewerkte kwartaalwerkblad.</p>
     <?php else : $totals = $report['totals']; ?>
         <p><strong><?php echo esc_html($report['sheet']); ?></strong> · <?php echo esc_html($report['filename']); ?> · bijgewerkt <?php echo esc_html($report['generated_at']); ?></p>
+        <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'export')) : ?>
+            <p><a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_workbook', 'company_id' => $company_id, 'book_year' => $year, 'quarter' => $quarter], admin_url('admin-post.php')), 'avbk_company_workbook')); ?>">Bijgewerkte Excel-werkmap downloaden</a></p>
+        <?php endif; ?>
         <?php if ($report_stale) : ?><p class="avbk-company-notice avbk-company-error">De bankgegevens zijn gewijzigd sinds dit resultaat. Werk de BTW-werkmap opnieuw bij voor een actueel overzicht.</p><?php endif; ?>
         <div class="avbk-company-totals">
             <div><span>Incl. BTW · bank en kaart, zonder kaartafrekeningen</span><strong><?php echo esc_html($money($totals['purchase_gross_cents'] ?? $totals['gross_cents'])); ?></strong></div>

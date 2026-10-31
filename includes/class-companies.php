@@ -72,7 +72,7 @@ class AVBK_Companies {
             card_account VARCHAR(64) NOT NULL,
             card_last4 VARCHAR(4) NOT NULL,
             transaction_date DATE NOT NULL,
-            booking_date DATE NOT NULL,
+            booking_date DATE NULL DEFAULT NULL,
             amount DECIMAL(14,2) NOT NULL,
             direction VARCHAR(3) NOT NULL,
             entry_type VARCHAR(20) NOT NULL,
@@ -88,7 +88,7 @@ class AVBK_Companies {
             UNIQUE KEY company_hash (company_id,dedupe_hash),
             KEY company_date (company_id,transaction_date)
         ) ENGINE=InnoDB $charset;");
-        update_option('avbk_company_schema', '2', false);
+        update_option('avbk_company_schema', '3', false);
     }
 
     public static function normalize_iban(string $iban): string {

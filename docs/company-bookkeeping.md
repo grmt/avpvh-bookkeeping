@@ -48,6 +48,13 @@ VAT annotations, and undated detail rows in the selected year's sheet are preser
 new bank entries are merged in date order. A previous-year template is refreshed.
 The original uploaded file is never overwritten.
 
+The latest generated workbook is retained privately with its result when it is at
+most 3 MB. Authorized company users can download it again from the result view;
+the download verifies company access, a nonce, the workbook hash, and whether bank
+or card imports have made it stale. Larger workbooks still download immediately
+but are not retained as a full working copy. Uploaded source workbooks remain
+temporary. Keep the original and reviewed versions in your own document storage.
+
 The portal retains a private result snapshot for each company, year, and quarter.
 It shows the exported worksheet rows, VAT amounts, amounts excluding VAT, and their
 totals. Suggested amounts remain provisional; blank amounts remain unknown. The
@@ -65,9 +72,15 @@ multiple files at once, including mixed PDF/CSV/XLSX files: at most 20 files and
 20 MB total, with a 3 MB limit per PDF. Each file is processed separately and has
 its own result; a failure does not undo earlier successful files. Retrying a batch
 reuses existing PDF documents and skips already imported card transactions.
-PDF statements
-are stored as private company documents for interpretation; uploading a PDF does
-not itself create purchase rows or VAT amounts. ING Commercial Cards CSV/XLSX
+PDF statements are stored as private company documents for interpretation;
+uploading a PDF does not itself create purchase rows or VAT amounts. The host
+tool `bin/parse-ing-card-statements.py` uses `pdftotext -layout` to extract the
+supported ING Businesscard layout, including foreign currency and refunds. It
+checks every statement's printed total, handles year boundaries, and retains the
+customer reference and source-document hash. The controlled import verifies the
+customer reference against the company's bank account and imports only the chosen
+quarter. Booking dates absent from PDFs remain unknown. PDF and CSV copies of
+the same purchase have the same deduplication identity. ING Commercial Cards CSV/XLSX
 transaction exports are parsed using their `Accountnummer`, `Transactiedatum`,
 `Boekingsdatum`, `Omschrijving`, `Valuta`, `Bedrag` and `Bedrag in EUR` columns.
 A CEO first links the statement account to the company. One account cannot belong
@@ -135,8 +148,8 @@ than following external links automatically. The collector never sends email.
 
 ## Remaining work
 
-- Interpret PDF card statements into reviewed purchase rows and reconcile card
-  periods and payments against the bank settlements.
+- Extend PDF layout support and reconcile card periods and payments against the
+  bank settlements. Statement extraction alone does not verify invoice VAT.
 - Add invoice-based bookkeeping entries, including unpaid invoices, split and mixed
   VAT treatments, invoice dates, credit notes, reverse charge, and VAT return boxes.
 - Add a general ledger, opening balances, journal entries, period closing, balance
