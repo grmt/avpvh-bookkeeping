@@ -88,7 +88,14 @@ class AVBK_Companies {
             UNIQUE KEY company_hash (company_id,dedupe_hash),
             KEY company_date (company_id,transaction_date)
         ) ENGINE=InnoDB $charset;");
-        update_option('avbk_company_schema', '3', false);
+        // dbDelta does not reliably apply a nullability-only column change.
+        $booking_column = $wpdb->get_row("SHOW COLUMNS FROM {$wpdb->prefix}avb_company_card_transactions LIKE 'booking_date'");
+        if (!$booking_column || $booking_column->Null !== 'YES') {
+            if ($wpdb->query("ALTER TABLE {$wpdb->prefix}avb_company_card_transactions MODIFY booking_date DATE NULL DEFAULT NULL") === false) {
+                throw new \RuntimeException('De creditcarddatabase kon niet worden bijgewerkt voor ontbrekende boekingsdatums.');
+            }
+        }
+        update_option('avbk_company_schema', '4', false);
     }
 
     public static function normalize_iban(string $iban): string {
