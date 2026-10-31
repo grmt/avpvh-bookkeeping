@@ -20,6 +20,7 @@ class AVBK_Company_Admin {
     private function assets(): void {
         wp_enqueue_style('avbk-company', AVBK_PLUGIN_URL . 'assets/company.css', [], avbk_asset_version('assets/company.css'));
         wp_enqueue_script('avbk-import', AVBK_PLUGIN_URL . 'assets/import.js', [], avbk_asset_version('assets/import.js'), true);
+        wp_enqueue_script('avbk-company', AVBK_PLUGIN_URL . 'assets/company.js', [], avbk_asset_version('assets/company.js'), true);
     }
 
     public function menus(): void {
@@ -47,6 +48,8 @@ class AVBK_Company_Admin {
         $notice = get_transient('avbk_company_notice_' . get_current_user_id());
         delete_transient('avbk_company_notice_' . get_current_user_id());
         $transactions = $company ? AVBK_Companies::transactions($company_id, $year, $quarter) : [];
+        $report = $company ? AVBK_Company_Report::get($company_id, $year, $quarter) : null;
+        $report_stale = $report && $report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions);
         require AVBK_PLUGIN_DIR . 'admin/companies.php';
     }
 
@@ -114,6 +117,7 @@ class AVBK_Company_Admin {
                 if (!$output) throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
                 $transactions = AVBK_Companies::transactions($company_id, $year, $quarter);
                 AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter);
+                AVBK_Company_Report::save(AVBK_Company_Report::build($output, $company, $transactions, $year, $quarter, $year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx'));
                 nocache_headers();
                 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 header('Content-Disposition: attachment; filename="' . sanitize_file_name($year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx') . '"');
@@ -124,7 +128,9 @@ class AVBK_Company_Admin {
             set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => false, 'message' => $message], 120);
         } catch (\Throwable $e) {
             if ($output) wp_delete_file($output);
-            set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => true, 'message' => $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.'], 120);
+            $message = $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.';
+            if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') wp_send_json_error(['message' => $message], 400);
+            set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => true, 'message' => $message], 120);
         }
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
         $args = ['company_id' => $company_id];

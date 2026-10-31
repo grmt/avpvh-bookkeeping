@@ -48,6 +48,16 @@ VAT annotations, and undated detail rows in the selected year's sheet are preser
 new bank entries are merged in date order. A previous-year template is refreshed.
 The original uploaded file is never overwritten.
 
+The portal retains a private result snapshot for each company, year, and quarter.
+It shows the exported worksheet rows, VAT amounts, amounts excluding VAT, and their
+totals. Suggested amounts remain provisional; blank amounts remain unknown. The
+unmarked totals follow the worksheet's exclusion of `BTW-` review markers. Expenses
+are positive and receipts negative, as in the worksheet; this balance is not a VAT
+return calculation. Footer caches are ignored and totals are summed from row values.
+Later bank imports mark the result stale. Changes made in Excel appear after the
+edited workbook is uploaded and updated again. With JavaScript, the export downloads
+and then returns to the saved result; without JavaScript, refresh after downloading.
+
 Excel shared formulas are expanded and relative row references follow their rows.
 The totals are rebuilt, the obsolete calculation chain is removed, and Excel is
 asked to recalculate on opening. Worksheets with tables, merged cells, validation,

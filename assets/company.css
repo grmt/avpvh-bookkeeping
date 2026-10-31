@@ -15,3 +15,12 @@
 .avbk-company .avbk-dropzone:focus-within, .avbk-company .avbk-dropzone-dragover { outline: 2px solid #2271b1; background: #f0f6fc; }
 .avbk-company button { cursor: pointer; padding: 8px 14px; }
 .avbk-company button:disabled { cursor: default; opacity: .6; }
+.avbk-company .avbk-company-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 20px 0; }
+.avbk-company .avbk-company-totals > div { padding: 16px; background: #f0f6fc; border: 1px solid #c3d9ed; border-radius: 6px; }
+.avbk-company .avbk-company-totals span, .avbk-company .avbk-company-totals strong { display: block; }
+.avbk-company .avbk-company-totals strong { font-size: 1.4em; margin-top: 8px; }
+.avbk-company .avbk-company-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.avbk-company td small { display: block; min-width: 180px; margin-top: 6px; }
+.avbk-company .avbk-company-status { font-weight: 600; }
+.avbk-company caption { text-align: left; margin-bottom: 10px; }
+#avbk-company-result { scroll-margin-top: 50px; }

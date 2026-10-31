@@ -10,7 +10,9 @@ function get_userdata(int $id) { return $id > 0 ? (object) ['ID' => $id] : false
 function wp_json_encode($data): string { return json_encode($data, JSON_UNESCAPED_UNICODE); }
 function sanitize_file_name(string $name): string { return basename($name); }
 function remove_accents(string $text): string { return $text; }
-function get_option(string $name, $default = false) { return $default; }
+function get_option(string $name, $default = false) { return $GLOBALS['test_options'][$name] ?? $default; }
+function update_option(string $name, $value, $autoload = null): bool { $changed = get_option($name) !== $value; $GLOBALS['test_options'][$name] = $value; return $changed; }
+function esc_html($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }
 
 class Company_Test_DB {
     public string $prefix = 'wp_';
@@ -75,6 +77,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-companies.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
 
 function company_check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('FAIL: ' . $message);
@@ -177,7 +180,7 @@ try {
         $archive['xl/calcChain.xml'] = '<calcChain xmlns="' . $ns . '"/>';
         unset($archive); rename($zip_path, $path);
     };
-    $tx = (object) ($prepared[0] + ['company_id' => 1]);
+    $tx = (object) ($prepared[0] + ['company_id' => 1, 'id' => 1]);
     $tx->counterparty_name = '=HYPERLINK("https://example.test","text")';
     $source = $dir . '/template.xlsx'; $output = $dir . '/updated.xlsx';
     $make_workbook($source, 2025); $source_hash = hash_file('sha256', $source);
@@ -223,6 +226,43 @@ try {
     company_check($rows[2][8] === '21' && $rows[2][9] === '21' && str_starts_with($rows[2][15], 'BTW-suggestie:'), 'suggested VAT is traceable and marked for review');
     $archive = new AVBK_Xlsx_Archive($suggested_path); $xml = $archive->getFromName('xl/worksheets/sheet1.xml'); $archive->close();
     company_check(str_contains($xml, '&lt;&gt;BTW-*'), 'pending suggestions excluded from checked VAT totals');
+
+    $report = AVBK_Company_Report::build($suggested_path, $wpdb->companies[1], [$supplier], 2026, 3, 'quarter.xlsx');
+    company_check(count($report['rows']) === 1 && $report['bank_rows'] === 1, 'result excludes the provisional worksheet footer');
+    company_check($report['totals']['known_vat_cents'] === 2100 && $report['totals']['known_net_cents'] === 10000, 'result totals show VAT and ex-VAT amounts from row values');
+    company_check($report['totals']['pending_rows'] === 1 && $report['totals']['confirmed_vat_cents'] === 0 && $report['totals']['confirmed_net_cents'] === 0, 'unreviewed suggestions are separate from unmarked totals');
+    AVBK_Company_Report::save($report);
+    company_check(AVBK_Company_Report::get(1, 2026, 3) === $report, 'last workbook result persists privately per company and period');
+    AVBK_Company_Report::save($report);
+    company_check(AVBK_Company_Report::get(1, 2026, 2) === null, 'another quarter does not inherit a workbook result');
+    company_reject(fn() => AVBK_Company_Report::get(2, 2026, 3), 'result cannot be read through another company ID');
+    $foreign = $report; $foreign['company_id'] = 2;
+    company_reject(fn() => AVBK_Company_Report::save($foreign), 'publishing a result requires access to that company');
+    $GLOBALS['test_user'] = 12;
+    company_check(AVBK_Company_Report::get(1, 2026, 3) === $report, 'assigned accountant can read the shared workbook result');
+    $GLOBALS['test_user'] = 0;
+    company_reject(fn() => AVBK_Company_Report::get(1, 2026, 3), 'anonymous users cannot read result snapshots');
+    $GLOBALS['test_user'] = 11;
+    $missing = AVBK_Company_Report::build($output, $wpdb->companies[1], [$tx], 2026, 3, 'unknown.xlsx');
+    company_check($missing['rows'][0]['vat_cents'] === null && $missing['rows'][0]['net_cents'] === null && $missing['totals']['unknown_rows'] === 1, 'blank VAT values remain unknown rather than becoming zero');
+    $extra_tx = clone $tx; $extra_tx->id = 99;
+    company_check($report['transactions_hash'] !== AVBK_Company_Report::fingerprint([$supplier, $extra_tx]), 'later bank imports make a saved result stale');
+    company_check(AVBK_Company_Report::fingerprint([$supplier, $extra_tx]) === AVBK_Company_Report::fingerprint([$extra_tx, $supplier]), 'result freshness is independent of transaction order');
+    company_reject(fn() => AVBK_Company_Report::build($source, $wpdb->companies[1], [], 2026, 3, 'prior-year.xlsx'), 'result rejects a previous-year sheet');
+
+    $signed_path = $dir . '/signed-report.xlsx'; copy($suggested_path, $signed_path);
+    $archive = new AVBK_Xlsx_Archive($signed_path);
+    $archive->put('xl/worksheets/sheet1.xml', '<worksheet xmlns="' . $ns . '"><sheetData><row r="1">' . $text('A1', 'Date') . $text('I1', 'BTW %') . '</row>'
+        . '<row r="2">' . $text('A2', '20260920') . $text('B2', 'Voorbeeld') . $text('C2', 'NL91ABNA0417164300') . $text('F2', 'Credit')
+        . '<c r="G2"><v>121</v></c><c r="H2"><v>-121</v></c><c r="I2"><v>21</v></c><c r="J2"><v>-21</v></c><c r="K2"><v>-100</v></c></row>'
+        . '<row r="3">' . $text('B3', 'Totaal') . '<c r="H3"><v>999999</v></c><c r="J3"><v>999999</v></c><c r="K3"><v>999999</v></c></row></sheetData></worksheet>');
+    $archive->close();
+    $income_report = AVBK_Company_Report::build($signed_path, $wpdb->companies[1], [], 2026, 3, 'income.xlsx');
+    company_check($income_report['totals']['gross_cents'] === -12100 && $income_report['totals']['confirmed_vat_cents'] === -2100 && $income_report['totals']['confirmed_net_cents'] === -10000, 'incoming VAT and net values keep workbook signs and ignore cached footer totals');
+    $report['rows'][0]['name'] = '<script>alert(1)</script>';
+    $report_stale = false;
+    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-report.php'; $html = ob_get_clean();
+    company_check(str_contains($html, '&lt;script&gt;') && !str_contains($html, '<script>'), 'result display escapes imported worksheet text');
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);

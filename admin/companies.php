@@ -34,6 +34,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
     <?php if ($company) : ?>
         <h2><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h2>
         <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
+        <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
         <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
             <section class="avbk-company-card">
                 <h3>1. Bankexport uploaden</h3>
@@ -78,11 +79,12 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
                     <label for="avbk-company-workbook">Nieuwste BTW-werkmap (.xlsx)</label>
                     <input id="avbk-company-workbook" name="workbook" type="file" accept=".xlsx" required>
                     <button type="submit" class="button" <?php disabled(!$transactions); ?>>Werkblad bijwerken en downloaden</button>
+                    <p role="status" aria-live="polite"></p>
                 </form>
             </section>
         <?php endif; ?>
         <h3>Geïmporteerde banktransacties (<?php echo esc_html(count($transactions)); ?>)</h3>
-        <p>Dit is het bankoverzicht. De BTW-controle gebeurt voorlopig in de werkmap; het overzicht is nog geen volledige grootboek- of BTW-aangifteadministratie.</p>
+        <p>Dit is het bankoverzicht. Het resultaat van het kwartaalwerkblad met BTW en bedragen exclusief BTW staat bovenaan. De BTW-controle gebeurt in de werkmap.</p>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <thead><tr><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Bedrag</th><th>Mededelingen</th></tr></thead>
             <tbody><?php foreach ($transactions as $tx) : ?><tr>
