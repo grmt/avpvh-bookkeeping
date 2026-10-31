@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Boekhouding
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.20.8
+ * Version:     1.21.0
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -30,25 +30,18 @@ function avbk_asset_version(string $relative_path): string {
 }
 
 /**
- * Every lookup in this plugin goes through avpvh-members' AVPVH_DB (member
- * data, camps, LLDAP identity) and AVPVH_Roles (penningmeester access
- * control) — refuse to run without it rather than fail confusingly deep
- * inside a query.
+ * Association features use the members plugin. Company administrations
+ * run independently, using WordPress accounts and company-scoped roles.
  */
 function avbk_dependencies_missing(): bool {
     return !class_exists('AVPVH_DB') || !class_exists('AVPVH_Roles');
 }
 
-add_action('admin_notices', function () {
-    if (avbk_dependencies_missing()) {
-        echo '<div class="notice notice-error"><p>AV-PvH Boekhouding vereist een actieve, actuele versie van de AV-PvH Leden plugin (AVPVH_DB en AVPVH_Roles).</p></div>';
-    }
-});
-
 register_activation_hook(__FILE__, function () {
+    require_once AVBK_PLUGIN_DIR . 'includes/class-companies.php';
+    AVBK_Companies::install();
     if (avbk_dependencies_missing()) {
-        deactivate_plugins(plugin_basename(__FILE__));
-        wp_die('AV-PvH Boekhouding vereist dat de AV-PvH Leden plugin actief is (en actueel genoeg is voor AVPVH_Roles). Activeer die eerst.');
+        return;
     }
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
     AVBK_DB::install();
@@ -61,6 +54,17 @@ register_deactivation_hook(__FILE__, function () {
 });
 
 add_action('plugins_loaded', function () {
+    require_once AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-companies.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
+    if (get_option('avbk_company_schema') !== '1') AVBK_Companies::install();
+    new AVBK_Company_Admin();
     if (avbk_dependencies_missing()) {
         return;
     }
