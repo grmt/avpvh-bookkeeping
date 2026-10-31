@@ -1,4 +1,5 @@
-.avbk-company { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+.avbk-company { max-width: 1500px; margin: 24px auto; padding: 0 16px; box-sizing: border-box; }
+.wp-block-post-content .avbk-company, .entry-content .avbk-company { width: min(1500px, calc(100vw - 48px)); max-width: none; position: relative; left: 50%; transform: translateX(-50%); margin-left: 0; margin-right: 0; }
 .avbk-company label { display: block; margin: 12px 0; }
 .avbk-company input:not([type="hidden"]), .avbk-company select { display: block; max-width: 100%; padding: 8px; }
 .avbk-company .avbk-company-picker { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
@@ -8,8 +9,9 @@
 .avbk-company .avbk-company-notice { border-left: 4px solid #008a20; padding: 12px; background: #fff; color: #1d2327; white-space: pre-line; }
 .avbk-company .avbk-company-error { border-color: #b32d2e; }
 .avbk-company .avbk-company-scroll { overflow-x: auto; }
-.avbk-company table { border-collapse: collapse; width: 100%; }
-.avbk-company th, .avbk-company td { padding: 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #dcdcde; }
+.avbk-company table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.4; }
+.avbk-company th, .avbk-company td { padding: 7px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid #dcdcde; overflow-wrap: anywhere; }
+.avbk-company th { font-size: 13px; }
 .avbk-company .avbk-dropzone { position: relative; border: 2px dashed #8c8f94; padding: 32px 16px; margin: 12px 0; text-align: center; }
 .avbk-company .avbk-dropzone input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .avbk-company .avbk-dropzone:focus-within, .avbk-company .avbk-dropzone-dragover { outline: 2px solid #2271b1; background: #f0f6fc; }
@@ -20,7 +22,7 @@
 .avbk-company .avbk-company-totals span, .avbk-company .avbk-company-totals strong { display: block; }
 .avbk-company .avbk-company-totals strong { font-size: 1.4em; margin-top: 8px; }
 .avbk-company .avbk-company-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.avbk-company td small { display: block; min-width: 180px; margin-top: 6px; }
+.avbk-company td small { display: block; min-width: 150px; margin-top: 5px; font-size: 12px; line-height: 1.35; }
 .avbk-company .avbk-company-status { font-weight: 600; }
 .avbk-company caption { text-align: left; margin-bottom: 10px; }
 #avbk-company-result { scroll-margin-top: 50px; }
