@@ -188,15 +188,28 @@ class AVBK_Company_Admin {
                 $message = sprintf('%d transacties toegevoegd; %d al aanwezig. ', $result['added'], $result['duplicates']);
                 if ($result['outside_period']) $message .= sprintf('%d transacties buiten het gekozen kwartaal overgeslagen. ', $result['outside_period']);
                 $message .= 'Werk nu het kwartaalwerkblad bij en controleer de BTW per factuur.';
+            } elseif ($operation === 'review') {
+                AVBK_Company_Review::save($company_id, $year, $quarter,
+                    sanitize_text_field(wp_unslash($_POST['workbook_hash'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['review_key'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['vat_code'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['fixed_vat'] ?? '')),
+                    sanitize_key(wp_unslash($_POST['review_state'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['review_note'] ?? '')));
+                $message = 'BTW-controle opgeslagen. De totalen en download zijn bijgewerkt.';
             } elseif ($operation === 'export') {
                 $company = AVBK_Companies::company($company_id, 'export');
+                $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
                 [$path] = $this->uploaded('workbook', ['xlsx']);
                 $output = wp_tempnam('avbk-company-workbook.xlsx');
                 if (!$output) throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
                 $transactions = AVBK_Companies::transactions($company_id, $year, $quarter);
                 $cards = AVBK_Company_Cards::transactions($company_id, $year, $quarter);
-                AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter, $cards);
-                AVBK_Company_Report::save(AVBK_Company_Report::build($output, $company, $transactions, $year, $quarter, $year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx', $cards));
+                AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter, $cards, $previous['reviews'] ?? []);
+                $report = AVBK_Company_Report::build($output, $company, $transactions, $year, $quarter, $year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx', $cards);
+                $report['reviews'] = $previous['reviews'] ?? [];
+                $report['review_log'] = $previous['review_log'] ?? [];
+                AVBK_Company_Report::save($report, $previous, $previous === null);
                 nocache_headers();
                 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 header('Content-Disposition: attachment; filename="' . sanitize_file_name($year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx') . '"');
@@ -214,6 +227,6 @@ class AVBK_Company_Admin {
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
         $args = ['company_id' => $company_id];
         if ($year >= 2000 && $year <= 2100 && $quarter >= 1 && $quarter <= 4) $args += ['book_year' => $year, 'quarter' => $quarter];
-        wp_safe_redirect(add_query_arg($args, $return_to)); exit;
+        wp_safe_redirect(add_query_arg($args, $return_to) . ($operation === 'review' ? '#avbk-company-result' : '')); exit;
     }
 }

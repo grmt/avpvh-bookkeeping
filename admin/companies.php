@@ -75,7 +75,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
                 <h3>3. Het juiste kwartaalwerkblad bijwerken</h3>
                 <p>Upload de nieuwste BTW-werkmap. Je krijgt de volledige werkmap terug met <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong> bijgewerkt. Andere werkbladen blijven behouden. Bewaar de download als de nieuwe versie in OneDrive.</p>
                 <p>Bestaande regels en BTW-aantekeningen van dit jaar blijven staan. Een tab met uitsluitend gegevens uit een vorig jaar wordt vernieuwd. Eerdere boekingen van dezelfde leverancier binnen dit bedrijf leveren BTW-suggesties op. Tegenstrijdige patronen en creditcardafrekeningen krijgen geen tarief toegewezen.</p>
-                <p>Nieuwe regels krijgen in kolom P een BTW-controlemarkering en tellen nog niet mee in het BTW-totaal. Controleer de factuur en verwijder de markering pas nadat de behandeling klopt. Open de download in Excel om de totalen opnieuw te berekenen.</p>
+                <p>Nieuwe regels krijgen in kolom P een BTW-controlemarkering en tellen nog niet mee in het gecontroleerde BTW-totaal. Na het bijwerken kun je bovenaan per regel de BTW controleren en bevestigen. Het portaal werkt dan de totalen en de Excel-download bij. Open de download in Excel om alle werkmapformules opnieuw te berekenen.</p>
                 <?php $form_start('export', true); ?>
                     <label for="avbk-company-workbook">Nieuwste BTW-werkmap (.xlsx)</label>
                     <input id="avbk-company-workbook" name="workbook" type="file" accept=".xlsx" required>
@@ -85,7 +85,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
             </section>
         <?php endif; ?>
         <h3>Geïmporteerde banktransacties (<?php echo esc_html(count($transactions)); ?>)</h3>
-        <p>Dit is het bankoverzicht. Het resultaat van het kwartaalwerkblad met BTW en bedragen exclusief BTW staat bovenaan. De BTW-controle gebeurt in de werkmap.</p>
+        <p>Dit is het bankoverzicht. Het kwartaalwerkblad met BTW, bedragen exclusief BTW en de controle per regel staat bovenaan.</p>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <thead><tr><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Bedrag</th><th>Mededelingen</th></tr></thead>
             <tbody><?php foreach ($transactions as $tx) : ?><tr>

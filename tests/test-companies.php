@@ -13,10 +13,17 @@ function sanitize_file_name(string $name): string { return basename($name); }
 function remove_accents(string $text): string { return $text; }
 function get_option(string $name, $default = false) { return $GLOBALS['test_options'][$name] ?? $default; }
 function update_option(string $name, $value, $autoload = null): bool { $changed = get_option($name) !== $value; $GLOBALS['test_options'][$name] = $value; return $changed; }
+function add_option($name, $value, $unused = '', $autoload = null): bool { if (get_option($name) !== false) return false; return update_option($name, $value, $autoload); }
 function esc_html($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }
+function maybe_serialize($value): string { return serialize($value); }
+function wp_cache_delete($key, $group): bool { return true; }
+function wp_tempnam($name) { return tempnam(sys_get_temp_dir(), 'avbk-review-test-'); }
+function wp_delete_file($path): void { unlink($path); }
 
 class Company_Test_DB {
     public string $prefix = 'wp_';
+    public string $options = 'wp_options';
+    public bool $fail_compare = false;
     public int $insert_id = 0;
     public array $roles = [1 => [11 => 'bookkeeper', 12 => 'accountant', 13 => 'ceo'], 2 => [14 => 'ceo']];
     public array $companies;
@@ -74,7 +81,14 @@ class Company_Test_DB {
         $this->companies[$where['id']]->card_account = $row['card_account']; return 1;
     }
     public function delete(string $table, array $row): int { unset($this->roles[$row['company_id']][$row['user_id']]); return 1; }
-    public function query(string $sql): int {
+    public function query($sql): int {
+        if (is_array($sql)) {
+            [, $args] = $sql;
+            if ($this->fail_compare) { $this->fail_compare = false; return 0; }
+            if (maybe_serialize(get_option($args[1])) !== $args[2]) return 0;
+            $GLOBALS['test_options'][$args[1]] = unserialize($args[0]);
+            return 1;
+        }
         if ($sql === 'START TRANSACTION') $this->snapshot = [$this->transactions, $this->card_transactions];
         if ($sql === 'ROLLBACK') [$this->transactions, $this->card_transactions] = $this->snapshot;
         return 1;
@@ -90,6 +104,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-review.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
 
@@ -416,6 +431,62 @@ try {
     $zero_report = AVBK_Company_Report::build($zero_output, $wpdb->companies[1], [$settlement_tx], 2026, 3, 'zero.xlsx', [$zero_card]);
     $instructed_rows = array_filter($zero_report['rows'], fn($row) => $row['source'] === 'Creditcard' && $row['status'] === 'instructed');
     company_check(count($instructed_rows) === 1 && $zero_report['totals']['known_vat_cents'] === 0 && $zero_report['totals']['known_net_cents'] === 12100 && $zero_report['totals']['unknown_rows'] === 0, 'an explicit zero classification produces known zero VAT and the full net purchase amount');
+    // Direct portal reviews persist the workbook, totals and an audit entry as one comparison-checked write.
+    $GLOBALS['test_user'] = 11;
+    $wpdb->transactions = [$supplier]; $wpdb->card_transactions = [];
+    AVBK_Company_Report::save(AVBK_Company_Report::build($suggested_path, $wpdb->companies[1], [$supplier], 2026, 3, 'review.xlsx'));
+    $before_review = AVBK_Company_Report::get(1, 2026, 3);
+    $review_key = $before_review['rows'][0]['review_key'];
+    company_check(str_starts_with($review_key, 'bank:'), 'imported bank row has a stable review identity');
+    $review = fn($hash, $key, $code = '21', $fixed = '', $state = 'checked', $note = '') => AVBK_Company_Review::save(1, 2026, 3, $hash, $key, $code, $fixed, $state, $note);
+    company_reject(fn() => $review($before_review['workbook_hash'], 'bank:' . str_repeat('0', 64)), 'forged transaction identities cannot edit workbook cells');
+    company_reject(fn() => $review($before_review['workbook_hash'], $review_key, '', '', 'checked'), 'unknown VAT cannot be confirmed');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => $review($before_review['workbook_hash'], $review_key), 'accountant can read but cannot approve VAT');
+    $GLOBALS['test_user'] = 14;
+    company_reject(fn() => $review($before_review['workbook_hash'], $review_key), 'another company CEO cannot approve this company VAT');
+    $GLOBALS['test_user'] = 11;
+    $checked = $review($before_review['workbook_hash'], $review_key, '21', '', 'checked', '=Invoice TEST-1');
+    company_check($checked['totals']['confirmed_vat_cents'] === 2100 && $checked['totals']['confirmed_net_cents'] === 10000 && $checked['totals']['pending_rows'] === 0, 'confirming bank VAT updates checked totals');
+    company_check(count($checked['review_log']) === 1 && $checked['review_log'][0]['after']['by'] === 11 && $checked['review_log'][0]['before']['status'] === 'suggested', 'audit records the previous values and the reviewing user');
+    company_reject(fn() => $review($before_review['workbook_hash'], $review_key, '0'), 'stale browser review cannot overwrite a newer workbook');
+    $reopened = $review($checked['workbook_hash'], $review_key, '0', '', 'pending', 'Verify invoice');
+    company_check($reopened['totals']['known_vat_cents'] === 0 && $reopened['totals']['known_net_cents'] === 12100 && $reopened['totals']['confirmed_net_cents'] === 0 && $reopened['totals']['pending_rows'] === 1, 'zero VAT is known and reopening removes it from checked totals');
+    company_reject(fn() => $review($reopened['workbook_hash'], $review_key, 'x', '121.01'), 'fixed VAT cannot exceed the gross amount');
+    company_reject(fn() => $review($reopened['workbook_hash'], $review_key, 'x', '-1'), 'fixed VAT sign is derived from the transaction');
+    $fixed = $review($reopened['workbook_hash'], $review_key, 'x', '12,34');
+    company_check($fixed['totals']['confirmed_vat_cents'] === 1234 && $fixed['totals']['confirmed_net_cents'] === 10866, 'fixed invoice VAT uses decimal cents and computes net');
+    $wpdb->fail_compare = true;
+    company_reject(fn() => $review($fixed['workbook_hash'], $review_key, '9'), 'concurrent report write rejects a stale review without partial persistence');
+    company_check(AVBK_Company_Report::get(1, 2026, 3) === $fixed, 'failed comparison preserves the workbook and audit history together');
+    $review_export = $dir . '/review-export.xlsx';
+    AVBK_Company_Workbook::update($source, $review_export, $wpdb->companies[1], [$supplier], 2026, 3);
+    $export_report = AVBK_Company_Report::build($review_export, $wpdb->companies[1], [$supplier], 2026, 3, 'export.xlsx');
+    company_check($export_report['totals']['confirmed_vat_cents'] === 1234, 'saved portal decisions survive a fresh export from an old template');
+    $original = new AVBK_Xlsx_Archive($source); $updated = new AVBK_Xlsx_Archive($review_export);
+    company_check($original->getFromName('xl/worksheets/sheet2.xml') === $updated->getFromName('xl/worksheets/sheet2.xml'), 'review leaves the other company worksheet untouched');
+    $original->close(); $updated->close();
+    $wpdb->transactions[] = $extra_tx;
+    company_reject(fn() => $review($fixed['workbook_hash'], $review_key), 'new bank imports block reviews until the workbook is refreshed');
+
+    // Card settlement remains excluded; purchase/refund signs and the bank cash column stay intact.
+    unset($GLOBALS['test_options']['avbk_company_report_1_2026_3']);
+    $wpdb->transactions = [$settlement_tx]; $wpdb->card_transactions = $cards;
+    AVBK_Company_Report::save($card_report);
+    $card_edit = array_values(array_filter($card_report['rows'], fn($row) => $row['source'] === 'Creditcard' && $row['direction'] === 'out'))[0];
+    company_check($card_report['rows'][0]['review_key'] === '' || $card_report['rows'][0]['source'] === 'Creditcard', 'card settlement has no purchase VAT review control');
+    $card_checked = $review($card_report['workbook_hash'], $card_edit['review_key']);
+    company_check($card_checked['totals']['confirmed_vat_cents'] === 2100 && $card_checked['totals']['gross_cents'] === 12100 && $card_checked['totals']['purchase_gross_cents'] === 22990, 'card review counts the purchase once and preserves bank cash');
+    $refund = array_values(array_filter($card_checked['rows'], fn($row) => $row['source'] === 'Creditcard' && $row['direction'] === 'in'))[0];
+    $refund_checked = $review($card_checked['workbook_hash'], $refund['review_key'], '21');
+    $refund_row = array_values(array_filter($refund_checked['rows'], fn($row) => $row['review_key'] === $refund['review_key']))[0];
+    company_check($refund_row['vat_cents'] < 0 && $refund_row['net_cents'] < 0 && $refund_row['status'] === 'checked', 'refund review produces signed VAT and net values');
+    $bank_key = 'bank:' . AVBK_Company_Report::bank_key($settlement_tx->transaction_date, $settlement_tx->amount, $settlement_tx->direction, $settlement_tx->counterparty_iban, $settlement_tx->counterparty_name, $settlement_tx->description);
+    company_reject(fn() => $review($refund_checked['workbook_hash'], $bank_key), 'forged settlement review cannot double-count card expenses');
+    company_check(count($refund_checked['review_log']) === 2, 'repeated reviews append audit history');
+    company_check($refund_checked['totals']['pending_rows'] === 1, 'settlement does not leave an unresolvable VAT review warning');
+    company_reject(fn() => AVBK_Company_Report::save($refund_checked, null, true), 'first export cannot overwrite a concurrently created result');
+
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);

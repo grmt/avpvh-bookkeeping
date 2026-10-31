@@ -62,6 +62,9 @@ jobs:
           done
           exit $status
 
+      - name: "Company workbook upload browser handler regression"
+        run: node tests/test-company-export.cjs
+
       - name: "Invoice mailbox and statement extraction tests"
         run: python3 -m unittest discover -s tests -p 'test_company_*.py'
 

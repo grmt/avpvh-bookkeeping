@@ -24,6 +24,9 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
             <p class="avbk-company-notice"><strong>Voorlopig:</strong> <?php echo esc_html($totals['pending_rows']); ?> regels hebben een BTW-controlemarkering; bij <?php echo esc_html($totals['unknown_rows']); ?> regels ontbreekt BTW of het bedrag exclusief BTW. Onbekende bedragen zijn niet opgeteld. Controleer de facturen voordat je deze bedragen gebruikt.</p>
         <?php endif; ?>
         <p>Zonder BTW-controlemarkering, overeenkomstig het werkbladtotaal: <strong>BTW <?php echo esc_html($money($totals['confirmed_vat_cents'])); ?></strong> · <strong>excl. BTW <?php echo esc_html($money($totals['confirmed_net_cents'])); ?></strong>. De markering in de werkmap bepaalt deze selectie; dit is geen automatische factuurcontrole.</p>
+        <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'import')) : ?>
+            <p>Open bij een regel <strong>BTW controleren</strong>, controleer de factuur en kies het tarief. <strong>Bevestigen</strong> laat de regel meetellen in het gecontroleerde totaal; <strong>Opslaan · nog controleren</strong> bewaart je indeling als voorlopig. Beide werken de Excel-download direct bij. Een bankafrekening van de creditcard telt niet opnieuw als kosten.</p>
+        <?php endif; ?>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <caption><?php echo esc_html($report['bank_rows']); ?> bankregels, met eventuele detailregels uit het kwartaalwerkblad</caption>
             <thead><tr><th>Rij</th><th>Bron</th><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Incl. BTW</th><th>BTW %</th><th>BTW</th><th>Excl. BTW</th><th>Controle</th></tr></thead>
@@ -36,10 +39,36 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                     <td><?php echo esc_html($result_row['code'] === '' ? '—' : ($result_row['code'] === 'x' ? 'Vast bedrag' : $result_row['code'] . '%')); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['vat_cents'])); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['net_cents'])); ?></td>
-                    <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?></td>
+                    <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Gecontroleerd / zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?>
+                        <?php if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
+                            $saved_review = $report['reviews'][$result_row['review_key']] ?? null; ?>
+                            <details class="avbk-company-review"><summary>BTW controleren</summary>
+                                <?php $form_start('review'); ?>
+                                    <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
+                                    <input type="hidden" name="review_key" value="<?php echo esc_attr($result_row['review_key']); ?>">
+                                    <label>BTW-tarief <select name="vat_code">
+                                        <?php foreach (['' => 'Onbekend', '0' => '0%', '9' => '9%', '21' => '21%', 'x' => 'Vast BTW-bedrag'] as $code => $label) : ?>
+                                            <option value="<?php echo esc_attr($code); ?>" <?php selected($result_row['code'], (string) $code); ?>><?php echo esc_html($label); ?></option>
+                                        <?php endforeach; ?>
+                                    </select></label>
+                                    <label>Vast BTW-bedrag (alleen bij vast bedrag, positief in euro) <input name="fixed_vat" inputmode="decimal" value="<?php echo esc_attr($result_row['code'] === 'x' && $result_row['vat_cents'] !== null ? number_format(abs($result_row['vat_cents']) / 100, 2, ',', '') : ''); ?>"></label>
+                                    <label>Factuurverwijzing / notitie <input name="review_note" maxlength="500" value="<?php echo esc_attr($saved_review['note'] ?? ''); ?>"></label>
+                                    <button type="submit" name="review_state" value="checked" class="button button-primary">Bevestigen</button>
+                                    <button type="submit" name="review_state" value="pending" class="button">Opslaan · nog controleren</button>
+                                </form>
+                            </details>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?></tbody>
         </table></div>
-        <p>Dit overzicht bewaart het laatst gegenereerde resultaat. Wijzigingen die je daarna in Excel maakt verschijnen hier nadat je die werkmap opnieuw uploadt en bijwerkt.</p>
+        <p>BTW-controles in het portaal worden bewaard voor dit bedrijf en kwartaal, ook als je later een oudere werkmap uploadt. Ze krijgen voorrang op de BTW-cellen in die upload. Overige wijzigingen in Excel verschijnen hier nadat je de werkmap opnieuw uploadt en bijwerkt. Regels met handmatige aankoopdetails controleer je in Excel.</p>
+        <?php if (!empty($report['review_log'])) : ?>
+            <details><summary>Wijzigingshistorie (<?php echo esc_html(count($report['review_log'])); ?>)</summary>
+                <ul><?php foreach (array_reverse($report['review_log']) as $event) : ?>
+                    <li><?php echo esc_html($event['after']['at'] . ' · ' . $event['date'] . ' · ' . $event['name'] . ' · gebruiker #' . $event['after']['by'] . ' · BTW ' . ($event['before']['code'] === '' ? 'onbekend' : $event['before']['code']) . ' → ' . ($event['after']['code'] === '' ? 'onbekend' : $event['after']['code']) . ' · ' . $money($event['after']['vat_cents']) . ' · ' . ($event['after']['state'] === 'checked' ? 'bevestigd' : 'nog controleren') . ($event['after']['note'] !== '' ? ' · ' . $event['after']['note'] : '')); ?></li>
+                <?php endforeach; ?></ul>
+            </details>
+        <?php endif; ?>
     <?php endif; ?>
 </section>

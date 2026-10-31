@@ -117,10 +117,11 @@ class AVBK_Company_Workbook {
     }
 
     /** Source and destination must differ. Only the selected sheet and calculation metadata change. */
-    public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter, array $card_transactions = []): array {
+    public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter, array $card_transactions = [], ?array $reviews = null): array {
         if ($source === $output || (realpath($output) && realpath($source) === realpath($output))) throw new \RuntimeException('Gebruik een aparte uitvoerwerkmap.');
         if (!$transactions) throw new \RuntimeException('Importeer eerst banktransacties voor dit kwartaal.');
         [$start, $end] = AVBK_Companies::period($year, $quarter);
+        if ($reviews === null) $reviews = AVBK_Company_Report::get((int) $company->id, $year, $quarter)['reviews'] ?? [];
         $name = self::sheet_name($company, $year, $quarter);
         $bank_keys = [];
         foreach ($transactions as $tx) $bank_keys[self::value_key([0 => str_replace('-', '', $tx->transaction_date), 1 => $tx->counterparty_name,
@@ -184,7 +185,7 @@ class AVBK_Company_Workbook {
                     $key = self::value_key($v);
                     if ($card_transactions && !isset($bank_keys[$key])) throw new \RuntimeException('Het werkblad bevat extra handmatige transacties. Controleer deze voordat je creditcardaankopen toevoegt, om dubbeltelling te voorkomen.');
                     if (isset($groups[$key])) throw new \RuntimeException('Het werkblad bevat identieke bankregels; controleer deze eerst handmatig.');
-                    $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-')];
+                    $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-'), 'settlement' => AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '')];
                 } elseif ($key !== null && array_filter($v, fn($value) => (string) $value !== '')) {
                     $is_total = false;
                     foreach ($row->getElementsByTagNameNS(self::NS, 'f') as $f) {
@@ -232,7 +233,7 @@ class AVBK_Company_Workbook {
                     if (isset($styles[$col])) $cell->setAttribute('s', $styles[$col]);
                     $row->appendChild($cell);
                 }
-                $groups[$key] = ['date' => $tx->transaction_date, 'rows' => [$row], 'pending' => true]; $added++;
+                $groups[$key] = ['date' => $tx->transaction_date, 'rows' => [$row], 'pending' => true, 'settlement' => AVBK_Vat_Patterns::is_settlement($tx->counterparty_name, $tx->description)]; $added++;
             }
             $cards_added = 0;
             foreach ($card_transactions as $card) {
@@ -286,6 +287,28 @@ class AVBK_Company_Workbook {
                 }
                 $groups[$key] = ['date' => $card->transaction_date, 'rows' => [$row], 'pending' => true]; $cards_added++;
             }
+            // Saved portal decisions follow transaction identities when rows move or an older workbook is uploaded.
+            $review_transactions = [];
+            foreach ($transactions as $tx) $review_transactions['bank:' . AVBK_Company_Report::bank_key($tx->transaction_date, $tx->amount, $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)] = $tx;
+            foreach ($card_transactions as $tx) if ($tx->entry_type !== 'settlement') $review_transactions['card:' . $tx->dedupe_hash] = $tx;
+            foreach ($reviews as $review_key => $review) {
+                $tx = $review_transactions[$review_key] ?? null;
+                if (!$tx || (int) $tx->company_id !== (int) $company->id || (int) round((float) $tx->amount * 100) !== abs($review['gross_cents']) || $tx->direction !== $review['direction']) throw new \RuntimeException('Een opgeslagen BTW-controle past niet meer bij de transactie.');
+                $card = str_starts_with($review_key, 'card:');
+                $key = $card ? $review_key : self::value_key([0 => str_replace('-', '', $tx->transaction_date), 1 => $tx->counterparty_name, 3 => $tx->counterparty_iban, 5 => $tx->direction === 'out' ? 'Debit' : 'Credit', 6 => $tx->amount, 13 => $tx->description]);
+                if (!isset($groups[$key]) || count($groups[$key]['rows']) !== 1 || (!$card && AVBK_Vat_Patterns::is_settlement($tx->counterparty_name, $tx->description))) throw new \RuntimeException('Deze BTW-controle heeft detailregels of hoort bij een afrekening. Controleer de werkmap.');
+                $row = $groups[$key]['rows'][0]; $n = (int) $row->getAttribute('r');
+                $code = $review['code']; $vat = $review['vat_cents']; $net = $review['net_cents'];
+                $gross_formula = 'IF(OR(F' . $n . '="Debit",F' . $n . '="Af"),G' . $n . ',-G' . $n . ')';
+                self::replace_cell($doc, $row, 'I', $code, is_numeric($code));
+                self::replace_cell($doc, $row, 'J', $vat === null ? null : $vat / 100, true, $code === 'x' ? null : 'IF(I' . $n . '="","",' . $gross_formula . '-ROUND(' . $gross_formula . '/(1+I' . $n . '/100),2))');
+                self::replace_cell($doc, $row, 'K', $net === null ? null : $net / 100, true, 'IF(J' . $n . '="","",' . $gross_formula . '-J' . $n . ')');
+                $pending = $review['state'] !== 'checked';
+                $note = ($pending ? 'BTW-controleren: ' : 'Gecontroleerd: ') . 'portaal ' . $review['at'] . ($review['note'] !== '' ? '; ' . $review['note'] : '');
+                if ($card) $note .= '; CC:' . $tx->transaction_date . ':' . $tx->dedupe_hash;
+                self::replace_cell($doc, $row, 'P', $note);
+                $groups[$key]['pending'] = $pending;
+            }
             uasort($groups, fn($a, $b) => strcmp($b['date'], $a['date']));
             while ($data->firstChild) $data->removeChild($data->firstChild);
             $data->appendChild($header); $number = 2;
@@ -293,7 +316,7 @@ class AVBK_Company_Workbook {
                 self::relocate($row, $number++); $data->appendChild($row);
             }
             $total = $doc->createElementNS(self::NS, 'row'); $total->setAttribute('r', (string) $number);
-            $pending = count(array_filter($groups, fn($group) => $group['pending']));
+            $pending = count(array_filter($groups, fn($group) => $group['pending'] && empty($group['settlement'])));
             $total->appendChild(self::cell($doc, 'B' . $number, $pending ? 'VOORLOPIG: ' . $pending . ' BTW-regels te controleren (kolom P)' : 'Totaal'));
             foreach (['H', 'J', 'K'] as $col) {
                 $formula = $col === 'H' ? 'SUM(H2:H' . ($number - 1) . ')' : 'SUMIF(P2:P' . ($number - 1) . ',"<>BTW-*",' . $col . '2:' . $col . ($number - 1) . ')';

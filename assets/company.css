@@ -26,3 +26,9 @@
 .avbk-company .avbk-company-status { font-weight: 600; }
 .avbk-company caption { text-align: left; margin-bottom: 10px; }
 #avbk-company-result { scroll-margin-top: 50px; }
+.avbk-company-review { margin-top: 8px; }
+.avbk-company-review summary { cursor: pointer; color: #135e96; }
+.avbk-company-review[open] { min-width: 230px; }
+.avbk-company .avbk-company-review label { font-size: 12px; margin: 8px 0; }
+.avbk-company .avbk-company-review input, .avbk-company .avbk-company-review select { width: 100%; padding: 5px; font-size: 13px; }
+.avbk-company .avbk-company-review button { margin: 3px 0; padding: 6px 8px; font-size: 12px; }
