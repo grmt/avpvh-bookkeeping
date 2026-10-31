@@ -12,7 +12,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (status) status.textContent = '';
             var problem = 'Bijwerken of downloaden is niet gelukt. Ververs de pagina en controleer je sessie en het gekozen bestand.';
             try {
-                var response = await fetch(form.action, {method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-AVBK-Download': '1'}});
+                // A named action input shadows the form.action DOM property.
+                var response = await fetch(form.getAttribute('action'), {method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-AVBK-Download': '1'}});
                 if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
                     if ((response.headers.get('Content-Type') || '').includes('application/json')) {
                         var failure = await response.json();
