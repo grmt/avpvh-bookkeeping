@@ -19,6 +19,11 @@ class AVBK_Company_Report {
             ? (int) round((float) $value * 100) : null;
     }
 
+    private static function bank_key(string $date, $amount, string $direction, string $iban, string $name, string $description): string {
+        return hash('sha256', wp_json_encode([$date, number_format((float) $amount, 2, '.', ''), $direction,
+            AVBK_Companies::normalize_iban($iban), $name, $description]));
+    }
+
     /** Read cached row values, never the workbook's stale or uncached total cells. */
     public static function build(string $path, object $company, array $transactions, int $year, int $quarter, string $filename): array {
         [$start, $end] = AVBK_Companies::period($year, $quarter);
@@ -29,7 +34,7 @@ class AVBK_Company_Report {
         }
         $totals = ['gross_cents' => 0, 'known_vat_cents' => 0, 'known_net_cents' => 0,
             'confirmed_vat_cents' => 0, 'confirmed_net_cents' => 0, 'pending_rows' => 0, 'unknown_rows' => 0];
-        $rows = []; $date = null; $direction = ''; $bank_rows = 0;
+        $rows = []; $date = null; $direction = ''; $bank_rows = 0; $bank_keys = [];
         foreach ($values as $number => $v) {
             if ($number === 1 || !array_filter($v, fn($value) => (string) $value !== '')) continue;
             $raw_date = (string) ($v[0] ?? '');
@@ -40,6 +45,7 @@ class AVBK_Company_Report {
                     throw new \RuntimeException('Het resultaat bevat een bankregel van een andere administratie of periode.');
                 }
                 $direction = in_array(mb_strtolower($v[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
+                $bank_keys[self::bank_key($date, $v[6] ?? 0, $direction, $v[3] ?? '', $v[1] ?? '', $v[13] ?? '')] = true;
                 $bank_rows++;
             } elseif (!$date || preg_match('/^(?:(?:totaal|total)(?:\s|$)|voorlopig:)/iu', trim((string) ($v[1] ?? '')))) {
                 continue;
@@ -69,6 +75,12 @@ class AVBK_Company_Report {
                 'note' => (string) ($v[15] ?? '')];
         }
         if (!$bank_rows) throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
+        foreach ($transactions as $tx) {
+            if ((int) $tx->company_id !== (int) $company->id || !isset($bank_keys[self::bank_key($tx->transaction_date, $tx->amount,
+                $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)])) {
+                throw new \RuntimeException('Het werkblad bevat niet alle geïmporteerde banktransacties. Werk de werkmap opnieuw bij.');
+            }
+        }
         return ['version' => 1, 'company_id' => (int) $company->id, 'year' => $year, 'quarter' => $quarter,
             'sheet' => $sheet, 'filename' => sanitize_file_name($filename), 'generated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
             'workbook_hash' => hash_file('sha256', $path), 'transactions_hash' => self::fingerprint($transactions),

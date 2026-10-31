@@ -249,6 +249,8 @@ try {
     company_check($report['transactions_hash'] !== AVBK_Company_Report::fingerprint([$supplier, $extra_tx]), 'later bank imports make a saved result stale');
     company_check(AVBK_Company_Report::fingerprint([$supplier, $extra_tx]) === AVBK_Company_Report::fingerprint([$extra_tx, $supplier]), 'result freshness is independent of transaction order');
     company_reject(fn() => AVBK_Company_Report::build($source, $wpdb->companies[1], [], 2026, 3, 'prior-year.xlsx'), 'result rejects a previous-year sheet');
+    $newer = clone $supplier; $newer->amount = '242.00';
+    company_reject(fn() => AVBK_Company_Report::build($suggested_path, $wpdb->companies[1], [$newer], 2026, 3, 'older-result.xlsx'), 'result cannot appear current when a bank transaction is missing');
 
     $signed_path = $dir . '/signed-report.xlsx'; copy($suggested_path, $signed_path);
     $archive = new AVBK_Xlsx_Archive($signed_path);
