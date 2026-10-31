@@ -46,6 +46,12 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
     <?php
     $all_members = class_exists('AVPVH_DB') ? AVPVH_DB::get_members() : [];
+    // Sorted by name so both the "koppel aan lid" picker below and the
+    // manual-add-order member selects are browsable alphabetically instead
+    // of in whatever order the query happens to return.
+    usort($all_members, function ($a, $b) {
+        return strcasecmp($a->last_name . $a->first_name, $b->last_name . $b->first_name);
+    });
     ?>
 
     <nav class="nav-tab-wrapper" style="margin-bottom: 1.5rem;">
@@ -358,6 +364,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                         <a href="<?php echo esc_url($member_profile_url); ?>"><?php echo esc_html($full_name); ?></a>
                                     <?php else : ?>
                                         <?php echo esc_html($full_name); ?>
+                                        <span style="color: #646970; font-weight: normal; font-size: 0.8rem;" title="Deze bestelling is nog niet aan een ledenprofiel gekoppeld. Gebruik 'Koppel aan lid' via het envelop-icoon hieronder.">(niet gekoppeld)</span>
                                     <?php endif; ?>
                                 </strong>
                                 <br><small>
@@ -688,6 +695,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                                         <a href="<?php echo esc_url($member_profile_url); ?>"><?php echo esc_html($full_name); ?></a>
                                     <?php else : ?>
                                         <?php echo esc_html($full_name); ?>
+                                        <span style="color: #646970; font-weight: normal; font-size: 0.8rem;" title="Deze bestelling is nog niet aan een ledenprofiel gekoppeld. Gebruik 'Koppel aan lid' via het envelop-icoon hieronder.">(niet gekoppeld)</span>
                                     <?php endif; ?>
                                 </strong>
                                 <br><small>
@@ -1078,14 +1086,15 @@ $page_url = admin_url('admin.php?page=avbk-orders');
 
                 <div style="margin-bottom: 14px;">
                     <label for="avbk-pe-member" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem;">Koppel aan lid (optioneel):</label>
-                    <select name="member_id" id="avbk-pe-member" style="width: 100%; max-width: 100%;">
-                        <option value="">-- Geen lid (gastbestelling) --</option>
+                    <input type="text" id="avbk-pe-member" list="avbk-pe-member-list" autocomplete="off" placeholder="Typ om te zoeken… (leeg = gastbestelling)" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                    <input type="hidden" name="member_id" id="avbk-pe-member-id" value="">
+                    <datalist id="avbk-pe-member-list">
                         <?php foreach ($all_members as $m) :
                             $m_name = trim($m->first_name . ' ' . $m->suffix) . ' ' . $m->last_name;
                         ?>
-                            <option value="<?php echo (int) $m->id; ?>" data-email="<?php echo esc_attr($m->email); ?>"><?php echo esc_html($m_name . ' (' . $m->email . ')'); ?></option>
+                            <option value="<?php echo esc_attr($m_name . ' (' . $m->email . ')'); ?>" data-member-id="<?php echo (int) $m->id; ?>" data-email="<?php echo esc_attr($m->email); ?>"></option>
                         <?php endforeach; ?>
-                    </select>
+                    </datalist>
                     <p class="description" style="margin-top: 4px; font-size: 0.8rem;">
                         Als de besteller een lid is, wordt de bijbehorende boekhoudpost automatisch aan dit lid gekoppeld. Leeg e-mailadres hierboven? Kies hier het lid en het e-mailadres wordt overgenomen.
                     </p>
@@ -1170,7 +1179,8 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         var peSpanId        = document.getElementById('avbk-pe-order-id');
         var peSpanName      = document.getElementById('avbk-pe-order-name');
         var peInputEmail    = document.getElementById('avbk-pe-email');
-        var peSelectMember  = document.getElementById('avbk-pe-member');
+        var peMemberInput   = document.getElementById('avbk-pe-member');
+        var peMemberIdInput = document.getElementById('avbk-pe-member-id');
         var peConfirmBox    = document.getElementById('avbk-pe-confirm-box');
         var peConfirmCheck  = document.getElementById('avbk-pe-confirm');
         var peResendCheck   = document.getElementById('avbk-pe-resend');
@@ -1180,22 +1190,49 @@ $page_url = admin_url('admin.php?page=avbk-orders');
         var peSuggEmail     = document.getElementById('avbk-pe-suggested-email');
         var peApplySuggBtn  = document.getElementById('avbk-pe-apply-suggestion');
 
-        var currentSuggestion = '';
+        var currentSuggestion    = '';
+        var lastAppliedMemberEmail = '';
 
-        function fillEmailFromSelectedMember() {
-            if (!peSelectMember || !peInputEmail) return;
-            var opt = peSelectMember.options[peSelectMember.selectedIndex];
-            var memberEmail = opt ? opt.getAttribute('data-email') : '';
-            if (memberEmail) {
-                peInputEmail.value = memberEmail;
+        // Looked up by the exact "Naam (email)" label text the datalist
+        // option shows, and by member id (for pre-filling an already-linked
+        // order) — built once from the <option>s already rendered in PHP
+        // instead of duplicating the member list into a separate JS blob.
+        var peMemberByLabel = {};
+        var peMemberById    = {};
+        document.querySelectorAll('#avbk-pe-member-list option').forEach(function (opt) {
+            var entry = {
+                id:    opt.getAttribute('data-member-id'),
+                email: opt.getAttribute('data-email') || '',
+                label: opt.value
+            };
+            peMemberByLabel[opt.value] = entry;
+            peMemberById[entry.id] = entry;
+        });
+
+        function applyMemberSelection() {
+            if (!peMemberInput || !peMemberIdInput) return;
+            var match = peMemberByLabel[peMemberInput.value];
+            if (!match) {
+                // Free text that doesn't (yet) match a known member: treat
+                // as "no member" rather than keeping a stale id, but leave
+                // the e-mail field alone — the visitor may still be typing
+                // a search term.
+                peMemberIdInput.value = '';
+                return;
             }
+            peMemberIdInput.value = match.id;
+            // Overwrite the e-mail field only when it's still empty or
+            // still holds the previously-selected member's e-mail — a
+            // value the visitor typed in by hand is never clobbered, but
+            // picking a *different* member now does update it (previously
+            // it only filled once, when the field was empty).
+            if (!peInputEmail.value || peInputEmail.value === lastAppliedMemberEmail) {
+                peInputEmail.value = match.email;
+            }
+            lastAppliedMemberEmail = match.email;
         }
-        if (peSelectMember) {
-            peSelectMember.addEventListener('change', function () {
-                if (!peInputEmail.value) {
-                    fillEmailFromSelectedMember();
-                }
-            });
+        if (peMemberInput) {
+            peMemberInput.addEventListener('input', applyMemberSelection);
         }
 
         document.querySelectorAll('.avbk-process-email-btn').forEach(function(btn) {
@@ -1214,15 +1251,18 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 peSpanName.textContent = name || 'de besteller';
                 peInputEmail.value = email || '';
 
-                if (peSelectMember) {
-                    peSelectMember.value = (memberId && memberId !== '0') ? memberId : '';
+                var linkedMember = (memberId && memberId !== '0') ? peMemberById[memberId] : null;
+                if (peMemberInput && peMemberIdInput) {
+                    peMemberInput.value = linkedMember ? linkedMember.label : '';
+                    peMemberIdInput.value = linkedMember ? linkedMember.id : '';
                 }
+                lastAppliedMemberEmail = linkedMember ? linkedMember.email : '';
                 // Order already correctly linked to a member (e.g. a name
                 // mismatch resolved via "Koppel aan lid") but has no e-mail
                 // of its own — pull the member's known e-mail instead of
                 // leaving a required field empty with nothing to type.
-                if (!peInputEmail.value) {
-                    fillEmailFromSelectedMember();
+                if (!peInputEmail.value && linkedMember) {
+                    peInputEmail.value = linkedMember.email;
                 }
 
                 currentSuggestion = sugg || '';
