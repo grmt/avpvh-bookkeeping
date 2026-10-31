@@ -1090,7 +1090,11 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                     <input type="hidden" name="member_id" id="avbk-pe-member-id" value="">
                     <datalist id="avbk-pe-member-list">
                         <?php foreach ($all_members as $m) :
-                            $m_name = trim($m->first_name . ' ' . $m->suffix) . ' ' . $m->last_name;
+                            // 'list' format ("Achternaam, Voornaam") so the
+                            // visible order matches the last-name sort above,
+                            // same convention as the member picker in the
+                            // "Bestelling toevoegen" form further up this page.
+                            $m_name = avpvh_format_name($m, 'list');
                         ?>
                             <option value="<?php echo esc_attr($m_name . ' (' . $m->email . ')'); ?>" data-member-id="<?php echo (int) $m->id; ?>" data-email="<?php echo esc_attr($m->email); ?>"></option>
                         <?php endforeach; ?>
