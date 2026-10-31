@@ -1,5 +1,8 @@
-.avbk-company { max-width: 1500px; margin: 24px auto; padding: 0 16px; box-sizing: border-box; }
-.wp-block-post-content .avbk-company, .entry-content .avbk-company { width: min(1500px, calc(100vw - 48px)); max-width: none; position: relative; left: 50%; transform: translateX(-50%); margin-left: 0; margin-right: 0; }
+.avbk-company { max-width: 1500px; min-width: 0; margin: 24px auto; padding: 0 16px; box-sizing: border-box; overflow-wrap: anywhere; }
+/* Override the block theme's important auto margins when widening the portal. */
+.wp-block-post-content .avbk-company, .entry-content .avbk-company { width: min(1500px, calc(100vw - 48px)); max-width: none; margin-left: calc((100% - min(1500px, calc(100vw - 48px))) / 2) !important; margin-right: calc((100% - min(1500px, calc(100vw - 48px))) / 2) !important; }
+body:has(.avbk-company) .wp-block-post-title { display: none; }
+.avbk-company .avbk-company-heading { margin: 24px 0 12px; font-size: 1.6em; line-height: 1.25; }
 .avbk-company label { display: block; margin: 12px 0; }
 .avbk-company input:not([type="hidden"]), .avbk-company select { display: block; max-width: 100%; padding: 8px; }
 .avbk-company .avbk-company-picker { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
@@ -8,7 +11,7 @@
 .avbk-company .avbk-company-card h3 { margin-top: 0; }
 .avbk-company .avbk-company-notice { border-left: 4px solid #008a20; padding: 12px; background: #fff; color: #1d2327; white-space: pre-line; }
 .avbk-company .avbk-company-error { border-color: #b32d2e; }
-.avbk-company .avbk-company-scroll { overflow-x: auto; }
+.avbk-company .avbk-company-scroll { max-width: 100%; overflow-x: auto; }
 .avbk-company table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.4; }
 .avbk-company th, .avbk-company td { padding: 7px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid #dcdcde; overflow-wrap: anywhere; }
 .avbk-company th { font-size: 13px; }

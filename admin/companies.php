@@ -15,7 +15,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
 };
 ?>
 <div class="wrap avbk-company">
-    <h1>Bedrijfsboekhouding</h1>
+    <?php if (is_admin()) : ?><h1>Bedrijfsboekhouding</h1><?php endif; ?>
     <?php if ($notice) : ?>
         <p role="status" class="avbk-company-notice <?php echo $notice['error'] ? 'avbk-company-error' : ''; ?>"><?php echo esc_html($notice['message']); ?></p>
     <?php endif; ?>
@@ -32,7 +32,11 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
     <?php else : ?><p>Er zijn nog geen administraties waartoe je toegang hebt.</p><?php endif; ?>
 
     <?php if ($company) : ?>
-        <h2><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h2>
+        <?php if (is_admin()) : ?>
+            <h2><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h2>
+        <?php else : ?>
+            <h1 class="avbk-company-heading"><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h1>
+        <?php endif; ?>
         <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
         <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
         <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
