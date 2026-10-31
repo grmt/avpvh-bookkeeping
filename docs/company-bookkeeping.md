@@ -122,6 +122,16 @@ correct the amounts and treatment, and remove that marker only once reviewed.
 Changing a suggested numeric rate updates its VAT/net formulas when Excel recalculates.
 The history is an aid to classification, not proof that an invoice was checked.
 
+A CEO can record supplied historical card classifications privately for a company,
+with a date and source. Service matching keeps Google Cloud, One and Workspace
+separate and recognizes changing Microsoft billing references and subscription
+descriptors. These records apply only to card purchases in the same company and
+after the historical date. Conflicting rates remain unresolved. Later evidence
+can fill previously unknown, marked card rows on the next workbook update; existing
+VAT annotations and manually changed prices are preserved. All inferred values
+keep their invoice-review markers. Recorded zero treatment is retained as provided,
+without deciding the VAT-return classification of those purchases.
+
 Company invoices can be uploaded as PDF, JPEG, PNG, or WebP, or recorded as a source
 reference (a URL or local file path). References are stored without automatically
 fetching their content. An invoice may be linked to an imported payment from the same

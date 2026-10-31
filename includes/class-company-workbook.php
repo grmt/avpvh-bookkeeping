@@ -99,6 +99,23 @@ class AVBK_Company_Workbook {
         return $cell;
     }
 
+    private static function replace_cell(\DOMDocument $doc, \DOMElement $row, string $column, $value, bool $numeric = false, ?string $formula = null): void {
+        $ref = $column . $row->getAttribute('r');
+        $replacement = self::cell($doc, $ref, $value, $numeric, $formula);
+        foreach ($row->getElementsByTagNameNS(self::NS, 'c') as $cell) {
+            if ($cell->getAttribute('r') !== $ref) continue;
+            if ($cell->hasAttribute('s')) $replacement->setAttribute('s', $cell->getAttribute('s'));
+            $row->replaceChild($replacement, $cell);
+            return;
+        }
+        foreach ($row->getElementsByTagNameNS(self::NS, 'c') as $cell) {
+            if (strcmp(preg_replace('/[0-9]+$/', '', $cell->getAttribute('r')), $column) > 0) {
+                $row->insertBefore($replacement, $cell); return;
+            }
+        }
+        $row->appendChild($replacement);
+    }
+
     /** Source and destination must differ. Only the selected sheet and calculation metadata change. */
     public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter, array $card_transactions = []): array {
         if ($source === $output || (realpath($output) && realpath($source) === realpath($output))) throw new \RuntimeException('Gebruik een aparte uitvoerwerkmap.');
@@ -153,7 +170,7 @@ class AVBK_Company_Workbook {
                     if ((float) ($v[7] ?? 0) != 0) throw new \RuntimeException('Een creditcarddetailregel telt mee in het banktotaal. Maak kolom H van die detailregel leeg om dubbeltelling te voorkomen.');
                     $key = 'card:' . $card_match[2];
                     if (isset($groups[$key])) throw new \RuntimeException('Het werkblad bevat dubbele creditcardregels.');
-                    $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-')];
+                    $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-'), 'values' => $v];
                 } elseif (preg_match('/^\d{8}$/D', (string) ($v[0] ?? ''))) {
                     $date = AVBK_Bank_Import_Layout::parse_date($v[0], 'Ymd');
                     if (!$date) throw new \RuntimeException('Ongeldige datum in het bestaande kwartaalwerkblad.');
@@ -223,9 +240,26 @@ class AVBK_Company_Workbook {
                     || empty($company->card_account) || $card->card_account !== $company->card_account) throw new \RuntimeException('Creditcardtransactie hoort niet bij dit bedrijf en kwartaal.');
                 if ($card->entry_type === 'settlement') continue;
                 $key = 'card:' . $card->dedupe_hash;
-                if (isset($groups[$key])) continue;
                 $tx = (object) ['counterparty_name' => $card->description, 'counterparty_iban' => '', 'direction' => $card->direction, 'description' => 'Creditcardaankoop'];
-                $suggestion = AVBK_Vat_Patterns::suggest($history, $tx);
+                $suggestion = AVBK_Vat_Patterns::suggest_card($history, $tx);
+                if (isset($groups[$key])) {
+                    $group = $groups[$key]; $v = $group['values'] ?? [];
+                    $empty_vat = trim((string) ($v[8] ?? '')) === '' && trim((string) ($v[9] ?? '')) === '' && trim((string) ($v[10] ?? '')) === '';
+                    $same_direction = in_array(mb_strtolower($v[5] ?? ''), $card->direction === 'out' ? ['debit', 'af'] : ['credit', 'bij'], true);
+                    if (!$group['pending'] || !$empty_vat || !$same_direction || count($group['rows']) !== 1 || abs((float) ($v[6] ?? 0) - (float) $card->amount) > 0.005 || $suggestion['code'] === null) continue;
+                    $row = $group['rows'][0]; $n = (int) $row->getAttribute('r');
+                    $signed = ($card->direction === 'out' ? 1 : -1) * (float) $card->amount;
+                    $vat = $suggestion['code'] === 'x' ? ($card->direction === 'out' ? 1 : -1) * $suggestion['fixed_vat'] : round($signed - $signed / (1 + (float) $suggestion['code'] / 100), 2);
+                    $net = round($signed - $vat, 2);
+                    $gross_formula = 'IF(OR(F' . $n . '="Debit",F' . $n . '="Af"),G' . $n . ',-G' . $n . ')';
+                    $fixed = $suggestion['code'] === 'x' ? number_format($vat, 2, '.', '') : '""';
+                    self::replace_cell($doc, $row, 'I', $suggestion['code'], is_numeric($suggestion['code']));
+                    self::replace_cell($doc, $row, 'J', $vat, true, 'IF(I' . $n . '="","",IF(I' . $n . '="x",' . $fixed . ',' . $gross_formula . '-ROUND(' . $gross_formula . '/(1+I' . $n . '/100),2)))');
+                    self::replace_cell($doc, $row, 'K', $net, true, 'IF(J' . $n . '="","",' . $gross_formula . '-J' . $n . ')');
+                    self::replace_cell($doc, $row, 'P', 'BTW-suggestie: ' . $suggestion['source'] . '; controleer factuur; CC:' . $card->transaction_date . ':' . $card->dedupe_hash);
+                    $suggested++;
+                    continue;
+                }
                 $signed = ($card->direction === 'out' ? 1 : -1) * (float) $card->amount;
                 $vat = null; $net = null;
                 if ($suggestion['code'] !== null) {

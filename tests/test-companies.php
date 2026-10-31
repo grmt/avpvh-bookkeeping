@@ -364,6 +364,44 @@ try {
     $GLOBALS['test_user'] = 12;
     company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Mailbox candidate', 'TEST-2.pdf', $mail_pdf), 'read-only accountant cannot collect invoices');
     $GLOBALS['test_user'] = 11;
+
+    $cloud_card = clone $cards[0]; $cloud_card->id = 101; $cloud_card->description = 'GOOGLE *CLOUD TESTREF CC GOOGLE.COM IRL'; $cloud_card->dedupe_hash = hash('sha256', 'synthetic-cloud-purchase');
+    $unknown_card_path = $dir . '/unknown-card-vat.xlsx';
+    AVBK_Company_Workbook::update($source, $unknown_card_path, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$cloud_card]);
+    $blank_card_report = AVBK_Company_Report::build($unknown_card_path, $wpdb->companies[1], [$settlement_tx], 2026, 3, 'unknown.xlsx', [$cloud_card]);
+    company_check($blank_card_report['totals']['unknown_rows'] === 1, 'card without matching historical evidence stays unknown');
+    $evidence = [];
+    foreach (['Google Cloud' => '21', 'Google One' => '21', 'Google Workspace' => '0', 'Microsoft' => '21', 'OpenAI ChatGPT Subscription' => '0', 'Claude.ai Subscription' => '0'] as $merchant => $code) {
+        $evidence[] = ['merchant' => $merchant, 'code' => $code, 'date' => '2026-06-09', 'source' => 'Alpha Q2 supplied history'];
+    }
+    company_reject(fn() => AVBK_Vat_Patterns::record_card_history(1, $evidence), 'bookkeeper cannot change the company historical VAT evidence');
+    $GLOBALS['test_user'] = 13;
+    AVBK_Vat_Patterns::record_card_history(1, $evidence);
+    AVBK_Vat_Patterns::record_card_history(1, $evidence);
+    company_check(count(get_option('avbk_company_card_vat_history_1')) === 6, 'repeated company historical evidence does not duplicate records');
+    company_reject(fn() => AVBK_Vat_Patterns::record_card_history(2, $evidence), 'CEO cannot write VAT evidence for another company');
+    $card_history = AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 3);
+    foreach (['GOOGLE*CLOUD TESTREF CC GOOGLE.COM IRL' => '21', 'GOOGLE *GOOGLE ONE TEST IRL' => '21', 'Google Workspace_example Dublin IRL' => '0', 'MICROSOFT#G000001 MSBILL.INFO IRL' => '21', 'OPENAI *CHATGPT SUBSCR SAN FRANCISCO USA' => '0', 'ANTHROPIC* CLAUDE SUB DUBLIN IRL' => '0'] as $merchant => $code) {
+        $merchant_tx = (object) ['counterparty_name' => $merchant, 'direction' => 'out'];
+        $match = AVBK_Vat_Patterns::suggest_card($card_history, $merchant_tx);
+        company_check($match['code'] === $code && $match['source'] === 'Alpha Q2 supplied history', 'card supplier history matches service and cites its source: ' . $merchant);
+    }
+    company_check(AVBK_Vat_Patterns::suggest_card($card_history, (object) ['counterparty_name' => 'Microsoft Azure', 'direction' => 'out'])['code'] === null, 'Microsoft billing history does not classify unrelated Microsoft services');
+    company_check(AVBK_Vat_Patterns::suggest_card($card_history, (object) ['counterparty_name' => 'GOOGLE*CLOUD TESTREF', 'direction' => 'in'])['code'] === null, 'purchase evidence does not silently classify refunds');
+    $future = [['merchant' => 'Microsoft', 'code' => '0', 'date' => '2026-07-15', 'source' => 'Later quarter evidence']];
+    AVBK_Vat_Patterns::record_card_history(1, $future);
+    $cutoff_history = AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 3);
+    company_check(AVBK_Vat_Patterns::suggest_card($cutoff_history, (object) ['counterparty_name' => 'Microsoft-G000002', 'direction' => 'out'])['code'] === '21', 'evidence after the selected quarter cutoff is excluded');
+    $conflicting = [['merchant' => 'Microsoft', 'code' => '0', 'date' => '2026-06-08', 'source' => 'Conflicting earlier evidence']];
+    AVBK_Vat_Patterns::record_card_history(1, $conflicting);
+    company_check(AVBK_Vat_Patterns::suggest_card(AVBK_Vat_Patterns::history($source, $wpdb->companies[1], 2026, 3), (object) ['counterparty_name' => 'Microsoft-G000003', 'direction' => 'out'])['status'] === 'conflict', 'conflicting historical rates remain unresolved');
+    $filled_card_path = $dir . '/filled-card-vat.xlsx';
+    $refresh = AVBK_Company_Workbook::update($unknown_card_path, $filled_card_path, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$cloud_card]);
+    $filled_report = AVBK_Company_Report::build($filled_card_path, $wpdb->companies[1], [$settlement_tx], 2026, 3, 'filled.xlsx', [$cloud_card]);
+    company_check($refresh['cards_added'] === 0 && $refresh['suggested'] === 1 && $filled_report['totals']['known_vat_cents'] === 2100 && $filled_report['totals']['known_net_cents'] === 10000 && $filled_report['totals']['unknown_rows'] === 0, 'new historical evidence fills existing unknown card rows without duplicating purchases');
+    company_check($filled_report['totals']['confirmed_vat_cents'] === 0, 'historical card matches retain invoice review markers');
+    $filled_again = $dir . '/filled-card-again.xlsx';
+    company_check(AVBK_Company_Workbook::update($filled_card_path, $filled_again, $wpdb->companies[1], [$settlement_tx], 2026, 3, [$cloud_card])['suggested'] === 0, 'existing VAT annotations are preserved on a later update');
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);
