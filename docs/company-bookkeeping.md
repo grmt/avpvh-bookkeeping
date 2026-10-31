@@ -60,7 +60,12 @@ and then returns to the saved result; without JavaScript, refresh after download
 
 ## Credit-card statements
 
-The portal has a separate **Creditcardafschriften uploaden** section. PDF statements
+The portal has a separate **Creditcardafschriften uploaden** section. Select or drag
+multiple files at once, including mixed PDF/CSV/XLSX files: at most 20 files and
+20 MB total, with a 3 MB limit per PDF. Each file is processed separately and has
+its own result; a failure does not undo earlier successful files. Retrying a batch
+reuses existing PDF documents and skips already imported card transactions.
+PDF statements
 are stored as private company documents for interpretation; uploading a PDF does
 not itself create purchase rows or VAT amounts. ING Commercial Cards CSV/XLSX
 transaction exports are parsed using their `Accountnummer`, `Transactiedatum`,
@@ -112,6 +117,22 @@ stored privately in the database. They are not WordPress media attachments and h
 no public file URL. Downloads require company access and a nonce. Keep database
 backups because they now include invoice evidence.
 
+## Mailbox invoice collection
+
+Run `bin/setup-company-mailbox.py --address MAILBOX` interactively on the Docker
+host to enter credentials at a hidden prompt. It verifies TLS IMAP access using
+read-only `EXAMINE` and stores a private profile outside Git and WordPress. The
+host collector `bin/collect-company-invoices.py` takes an explicit date range,
+company ID and authorized WordPress user ID. It searches incoming/archive folders,
+filters to the configured company address plus explicitly supplied recipient
+domains, and retrieves with `BODY.PEEK` without marking, moving or deleting mail.
+With `--publish`, supported PDF/image attachment candidates become private company
+documents under **Facturen en bonnetjes**, deduplicated by content. They remain
+unlinked and unreviewed; collecting an attachment does not confirm VAT or the final
+company allocation. Private staging files and an audit manifest stay outside the
+web root. Candidate messages without attachments are recorded for follow-up rather
+than following external links automatically. The collector never sends email.
+
 ## Remaining work
 
 - Interpret PDF card statements into reviewed purchase rows and reconcile card
@@ -123,7 +144,8 @@ backups because they now include invoice evidence.
 - Add invoice review in the portal. Currently VAT review happens in the workbook.
 - Add direct OneDrive save-back with version/conflict handling. Currently users
   download the merged workbook and save it to OneDrive themselves.
-- Add mailbox invoice retrieval when a mailbox connection is available.
+- Review collected invoice candidates, allocate them to purchases, and retrieve
+  invoices that require a supplier portal or are linked rather than attached.
 
 This increment is a company bank-import and workbook-review workflow. It is not yet
 a complete company accounting system or an automated VAT-return preparation tool.

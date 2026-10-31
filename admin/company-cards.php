@@ -3,12 +3,12 @@ defined('ABSPATH') || exit;
 ?>
 <section id="avbk-company-cards" class="avbk-company-card">
     <h3>2. Creditcardafschriften uploaden</h3>
-    <p>Upload hier een PDF-afschrift of een ING Commercial Cards-transactie-export (CSV/XLSX). PDF's worden privé bewaard om de aankopen en facturen uit te werken; een PDF-upload alleen voegt nog geen transacties of BTW toe. CSV/XLSX leest de afzonderlijke transacties in.</p>
+    <p>Selecteer of sleep meerdere PDF-afschriften en ING Commercial Cards-transactie-exports (CSV/XLSX) tegelijk. Maximaal 20 bestanden en samen 20 MB. PDF's worden privé bewaard om de aankopen en facturen uit te werken; een PDF-upload alleen voegt nog geen transacties of BTW toe. CSV/XLSX leest de afzonderlijke transacties in.</p>
     <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
         <?php $form_start('card_import', true); ?>
-            <label for="avbk-company-card-file">Creditcardafschrift of transactie-export (PDF maximaal 3 MB)</label>
-            <div class="avbk-dropzone"><span class="avbk-dropzone-text">Sleep je creditcardbestand hierheen, of klik om te kiezen</span><input id="avbk-company-card-file" name="card_statement" type="file" accept=".pdf,.csv,.xlsx" required></div>
-            <button type="submit" class="button">Creditcardafschrift uploaden</button>
+            <label for="avbk-company-card-file">Creditcardafschriften en transactie-exports (per PDF maximaal 3 MB)</label>
+            <div class="avbk-dropzone"><span class="avbk-dropzone-text">Sleep je creditcardbestanden hierheen, of klik om te kiezen</span><input id="avbk-company-card-file" name="card_statement[]" type="file" accept=".pdf,.csv,.xlsx" multiple data-max-files="20" data-max-bytes="20971520" required></div>
+            <button type="submit" class="button">Creditcardbestanden uploaden</button>
         </form>
     <?php endif; ?>
     <p>Gekoppeld creditcardaccount: <strong><?php echo esc_html($company->card_account ?? 'Nog niet gekoppeld'); ?></strong>. Voor CSV/XLSX is deze koppeling nodig om een export met meerdere accounts over de juiste bedrijven te verdelen.</p>

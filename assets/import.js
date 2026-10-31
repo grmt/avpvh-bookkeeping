@@ -19,7 +19,12 @@ document.addEventListener('DOMContentLoaded', function () {
         var defaultText = text.textContent;
 
         function showFileName() {
-            text.textContent = fileInput.files && fileInput.files[0] ? fileInput.files[0].name : defaultText;
+            var files = fileInput.files;
+            text.textContent = files && files.length ? (files.length > 1 ? files.length + ' bestanden: ' : '') + Array.from(files).map(function (file) { return file.name; }).join(', ') : defaultText;
+            var error = '';
+            if (files && fileInput.dataset.maxFiles && files.length > Number(fileInput.dataset.maxFiles)) error = 'Kies maximaal ' + fileInput.dataset.maxFiles + ' bestanden per upload.';
+            if (files && fileInput.dataset.maxBytes && Array.from(files).reduce(function (sum, file) { return sum + file.size; }, 0) > Number(fileInput.dataset.maxBytes)) error = 'Kies samen maximaal 20 MB per upload.';
+            fileInput.setCustomValidity(error);
         }
 
         ['dragenter', 'dragover'].forEach(function (evt) {

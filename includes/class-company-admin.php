@@ -56,7 +56,36 @@ class AVBK_Company_Admin {
     }
 
     private function uploaded(string $field, array $extensions): array {
-        $file = $_FILES[$field] ?? [];
+        return $this->validate_upload($_FILES[$field] ?? [], $extensions);
+    }
+
+    /** Normalize PHP's single or multiple upload shape before reading any files. */
+    public static function statement_uploads(array $input): array {
+        $files = [];
+        if (!isset($input['name'])) throw new \RuntimeException('Kies één of meer creditcardbestanden.');
+        if (!is_array($input['name'])) $files[] = $input;
+        else {
+            foreach (array_keys($input['name']) as $index) {
+                $file = [];
+                foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
+                    if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) throw new \RuntimeException('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
+                    $file[$key] = $input[$key][$index];
+                }
+                $files[] = $file;
+            }
+        }
+        if (!$files || count($files) > 20) throw new \RuntimeException('Kies maximaal 20 bestanden per upload.');
+        $total = 0;
+        foreach ($files as $file) {
+            if (!is_string($file['name'] ?? null) || !is_string($file['tmp_name'] ?? null) || !is_int($file['size'] ?? null)
+                || $file['size'] < 0 || !is_int($file['error'] ?? null)) throw new \RuntimeException('Ongeldige bestandsupload.');
+            $total += $file['size'];
+        }
+        if ($total > 20 * 1024 * 1024) throw new \RuntimeException('Kies samen maximaal 20 MB per upload.');
+        return $files;
+    }
+
+    private function validate_upload(array $file, array $extensions): array {
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name']) || ($file['size'] ?? 0) > 20 * 1024 * 1024) {
             throw new \RuntimeException('Kies een bestand van maximaal 20 MB.');
         }
@@ -86,7 +115,7 @@ class AVBK_Company_Admin {
         $company_id = (int) ($_POST['company_id'] ?? 0);
         $year = (int) ($_POST['book_year'] ?? 0); $quarter = (int) ($_POST['quarter'] ?? 0);
         $operation = sanitize_key(wp_unslash($_POST['operation'] ?? ''));
-        $output = null;
+        $output = null; $notice_error = false;
         try {
             if ($operation === 'create') {
                 $company_id = AVBK_Companies::create(sanitize_text_field(wp_unslash($_POST['company_name'] ?? '')), sanitize_text_field(wp_unslash($_POST['iban'] ?? '')), sanitize_text_field(wp_unslash($_POST['sheet_prefix'] ?? '')));
@@ -102,14 +131,27 @@ class AVBK_Company_Admin {
                 $message = 'Creditcardaccount gekoppeld aan deze administratie.';
             } elseif ($operation === 'card_import') {
                 AVBK_Companies::company($company_id, 'import');
-                [$path, $filename] = $this->uploaded('card_statement', ['pdf', 'csv', 'xlsx']);
-                if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'pdf') {
-                    AVBK_Company_Documents::add($company_id, 0, 'Creditcardafschrift ' . $year . ' Q' . $quarter . ' — nog uit te werken; geen transacties geïmporteerd', $path, $filename);
-                    $message = 'Creditcardafschrift privé opgeslagen bij Facturen en bonnetjes. De aankoopregels en BTW moeten nog worden uitgewerkt; er zijn nog geen transacties toegevoegd.';
-                } else {
-                    $result = AVBK_Company_Cards::import($company_id, $path, $filename, $year, $quarter);
-                    $message = sprintf('%d creditcardtransacties toegevoegd; %d al aanwezig; %d buiten dit kwartaal en %d van andere accounts overgeslagen. Werk nu de BTW-werkmap bij.', $result['added'], $result['duplicates'], $result['outside_period'], $result['outside_account']);
+                $files = self::statement_uploads($_FILES['card_statement'] ?? []);
+                $messages = []; $processed = 0; $failed = 0;
+                foreach ($files as $file) {
+                    $filename = sanitize_file_name($file['name']);
+                    try {
+                        [$path, $filename] = $this->validate_upload($file, ['pdf', 'csv', 'xlsx']);
+                        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'pdf') {
+                            AVBK_Company_Documents::add($company_id, 0, 'Creditcardafschrift ' . $year . ' Q' . $quarter . ' — nog uit te werken; geen transacties geïmporteerd', $path, $filename, true);
+                            $messages[] = $filename . ': PDF privé opgeslagen of al aanwezig. Aankoopregels en BTW nog uit te werken.';
+                        } else {
+                            $result = AVBK_Company_Cards::import($company_id, $path, $filename, $year, $quarter);
+                            $messages[] = $filename . ': ' . sprintf('%d transacties toegevoegd; %d al aanwezig; %d buiten dit kwartaal en %d van andere accounts overgeslagen.', $result['added'], $result['duplicates'], $result['outside_period'], $result['outside_account']);
+                        }
+                        $processed++;
+                    } catch (\Throwable $e) {
+                        $failed++;
+                        $messages[] = $filename . ': ' . ($e instanceof \RuntimeException ? $e->getMessage() : 'Dit bestand kon niet worden verwerkt.');
+                    }
                 }
+                $notice_error = $failed > 0;
+                $message = sprintf('%d bestanden verwerkt; %d mislukt. Elk bestand wordt afzonderlijk verwerkt.', $processed, $failed) . "\n" . implode("\n", $messages);
             } elseif ($operation === 'invoice') {
                 AVBK_Companies::company($company_id, 'import');
                 $path = ''; $filename = '';
@@ -141,7 +183,7 @@ class AVBK_Company_Admin {
                 readfile($output); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile -- stream a private generated download
                 wp_delete_file($output); exit;
             } else throw new \RuntimeException('Onbekende actie.');
-            set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => false, 'message' => $message], 120);
+            set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => $notice_error, 'message' => $message], 120);
         } catch (\Throwable $e) {
             if ($output) wp_delete_file($output);
             $message = $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.';

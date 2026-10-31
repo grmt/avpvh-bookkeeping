@@ -2,6 +2,7 @@
 /** Synthetic company isolation, bank import, and workbook merge regressions. */
 define('ABSPATH', __DIR__ . '/');
 define('AVBK_PLUGIN_DIR', dirname(__DIR__) . '/');
+define('WP_CLI', true);
 $GLOBALS['test_user'] = 11;
 $GLOBALS['test_admin'] = false;
 function get_current_user_id(): int { return $GLOBALS['test_user']; }
@@ -90,6 +91,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
 
 function company_check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('FAIL: ' . $message);
@@ -165,6 +167,7 @@ try {
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, ''), 'invoice requires evidence or a reference');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, '', $csv, 'fake.pdf'), 'invoice upload rejects ordinary server files');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-1.pdf'), 'duplicate invoice references rejected');
+    company_check(AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-1.pdf', '', '', true) === $document_id, 'batch uploads can safely reuse existing private documents');
     $GLOBALS['test_user'] = 12;
     company_check(AVBK_Company_Documents::document(1, $document_id)->id === $document_id, 'assigned accountant can inspect invoice evidence');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/new.pdf'), 'read-only accountant cannot upload invoices');
@@ -329,6 +332,27 @@ try {
     $card_again = $dir . '/with-cards-again.xlsx';
     company_check(AVBK_Company_Workbook::update($card_output, $card_again, $wpdb->companies[1], [$settlement_tx], 2026, 3, $cards)['cards_added'] === 0, 'repeated worksheet updates preserve card rows without duplicates');
     company_reject(fn() => AVBK_Company_Workbook::update($current, $dir . '/manual-card-conflict.xlsx', $wpdb->companies[1], [$tx], 2026, 3, $cards), 'legacy manual detail rows require review before adding card imports');
+    $single_upload = ['name' => 'statement.pdf', 'tmp_name' => '/tmp/upload-test', 'size' => 1024, 'error' => UPLOAD_ERR_OK];
+    company_check(AVBK_Company_Admin::statement_uploads($single_upload) === [$single_upload], 'batch uploader remains compatible with a single statement');
+    $batch_upload = ['name' => ['statement.pdf', 'cards.csv'], 'tmp_name' => ['/tmp/upload-a', '/tmp/upload-b'], 'size' => [1024, 2048], 'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_OK]];
+    $batch = AVBK_Company_Admin::statement_uploads($batch_upload);
+    company_check(count($batch) === 2 && $batch[0]['name'] === 'statement.pdf' && $batch[1]['name'] === 'cards.csv', 'mixed multi-file upload metadata is normalized without dropping files');
+    $broken_batch = $batch_upload; unset($broken_batch['tmp_name'][1]);
+    company_reject(fn() => AVBK_Company_Admin::statement_uploads($broken_batch), 'incomplete multipart file arrays are rejected');
+    $too_many = [];
+    foreach ($single_upload as $key => $value) $too_many[$key] = array_fill(0, 21, $value);
+    company_reject(fn() => AVBK_Company_Admin::statement_uploads($too_many), 'server enforces the 20-file batch limit');
+    $oversized = $batch_upload; $oversized['size'] = [11 * 1024 * 1024, 10 * 1024 * 1024];
+    company_reject(fn() => AVBK_Company_Admin::statement_uploads($oversized), 'server enforces the aggregate batch size limit');
+    $mail_pdf = base64_encode("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n");
+    $mail_id = AVBK_Company_Documents::import_mail(1, 'Mailbox: invoice candidate TEST-2; review required', 'TEST-2.pdf', $mail_pdf);
+    company_check(base64_decode(AVBK_Company_Documents::document(1, $mail_id)->document_data) === base64_decode($mail_pdf), 'mail attachments are stored as private company documents');
+    company_check(AVBK_Company_Documents::import_mail(1, 'Mailbox: repeated candidate', 'TEST-2.pdf', $mail_pdf) === $mail_id, 'repeated mailbox collection does not duplicate attachments');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(2, 'Mailbox candidate', 'TEST-2.pdf', $mail_pdf), 'mail collector cannot import into an inaccessible company');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Mailbox candidate', 'fake.pdf', base64_encode('not a PDF')), 'mail collection validates attachment bytes rather than trusting the filename');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Mailbox candidate', 'TEST-2.pdf', $mail_pdf), 'read-only accountant cannot collect invoices');
+    $GLOBALS['test_user'] = 11;
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);
