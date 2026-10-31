@@ -25,7 +25,7 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         <?php endif; ?>
         <p>Zonder BTW-controlemarkering, overeenkomstig het werkbladtotaal: <strong>BTW <?php echo esc_html($money($totals['confirmed_vat_cents'])); ?></strong> · <strong>excl. BTW <?php echo esc_html($money($totals['confirmed_net_cents'])); ?></strong>. De markering in de werkmap bepaalt deze selectie; dit is geen automatische factuurcontrole.</p>
         <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'import')) : ?>
-            <p>Open bij een regel <strong>BTW controleren</strong>, controleer de factuur en kies het tarief. <strong>Bevestigen</strong> laat de regel meetellen in het gecontroleerde totaal; <strong>Opslaan · nog controleren</strong> bewaart je indeling als voorlopig. Beide werken de Excel-download direct bij. Een bankafrekening van de creditcard telt niet opnieuw als kosten.</p>
+            <p>Klopt de BTW bij een regel? Klik op <strong>OK</strong> om die direct te bevestigen. Voor een ander tarief of een notitie open je <strong>BTW controleren</strong>. Bevestigde regels tellen mee in het gecontroleerde totaal en de Excel-download wordt direct bijgewerkt. Een bankafrekening van de creditcard telt niet opnieuw als kosten.</p>
         <?php endif; ?>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <caption><?php echo esc_html($report['bank_rows']); ?> bankregels, met eventuele detailregels uit het kwartaalwerkblad</caption>
@@ -42,6 +42,16 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                     <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Gecontroleerd / zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?>
                         <?php if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
                             $saved_review = $report['reviews'][$result_row['review_key']] ?? null; ?>
+                            <?php if ($result_row['status'] !== 'checked' && in_array($result_row['code'], ['0', '9', '21', 'x'], true) && $result_row['vat_cents'] !== null && $result_row['net_cents'] !== null) : ?>
+                                <?php $form_start('review'); ?>
+                                    <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
+                                    <input type="hidden" name="review_key" value="<?php echo esc_attr($result_row['review_key']); ?>">
+                                    <input type="hidden" name="vat_code" value="<?php echo esc_attr($result_row['code']); ?>">
+                                    <input type="hidden" name="fixed_vat" value="<?php echo esc_attr($result_row['code'] === 'x' ? number_format(abs($result_row['vat_cents']) / 100, 2, '.', '') : ''); ?>">
+                                    <input type="hidden" name="review_note" value="<?php echo esc_attr($saved_review['note'] ?? ''); ?>">
+                                    <button type="submit" name="review_state" value="checked" class="button button-primary" aria-label="<?php echo esc_attr('BTW bevestigen voor ' . $result_row['name'] . ' op ' . $result_row['date']); ?>">OK</button>
+                                </form>
+                            <?php endif; ?>
                             <details class="avbk-company-review"><summary>BTW controleren</summary>
                                 <?php $form_start('review'); ?>
                                     <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
