@@ -19,7 +19,7 @@ try {
     require dirname(__DIR__) . '/avpvh-bookkeeping.php';
     if (!avbk_dependencies_missing()) throw new RuntimeException('Fixture unexpectedly has association dependencies.');
     ($GLOBALS['activate'])();
-    if (count($GLOBALS['schemas']) !== 4) throw new RuntimeException('Company tables not installed.');
+    if (count($GLOBALS['schemas']) !== 5) throw new RuntimeException('Company and credit-card tables not installed.');
     foreach ($GLOBALS['hooks']['plugins_loaded'] as $handler) $handler();
     if (!isset($GLOBALS['shortcodes']['avbk_company_bookkeeping'], $GLOBALS['hooks']['admin_post_avbk_company'], $GLOBALS['hooks']['admin_post_avbk_company_document'])) throw new RuntimeException('Company portal handlers not registered.');
     if (class_exists('AVBK_DB') || isset($GLOBALS['hooks']['avbk_generate_contribution_fees'])) throw new RuntimeException('Association workflows should not start on the company-only site.');

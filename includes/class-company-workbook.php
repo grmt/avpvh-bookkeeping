@@ -100,11 +100,14 @@ class AVBK_Company_Workbook {
     }
 
     /** Source and destination must differ. Only the selected sheet and calculation metadata change. */
-    public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter): array {
+    public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter, array $card_transactions = []): array {
         if ($source === $output || (realpath($output) && realpath($source) === realpath($output))) throw new \RuntimeException('Gebruik een aparte uitvoerwerkmap.');
         if (!$transactions) throw new \RuntimeException('Importeer eerst banktransacties voor dit kwartaal.');
         [$start, $end] = AVBK_Companies::period($year, $quarter);
         $name = self::sheet_name($company, $year, $quarter);
+        $bank_keys = [];
+        foreach ($transactions as $tx) $bank_keys[self::value_key([0 => str_replace('-', '', $tx->transaction_date), 1 => $tx->counterparty_name,
+            3 => $tx->counterparty_iban, 5 => $tx->direction === 'out' ? 'Debit' : 'Credit', 6 => $tx->amount, 13 => $tx->description])] = true;
         $history = AVBK_Vat_Patterns::history($source, $company, $year, $quarter);
         $zip = new AVBK_Xlsx_Archive($source);
         try {
@@ -134,7 +137,7 @@ class AVBK_Company_Workbook {
             self::expand_shared($doc);
             $data = $doc->getElementsByTagNameNS(self::NS, 'sheetData')->item(0);
             if (!$data) throw new \RuntimeException('Werkbladgegevens ontbreken.');
-            $header = null; $styles = []; $groups = []; $key = null; $existing_years = [];
+            $header = null; $styles = []; $groups = []; $key = null; $existing_years = []; $manual_details = false;
             foreach ($data->childNodes as $row) {
                 if (!$row instanceof \DOMElement || $row->localName !== 'row') continue;
                 $r = (int) $row->getAttribute('r');
@@ -143,14 +146,26 @@ class AVBK_Company_Workbook {
                 if (!$styles) foreach ($row->getElementsByTagNameNS(self::NS, 'c') as $c) {
                     if ($c->hasAttribute('s')) $styles[preg_replace('/[0-9]+$/', '', $c->getAttribute('r'))] = $c->getAttribute('s');
                 }
-                if (preg_match('/^\d{8}$/D', (string) ($v[0] ?? ''))) {
+                if (preg_match('/\bCC:(\d{4}-\d{2}-\d{2}):([a-f0-9]{64})\b/', (string) ($v[15] ?? ''), $card_match)) {
+                    $date = AVBK_Bank_Import_Layout::parse_date($card_match[1], 'Y-m-d');
+                    if (!$date || $date < $start || $date >= $end) { $key = null; continue; }
+                    if (empty($company->card_account) || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) throw new \RuntimeException('Het werkblad bevat creditcardregels van een ander account.');
+                    if ((float) ($v[7] ?? 0) != 0) throw new \RuntimeException('Een creditcarddetailregel telt mee in het banktotaal. Maak kolom H van die detailregel leeg om dubbeltelling te voorkomen.');
+                    $key = 'card:' . $card_match[2];
+                    if (isset($groups[$key])) throw new \RuntimeException('Het werkblad bevat dubbele creditcardregels.');
+                    $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-')];
+                } elseif (preg_match('/^\d{8}$/D', (string) ($v[0] ?? ''))) {
                     $date = AVBK_Bank_Import_Layout::parse_date($v[0], 'Ymd');
                     if (!$date) throw new \RuntimeException('Ongeldige datum in het bestaande kwartaalwerkblad.');
                     $existing_years[substr($date, 0, 4)] = true;
                     if (substr($date, 0, 4) === (string) $year && ($date < $start || $date >= $end)) throw new \RuntimeException('Het bestaande werkblad bevat transacties uit een ander kwartaal.');
                     if ($date < $start || $date >= $end) { $key = null; continue; }
                     if (AVBK_Companies::normalize_iban($v[2] ?? '') !== $company->iban) throw new \RuntimeException('Het bestaande werkblad bevat een andere bankrekening.');
+                    if ($card_transactions && AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '') && ((float) ($v[9] ?? 0) != 0 || (float) ($v[10] ?? 0) != 0)) {
+                        throw new \RuntimeException('Het werkblad kent al BTW of kosten toe aan een creditcardafrekening. Controleer die regel voordat je losse kaarttransacties toevoegt.');
+                    }
                     $key = self::value_key($v);
+                    if ($card_transactions && !isset($bank_keys[$key])) throw new \RuntimeException('Het werkblad bevat extra handmatige transacties. Controleer deze voordat je creditcardaankopen toevoegt, om dubbeltelling te voorkomen.');
                     if (isset($groups[$key])) throw new \RuntimeException('Het werkblad bevat identieke bankregels; controleer deze eerst handmatig.');
                     $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-')];
                 } elseif ($key !== null && array_filter($v, fn($value) => (string) $value !== '')) {
@@ -159,10 +174,12 @@ class AVBK_Company_Workbook {
                         if (preg_match('/^SUM\([HJK]2:[HJK][0-9]+\)$/iD', $f->textContent)) $is_total = true;
                     }
                     if ($is_total) { $key = null; continue; }
+                    if (!str_starts_with($key, 'card:') && (is_numeric($v[6] ?? null) || is_numeric($v[9] ?? null) || is_numeric($v[10] ?? null))) $manual_details = true;
                     $groups[$key]['rows'][] = $row->cloneNode(true);
                 }
             }
             if (isset($existing_years[(string) $year]) && count($existing_years) > 1) throw new \RuntimeException('Het kwartaalwerkblad bevat meerdere jaren. Controleer dit eerst.');
+            if ($card_transactions && $manual_details) throw new \RuntimeException('Het werkblad bevat handmatig ingevoerde aankoopdetails. Controleer die eerst om dubbele creditcardkosten te voorkomen.');
             $preserved = count($groups); $added = 0; $suggested = 0;
             foreach ($transactions as $tx) {
                 if ((int) $tx->company_id !== (int) $company->id || $tx->transaction_date < $start || $tx->transaction_date >= $end) throw new \RuntimeException('Transactie hoort niet bij dit bedrijf en kwartaal.');
@@ -199,6 +216,41 @@ class AVBK_Company_Workbook {
                     $row->appendChild($cell);
                 }
                 $groups[$key] = ['date' => $tx->transaction_date, 'rows' => [$row], 'pending' => true]; $added++;
+            }
+            $cards_added = 0;
+            foreach ($card_transactions as $card) {
+                if ((int) $card->company_id !== (int) $company->id || $card->transaction_date < $start || $card->transaction_date >= $end
+                    || empty($company->card_account) || $card->card_account !== $company->card_account) throw new \RuntimeException('Creditcardtransactie hoort niet bij dit bedrijf en kwartaal.');
+                if ($card->entry_type === 'settlement') continue;
+                $key = 'card:' . $card->dedupe_hash;
+                if (isset($groups[$key])) continue;
+                $tx = (object) ['counterparty_name' => $card->description, 'counterparty_iban' => '', 'direction' => $card->direction, 'description' => 'Creditcardaankoop'];
+                $suggestion = AVBK_Vat_Patterns::suggest($history, $tx);
+                $signed = ($card->direction === 'out' ? 1 : -1) * (float) $card->amount;
+                $vat = null; $net = null;
+                if ($suggestion['code'] !== null) {
+                    $vat = $suggestion['code'] === 'x' ? ($card->direction === 'out' ? 1 : -1) * $suggestion['fixed_vat'] : round($signed - $signed / (1 + (float) $suggestion['code'] / 100), 2);
+                    $net = round($signed - $vat, 2); $suggested++;
+                }
+                $tag = 'CC:' . $card->transaction_date . ':' . $card->dedupe_hash;
+                $note = 'BTW-' . ($suggestion['code'] === null ? 'controleren: ' : 'suggestie: ') . $suggestion['source'] . '; ' . $tag;
+                $v = ['', $card->description, $card->card_account, '', '', $card->direction === 'out' ? 'Debit' : 'Credit', $card->amount,
+                    '', $suggestion['code'] ?? '', '', '', '', 'Creditcard ' . $card->card_last4,
+                    $card->transaction_date . '; ' . $card->currency . ' ' . $card->original_amount, '', $note];
+                $row = $doc->createElementNS(self::NS, 'row'); $row->setAttribute('r', '2');
+                $gross_formula = 'IF(OR(F2="Debit",F2="Af"),G2,-G2)';
+                foreach ($v as $i => $value) {
+                    $ref = chr(65 + $i) . '2';
+                    if ($i === 9) {
+                        $fixed = $suggestion['code'] === 'x' ? number_format($vat, 2, '.', '') : '""';
+                        $cell = self::cell($doc, $ref, $vat, true, 'IF(I2="","",IF(I2="x",' . $fixed . ',' . $gross_formula . '-ROUND(' . $gross_formula . '/(1+I2/100),2)))');
+                    } elseif ($i === 10) $cell = self::cell($doc, $ref, $net, true, 'IF(J2="","",' . $gross_formula . '-J2)');
+                    else $cell = self::cell($doc, $ref, $value, $i === 6 || ($i === 8 && is_numeric($value)));
+                    $col = chr(65 + $i);
+                    if (isset($styles[$col])) $cell->setAttribute('s', $styles[$col]);
+                    $row->appendChild($cell);
+                }
+                $groups[$key] = ['date' => $card->transaction_date, 'rows' => [$row], 'pending' => true]; $cards_added++;
             }
             uasort($groups, fn($a, $b) => strcmp($b['date'], $a['date']));
             while ($data->firstChild) $data->removeChild($data->firstChild);
@@ -237,6 +289,6 @@ class AVBK_Company_Workbook {
             $out->put('[Content_Types].xml', $types->saveXML());
             $out->remove('xl/calcChain.xml');
         } finally { $out->close(); }
-        return ['sheet' => $name, 'added' => $added, 'preserved' => $preserved, 'suggested' => $suggested];
+        return ['sheet' => $name, 'added' => $added, 'preserved' => $preserved, 'suggested' => $suggested, 'cards_added' => $cards_added];
     }
 }

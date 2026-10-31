@@ -19,10 +19,12 @@ class AVBK_Companies {
             name VARCHAR(190) NOT NULL,
             iban VARCHAR(34) NOT NULL,
             sheet_prefix VARCHAR(25) NOT NULL,
+            card_account VARCHAR(64) NULL DEFAULT NULL,
             created_by BIGINT UNSIGNED NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY iban (iban),
-            UNIQUE KEY sheet_prefix (sheet_prefix)
+            UNIQUE KEY sheet_prefix (sheet_prefix),
+            UNIQUE KEY card_account (card_account)
         ) ENGINE=InnoDB $charset;");
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_company_users (
             company_id BIGINT UNSIGNED NOT NULL,
@@ -64,7 +66,29 @@ class AVBK_Companies {
             UNIQUE KEY company_document (company_id,content_hash),
             KEY company_transaction (company_id,transaction_id)
         ) ENGINE=InnoDB $charset;");
-        update_option('avbk_company_schema', '1', false);
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_company_card_transactions (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            company_id BIGINT UNSIGNED NOT NULL,
+            card_account VARCHAR(64) NOT NULL,
+            card_last4 VARCHAR(4) NOT NULL,
+            transaction_date DATE NOT NULL,
+            booking_date DATE NOT NULL,
+            amount DECIMAL(14,2) NOT NULL,
+            direction VARCHAR(3) NOT NULL,
+            entry_type VARCHAR(20) NOT NULL,
+            currency VARCHAR(3) NOT NULL,
+            original_amount DECIMAL(14,2) NOT NULL,
+            description TEXT NOT NULL,
+            raw_data LONGTEXT NOT NULL,
+            dedupe_hash CHAR(64) NOT NULL,
+            source_filename VARCHAR(255) NOT NULL,
+            imported_by BIGINT UNSIGNED NOT NULL,
+            imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY company_hash (company_id,dedupe_hash),
+            KEY company_date (company_id,transaction_date)
+        ) ENGINE=InnoDB $charset;");
+        update_option('avbk_company_schema', '2', false);
     }
 
     public static function normalize_iban(string $iban): string {

@@ -25,21 +25,28 @@ class AVBK_Company_Report {
     }
 
     /** Read cached row values, never the workbook's stale or uncached total cells. */
-    public static function build(string $path, object $company, array $transactions, int $year, int $quarter, string $filename): array {
+    public static function build(string $path, object $company, array $transactions, int $year, int $quarter, string $filename, array $card_transactions = []): array {
         [$start, $end] = AVBK_Companies::period($year, $quarter);
         $sheet = AVBK_Company_Workbook::sheet_name($company, $year, $quarter);
         $values = AVBK_Xlsx_Reader::read_named_rows($path, $sheet);
         if (!in_array($values[1][0] ?? '', ['Date', 'Datum'], true) || !in_array($values[1][8] ?? '', ['BTW %', 'Btw %'], true)) {
             throw new \RuntimeException('Het BTW-werkblad heeft geen herkenbare bank- en BTW-kolommen.');
         }
-        $totals = ['gross_cents' => 0, 'known_vat_cents' => 0, 'known_net_cents' => 0,
+        $totals = ['gross_cents' => 0, 'purchase_gross_cents' => 0, 'card_gross_cents' => 0, 'known_vat_cents' => 0, 'known_net_cents' => 0,
             'confirmed_vat_cents' => 0, 'confirmed_net_cents' => 0, 'pending_rows' => 0, 'unknown_rows' => 0];
-        $rows = []; $date = null; $direction = ''; $bank_rows = 0; $bank_keys = [];
+        $rows = []; $date = null; $direction = ''; $bank_rows = 0; $bank_keys = []; $card_keys = [];
         foreach ($values as $number => $v) {
             if ($number === 1 || !array_filter($v, fn($value) => (string) $value !== '')) continue;
             $raw_date = (string) ($v[0] ?? '');
-            $bank = $raw_date !== '';
-            if ($bank) {
+            $card = preg_match('/\bCC:(\d{4}-\d{2}-\d{2}):([a-f0-9]{64})\b/', (string) ($v[15] ?? ''), $card_match);
+            $bank = $raw_date !== '' && !$card;
+            if ($card) {
+                $date = AVBK_Bank_Import_Layout::parse_date($card_match[1], 'Y-m-d');
+                if ($raw_date !== '' || !$date || $date < $start || $date >= $end || empty($company->card_account)
+                    || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) throw new \RuntimeException('Het resultaat bevat creditcardregels van een andere administratie of periode.');
+                $direction = in_array(mb_strtolower($v[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
+                $card_keys[$card_match[2]] = true;
+            } elseif ($bank) {
                 $date = AVBK_Bank_Import_Layout::parse_date($raw_date, 'Ymd');
                 if (!$date || $date < $start || $date >= $end || AVBK_Companies::normalize_iban($v[2] ?? '') !== $company->iban) {
                     throw new \RuntimeException('Het resultaat bevat een bankregel van een andere administratie of periode.');
@@ -51,15 +58,18 @@ class AVBK_Company_Report {
                 continue;
             }
             $gross = self::cents($v[7] ?? null);
-            if ($gross === null && $bank) {
+            if ($gross === null && ($bank || $card)) {
                 $amount = self::cents($v[6] ?? null);
                 $gross = $amount === null ? null : ($direction === 'out' ? 1 : -1) * $amount;
             }
             $vat = self::cents($v[9] ?? null); $net = self::cents($v[10] ?? null);
+            $settlement = $bank && AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '');
             $pending = str_starts_with((string) ($v[15] ?? ''), 'BTW-');
             $financial = $bank || $gross !== null || $vat !== null || $net !== null;
-            $unknown = $financial && ($vat === null || $net === null);
-            $totals['gross_cents'] += $gross ?? 0;
+            $unknown = $financial && !$settlement && ($vat === null || $net === null);
+            if (!$card) $totals['gross_cents'] += $gross ?? 0;
+            if (!$settlement) $totals['purchase_gross_cents'] += $gross ?? 0;
+            if ($card) $totals['card_gross_cents'] += $gross ?? 0;
             $totals['known_vat_cents'] += $vat ?? 0;
             $totals['known_net_cents'] += $net ?? 0;
             if (!$pending) {
@@ -71,7 +81,8 @@ class AVBK_Company_Report {
             $rows[] = ['number' => (int) $number, 'date' => $date, 'detail' => !$bank,
                 'name' => (string) ($v[1] ?? ''), 'direction' => $direction, 'gross_cents' => $gross,
                 'code' => trim((string) ($v[8] ?? '')), 'vat_cents' => $vat, 'net_cents' => $net,
-                'status' => !$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? 'suggested' : 'checked')),
+                'source' => $card ? 'Creditcard' : ($bank ? 'Bank' : 'Detail'),
+                'status' => $settlement ? 'settlement' : (!$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? 'suggested' : 'checked'))),
                 'note' => (string) ($v[15] ?? '')];
         }
         if (!$bank_rows) throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
@@ -81,9 +92,15 @@ class AVBK_Company_Report {
                 throw new \RuntimeException('Het werkblad bevat niet alle geïmporteerde banktransacties. Werk de werkmap opnieuw bij.');
             }
         }
+        foreach ($card_transactions as $tx) {
+            if ((int) $tx->company_id !== (int) $company->id || ($tx->entry_type !== 'settlement' && !isset($card_keys[$tx->dedupe_hash]))) {
+                throw new \RuntimeException('Het werkblad bevat niet alle geïmporteerde creditcardaankopen. Werk de werkmap opnieuw bij.');
+            }
+        }
         return ['version' => 1, 'company_id' => (int) $company->id, 'year' => $year, 'quarter' => $quarter,
             'sheet' => $sheet, 'filename' => sanitize_file_name($filename), 'generated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
             'workbook_hash' => hash_file('sha256', $path), 'transactions_hash' => self::fingerprint($transactions),
+            'cards_hash' => self::fingerprint($card_transactions), 'card_rows' => count($card_keys),
             'bank_rows' => $bank_rows, 'totals' => $totals, 'rows' => $rows];
     }
 

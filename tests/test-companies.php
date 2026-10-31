@@ -20,6 +20,7 @@ class Company_Test_DB {
     public array $roles = [1 => [11 => 'bookkeeper', 12 => 'accountant', 13 => 'ceo'], 2 => [14 => 'ceo']];
     public array $companies;
     public array $transactions = [];
+    public array $card_transactions = [];
     public array $documents = [];
     public bool $fail_insert = false;
     private array $snapshot = [];
@@ -30,6 +31,10 @@ class Company_Test_DB {
     public function get_var(array $query) {
         [$sql, $args] = $query;
         if (str_contains($sql, 'SELECT role')) return $this->roles[$args[0]][$args[1]] ?? null;
+        if (str_contains($sql, 'avb_company_card_transactions')) {
+            foreach ($this->card_transactions as $tx) if ($tx->company_id === $args[0] && $tx->dedupe_hash === $args[1]) return $tx->id;
+            return null;
+        }
         if (str_contains($sql, 'avb_company_documents')) {
             foreach ($this->documents as $doc) if ($doc->company_id === $args[0] && $doc->content_hash === $args[1]) return $doc->id;
             return null;
@@ -51,20 +56,26 @@ class Company_Test_DB {
     public function get_results($query): array {
         if (is_string($query)) return array_values($this->companies);
         [$sql, $args] = $query;
+        if (str_contains($sql, 'avb_company_card_transactions')) return array_values(array_filter($this->card_transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
         if (str_contains($sql, 'INNER JOIN')) return array_values(array_filter($this->companies, fn($c) => isset($this->roles[$c->id][$args[0]])));
         return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
     }
     public function insert(string $table, array $row) {
         if ($this->fail_insert) { $this->fail_insert = false; return false; }
+        if (str_contains($table, 'avb_company_card_transactions')) { $this->card_transactions[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
         if (str_contains($table, 'avb_company_documents')) { $this->documents[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
         $this->transactions[] = (object) (['id' => ++$this->insert_id] + $row);
         return 1;
     }
     public function replace(string $table, array $row): int { $this->roles[$row['company_id']][$row['user_id']] = $row['role']; return 1; }
+    public function update(string $table, array $row, array $where) {
+        foreach ($this->companies as $id => $company) if ($id !== $where['id'] && ($company->card_account ?? null) === $row['card_account']) return false;
+        $this->companies[$where['id']]->card_account = $row['card_account']; return 1;
+    }
     public function delete(string $table, array $row): int { unset($this->roles[$row['company_id']][$row['user_id']]); return 1; }
     public function query(string $sql): int {
-        if ($sql === 'START TRANSACTION') $this->snapshot = $this->transactions;
-        if ($sql === 'ROLLBACK') $this->transactions = $this->snapshot;
+        if ($sql === 'START TRANSACTION') $this->snapshot = [$this->transactions, $this->card_transactions];
+        if ($sql === 'ROLLBACK') [$this->transactions, $this->card_transactions] = $this->snapshot;
         return 1;
     }
 }
@@ -78,6 +89,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';
 
 function company_check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('FAIL: ' . $message);
@@ -185,7 +197,7 @@ try {
     $source = $dir . '/template.xlsx'; $output = $dir . '/updated.xlsx';
     $make_workbook($source, 2025); $source_hash = hash_file('sha256', $source);
     $result = AVBK_Company_Workbook::update($source, $output, $wpdb->companies[1], [$tx], 2026, 3);
-    company_check($result === ['sheet' => 'Alpha Q3', 'added' => 1, 'preserved' => 0, 'suggested' => 0], 'prior-year template updates the correct named quarter');
+    company_check($result === ['sheet' => 'Alpha Q3', 'added' => 1, 'preserved' => 0, 'suggested' => 0, 'cards_added' => 0], 'prior-year template updates the correct named quarter');
     company_check(hash_file('sha256', $source) === $source_hash, 'source workbook is never modified');
     $original = new AVBK_Xlsx_Archive($source); $updated = new AVBK_Xlsx_Archive($output);
     company_check($original->getFromName('xl/worksheets/sheet2.xml') === $updated->getFromName('xl/worksheets/sheet2.xml'), 'other company sheet remains byte-for-byte unchanged');
@@ -265,6 +277,58 @@ try {
     $report_stale = false;
     ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-report.php'; $html = ob_get_clean();
     company_check(str_contains($html, '&lt;script&gt;') && !str_contains($html, '<script>'), 'result display escapes imported worksheet text');
+
+    company_reject(fn() => AVBK_Company_Cards::link(1, '12345678901'), 'bookkeeper cannot change the card account binding');
+    $GLOBALS['test_user'] = 13;
+    AVBK_Company_Cards::link(1, "'12345678901");
+    company_check($wpdb->companies[1]->card_account === '12345678901', 'CEO links the statement account, removing spreadsheet text prefixes');
+    $GLOBALS['test_user'] = 14;
+    company_reject(fn() => AVBK_Company_Cards::link(2, '12345678901'), 'one card account cannot be assigned to both companies');
+    AVBK_Company_Cards::link(2, '23456789012');
+    $GLOBALS['test_user'] = 11;
+    $card_row = ['Accountnummer' => "'12345678901", 'Kaartnummer' => '1234 **** **** 5678', 'Naam op kaart' => 'Voorbeeld',
+        'Transactiedatum' => '2026-09-30', 'Boekingsdatum' => '2026-10-02', 'Omschrijving' => 'Leverancier',
+        'Valuta' => 'USD', 'Bedrag' => '-132,00', 'Koers' => '1,09', 'Bedrag in EUR' => '-121,00'];
+    $refund = $card_row; $refund['Omschrijving'] = 'Retour leverancier'; $refund['Bedrag'] = '13,20'; $refund['Bedrag in EUR'] = '12,10';
+    $payment = $card_row; $payment['Omschrijving'] = 'Betaling creditcard'; $payment['Bedrag'] = '132,00'; $payment['Bedrag in EUR'] = '121,00';
+    $other_account = $card_row; $other_account['Accountnummer'] = '23456789012';
+    $other_quarter = $card_row; $other_quarter['Transactiedatum'] = '2026-06-30';
+    $card_parsed = ['headers' => array_keys($card_row), 'rows' => [$card_row, $card_row, $refund, $payment, $other_account, $other_quarter]];
+    $card_plan = AVBK_Company_Cards::prepare($wpdb->companies[1], $card_parsed, 2026, 3);
+    company_check(count($card_plan['rows']) === 4 && $card_plan['outside_account'] === 1 && $card_plan['outside_period'] === 1, 'mixed-account card export selects the linked account and transaction quarter');
+    company_check($card_plan['rows'][0]['amount'] === '121.00' && $card_plan['rows'][0]['original_amount'] === '-132.00' && $card_plan['rows'][0]['currency'] === 'USD', 'card import uses the provider EUR amount while retaining original currency');
+    company_check($card_plan['rows'][0]['entry_type'] === 'purchase' && $card_plan['rows'][2]['entry_type'] === 'refund' && $card_plan['rows'][3]['entry_type'] === 'settlement', 'card purchases, refunds and statement payments remain distinct');
+    company_check($card_plan['rows'][0]['dedupe_hash'] !== $card_plan['rows'][1]['dedupe_hash'], 'two identical card purchases in one export are both retained');
+    $safe_card_raw = json_decode($card_plan['rows'][0]['raw_data'], true);
+    company_check(!isset($safe_card_raw['Naam op kaart']) && $safe_card_raw['Kaartnummer'] === '**** 5678', 'card imports retain only the last four card digits and omit cardholder names');
+    $bad_card = $other_account; $bad_card['Bedrag in EUR'] = 'nonsense';
+    company_reject(fn() => AVBK_Company_Cards::prepare($wpdb->companies[1], ['headers' => $card_parsed['headers'], 'rows' => [$card_row, $bad_card]], 2026, 3), 'excluded card rows must still contain valid financial data');
+    $card_csv = $dir . '/cards.csv'; $handle = fopen($card_csv, 'w');
+    fputcsv($handle, $card_parsed['headers']); foreach ($card_parsed['rows'] as $r) fputcsv($handle, $r); fclose($handle);
+    company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3) === ['added' => 4, 'duplicates' => 0, 'outside_account' => 1, 'outside_period' => 1], 'card CSV is saved separately from bank records');
+    company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3)['duplicates'] === 4, 'overlapping card statements do not duplicate purchases');
+    $broken_card_csv = $dir . '/card-rollback.csv'; $handle = fopen($broken_card_csv, 'w');
+    $new_purchase = $card_row; $new_purchase['Bedrag in EUR'] = '-242,00';
+    fputcsv($handle, $card_parsed['headers']); fputcsv($handle, $new_purchase); fclose($handle);
+    $wpdb->fail_insert = true;
+    company_reject(fn() => AVBK_Company_Cards::import(1, $broken_card_csv, 'cards.csv', 2026, 3), 'card database failures abort the complete import');
+    company_check(count($wpdb->card_transactions) === 4, 'failed card import preserves existing purchases');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3), 'accountant cannot import card purchases');
+    $GLOBALS['test_user'] = 11;
+    $cards = AVBK_Company_Cards::transactions(1, 2026, 3);
+    company_check(count($cards) === 4 && count($wpdb->transactions) === 0, 'card transactions do not become bank payments');
+    company_reject(fn() => AVBK_Company_Cards::transactions(2, 2026, 3), 'card ledger cannot cross company access boundaries');
+    $settlement_tx = clone $tx; $settlement_tx->counterparty_name = 'ING Commercial Cards';
+    $card_output = $dir . '/with-cards.xlsx';
+    $card_update = AVBK_Company_Workbook::update($source, $card_output, $wpdb->companies[1], [$settlement_tx], 2026, 3, $cards);
+    company_check($card_update['cards_added'] === 3, 'workbook adds purchases and refunds but excludes card payment rows');
+    $card_report = AVBK_Company_Report::build($card_output, $wpdb->companies[1], [$settlement_tx], 2026, 3, 'with-cards.xlsx', $cards);
+    company_check($card_report['card_rows'] === 3 && $card_report['bank_rows'] === 1 && $card_report['totals']['gross_cents'] === 12100 && $card_report['totals']['card_gross_cents'] === 22990 && $card_report['totals']['purchase_gross_cents'] === 22990, 'statement cash payment and card expenses are not counted twice');
+    company_check($card_report['totals']['known_vat_cents'] === 4200 && $card_report['totals']['known_net_cents'] === 20000 && $card_report['totals']['confirmed_vat_cents'] === 0, 'card VAT suggestions contribute only to provisional totals');
+    $card_again = $dir . '/with-cards-again.xlsx';
+    company_check(AVBK_Company_Workbook::update($card_output, $card_again, $wpdb->companies[1], [$settlement_tx], 2026, 3, $cards)['cards_added'] === 0, 'repeated worksheet updates preserve card rows without duplicates');
+    company_reject(fn() => AVBK_Company_Workbook::update($current, $dir . '/manual-card-conflict.xlsx', $wpdb->companies[1], [$tx], 2026, 3, $cards), 'legacy manual detail rows require review before adding card imports');
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
     rmdir($dir);

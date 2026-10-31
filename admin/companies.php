@@ -46,6 +46,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
                 </form>
             </section>
         <?php endif; ?>
+        <?php require AVBK_PLUGIN_DIR . 'admin/company-cards.php'; ?>
         <section class="avbk-company-card">
             <h3>Facturen en bonnetjes</h3>
             <p>Upload de factuur of geef de vindplaats op, bijvoorbeeld een OneDrive-link of bestandspad. Verwijzingen worden bewaard; bestanden worden niet automatisch opgehaald. Een factuur vastleggen bevestigt nog geen BTW-bedrag.</p>
@@ -71,7 +72,7 @@ $form_start = function (string $operation, bool $upload = false) use ($company_i
         </section>
         <?php if (AVBK_Companies::can($company_id, 'export')) : ?>
             <section class="avbk-company-card">
-                <h3>2. Het juiste kwartaalwerkblad bijwerken</h3>
+                <h3>3. Het juiste kwartaalwerkblad bijwerken</h3>
                 <p>Upload de nieuwste BTW-werkmap. Je krijgt de volledige werkmap terug met <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong> bijgewerkt. Andere werkbladen blijven behouden. Bewaar de download als de nieuwe versie in OneDrive.</p>
                 <p>Bestaande regels en BTW-aantekeningen van dit jaar blijven staan. Een tab met uitsluitend gegevens uit een vorig jaar wordt vernieuwd. Eerdere boekingen van dezelfde leverancier binnen dit bedrijf leveren BTW-suggesties op. Tegenstrijdige patronen en creditcardafrekeningen krijgen geen tarief toegewezen.</p>
                 <p>Nieuwe regels krijgen in kolom P een BTW-controlemarkering en tellen nog niet mee in het BTW-totaal. Controleer de factuur en verwijder de markering pas nadat de behandeling klopt. Open de download in Excel om de totalen opnieuw te berekenen.</p>

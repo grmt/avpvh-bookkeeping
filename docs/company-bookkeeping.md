@@ -58,6 +58,30 @@ Later bank imports mark the result stale. Changes made in Excel appear after the
 edited workbook is uploaded and updated again. With JavaScript, the export downloads
 and then returns to the saved result; without JavaScript, refresh after downloading.
 
+## Credit-card statements
+
+The portal has a separate **Creditcardafschriften uploaden** section. PDF statements
+are stored as private company documents for interpretation; uploading a PDF does
+not itself create purchase rows or VAT amounts. ING Commercial Cards CSV/XLSX
+transaction exports are parsed using their `Accountnummer`, `Transactiedatum`,
+`Boekingsdatum`, `Omschrijving`, `Valuta`, `Bedrag` and `Bedrag in EUR` columns.
+A CEO first links the statement account to the company. One account cannot belong
+to two companies. Mixed exports import only the linked account and selected
+transaction-date quarter, reporting all excluded rows. Original currency and the
+provider's EUR conversion are retained; cardholder names are omitted and card
+numbers are reduced to their last four digits. Overlapping statements are deduplicated.
+
+Purchases, refunds, and card payments have distinct records. Purchases and refunds
+become tagged detail rows in the quarterly workbook, with their own VAT suggestions.
+Card payments do not become extra expense rows. The bank cash total remains in H;
+card detail prices are in G and their VAT/net amounts in J/K. The private result
+view combines bank and card purchases while excluding settlement payments. Missing
+card data is explicitly flagged as incomplete. Invoices are still needed for review.
+Keep the `CC:` reference when removing a `BTW-` review marker, so later updates can
+recognize and preserve the edited card row. Existing manual purchase details or
+VAT allocated to settlement rows require review before merging card imports, to
+avoid duplicating previous manual extensions. Later card imports mark reports stale.
+
 Excel shared formulas are expanded and relative row references follow their rows.
 The totals are rebuilt, the obsolete calculation chain is removed, and Excel is
 asked to recalculate on opening. Worksheets with tables, merged cells, validation,
@@ -90,8 +114,8 @@ backups because they now include invoice evidence.
 
 ## Remaining work
 
-- Map the actual ING credit-card download format from a representative export.
-  Keep individual purchases distinct from the bank settlement and reconcile them.
+- Interpret PDF card statements into reviewed purchase rows and reconcile card
+  periods and payments against the bank settlements.
 - Add invoice-based bookkeeping entries, including unpaid invoices, split and mixed
   VAT treatments, invoice dates, credit notes, reverse charge, and VAT return boxes.
 - Add a general ledger, opening balances, journal entries, period closing, balance

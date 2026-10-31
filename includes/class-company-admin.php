@@ -48,8 +48,10 @@ class AVBK_Company_Admin {
         $notice = get_transient('avbk_company_notice_' . get_current_user_id());
         delete_transient('avbk_company_notice_' . get_current_user_id());
         $transactions = $company ? AVBK_Companies::transactions($company_id, $year, $quarter) : [];
+        $card_transactions = $company ? AVBK_Company_Cards::transactions($company_id, $year, $quarter) : [];
         $report = $company ? AVBK_Company_Report::get($company_id, $year, $quarter) : null;
-        $report_stale = $report && $report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions);
+        $report_stale = $report && ($report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions)
+            || ($report['cards_hash'] ?? '') !== AVBK_Company_Report::fingerprint($card_transactions));
         require AVBK_PLUGIN_DIR . 'admin/companies.php';
     }
 
@@ -95,6 +97,19 @@ class AVBK_Company_Admin {
                 if (!$user) throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
                 AVBK_Companies::set_access($company_id, (int) $user->ID, sanitize_key(wp_unslash($_POST['role'] ?? '')));
                 $message = 'Bedrijfstoegang bijgewerkt.';
+            } elseif ($operation === 'card_account') {
+                AVBK_Company_Cards::link($company_id, sanitize_text_field(wp_unslash($_POST['card_account'] ?? '')));
+                $message = 'Creditcardaccount gekoppeld aan deze administratie.';
+            } elseif ($operation === 'card_import') {
+                AVBK_Companies::company($company_id, 'import');
+                [$path, $filename] = $this->uploaded('card_statement', ['pdf', 'csv', 'xlsx']);
+                if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'pdf') {
+                    AVBK_Company_Documents::add($company_id, 0, 'Creditcardafschrift ' . $year . ' Q' . $quarter . ' — nog uit te werken; geen transacties geïmporteerd', $path, $filename);
+                    $message = 'Creditcardafschrift privé opgeslagen bij Facturen en bonnetjes. De aankoopregels en BTW moeten nog worden uitgewerkt; er zijn nog geen transacties toegevoegd.';
+                } else {
+                    $result = AVBK_Company_Cards::import($company_id, $path, $filename, $year, $quarter);
+                    $message = sprintf('%d creditcardtransacties toegevoegd; %d al aanwezig; %d buiten dit kwartaal en %d van andere accounts overgeslagen. Werk nu de BTW-werkmap bij.', $result['added'], $result['duplicates'], $result['outside_period'], $result['outside_account']);
+                }
             } elseif ($operation === 'invoice') {
                 AVBK_Companies::company($company_id, 'import');
                 $path = ''; $filename = '';
@@ -116,8 +131,9 @@ class AVBK_Company_Admin {
                 $output = wp_tempnam('avbk-company-workbook.xlsx');
                 if (!$output) throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
                 $transactions = AVBK_Companies::transactions($company_id, $year, $quarter);
-                AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter);
-                AVBK_Company_Report::save(AVBK_Company_Report::build($output, $company, $transactions, $year, $quarter, $year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx'));
+                $cards = AVBK_Company_Cards::transactions($company_id, $year, $quarter);
+                AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter, $cards);
+                AVBK_Company_Report::save(AVBK_Company_Report::build($output, $company, $transactions, $year, $quarter, $year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx', $cards));
                 nocache_headers();
                 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 header('Content-Disposition: attachment; filename="' . sanitize_file_name($year . ' BTW-' . $company->sheet_prefix . '-Q' . $quarter . '.xlsx') . '"');
