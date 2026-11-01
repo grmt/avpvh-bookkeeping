@@ -1,18 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
-// Variables are supplied by AVBK_Company_Admin::render() after checking company access.
-$form_start = function (string $operation, bool $upload = false) use ($company_id, $year, $quarter, $return_to) {
-    ?>
-    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" <?php if ($upload) echo 'enctype="multipart/form-data"'; ?>>
-        <?php wp_nonce_field('avbk_company'); ?>
-        <input type="hidden" name="action" value="avbk_company">
-        <input type="hidden" name="operation" value="<?php echo esc_attr($operation); ?>">
-        <input type="hidden" name="company_id" value="<?php echo esc_attr($company_id); ?>">
-        <input type="hidden" name="book_year" value="<?php echo esc_attr($year); ?>">
-        <input type="hidden" name="quarter" value="<?php echo esc_attr($quarter); ?>">
-        <input type="hidden" name="return_to" value="<?php echo esc_url($return_to); ?>">
-    <?php
-};
+// Variables and the form renderer are supplied after checking company access.
 ?>
 <div class="wrap avbk-company">
     <?php if (is_admin()) : ?><h1>Bedrijfsboekhouding</h1><?php endif; ?>

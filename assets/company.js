@@ -46,4 +46,76 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    // Delegate so newly rendered rows keep working without a page reload.
+    document.addEventListener('submit', async function (event) {
+        var form = event.target;
+        if (!window.fetch || !form.matches('.avbk-company-quick-review')) return;
+        event.preventDefault();
+        var section = form.closest('#avbk-company-result');
+        if (section.dataset.reviewBusy === '1') return;
+        section.dataset.reviewBusy = '1';
+        var row = form.closest('tr');
+        var anchor = row.nextElementSibling || row;
+        var status = form.querySelector('[role="status"]');
+        var button = form.querySelector('button[type="submit"]');
+        var label = button.textContent;
+        var buttons = Array.from(section.querySelectorAll('button')).map(function (item) { return [item, item.disabled]; });
+        var body = new FormData(form);
+        // FormData(form) does not include the clicked submit button.
+        body.set('review_state', 'checked');
+        buttons.forEach(function (item) { item[0].disabled = true; });
+        button.textContent = '…';
+        status.textContent = '';
+        var problem = 'Bevestigen is niet gelukt. Ververs de pagina en controleer of de wijziging is opgeslagen.';
+        try {
+            var response = await fetch(form.getAttribute('action'), {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-AVBK-Review': '1'}});
+            if (!(response.headers.get('Content-Type') || '').includes('application/json')) throw new Error(problem);
+            var result = await response.json();
+            if (!response.ok || !result.success || !result.data || typeof result.data.html !== 'string') {
+                if (result.data && typeof result.data.message === 'string') problem = result.data.message;
+                throw new Error(problem);
+            }
+            var parsed = new DOMParser().parseFromString(result.data.html, 'text/html');
+            var replacement = parsed.getElementById('avbk-company-result');
+            if (!replacement) throw new Error(problem);
+            // Preserve other open editors and their unsaved fields.
+            var editors = Array.from(section.querySelectorAll('details.avbk-company-review[open]')).filter(function (details) {
+                return details.closest('tr') !== row;
+            }).map(function (details) {
+                return {id: details.closest('tr').id, fields: Array.from(details.querySelectorAll('input:not([type="hidden"]), select, textarea')).map(function (field) { return [field.name, field.value]; })};
+            });
+            var top = anchor.getBoundingClientRect().top;
+            var scroll = section.querySelector('.avbk-company-scroll').scrollLeft;
+            var anchorId = anchor.id;
+            var rowId = row.id;
+            section.replaceWith(replacement);
+            replacement.querySelector('.avbk-company-scroll').scrollLeft = scroll;
+            editors.forEach(function (editor) {
+                var target = document.getElementById(editor.id);
+                var details = target && target.querySelector('details.avbk-company-review');
+                if (!details) return;
+                details.open = true;
+                editor.fields.forEach(function (saved) {
+                    var field = Array.from(details.querySelectorAll('input:not([type="hidden"]), select, textarea')).find(function (item) { return item.name === saved[0]; });
+                    if (field) field.value = saved[1];
+                });
+            });
+            requestAnimationFrame(function () {
+                var next = document.getElementById(anchorId);
+                if (next) {
+                    window.scrollBy(0, next.getBoundingClientRect().top - top);
+                    var focus = next.querySelector('button.avbk-company-ok');
+                    var savedRow = document.getElementById(rowId);
+                    if (!focus && savedRow) focus = savedRow.querySelector('summary');
+                    if (focus) focus.focus({preventScroll: true});
+                }
+            });
+        } catch (error) {
+            status.textContent = problem;
+            buttons.forEach(function (item) { item[0].disabled = item[1]; });
+            button.textContent = label;
+            delete section.dataset.reviewBusy;
+        }
+    });
 });

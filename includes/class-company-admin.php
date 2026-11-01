@@ -53,7 +53,33 @@ class AVBK_Company_Admin {
         $report = $company ? AVBK_Company_Report::get($company_id, $year, $quarter) : null;
         $report_stale = $report && ($report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions)
             || ($report['cards_hash'] ?? '') !== AVBK_Company_Report::fingerprint($card_transactions));
+        $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
         require AVBK_PLUGIN_DIR . 'admin/companies.php';
+    }
+
+    private function form_renderer(int $company_id, int $year, int $quarter, string $return_to): \Closure {
+        return function (string $operation, bool $upload = false, string $class = '') use ($company_id, $year, $quarter, $return_to) {
+            ?>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="<?php echo esc_attr($class); ?>" <?php if ($upload) echo 'enctype="multipart/form-data"'; ?>>
+                <?php wp_nonce_field('avbk_company'); ?>
+                <input type="hidden" name="action" value="avbk_company">
+                <input type="hidden" name="operation" value="<?php echo esc_attr($operation); ?>">
+                <input type="hidden" name="company_id" value="<?php echo esc_attr($company_id); ?>">
+                <input type="hidden" name="book_year" value="<?php echo esc_attr($year); ?>">
+                <input type="hidden" name="quarter" value="<?php echo esc_attr($quarter); ?>">
+                <input type="hidden" name="return_to" value="<?php echo esc_url($return_to); ?>">
+            <?php
+        };
+    }
+
+    private function report_html(array $report, string $return_to): string {
+        $company_id = $report['company_id']; $year = $report['year']; $quarter = $report['quarter'];
+        $report_stale = $report['transactions_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Companies::transactions($company_id, $year, $quarter))
+            || $report['cards_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Company_Cards::transactions($company_id, $year, $quarter));
+        $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
+        ob_start();
+        try { require AVBK_PLUGIN_DIR . 'admin/company-report.php'; return ob_get_contents(); }
+        finally { ob_end_clean(); }
     }
 
     private function uploaded(string $field, array $extensions): array {
@@ -189,7 +215,7 @@ class AVBK_Company_Admin {
                 if ($result['outside_period']) $message .= sprintf('%d transacties buiten het gekozen kwartaal overgeslagen. ', $result['outside_period']);
                 $message .= 'Werk nu het kwartaalwerkblad bij en controleer de BTW per factuur.';
             } elseif ($operation === 'review') {
-                AVBK_Company_Review::save($company_id, $year, $quarter,
+                $report = AVBK_Company_Review::save($company_id, $year, $quarter,
                     sanitize_text_field(wp_unslash($_POST['workbook_hash'] ?? '')),
                     sanitize_text_field(wp_unslash($_POST['review_key'] ?? '')),
                     sanitize_text_field(wp_unslash($_POST['vat_code'] ?? '')),
@@ -197,6 +223,10 @@ class AVBK_Company_Admin {
                     sanitize_key(wp_unslash($_POST['review_state'] ?? '')),
                     sanitize_text_field(wp_unslash($_POST['review_note'] ?? '')));
                 $message = 'BTW-controle opgeslagen. De totalen en download zijn bijgewerkt.';
+                if (($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') {
+                    $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
+                    wp_send_json_success(['html' => $this->report_html($report, $return_to)]);
+                }
             } elseif ($operation === 'export') {
                 $company = AVBK_Companies::company($company_id, 'export');
                 $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
@@ -222,6 +252,7 @@ class AVBK_Company_Admin {
             if ($output) wp_delete_file($output);
             $message = $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.';
             if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') wp_send_json_error(['message' => $message], 400);
+            if ($operation === 'review' && ($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') wp_send_json_error(['message' => $message], 400);
             set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => true, 'message' => $message], 120);
         }
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));

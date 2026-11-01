@@ -15,6 +15,13 @@ function get_option(string $name, $default = false) { return $GLOBALS['test_opti
 function update_option(string $name, $value, $autoload = null): bool { $changed = get_option($name) !== $value; $GLOBALS['test_options'][$name] = $value; return $changed; }
 function add_option($name, $value, $unused = '', $autoload = null): bool { if (get_option($name) !== false) return false; return update_option($name, $value, $autoload); }
 function esc_html($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }
+function esc_attr($text): string { return esc_html($text); }
+function esc_url($text): string { return esc_attr($text); }
+function admin_url($path): string { return 'https://example.test/wp-admin/' . $path; }
+function wp_nonce_field($action): void { echo '<input type="hidden" name="_wpnonce" value="synthetic">'; }
+function wp_nonce_url($url, $action): string { return $url . '&_wpnonce=synthetic'; }
+function add_query_arg($args, $url): string { return $url . '?' . http_build_query($args); }
+function selected($value, $expected): void { if ((string) $value === (string) $expected) echo 'selected'; }
 function maybe_serialize($value): string { return serialize($value); }
 function wp_cache_delete($key, $group): bool { return true; }
 function wp_tempnam($name) { return tempnam(sys_get_temp_dir(), 'avbk-review-test-'); }
@@ -486,6 +493,13 @@ try {
     company_check(count($refund_checked['review_log']) === 2, 'repeated reviews append audit history');
     company_check($refund_checked['totals']['pending_rows'] === 1, 'settlement does not leave an unresolvable VAT review warning');
     company_reject(fn() => AVBK_Company_Report::save($refund_checked, null, true), 'first export cannot overwrite a concurrently created result');
+    $admin = (new ReflectionClass(AVBK_Company_Admin::class))->newInstanceWithoutConstructor();
+    $render_report = new ReflectionMethod(AVBK_Company_Admin::class, 'report_html');
+    $response_html = $render_report->invoke($admin, $card_report, 'https://example.test/portal/');
+    company_check(substr_count($response_html, 'class="avbk-company-quick-review"') === 2 && str_contains($response_html, 'name="_wpnonce"'), 'inline response renders quick confirmations with nonce-protected forms');
+    company_check(str_contains($response_html, 'name="return_to" value="https://example.test/portal/"') && str_contains($response_html, 'value="' . $card_report['workbook_hash'] . '"'), 'inline response retains the frontend return address and current workbook version');
+    $GLOBALS['test_user'] = 12;
+    company_check(!str_contains($render_report->invoke($admin, $card_report, 'https://example.test/portal/'), 'class="avbk-company-quick-review"'), 'inline rendering does not grant edit controls to accountants');
 
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);

@@ -12,7 +12,7 @@ const form = {
     addEventListener: (type, callback) => { handler = callback; }
 };
 const sandbox = {
-    document: {addEventListener: (type, callback) => callback(), querySelectorAll: () => [form]},
+    document: {addEventListener: (type, callback) => { if (type === 'DOMContentLoaded') callback(); }, querySelectorAll: () => [form]},
     window: {fetch: true},
     FormData: class {},
     fetch: async (url, options) => { posted = {url, options}; return {ok: false, headers: {get: () => 'application/json'}, json: async () => ({data:{message:'Expected server validation error'}})}; }

@@ -31,7 +31,7 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
             <caption><?php echo esc_html($report['bank_rows']); ?> bankregels, met eventuele detailregels uit het kwartaalwerkblad</caption>
             <thead><tr><th>Rij</th><th>Bron</th><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Incl. BTW</th><th>BTW %</th><th>BTW</th><th>Excl. BTW</th><th>Controle</th></tr></thead>
             <tbody><?php foreach ($report['rows'] as $result_row) : ?>
-                <tr>
+                <tr id="avbk-company-row-<?php echo esc_attr(($result_row['review_key'] ?? '') ?: 'number-' . $result_row['number']); ?>">
                     <td><?php echo esc_html($result_row['number']); ?></td><td><?php echo esc_html($result_row['source'] ?? 'Bank'); ?></td><td><?php echo esc_html($result_row['date']); ?></td>
                     <td><?php if ($result_row['detail']) echo '↳ '; ?><?php echo esc_html($result_row['name']); ?></td>
                     <td><?php echo $result_row['direction'] === 'out' ? 'Af' : 'Bij'; ?></td>
@@ -43,13 +43,14 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                         <?php if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
                             $saved_review = $report['reviews'][$result_row['review_key']] ?? null; ?>
                             <?php if ($result_row['status'] !== 'checked' && in_array($result_row['code'], ['0', '9', '21', 'x'], true) && $result_row['vat_cents'] !== null && $result_row['net_cents'] !== null) : ?>
-                                <?php $form_start('review'); ?>
+                                <?php $form_start('review', false, 'avbk-company-quick-review'); ?>
                                     <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
                                     <input type="hidden" name="review_key" value="<?php echo esc_attr($result_row['review_key']); ?>">
                                     <input type="hidden" name="vat_code" value="<?php echo esc_attr($result_row['code']); ?>">
                                     <input type="hidden" name="fixed_vat" value="<?php echo esc_attr($result_row['code'] === 'x' ? number_format(abs($result_row['vat_cents']) / 100, 2, '.', '') : ''); ?>">
                                     <input type="hidden" name="review_note" value="<?php echo esc_attr($saved_review['note'] ?? ''); ?>">
-                                    <button type="submit" name="review_state" value="checked" class="button button-primary" aria-label="<?php echo esc_attr('BTW bevestigen voor ' . $result_row['name'] . ' op ' . $result_row['date']); ?>">OK</button>
+                                    <button type="submit" name="review_state" value="checked" class="button button-primary avbk-company-ok" aria-label="<?php echo esc_attr('BTW bevestigen voor ' . $result_row['name'] . ' op ' . $result_row['date']); ?>">OK</button>
+                                    <span class="avbk-company-review-message" role="status" aria-live="polite"></span>
                                 </form>
                             <?php endif; ?>
                             <details class="avbk-company-review"><summary>BTW controleren</summary>
