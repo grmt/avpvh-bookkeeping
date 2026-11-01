@@ -37,3 +37,5 @@ body:has(.avbk-company) .wp-block-post-title { display: none; }
 .avbk-company .avbk-company-review button { margin: 3px 0; padding: 6px 8px; font-size: 12px; }
 .avbk-company .avbk-company-ok { min-width: 30px; min-height: 24px; padding: 1px 6px; font-size: 12px; line-height: 20px; margin-top: 3px; }
 .avbk-company .avbk-company-review-message { display: block; font-size: 12px; color: #b32d2e; }
+.avbk-company input[type="checkbox"] { display: inline-block; width: auto; }
+#avbk-company-payroll { scroll-margin-top: 50px; }

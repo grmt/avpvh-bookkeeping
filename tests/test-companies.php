@@ -71,6 +71,16 @@ class Company_Test_DB {
     public function get_results($query): array {
         if (is_string($query)) return array_values($this->companies);
         [$sql, $args] = $query;
+        if (str_contains($sql, 'avb_company_documents')) {
+            $documents = array_filter($this->documents, function ($doc) use ($sql, $args) {
+                if ($doc->company_id !== $args[0]) return false;
+                if (str_contains($sql, "document_kind = 'invoice'")) return $doc->document_kind === 'invoice';
+                return in_array($doc->document_kind, ['payslip', 'payroll_tax'], true) && $doc->document_period >= $args[1] && $doc->document_period < $args[2];
+            });
+            preg_match('/SELECT (.+?) FROM/', $sql, $match);
+            $fields = array_flip(array_map('trim', explode(',', $match[1])));
+            return array_values(array_map(fn($doc) => (object) array_intersect_key((array) $doc, $fields), $documents));
+        }
         if (str_contains($sql, 'avb_company_card_transactions')) return array_values(array_filter($this->card_transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
         if (str_contains($sql, 'INNER JOIN')) return array_values(array_filter($this->companies, fn($c) => isset($this->roles[$c->id][$args[0]])));
         return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
@@ -108,6 +118,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-companies.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
@@ -500,6 +511,50 @@ try {
     company_check(str_contains($response_html, 'name="return_to" value="https://example.test/portal/"') && str_contains($response_html, 'value="' . $card_report['workbook_hash'] . '"'), 'inline response retains the frontend return address and current workbook version');
     $GLOBALS['test_user'] = 12;
     company_check(!str_contains($render_report->invoke($admin, $card_report, 'https://example.test/portal/'), 'class="avbk-company-quick-review"'), 'inline rendering does not grant edit controls to accountants');
+
+    // Payroll evidence shares the private company document store, without changing VAT or bank records.
+    $GLOBALS['test_user'] = 11;
+    company_check(!AVBK_Company_Payroll::enabled(1), 'payroll is disabled by default for each company');
+    company_reject(fn() => AVBK_Company_Payroll::configure(1, true), 'bookkeeper cannot change payroll feature access');
+    $GLOBALS['test_user'] = 13;
+    AVBK_Company_Payroll::configure(1, true);
+    company_check(AVBK_Company_Payroll::enabled(1), 'company CEO can enable payroll for that company');
+    company_reject(fn() => AVBK_Company_Payroll::configure(2, true), 'company CEO cannot enable payroll for another company');
+    foreach (['2026-00', '2026-13', '2026-1', '2026-10-01', '', '1999-12'] as $bad_month) company_reject(fn() => AVBK_Company_Payroll::period($bad_month), 'payroll rejects an invalid document month: ' . $bad_month);
+    $GLOBALS['test_user'] = 11;
+    $payroll_snapshot = AVBK_Company_Report::get(1, 2026, 3);
+    $payroll_pdf = base64_encode("%PDF-1.4\n% Synthetic payroll document A\n%%EOF\n");
+    $tax_pdf = base64_encode("%PDF-1.4\n% Synthetic payroll document B\n%%EOF\n");
+    $payslip = ['kind' => 'payslip', 'period' => '2026-10'];
+    $payroll_tax = ['kind' => 'payroll_tax', 'period' => '2026-10'];
+    $payslip_id = AVBK_Company_Documents::import_mail(1, 'October payslip', 'payslip.pdf', $payroll_pdf, $payslip);
+    $payroll_tax_id = AVBK_Company_Documents::import_mail(1, 'October wage tax statement', 'payroll-tax.pdf', $tax_pdf, $payroll_tax);
+    company_check(AVBK_Company_Documents::import_mail(1, 'Repeated payroll import', 'payslip.pdf', $payroll_pdf, $payslip) === $payslip_id, 'repeated payroll imports do not duplicate evidence');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Wrong month', 'payslip.pdf', $payroll_pdf, ['kind' => 'payslip', 'period' => '2026-09']), 'duplicate bytes cannot silently move to a different payroll month');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Wrong type', 'payslip.pdf', $payroll_pdf, $payroll_tax), 'duplicate bytes cannot silently change payroll document type');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Unknown type', 'other.pdf', $payroll_pdf, ['kind' => 'other', 'period' => '2026-10']), 'unsupported payroll document types are rejected');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Invalid bytes', 'other.pdf', base64_encode('text'), $payslip), 'payroll documents require validated PDF or image bytes');
+    $payroll_doc = AVBK_Company_Documents::document(1, $payslip_id);
+    company_check($payroll_doc->document_kind === 'payslip' && $payroll_doc->document_period === '2026-10-01' && base64_decode($payroll_doc->document_data) === base64_decode($payroll_pdf), 'payroll evidence stores its type, month and original bytes privately');
+    $payroll_list = AVBK_Company_Payroll::documents(1, 2026);
+    company_check(count($payroll_list) === 2 && !isset($payroll_list[0]->document_data), 'payroll listing contains metadata and keeps attachment bytes out of the page');
+    company_check(AVBK_Company_Payroll::documents(1, 2025) === [], 'payroll evidence is filtered to the selected year');
+    company_check(!in_array($payslip_id, array_map(fn($doc) => $doc->id, AVBK_Company_Documents::listing(1)), true), 'payslips do not appear among VAT invoices');
+    company_check(AVBK_Company_Report::get(1, 2026, 3) === $payroll_snapshot, 'adding payroll evidence leaves the VAT workbook and its totals unchanged');
+    $form_method = new ReflectionMethod(AVBK_Company_Admin::class, 'form_renderer');
+    $form_start = $form_method->invoke($admin, 1, 2026, 3, 'https://example.test/portal/');
+    $company_id = 1; $company = $wpdb->companies[1]; $year = 2026;
+    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; $payroll_html = ob_get_clean();
+    company_check(str_contains($payroll_html, 'name="payroll_documents[]"') && str_contains($payroll_html, 'multiple required') && str_contains($payroll_html, '2026-10'), 'payroll UI supports multiple files and displays document month');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Read-only upload', 'payslip.pdf', $payroll_pdf, $payslip), 'accountants cannot upload payroll documents');
+    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; $readonly_payroll = ob_get_clean();
+    company_check(str_contains($readonly_payroll, 'payslip.pdf') && !str_contains($readonly_payroll, '<form'), 'accountants can see private payroll download links without upload controls');
+    $GLOBALS['test_user'] = 14;
+    company_check(!AVBK_Company_Payroll::enabled(2), 'enabling payroll does not enable it for another company');
+    company_reject(fn() => AVBK_Company_Documents::import_mail(2, 'Disabled payroll', 'payslip.pdf', $payroll_pdf, $payslip), 'disabled company rejects payroll uploads');
+    company_reject(fn() => AVBK_Company_Payroll::documents(1, 2026), 'another company cannot list payroll documents');
+    company_reject(fn() => AVBK_Company_Documents::document(2, $payslip_id), 'changing the company ID cannot download another company payslip');
 
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);

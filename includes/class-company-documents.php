@@ -6,9 +6,11 @@ class AVBK_Company_Documents {
     public const MAX_BYTES = 3 * 1024 * 1024;
     private const TYPES = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
 
-    public static function add(int $company_id, int $transaction_id, string $reference, string $uploaded_path = '', string $filename = '', bool $allow_existing = false): int {
+    public static function add(int $company_id, int $transaction_id, string $reference, string $uploaded_path = '', string $filename = '', bool $allow_existing = false, array $classification = []): int {
         global $wpdb;
         AVBK_Companies::company($company_id, 'import');
+        [$kind, $period] = self::classification($company_id, $classification);
+        if ($kind !== 'invoice' && $uploaded_path === '') throw new \RuntimeException('Upload een loonstrookje of belastingopgave.');
         $reference = trim($reference);
         if (mb_strlen($reference) > 2000) throw new \RuntimeException('De factuurverwijzing mag maximaal 2000 tekens bevatten.');
         if ($transaction_id) {
@@ -29,13 +31,14 @@ class AVBK_Company_Documents {
             if ($reference === '') throw new \RuntimeException('Upload een factuur of vul een vindplaats in.');
             $filename = ''; $hash = hash('sha256', 'reference:' . $reference);
         }
-        return self::persist($company_id, $transaction_id, $reference, $filename, $mime, $data, $hash, $allow_existing);
+        return self::persist($company_id, $transaction_id, $reference, $filename, $mime, $data, $hash, $allow_existing, $kind, $period);
     }
 
     /** The host's read-only mailbox collector supplies attachment bytes through WP-CLI. */
-    public static function import_mail(int $company_id, string $reference, string $filename, string $encoded): int {
+    public static function import_mail(int $company_id, string $reference, string $filename, string $encoded, array $classification = []): int {
         if (!defined('WP_CLI') || !WP_CLI) throw new \RuntimeException('E-mailbijlagen kunnen alleen via de mailboxcollector worden geïmporteerd.');
         AVBK_Companies::company($company_id, 'import');
+        [$kind, $period] = self::classification($company_id, $classification);
         $reference = trim($reference);
         if ($reference === '' || mb_strlen($reference) > 2000 || strlen($encoded) > 4 * self::MAX_BYTES / 3 + 8) throw new \RuntimeException('Ongeldige e-mailbijlage of verwijzing.');
         $bytes = base64_decode($encoded, true);
@@ -44,18 +47,30 @@ class AVBK_Company_Documents {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
         if (!isset(self::TYPES[$ext]) || self::TYPES[$ext] !== $mime) throw new \RuntimeException('De e-mailbijlage is geen geldige PDF of afbeelding.');
-        return self::persist($company_id, 0, $reference, $filename, $mime, base64_encode($bytes), hash('sha256', $bytes), true);
+        return self::persist($company_id, 0, $reference, $filename, $mime, base64_encode($bytes), hash('sha256', $bytes), true, $kind, $period);
     }
 
-    private static function persist(int $company_id, int $transaction_id, string $reference, string $filename, string $mime, ?string $data, string $hash, bool $allow_existing): int {
+    private static function classification(int $company_id, array $classification): array {
+        if (!$classification) return ['invoice', null];
+        $kind = $classification['kind'] ?? '';
+        if (!AVBK_Company_Payroll::enabled($company_id) || !isset(AVBK_Company_Payroll::KINDS[$kind])) throw new \RuntimeException('Kies een geldig loondocument voor een administratie met loonadministratie.');
+        return [$kind, AVBK_Company_Payroll::period((string) ($classification['period'] ?? ''))];
+    }
+
+    private static function persist(int $company_id, int $transaction_id, string $reference, string $filename, string $mime, ?string $data, string $hash, bool $allow_existing, string $kind, ?string $period): int {
         global $wpdb;
         $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND content_hash = %s", $company_id, $hash));
         if ($existing) {
-            if ($allow_existing) return (int) $existing;
+            if ($allow_existing) {
+                $document = self::document($company_id, (int) $existing);
+                if (($document->document_kind ?? 'invoice') !== $kind || ($document->document_period ?? null) !== $period) throw new \RuntimeException('Dit bestand staat al bij een andere documentsoort of maand in deze administratie.');
+                return (int) $existing;
+            }
             throw new \RuntimeException('Deze factuur of verwijzing staat al bij deze administratie.');
         }
         if (!$wpdb->insert($wpdb->prefix . 'avb_company_documents', [
             'company_id' => $company_id, 'transaction_id' => $transaction_id ?: null, 'source_reference' => $reference,
+            'document_kind' => $kind, 'document_period' => $period,
             'filename' => $filename, 'mime_type' => $mime, 'document_data' => $data, 'content_hash' => $hash, 'added_by' => get_current_user_id(),
         ])) throw new \RuntimeException('De factuur is niet opgeslagen.');
         return (int) $wpdb->insert_id;
@@ -64,7 +79,7 @@ class AVBK_Company_Documents {
     public static function listing(int $company_id): array {
         global $wpdb;
         AVBK_Companies::company($company_id);
-        return $wpdb->get_results($wpdb->prepare("SELECT id, transaction_id, source_reference, filename, added_at FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d ORDER BY id DESC LIMIT 200", $company_id));
+        return $wpdb->get_results($wpdb->prepare("SELECT id, transaction_id, source_reference, filename, added_at FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' ORDER BY id DESC LIMIT 200", $company_id));
     }
 
     public static function document(int $company_id, int $document_id): object {

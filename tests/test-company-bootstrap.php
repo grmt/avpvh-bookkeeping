@@ -30,7 +30,8 @@ try {
     if (!avbk_dependencies_missing()) throw new RuntimeException('Fixture unexpectedly has association dependencies.');
     ($GLOBALS['activate'])();
     if (count($GLOBALS['schemas']) !== 5) throw new RuntimeException('Company and credit-card tables not installed.');
-    if (!$wpdb->booking_nullable || $wpdb->alter_count !== 1 || get_option('avbk_company_schema') !== '4') throw new RuntimeException('Existing required booking dates were not migrated explicitly.');
+    if (!$wpdb->booking_nullable || $wpdb->alter_count !== 1 || get_option('avbk_company_schema') !== '5') throw new RuntimeException('Existing required booking dates were not migrated explicitly.');
+    if (!str_contains(implode("\n", $GLOBALS['schemas']), "document_kind VARCHAR(20) NOT NULL DEFAULT 'invoice'") || !str_contains(implode("\n", $GLOBALS['schemas']), 'document_period DATE NULL')) throw new RuntimeException('Payroll document metadata columns missing.');
     foreach ($GLOBALS['hooks']['plugins_loaded'] as $handler) $handler();
     if (!isset($GLOBALS['shortcodes']['avbk_company_bookkeeping'], $GLOBALS['hooks']['admin_post_avbk_company'], $GLOBALS['hooks']['admin_post_avbk_company_document'])) throw new RuntimeException('Company portal handlers not registered.');
     if (class_exists('AVBK_DB') || isset($GLOBALS['hooks']['avbk_generate_contribution_fees'])) throw new RuntimeException('Association workflows should not start on the company-only site.');

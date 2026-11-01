@@ -173,6 +173,35 @@ class AVBK_Company_Admin {
                 if (!$user) throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
                 AVBK_Companies::set_access($company_id, (int) $user->ID, sanitize_key(wp_unslash($_POST['role'] ?? '')));
                 $message = 'Bedrijfstoegang bijgewerkt.';
+            } elseif ($operation === 'payroll_settings') {
+                AVBK_Company_Payroll::configure($company_id, ($_POST['payroll_enabled'] ?? '') === '1');
+                $message = 'Instelling loonadministratie opgeslagen.';
+            } elseif ($operation === 'payroll_upload') {
+                AVBK_Companies::company($company_id, 'import');
+                if (!AVBK_Company_Payroll::enabled($company_id)) throw new \RuntimeException('Loonadministratie is niet ingeschakeld voor dit bedrijf.');
+                $kind = sanitize_key(wp_unslash($_POST['payroll_kind'] ?? ''));
+                if (!isset(AVBK_Company_Payroll::KINDS[$kind])) throw new \RuntimeException('Kies een geldige documentsoort.');
+                $period = sanitize_text_field(wp_unslash($_POST['payroll_period'] ?? ''));
+                AVBK_Company_Payroll::period($period);
+                if (substr($period, 0, 4) !== (string) $year) throw new \RuntimeException('Kies een maand uit het geselecteerde boekjaar.');
+                $reference = sanitize_text_field(wp_unslash($_POST['payroll_reference'] ?? ''));
+                if (mb_strlen($reference) > 1500) throw new \RuntimeException('Gebruik maximaal 1500 tekens voor de toelichting.');
+                $files = self::statement_uploads($_FILES['payroll_documents'] ?? []);
+                $messages = []; $processed = 0; $failed = 0;
+                foreach ($files as $file) {
+                    $filename = sanitize_file_name($file['name']);
+                    try {
+                        [$path, $filename] = $this->validate_upload($file, ['pdf', 'jpg', 'jpeg', 'png', 'webp']);
+                        AVBK_Company_Documents::add($company_id, 0, $reference, $path, $filename, true, ['kind' => $kind, 'period' => $period]);
+                        $messages[] = $filename . ': privé opgeslagen of al aanwezig.';
+                        $processed++;
+                    } catch (\Throwable $e) {
+                        $failed++;
+                        $messages[] = $filename . ': ' . ($e instanceof \RuntimeException ? $e->getMessage() : 'Dit bestand kon niet worden opgeslagen.');
+                    }
+                }
+                $notice_error = $failed > 0;
+                $message = sprintf('%d loondocumenten verwerkt; %d mislukt.', $processed, $failed) . "\n" . implode("\n", $messages);
             } elseif ($operation === 'card_account') {
                 AVBK_Company_Cards::link($company_id, sanitize_text_field(wp_unslash($_POST['card_account'] ?? '')));
                 $message = 'Creditcardaccount gekoppeld aan deze administratie.';
@@ -258,6 +287,7 @@ class AVBK_Company_Admin {
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
         $args = ['company_id' => $company_id];
         if ($year >= 2000 && $year <= 2100 && $quarter >= 1 && $quarter <= 4) $args += ['book_year' => $year, 'quarter' => $quarter];
-        wp_safe_redirect(add_query_arg($args, $return_to) . ($operation === 'review' ? '#avbk-company-result' : '')); exit;
+        $anchor = $operation === 'review' ? '#avbk-company-result' : (str_starts_with($operation, 'payroll_') ? '#avbk-company-payroll' : '');
+        wp_safe_redirect(add_query_arg($args, $return_to) . $anchor); exit;
     }
 }

@@ -56,6 +56,8 @@ class AVBK_Companies {
             company_id BIGINT UNSIGNED NOT NULL,
             transaction_id BIGINT UNSIGNED NULL,
             source_reference TEXT NOT NULL,
+            document_kind VARCHAR(20) NOT NULL DEFAULT 'invoice',
+            document_period DATE NULL DEFAULT NULL,
             filename VARCHAR(255) NOT NULL DEFAULT '',
             mime_type VARCHAR(50) NOT NULL DEFAULT '',
             document_data LONGTEXT NULL,
@@ -95,7 +97,7 @@ class AVBK_Companies {
                 throw new \RuntimeException('De creditcarddatabase kon niet worden bijgewerkt voor ontbrekende boekingsdatums.');
             }
         }
-        update_option('avbk_company_schema', '4', false);
+        update_option('avbk_company_schema', '5', false);
     }
 
     public static function normalize_iban(string $iban): string {

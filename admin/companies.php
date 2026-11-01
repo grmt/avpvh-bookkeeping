@@ -27,6 +27,7 @@ defined('ABSPATH') || exit;
         <?php endif; ?>
         <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
         <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
+        <?php require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; ?>
         <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
             <section class="avbk-company-card">
                 <h3>1. Bankexport uploaden</h3>
@@ -88,6 +89,10 @@ defined('ABSPATH') || exit;
         <?php if (AVBK_Companies::can($company_id, 'access')) : ?>
             <section class="avbk-company-card">
                 <h3>Toegang tot deze administratie</h3>
+                <?php $form_start('payroll_settings'); ?>
+                    <label><input type="checkbox" name="payroll_enabled" value="1" <?php checked(AVBK_Company_Payroll::enabled($company_id)); ?>> Loonadministratie voor dit bedrijf inschakelen</label>
+                    <button type="submit" class="button">Instelling loonadministratie opslaan</button>
+                </form>
                 <p>Directeur: uploaden, downloaden en toegang beheren. Boekhouder: uploaden en downloaden. Accountant: lezen en downloaden. Toegang geldt alleen voor dit bedrijf.</p>
                 <ul><?php foreach (AVBK_Companies::members($company_id) as $membership) : $user = get_userdata((int) $membership->user_id); ?>
                     <li><?php echo esc_html(($user ? $user->user_email : 'Verwijderde gebruiker') . ' — ' . (AVBK_Companies::ROLES[$membership->role] ?? 'Onbekende rol')); ?></li>
