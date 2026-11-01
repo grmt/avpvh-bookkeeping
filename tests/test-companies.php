@@ -117,6 +117,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
 require AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-companies.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-features.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
 require AVBK_PLUGIN_DIR . 'includes/class-qr.php';
@@ -314,6 +315,7 @@ try {
     $report['rows'][0]['name'] = '<script>alert(1)</script>';
     $report['workbook_data'] = null;
     $report_stale = false;
+    $company_id = 1;
     ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-report.php'; $html = ob_get_clean();
     company_check(str_contains($html, '&lt;script&gt;') && !str_contains($html, '<script>'), 'result display escapes imported worksheet text');
 
@@ -574,6 +576,16 @@ try {
     company_check(count(AVBK_Company_Payroll::payments(1, 2026)['2026-10']) === 2, 'accountant can review prepared payment details');
     $GLOBALS['test_user'] = 14;
     company_reject(fn() => AVBK_Company_Payroll::payments(1, 2026), 'another company cannot read payroll payment instructions');
+    $GLOBALS['test_user'] = 13;
+    $feature_snapshot = AVBK_Company_Report::get(1, 2026, 3);
+    AVBK_Company_Features::save(1, ['creditcard' => false, 'payroll' => true, 'loans' => true]);
+    company_check(!AVBK_Company_Features::enabled(1, 'creditcard') && AVBK_Company_Payroll::enabled(1) && AVBK_Company_Features::enabled(1, 'loans'), 'creditcard, payroll and loan applicability are independent company settings');
+    company_reject(fn() => AVBK_Company_Cards::link(1, '12345678901'), 'disabled creditcard setting blocks linking');
+    company_reject(fn() => AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3), 'disabled creditcard setting blocks transaction imports');
+    company_check(count(AVBK_Company_Cards::transactions(1, 2026, 3)) === 4 && AVBK_Company_Report::get(1, 2026, 3) === $feature_snapshot, 'disabling a workflow preserves existing card records and VAT calculations');
+    company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true]), 'feature settings cannot be changed across company boundaries');
+    $GLOBALS['test_user'] = 11;
+    company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false]), 'bookkeepers cannot change company features');
 
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);

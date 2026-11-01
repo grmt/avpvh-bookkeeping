@@ -10,6 +10,7 @@ class AVBK_Company_Cards {
     public static function link(int $company_id, string $account): void {
         global $wpdb;
         $company = AVBK_Companies::company($company_id, 'access');
+        if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
         $account = self::account($account);
         if (!preg_match('/^[A-Z0-9]{6,34}$/D', $account)) throw new \RuntimeException('Vul het creditcardaccountnummer uit het ING-afschrift in, niet het kaartnummer.');
         if (!empty($company->card_account) && $company->card_account !== $account) throw new \RuntimeException('Deze administratie heeft al een ander creditcardaccount. Laat de koppeling eerst controleren.');
@@ -70,6 +71,7 @@ class AVBK_Company_Cards {
 
     public static function import(int $company_id, string $path, string $filename, int $year, int $quarter): array {
         $company = AVBK_Companies::company($company_id, 'import');
+        if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         if (!in_array($ext, ['csv', 'xlsx'], true)) throw new \RuntimeException('Kies een CSV- of XLSX-transactie-export.');
         $parsed = $ext === 'csv' ? AVBK_Csv_Reader::read($path) : AVBK_Xlsx_Reader::read($path);
@@ -79,6 +81,7 @@ class AVBK_Company_Cards {
     public static function import_statement(int $company_id, array $parsed, string $filename, int $year, int $quarter): array {
         if (!defined('WP_CLI') || !WP_CLI) throw new \RuntimeException('PDF-transacties kunnen alleen via de afschriftverwerking worden ingevoerd.');
         $company = AVBK_Companies::company($company_id, 'import');
+        if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
         $reference = ltrim((string) ($parsed['customer_reference'] ?? ''), '0');
         if (!str_starts_with($company->iban, 'NL') || $reference === '' || ltrim(substr($company->iban, -10), '0') !== $reference
             || self::account((string) ($parsed['card_account'] ?? '')) !== ($company->card_account ?? '')) {

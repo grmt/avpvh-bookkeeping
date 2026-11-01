@@ -6,14 +6,13 @@ class AVBK_Company_Payroll {
     public const KINDS = ['payslip' => 'Loonstrookje', 'payroll_tax' => 'Belastingopgave loonheffingen'];
 
     public static function enabled(int $company_id): bool {
-        AVBK_Companies::company($company_id);
-        return (bool) get_option('avbk_company_payroll_enabled_' . $company_id, false);
+        return AVBK_Company_Features::enabled($company_id, 'payroll');
     }
 
     public static function configure(int $company_id, bool $enabled): void {
-        AVBK_Companies::company($company_id, 'access');
-        $key = 'avbk_company_payroll_enabled_' . $company_id;
-        if (!update_option($key, $enabled, false) && (bool) get_option($key, false) !== $enabled) throw new \RuntimeException('De instelling voor loonadministratie kon niet worden opgeslagen.');
+        $features = AVBK_Company_Features::get($company_id);
+        $features['payroll'] = $enabled;
+        AVBK_Company_Features::save($company_id, $features);
     }
 
     public static function period(string $value): string {

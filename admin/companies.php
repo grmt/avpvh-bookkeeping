@@ -90,10 +90,13 @@ defined('ABSPATH') || exit;
 
         <?php if (AVBK_Companies::can($company_id, 'access')) : ?>
             <section class="avbk-company-card">
-                <h3>Toegang tot deze administratie</h3>
-                <?php $form_start('payroll_settings'); ?>
-                    <label><input type="checkbox" name="payroll_enabled" value="1" <?php checked(AVBK_Company_Payroll::enabled($company_id)); ?>> Loonadministratie voor dit bedrijf inschakelen</label>
-                    <button type="submit" class="button">Instelling loonadministratie opslaan</button>
+                <h3>Bedrijfsinstellingen en toegang</h3>
+                <?php $features = AVBK_Company_Features::get($company_id); $form_start('company_features'); ?>
+                    <label><input type="checkbox" name="feature_creditcard" value="1" <?php checked($features['creditcard']); ?>> Creditcard gebruiken</label>
+                    <label><input type="checkbox" name="feature_payroll" value="1" <?php checked($features['payroll']); ?>> Loonadministratie voor werknemers</label>
+                    <label><input type="checkbox" name="feature_loans" value="1" <?php checked($features['loans']); ?>> Leningen van toepassing</label>
+                    <p>Het vinkje leningen legt vast dat dit bedrijf leningen heeft. Het leningsoverzicht is nog niet beschikbaar.</p>
+                    <button type="submit" class="button">Bedrijfsinstellingen opslaan</button>
                 </form>
                 <p>Directeur: uploaden, downloaden en toegang beheren. Boekhouder: uploaden en downloaden. Accountant: lezen en downloaden. Toegang geldt alleen voor dit bedrijf.</p>
                 <ul><?php foreach (AVBK_Companies::members($company_id) as $membership) : $user = get_userdata((int) $membership->user_id); ?>

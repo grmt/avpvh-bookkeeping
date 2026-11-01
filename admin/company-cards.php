@@ -1,10 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+$creditcard_enabled = AVBK_Company_Features::enabled($company_id, 'creditcard');
+if (!$creditcard_enabled && !$card_transactions) return;
 ?>
 <section id="avbk-company-cards" class="avbk-company-card">
-    <h3>2. Creditcardafschriften uploaden</h3>
-    <p>Selecteer of sleep meerdere PDF-afschriften en ING Commercial Cards-transactie-exports (CSV/XLSX) tegelijk. Maximaal 20 bestanden en samen 20 MB. PDF's worden privé bewaard om de aankopen en facturen uit te werken; een PDF-upload alleen voegt nog geen transacties of BTW toe. CSV/XLSX leest de afzonderlijke transacties in.</p>
-    <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+    <h3>2. Creditcardafschriften</h3>
+    <?php if ($creditcard_enabled) : ?><p>Selecteer of sleep meerdere PDF-afschriften en ING Commercial Cards-transactie-exports (CSV/XLSX) tegelijk. Maximaal 20 bestanden en samen 20 MB. PDF's worden privé bewaard om de aankopen en facturen uit te werken; een PDF-upload alleen voegt nog geen transacties of BTW toe. CSV/XLSX leest de afzonderlijke transacties in.</p>
+    <?php else : ?><p>Creditcard is uitgeschakeld. Eerder geïmporteerde transacties blijven zichtbaar voor dit kwartaal.</p><?php endif; ?>
+    <?php if ($creditcard_enabled && AVBK_Companies::can($company_id, 'import')) : ?>
         <?php $form_start('card_import', true); ?>
             <label for="avbk-company-card-file">Creditcardafschriften en transactie-exports (per PDF maximaal 3 MB)</label>
             <div class="avbk-dropzone"><span class="avbk-dropzone-text">Sleep je creditcardbestanden hierheen, of klik om te kiezen</span><input id="avbk-company-card-file" name="card_statement[]" type="file" accept=".pdf,.csv,.xlsx" multiple data-max-files="20" data-max-bytes="20971520" required></div>
@@ -12,7 +15,7 @@ defined('ABSPATH') || exit;
         </form>
     <?php endif; ?>
     <p>Gekoppeld creditcardaccount: <strong><?php echo esc_html($company->card_account ?? 'Nog niet gekoppeld'); ?></strong>. Voor CSV/XLSX is deze koppeling nodig om een export met meerdere accounts over de juiste bedrijven te verdelen.</p>
-    <?php if (AVBK_Companies::can($company_id, 'access') && empty($company->card_account)) : ?>
+    <?php if ($creditcard_enabled && AVBK_Companies::can($company_id, 'access') && empty($company->card_account)) : ?>
         <?php $form_start('card_account'); ?>
             <label>Creditcardaccountnummer uit het afschrift of de kolom “Accountnummer” <input name="card_account" maxlength="64" required></label>
             <button type="submit" class="button">Account aan deze administratie koppelen</button>

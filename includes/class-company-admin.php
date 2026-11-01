@@ -197,6 +197,9 @@ class AVBK_Company_Admin {
                 if (!$user) throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
                 AVBK_Companies::set_access($company_id, (int) $user->ID, sanitize_key(wp_unslash($_POST['role'] ?? '')));
                 $message = 'Bedrijfstoegang bijgewerkt.';
+            } elseif ($operation === 'company_features') {
+                AVBK_Company_Features::save($company_id, ['creditcard' => ($_POST['feature_creditcard'] ?? '') === '1', 'payroll' => ($_POST['feature_payroll'] ?? '') === '1', 'loans' => ($_POST['feature_loans'] ?? '') === '1']);
+                $message = 'Bedrijfsinstellingen opgeslagen.';
             } elseif ($operation === 'payroll_settings') {
                 AVBK_Company_Payroll::configure($company_id, ($_POST['payroll_enabled'] ?? '') === '1');
                 $message = 'Instelling loonadministratie opgeslagen.';
@@ -231,6 +234,7 @@ class AVBK_Company_Admin {
                 $message = 'Creditcardaccount gekoppeld aan deze administratie.';
             } elseif ($operation === 'card_import') {
                 AVBK_Companies::company($company_id, 'import');
+                if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
                 $files = self::statement_uploads($_FILES['card_statement'] ?? []);
                 $messages = []; $processed = 0; $failed = 0;
                 foreach ($files as $file) {

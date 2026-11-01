@@ -19,7 +19,7 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         </div>
         <p>Uitgaven zijn positief en ontvangsten negatief, zoals in het werkblad. Het BTW-saldo is geen berekende BTW-aangifte.</p>
         <p>Creditcardaankopen in dit werkblad: <strong><?php echo esc_html($report['card_rows'] ?? 0); ?></strong>. Bankmutaties inclusief afrekeningen: <?php echo esc_html($money($totals['gross_cents'])); ?>. Kaartaankopen inclusief BTW: <?php echo esc_html($money($totals['card_gross_cents'] ?? 0)); ?>.</p>
-        <?php if (empty($report['card_rows'])) : ?><p class="avbk-company-notice avbk-company-error">Creditcardaankopen ontbreken nog in dit resultaat. De BTW-berekening is onvolledig totdat de aankoopregels en bijbehorende facturen zijn verwerkt.</p><?php endif; ?>
+        <?php if (empty($report['card_rows']) && AVBK_Company_Features::enabled($company_id, 'creditcard')) : ?><p class="avbk-company-notice avbk-company-error">Creditcardaankopen ontbreken nog in dit resultaat. De BTW-berekening is onvolledig totdat de aankoopregels en bijbehorende facturen zijn verwerkt.</p><?php endif; ?>
         <?php if ($totals['pending_rows'] || $totals['unknown_rows']) : ?>
             <p class="avbk-company-notice"><strong>Voorlopig:</strong> <?php echo esc_html($totals['pending_rows']); ?> regels hebben een BTW-controlemarkering; bij <?php echo esc_html($totals['unknown_rows']); ?> regels ontbreekt BTW of het bedrag exclusief BTW. Onbekende bedragen zijn niet opgeteld. Controleer de facturen voordat je deze bedragen gebruikt.</p>
         <?php endif; ?>
