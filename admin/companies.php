@@ -27,7 +27,9 @@ defined('ABSPATH') || exit;
         <?php endif; ?>
         <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
         <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
-        <?php require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; ?>
+        <?php if (AVBK_Company_Payroll::enabled($company_id) && get_option('avbk_company_payroll_page_id')) : ?>
+            <p><a class="button" href="<?php echo esc_url(add_query_arg(['company_id' => $company_id, 'book_year' => $year], get_permalink((int) get_option('avbk_company_payroll_page_id')))); ?>">Salaris en loonheffingen</a></p>
+        <?php endif; ?>
         <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
             <section class="avbk-company-card">
                 <h3>1. Bankexport uploaden</h3>

@@ -119,6 +119,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-companies.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
+require AVBK_PLUGIN_DIR . 'includes/class-qr.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
@@ -555,6 +556,24 @@ try {
     company_reject(fn() => AVBK_Company_Documents::import_mail(2, 'Disabled payroll', 'payslip.pdf', $payroll_pdf, $payslip), 'disabled company rejects payroll uploads');
     company_reject(fn() => AVBK_Company_Payroll::documents(1, 2026), 'another company cannot list payroll documents');
     company_reject(fn() => AVBK_Company_Documents::document(2, $payslip_id), 'changing the company ID cannot download another company payslip');
+    $GLOBALS['test_user'] = 11;
+    $qr_entries = [['kind' => 'payroll_tax', 'document_id' => $payroll_tax_id, 'iban' => 'NL91ABNA0417164300', 'name' => 'Voorbeeld ontvanger', 'reference' => '0123456789012345', 'amount_cents' => 4300, 'due_date' => '2026-11-30', 'state' => 'pending', 'note' => 'Synthetic tax statement'],
+        ['kind' => 'payslip', 'document_id' => $payslip_id, 'iban' => 'NL91ABNA0417164300', 'name' => 'Anna', 'reference' => 'Salaris oktober 2026', 'amount_cents' => 85635, 'state' => 'review', 'note' => 'Prior salary transfers need reconciliation']];
+    AVBK_Company_Payroll::save_payments(1, '2026-10', $qr_entries);
+    $prepared = AVBK_Company_Payroll::payments(1, 2026)['2026-10'];
+    $payload = AVBK_Company_Payroll::payload($prepared[0]);
+    company_check(str_contains($payload, "\nEUR43.00\n") && str_contains($payload, "\n0123456789012345\n"), 'tax QR preserves the exact amount and leading zero in the payment reference');
+    company_check(AVBK_Company_Payroll::payload($prepared[1]) === null, 'salary held for reconciliation cannot produce a duplicate-payment QR');
+    foreach (['iban' => 'NL00ABNA0417164300', 'reference' => '012345678901234', 'amount_cents' => 0, 'name' => "Receiver\nInjected", 'document_id' => $payslip_id] as $field => $bad) {
+        $invalid = $qr_entries; $invalid[0][$field] = $bad;
+        company_reject(fn() => AVBK_Company_Payroll::save_payments(1, '2026-10', $invalid), 'QR preparation rejects invalid payment ' . $field);
+    }
+    company_reject(fn() => AVBK_Company_Payroll::save_payments(1, '2026-09', $qr_entries), 'QR source document must belong to the selected payroll month');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Payroll::save_payments(1, '2026-10', $qr_entries), 'accountant cannot alter payment instructions');
+    company_check(count(AVBK_Company_Payroll::payments(1, 2026)['2026-10']) === 2, 'accountant can review prepared payment details');
+    $GLOBALS['test_user'] = 14;
+    company_reject(fn() => AVBK_Company_Payroll::payments(1, 2026), 'another company cannot read payroll payment instructions');
 
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);

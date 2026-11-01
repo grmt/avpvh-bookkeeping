@@ -9,12 +9,13 @@ class AVBK_Company_Admin {
         add_action('admin_post_avbk_company_document', [$this, 'download_document']);
         add_action('admin_post_avbk_company_workbook', [$this, 'download_workbook']);
         add_shortcode('avbk_company_bookkeeping', [$this, 'shortcode']);
+        add_shortcode('avbk_company_payroll', [$this, 'payroll_shortcode']);
         add_action('admin_enqueue_scripts', function ($hook) {
             if (str_contains($hook, 'avbk-companies')) $this->assets();
         });
         add_action('wp_enqueue_scripts', function () {
             global $post;
-            if ($post && has_shortcode($post->post_content, 'avbk_company_bookkeeping')) $this->assets();
+            if ($post && (has_shortcode($post->post_content, 'avbk_company_bookkeeping') || has_shortcode($post->post_content, 'avbk_company_payroll'))) $this->assets();
         });
     }
 
@@ -27,6 +28,29 @@ class AVBK_Company_Admin {
     public function menus(): void {
         if (!current_user_can('manage_options') && !AVBK_Companies::accessible()) return;
         add_menu_page('Bedrijfsboekhouding', 'Bedrijfsboekhouding', 'read', 'avbk-companies', [$this, 'render'], 'dashicons-building', 32);
+        add_submenu_page('avbk-companies', 'Salaris', 'Salaris', 'read', 'avbk-companies-payroll', [$this, 'render_payroll']);
+    }
+
+    public function payroll_shortcode(): string {
+        if (!is_user_logged_in()) return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor de salarisadministratie</a>.</p>';
+        ob_start(); $this->render_payroll(); return ob_get_clean();
+    }
+
+    public function render_payroll(): void {
+        if (!is_user_logged_in()) return;
+        $companies = array_values(array_filter(AVBK_Companies::accessible(), fn($item) => AVBK_Company_Payroll::enabled((int) $item->id)));
+        $company_id = (int) ($_GET['company_id'] ?? ($companies[0]->id ?? 0));
+        $company = null;
+        foreach ($companies as $item) if ((int) $item->id === $company_id) $company = $item;
+        if (!$company) { echo '<p>Geen salarisadministratie beschikbaar voor deze administratie.</p>'; return; }
+        $year = (int) ($_GET['book_year'] ?? wp_date('Y')); $quarter = 1;
+        try { AVBK_Companies::period($year, 1); }
+        catch (\RuntimeException $e) { echo '<p>Ongeldig boekjaar.</p>'; return; }
+        $return_to = is_admin() ? admin_url('admin.php?page=avbk-companies-payroll') : get_permalink();
+        $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
+        $notice = get_transient('avbk_company_notice_' . get_current_user_id());
+        delete_transient('avbk_company_notice_' . get_current_user_id());
+        require AVBK_PLUGIN_DIR . 'admin/company-salary.php';
     }
 
     public function shortcode(): string {
