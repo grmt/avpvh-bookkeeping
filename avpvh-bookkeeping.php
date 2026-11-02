@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Boekhouding
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.29.1
+ * Version:     1.30.0
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -65,6 +65,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-company-payroll-automation.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-review.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';

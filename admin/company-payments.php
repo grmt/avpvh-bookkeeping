@@ -8,10 +8,11 @@ $payroll_payments = AVBK_Company_Payroll::payments($company_id, $year);
     <details class="avbk-payroll-payments"><summary class="button">Betaalgegevens en QR-codes · <?php echo esc_html($payment_period); ?></summary>
         <p>Scan met een bankapp die SEPA-QR ondersteunt, of gebruik de getoonde betaalgegevens. Kies in je bank de rekening van <?php echo esc_html($company->name . ' (' . $company->iban . ')'); ?>. Je bevestigt de overboeking in je bank; een QR-code aanmaken registreert geen betaling.</p>
         <div class="avbk-payroll-payment-grid">
-            <?php foreach ($period_payments as $payment) : $payload = AVBK_Company_Payroll::payload($payment); $svg = $payload ? AVBK_QR::svg($payload) : null; ?>
+            <?php foreach ($period_payments as $payment) : $paid = $payment['state'] === 'pending' ? AVBK_Company_Payroll_Automation::paid($company_id, $payment) : null; $payload = $paid ? null : AVBK_Company_Payroll::payload($payment); $svg = $payload ? AVBK_QR::svg($payload) : null; ?>
                 <article class="avbk-payroll-payment-card">
                     <h4><?php echo esc_html(AVBK_Company_Payroll::KINDS[$payment['kind']]); ?> · € <?php echo esc_html(number_format($payment['amount_cents'] / 100, 2, ',', '.')); ?></h4>
                     <?php if ($payment['state'] === 'review') : ?><p class="avbk-company-notice avbk-company-error">Eerst afstemmen · geen betaal-QR</p><?php endif; ?>
+                    <?php if ($paid) : ?><p class="avbk-company-notice">Betaling gevonden op <?php echo esc_html($paid->transaction_date); ?> · geen betaal-QR</p><?php endif; ?>
                     <dl><dt>Ontvanger</dt><dd><?php echo esc_html($payment['name']); ?></dd><dt>IBAN</dt><dd><?php echo esc_html($payment['iban']); ?></dd><dt><?php echo $payment['kind'] === 'payroll_tax' ? 'Betalingskenmerk' : 'Omschrijving'; ?></dt><dd><?php echo esc_html($payment['reference']); ?></dd>
                         <?php if (!empty($payment['due_date'])) : ?><dt>Uiterste betaaldatum volgens opgave</dt><dd><?php echo esc_html($payment['due_date']); ?></dd><?php endif; ?>
                     </dl>

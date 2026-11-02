@@ -197,6 +197,13 @@ class AVBK_Company_Admin {
                 if (!$user) throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
                 AVBK_Companies::set_access($company_id, (int) $user->ID, sanitize_key(wp_unslash($_POST['role'] ?? '')));
                 $message = 'Bedrijfstoegang bijgewerkt.';
+            } elseif ($operation === 'payroll_automation') {
+                AVBK_Companies::company($company_id, 'access');
+                $settings = AVBK_Company_Payroll_Automation::settings($company_id);
+                if (!$settings) throw new \RuntimeException('De maandelijkse verwerking is nog niet ingesteld.');
+                $settings['enabled'] = ($_POST['automation_enabled'] ?? '') === '1';
+                update_option('avbk_payroll_automation_' . $company_id, $settings, false);
+                $message = $settings['enabled'] ? 'Maandelijkse salarisverwerking geactiveerd.' : 'Maandelijkse salarisverwerking gepauzeerd.';
             } elseif ($operation === 'company_features') {
                 AVBK_Company_Features::save($company_id, ['creditcard' => ($_POST['feature_creditcard'] ?? '') === '1', 'payroll' => ($_POST['feature_payroll'] ?? '') === '1', 'loans' => ($_POST['feature_loans'] ?? '') === '1']);
                 $message = 'Bedrijfsinstellingen opgeslagen.';

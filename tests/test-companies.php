@@ -22,6 +22,11 @@ function wp_nonce_field($action): void { echo '<input type="hidden" name="_wpnon
 function wp_nonce_url($url, $action): string { return $url . '&_wpnonce=synthetic'; }
 function add_query_arg($args, $url): string { return $url . '?' . http_build_query($args); }
 function selected($value, $expected): void { if ((string) $value === (string) $expected) echo 'selected'; }
+function is_email($value): bool { return (bool) filter_var($value, FILTER_VALIDATE_EMAIL); }
+function home_url($path = ''): string { return 'https://example.test' . $path; }
+function add_action($hook, $callback): void {}
+function remove_action($hook, $callback): void {}
+function wp_mail($recipient, $subject, $html, $headers): bool { $GLOBALS['test_mails'][] = compact('recipient', 'subject', 'html'); return true; }
 function maybe_serialize($value): string { return serialize($value); }
 function wp_cache_delete($key, $group): bool { return true; }
 function wp_tempnam($name) { return tempnam(sys_get_temp_dir(), 'avbk-review-test-'); }
@@ -83,6 +88,7 @@ class Company_Test_DB {
         }
         if (str_contains($sql, 'avb_company_card_transactions')) return array_values(array_filter($this->card_transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
         if (str_contains($sql, 'INNER JOIN')) return array_values(array_filter($this->companies, fn($c) => isset($this->roles[$c->id][$args[0]])));
+        if (str_contains($sql, "direction = 'out' AND amount")) return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->direction === 'out' && number_format((float) $t->amount, 2, '.', '') === $args[1]));
         return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
     }
     public function insert(string $table, array $row) {
@@ -120,6 +126,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-companies.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-features.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-payroll-automation.php';
 require AVBK_PLUGIN_DIR . 'includes/class-qr.php';
 require AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
@@ -586,6 +593,21 @@ try {
     company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true]), 'feature settings cannot be changed across company boundaries');
     $GLOBALS['test_user'] = 11;
     company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false]), 'bookkeepers cannot change company features');
+    company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'owner@example.test'), 'bookkeeper cannot choose a reminder recipient');
+    $GLOBALS['test_user'] = 13;
+    company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'invalid'), 'monthly reminder requires a valid recipient');
+    AVBK_Company_Payroll_Automation::configure(1, 'owner@example.test', 1, 0);
+    $tax_payment = clone $supplier; $tax_payment->amount = '43.00'; $tax_payment->description = 'Payment 0123 4567 8901 2345'; $tax_payment->counterparty_iban = 'NL91ABNA0417164300'; $tax_payment->transaction_date = '2026-11-02';
+    $wpdb->transactions[] = $tax_payment;
+    company_check(AVBK_Company_Payroll_Automation::paid(1, $prepared[0]) !== null, 'reminder matches the exact amount, recipient account and complete tax reference');
+    $wrong_ref = $prepared[0]; $wrong_ref['reference'] = '0123456789012346';
+    company_check(AVBK_Company_Payroll_Automation::paid(1, $wrong_ref) === null, 'same amount with another tax reference remains unpaid');
+    $digest = AVBK_Company_Payroll_Automation::reminder(1, '2026-11-27');
+    $digest_html = AVBK_Company_Payroll_Automation::html($digest);
+    company_check(count($digest['holds']) === 1 && !str_contains($digest_html, 'src="cid:'), 'paid tax and salary on hold do not appear as payment QRs in the reminder');
+    $first_send = AVBK_Company_Payroll_Automation::send(1);
+    company_check($first_send === 'sent' && count($GLOBALS['test_mails']) === 1 && $GLOBALS['test_mails'][0]['recipient'] === 'owner@example.test', 'scheduled reminder uses the configured recipient');
+    company_check(AVBK_Company_Payroll_Automation::send(1) === 'already_sent' && count($GLOBALS['test_mails']) === 1, 'repeated monthly runs do not send duplicate reminders');
 
 } finally {
     foreach (glob($dir . '/*') as $file) unlink($file);
