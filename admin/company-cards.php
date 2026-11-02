@@ -24,10 +24,21 @@ if (!$creditcard_enabled && !$card_transactions) return;
     <p>Kaartaankopen en terugbetalingen komen als detailregels in het kwartaalwerkblad. De maandelijkse betaling aan de creditcard is een afrekening en levert geen extra BTW of kosten op. Gebruik voor BTW de factuur van iedere aankoop.</p>
     <?php if (!$card_transactions) : ?>
         <p><strong>Nog geen creditcardtransacties voor dit kwartaal.</strong> De getoonde BTW-bedragen zijn nog niet volledig zolang de bijbehorende kaartaankopen ontbreken.</p>
-    <?php else : ?>
+    <?php else :
+        $card_lookup = []; $card_source_rows = [];
+        foreach ($card_transactions as $card_tx) {
+            $key = 'card:' . $card_tx->dedupe_hash;
+            $card_lookup[$key] = $card_tx;
+            $card_source_rows[] = ['source' => 'Creditcard', 'review_key' => $key, 'status' => $card_tx->entry_type === 'settlement' ? 'settlement' : 'detail',
+                'gross_cents' => ($card_tx->direction === 'out' ? 1 : -1) * (int) round((float) $card_tx->amount * 100)];
+        }
+        $card_source_groups = AVBK_Company_Card_Groups::build(['rows' => $card_source_rows], $company, [], $card_transactions);
+    ?>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <thead><tr><th>Transactiedatum</th><th>Boekingsdatum</th><th>Kaart</th><th>Omschrijving</th><th>Soort</th><th>Bedrag EUR</th><th>Oorspronkelijk</th><th>Afschrift</th></tr></thead>
-            <tbody><?php foreach ($card_transactions as $card_tx) : ?><tr>
+            <tbody><?php foreach ($card_source_groups as $card_source_group) : ?>
+                <tr class="avbk-company-group"><th colspan="8" scope="rowgroup"><?php echo esc_html($card_source_group['statement'] ? 'Creditcardafschrift ' . $card_source_group['statement']['date'] : 'Kaarttransacties zonder gekoppeld afschrift'); ?></th></tr>
+                <?php foreach ($card_source_group['rows'] as $card_source_row) : $card_tx = $card_lookup[$card_source_row['review_key']]; ?><tr>
                 <td><?php echo esc_html($card_tx->transaction_date); ?></td><td><?php echo esc_html($card_tx->booking_date ?? 'Niet vermeld op afschrift'); ?></td><td>**** <?php echo esc_html($card_tx->card_last4); ?></td>
                 <td><?php echo esc_html($card_tx->description); ?></td><td><?php echo esc_html(['purchase' => 'Aankoop', 'refund' => 'Terugbetaling', 'settlement' => 'Afrekening · geen extra kosten'][$card_tx->entry_type]); ?></td>
                 <td class="avbk-company-amount"><?php echo $card_tx->direction === 'out' ? 'Af ' : 'Bij '; ?>€ <?php echo esc_html(number_format((float) $card_tx->amount, 2, ',', '.')); ?></td>
@@ -36,7 +47,7 @@ if (!$creditcard_enabled && !$card_transactions) return;
                     <?php if ($statement_id) : ?><a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $statement_id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($card_tx->source_filename); ?></a>
                     <?php else : echo esc_html($card_tx->source_filename); endif; ?>
                 </td>
-            </tr><?php endforeach; ?></tbody>
+            </tr><?php endforeach; endforeach; ?></tbody>
         </table></div>
     <?php endif; ?>
 </section>

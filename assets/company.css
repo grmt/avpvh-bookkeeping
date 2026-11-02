@@ -28,6 +28,8 @@ body:has(.avbk-company) .wp-block-post-title { display: none; }
 .avbk-company td small { display: block; min-width: 150px; margin-top: 5px; font-size: 12px; line-height: 1.35; }
 .avbk-company .avbk-company-status { font-weight: 600; }
 .avbk-company caption { text-align: left; margin-bottom: 10px; }
+.avbk-company .avbk-company-group th { background: #edf3f8; border-top: 2px solid #8cacc7; padding: 12px 8px; font-size: 14px; }
+.avbk-company .avbk-company-group span { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; }
 #avbk-company-result { scroll-margin-top: 50px; }
 .avbk-company-review { margin-top: 8px; }
 .avbk-company-review summary { cursor: pointer; color: #135e96; }

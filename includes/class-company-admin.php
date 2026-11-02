@@ -98,8 +98,11 @@ class AVBK_Company_Admin {
 
     private function report_html(array $report, string $return_to): string {
         $company_id = $report['company_id']; $year = $report['year']; $quarter = $report['quarter'];
-        $report_stale = $report['transactions_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Companies::transactions($company_id, $year, $quarter))
-            || $report['cards_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Company_Cards::transactions($company_id, $year, $quarter));
+        $company = AVBK_Companies::company($company_id);
+        $transactions = AVBK_Companies::transactions($company_id, $year, $quarter);
+        $card_transactions = AVBK_Company_Cards::transactions($company_id, $year, $quarter);
+        $report_stale = $report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions)
+            || $report['cards_hash'] !== AVBK_Company_Report::fingerprint($card_transactions);
         $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
         ob_start();
         try { require AVBK_PLUGIN_DIR . 'admin/company-report.php'; return ob_get_contents(); }

@@ -28,9 +28,25 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
             <p>Klopt de BTW bij een regel? Klik op <strong>OK</strong> om die direct te bevestigen. Voor een ander tarief of een notitie open je <strong>BTW controleren</strong>. Bevestigde regels tellen mee in het gecontroleerde totaal en de Excel-download wordt direct bijgewerkt. Een bankafrekening van de creditcard telt niet opnieuw als kosten.</p>
         <?php endif; ?>
         <div class="avbk-company-scroll"><table class="widefat striped">
-            <caption><?php echo esc_html($report['bank_rows']); ?> bankregels, met eventuele detailregels uit het kwartaalwerkblad</caption>
+            <caption><?php echo esc_html($report['bank_rows']); ?> bankregels en <?php echo esc_html($report['card_rows'] ?? 0); ?> kaarttransacties, gegroepeerd per afschrift. De rijnummers verwijzen naar Excel.</caption>
             <thead><tr><th>Rij</th><th>Bron</th><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Incl. BTW</th><th>BTW %</th><th>BTW</th><th>Excl. BTW</th><th>Controle</th></tr></thead>
-            <tbody><?php foreach ($report['rows'] as $result_row) : ?>
+            <tbody><?php
+            $display_groups = isset($company, $transactions, $card_transactions)
+                ? AVBK_Company_Card_Groups::build($report, $company, $report_stale ? [] : $transactions, $card_transactions)
+                : [['id' => 'bank', 'statement' => null, 'rows' => $report['rows']]];
+            foreach ($display_groups as $display_group) : $statement = $display_group['statement']; ?>
+                <tr id="avbk-company-group-<?php echo esc_attr($display_group['id']); ?>" class="avbk-company-group"><th colspan="10" scope="rowgroup">
+                    <?php if ($statement) : ?>
+                        Creditcardafschrift <?php echo esc_html($statement['date']); ?>
+                        · <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $statement['document_id']], admin_url('admin-post.php')), 'avbk_company_document')); ?>">PDF bekijken</a>
+                        <span>Afschrifttotaal: <?php echo esc_html($money($statement['total_cents'])); ?> · Aankopen/retouren in dit kwartaal: <?php echo esc_html($display_group['card_count']); ?> · <?php echo esc_html($money($display_group['card_cents'])); ?>.</span>
+                        <span><?php echo esc_html($display_group['paid'] ? 'Bankafrekening hieronder gekoppeld op bedrag en datum; geen extra kosten.' : ($display_group['ambiguous'] ? 'Meerdere mogelijke afrekeningen: controleer de koppeling.' : 'Geen bijbehorende bankafrekening gevonden in de ingelezen gegevens van dit kwartaal.')); ?> Het afschrift kan ook aankopen buiten dit kwartaal bevatten.</span>
+                    <?php else : ?>
+                        <?php echo esc_html(['bank' => 'Overige banktransacties', 'cards-unlinked' => 'Creditcardtransacties zonder gekoppeld afschrift', 'settlements-unlinked' => 'Creditcardafrekeningen zonder gekoppeld afschrift'][$display_group['id']]); ?>
+                        <?php if ($display_group['id'] !== 'bank') : ?><span>Er is geen eenduidige koppeling met een verwerkt afschrift. Alle bedragen blijven zichtbaar.</span><?php endif; ?>
+                    <?php endif; ?>
+                </th></tr>
+                <?php foreach ($display_group['rows'] as $result_row) : ?>
                 <tr id="avbk-company-row-<?php echo esc_attr(($result_row['review_key'] ?? '') ?: 'number-' . $result_row['number']); ?>">
                     <td><?php echo esc_html($result_row['number']); ?></td><td><?php echo esc_html($result_row['source'] ?? 'Bank'); ?></td><td><?php echo esc_html($result_row['date']); ?></td>
                     <td><?php if ($result_row['detail']) echo '↳ '; ?><?php echo esc_html($result_row['name']); ?></td>
@@ -71,7 +87,7 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                         <?php endif; ?>
                     </td>
                 </tr>
-            <?php endforeach; ?></tbody>
+            <?php endforeach; endforeach; ?></tbody>
         </table></div>
         <p>BTW-controles in het portaal worden bewaard voor dit bedrijf en kwartaal, ook als je later een oudere werkmap uploadt. Ze krijgen voorrang op de BTW-cellen in die upload. Overige wijzigingen in Excel verschijnen hier nadat je de werkmap opnieuw uploadt en bijwerkt. Regels met handmatige aankoopdetails controleer je in Excel.</p>
         <?php if (!empty($report['review_log'])) : ?>

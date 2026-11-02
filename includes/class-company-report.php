@@ -99,7 +99,7 @@ class AVBK_Company_Report {
                 'source' => $card ? 'Creditcard' : ($bank ? 'Bank' : 'Detail'),
                 'status' => $settlement ? 'settlement' : (!$financial ? 'detail' : ($unknown ? 'unknown' : ($pending ? (str_starts_with((string) ($v[15] ?? ''), 'BTW-indeling gebruiker:') ? 'instructed' : 'suggested') : 'checked'))),
                 'note' => trim(preg_replace('/;?\s*CC:\d{4}-\d{2}-\d{2}:[a-f0-9]{64}\b/', '', (string) ($v[15] ?? ''))),
-                'review_key' => $review_key];
+                'transaction_key' => $review_key, 'review_key' => $review_key];
         }
         foreach ($rows as &$row) if (isset($blocked[$row['review_key']]) || ($seen[$row['review_key']] ?? 0) !== 1) $row['review_key'] = '';
         unset($row);

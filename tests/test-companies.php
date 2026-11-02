@@ -133,6 +133,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-review.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-card-groups.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
 
 function company_check(bool $condition, string $message): void {
@@ -360,6 +361,16 @@ try {
     $pdf_plan = AVBK_Company_Cards::prepare($wpdb->companies[1], $pdf_statement, 2026, 3, true);
     company_check($pdf_plan['rows'][0]['booking_date'] === null && $pdf_plan['rows'][0]['dedupe_hash'] === $card_plan['rows'][0]['dedupe_hash'], 'PDF booking dates remain unknown and overlapping CSV purchases have the same identity');
     company_check(AVBK_Company_Cards::import_statement(1, $pdf_statement, 'statement.pdf', 2026, 3)['duplicates'] === 1, 'interpreted statement and CSV do not duplicate the same purchase');
+    $statement_pdf = base64_encode("%PDF-1.4\n% Synthetic credit card statement\n%%EOF\n");
+    $statement_id = AVBK_Company_Documents::import_mail(1, 'Synthetic card statement', 'card-statement.pdf', $statement_pdf);
+    $verified_statement = $pdf_statement + ['document_id' => $statement_id, 'source_hash' => hash('sha256', base64_decode($statement_pdf)), 'statement_date' => '2026-10-09'];
+    company_check(AVBK_Company_Cards::import_statement(1, $verified_statement, 'card-statement.pdf', 2026, 3)['duplicates'] === 1, 'statement metadata can be registered without duplicating earlier CSV purchases');
+    $metadata = get_option('avbk_company_card_statements_1')[$statement_id];
+    company_check($metadata['total_cents'] === 12100 && $metadata['transaction_hashes'] === [$card_plan['rows'][0]['dedupe_hash']], 'verified full statement total and purchase identities are retained separately from quarter totals');
+    $wrong_source = $verified_statement; $wrong_source['source_hash'] = str_repeat('f', 64);
+    company_reject(fn() => AVBK_Company_Cards::import_statement(1, $wrong_source, 'card-statement.pdf', 2026, 3), 'statement metadata rejects a mismatched source document hash');
+    $wrong_source['source_hash'] = $verified_statement['source_hash']; $wrong_source['document_id'] = 999;
+    company_reject(fn() => AVBK_Company_Cards::import_statement(1, $wrong_source, 'card-statement.pdf', 2026, 3), 'statement metadata cannot refer to an unrelated private document');
     $bad_statement = $pdf_statement; $bad_statement['customer_reference'] = '999999999';
     company_reject(fn() => AVBK_Company_Cards::import_statement(1, $bad_statement, 'statement.pdf', 2026, 3), 'PDF customer reference must match the company bank account');
     $bad_statement = $pdf_statement; $bad_statement['statement_total'] = '242.00';

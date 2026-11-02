@@ -90,7 +90,32 @@ class AVBK_Company_Cards {
         $sum = 0;
         foreach ($parsed['rows'] ?? [] as $row) $sum -= (int) round(AVBK_Bank_Import_Layout::parse_amount((string) ($row['Bedrag in EUR'] ?? ''), 'auto') * 100);
         if (!is_numeric($parsed['statement_total'] ?? null) || $sum !== (int) round((float) $parsed['statement_total'] * 100)) throw new \RuntimeException('De aankoopregels sluiten niet aan op het afschrifttotaal.');
-        return self::store($company_id, self::prepare($company, $parsed, $year, $quarter, true), $filename);
+        $statement = null;
+        if (!empty($parsed['document_id'])) {
+            $document = AVBK_Company_Documents::document($company_id, (int) $parsed['document_id']);
+            $date = AVBK_Bank_Import_Layout::parse_date((string) ($parsed['statement_date'] ?? ''), 'Y-m-d');
+            if (!$date || $document->mime_type !== 'application/pdf' || ($parsed['source_hash'] ?? '') !== $document->content_hash) {
+                throw new \RuntimeException('De afschriftgegevens passen niet bij het opgeslagen PDF-bestand.');
+            }
+            $statement = ['date' => $date, 'total_cents' => $sum, 'source_hash' => $document->content_hash,
+                'card_account' => $company->card_account, 'filename' => $document->filename, 'document_id' => (int) $document->id];
+            foreach ($parsed['rows'] as &$row) {
+                $row['Afschrift document_id'] = (string) $document->id;
+                $row['Afschriftdatum'] = $date;
+                $row['Afschrift sha256'] = $document->content_hash;
+            }
+            unset($row);
+        }
+        $prepared = self::prepare($company, $parsed, $year, $quarter, true);
+        $result = self::store($company_id, $prepared, $filename);
+        if ($statement) {
+            $key = 'avbk_company_card_statements_' . $company_id;
+            $statements = get_option($key, []);
+            $statement['transaction_hashes'] = array_values(array_unique(array_merge($statements[$statement['document_id']]['transaction_hashes'] ?? [], array_column($prepared['rows'], 'dedupe_hash'))));
+            $statements[$statement['document_id']] = $statement;
+            if (!update_option($key, $statements, false) && get_option($key) !== $statements) throw new \RuntimeException('Het afschrifttotaal kon niet worden opgeslagen. Probeer de verwerking opnieuw.');
+        }
+        return $result;
     }
 
     private static function store(int $company_id, array $prepared, string $filename): array {
