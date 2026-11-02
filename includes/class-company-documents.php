@@ -6,7 +6,7 @@ class AVBK_Company_Documents {
     public const MAX_BYTES = 3 * 1024 * 1024;
     private const TYPES = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
 
-    public static function add(int $company_id, int $transaction_id, string $reference, string $uploaded_path = '', string $filename = '', bool $allow_existing = false, array $classification = []): int {
+    public static function add(int $company_id, int $transaction_id, string $reference, string $uploaded_path = '', string $filename = '', bool $allow_existing = false, array $classification = [], array $financials = []): int {
         global $wpdb;
         AVBK_Companies::company($company_id, 'import');
         [$kind, $period] = self::classification($company_id, $classification);
@@ -17,6 +17,7 @@ class AVBK_Company_Documents {
             $found = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_transactions WHERE company_id = %d AND id = %d", $company_id, $transaction_id));
             if (!$found) throw new \RuntimeException('De banktransactie hoort niet bij deze administratie.');
         }
+        [$invoice_date, $due_date, $amount_total] = self::parse_financials($financials);
         $data = null; $mime = '';
         if ($uploaded_path !== '') {
             if (!is_uploaded_file($uploaded_path) || !filesize($uploaded_path) || filesize($uploaded_path) > self::MAX_BYTES) throw new \RuntimeException('Kies een factuurbestand van maximaal 3 MB.');
@@ -31,7 +32,36 @@ class AVBK_Company_Documents {
             if ($reference === '') throw new \RuntimeException('Upload een factuur of vul een vindplaats in.');
             $filename = ''; $hash = hash('sha256', 'reference:' . $reference);
         }
-        return self::persist($company_id, $transaction_id, $reference, $filename, $mime, $data, $hash, $allow_existing, $kind, $period);
+        return self::persist($company_id, $transaction_id, $reference, $filename, $mime, $data, $hash, $allow_existing, $kind, $period, $invoice_date, $due_date, $amount_total);
+    }
+
+    /**
+     * Optional "Factuurdatum" / "Vervaldatum" / "Totaalbedrag" fields, kept
+     * separate from the required upload/reference pair above: an invoice
+     * can be recorded as evidence before its payment status is known, and
+     * these are only meaningful for document_kind 'invoice'.
+     *
+     * @return array{0: ?string, 1: ?string, 2: ?float}
+     */
+    private static function parse_financials(array $financials): array {
+        $invoice_date = trim((string) ($financials['invoice_date'] ?? ''));
+        $due_date     = trim((string) ($financials['due_date'] ?? ''));
+        $amount_total = trim((string) ($financials['amount_total'] ?? ''));
+        foreach (['invoice_date' => $invoice_date, 'due_date' => $due_date] as $label => $value) {
+            if ($value === '') continue;
+            if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+                throw new \RuntimeException($label === 'invoice_date' ? 'Vul een geldige factuurdatum in.' : 'Vul een geldige vervaldatum in.');
+            }
+        }
+        if ($invoice_date !== '' && $due_date !== '' && $due_date < $invoice_date) {
+            throw new \RuntimeException('De vervaldatum mag niet vóór de factuurdatum liggen.');
+        }
+        $amount = null;
+        if ($amount_total !== '') {
+            if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $amount_total)) throw new \RuntimeException('Vul een positief factuurbedrag in met maximaal twee decimalen.');
+            $amount = round((float) str_replace(',', '.', $amount_total), 2);
+        }
+        return [$invoice_date !== '' ? $invoice_date : null, $due_date !== '' ? $due_date : null, $amount];
     }
 
     /** The host's read-only mailbox collector supplies attachment bytes through WP-CLI. */
@@ -57,7 +87,7 @@ class AVBK_Company_Documents {
         return [$kind, AVBK_Company_Payroll::period((string) ($classification['period'] ?? ''))];
     }
 
-    private static function persist(int $company_id, int $transaction_id, string $reference, string $filename, string $mime, ?string $data, string $hash, bool $allow_existing, string $kind, ?string $period): int {
+    private static function persist(int $company_id, int $transaction_id, string $reference, string $filename, string $mime, ?string $data, string $hash, bool $allow_existing, string $kind, ?string $period, ?string $invoice_date = null, ?string $due_date = null, ?float $amount_total = null): int {
         global $wpdb;
         $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND content_hash = %s", $company_id, $hash));
         if ($existing) {
@@ -71,7 +101,9 @@ class AVBK_Company_Documents {
         if (!$wpdb->insert($wpdb->prefix . 'avb_company_documents', [
             'company_id' => $company_id, 'transaction_id' => $transaction_id ?: null, 'source_reference' => $reference,
             'document_kind' => $kind, 'document_period' => $period,
-            'filename' => $filename, 'mime_type' => $mime, 'document_data' => $data, 'content_hash' => $hash, 'added_by' => get_current_user_id(),
+            'filename' => $filename, 'mime_type' => $mime, 'document_data' => $data, 'content_hash' => $hash,
+            'invoice_date' => $invoice_date, 'due_date' => $due_date, 'amount_total' => $amount_total,
+            'added_by' => get_current_user_id(),
         ])) throw new \RuntimeException('De factuur is niet opgeslagen.');
         return (int) $wpdb->insert_id;
     }
@@ -79,7 +111,41 @@ class AVBK_Company_Documents {
     public static function listing(int $company_id): array {
         global $wpdb;
         AVBK_Companies::company($company_id);
-        return $wpdb->get_results($wpdb->prepare("SELECT id, transaction_id, source_reference, filename, added_at FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' ORDER BY id DESC LIMIT 200", $company_id));
+        return $wpdb->get_results($wpdb->prepare("SELECT id, transaction_id, source_reference, filename, added_at, invoice_date, due_date, amount_total, paid_at FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' ORDER BY id DESC LIMIT 200", $company_id));
+    }
+
+    /** Unpaid invoices that have a due date, oldest due date first; overdue-ness is left for the caller to judge against today's date. */
+    public static function unpaid(int $company_id): array {
+        global $wpdb;
+        AVBK_Companies::company($company_id);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, source_reference, filename, invoice_date, due_date, amount_total FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' AND due_date IS NOT NULL AND paid_at IS NULL", $company_id));
+        usort($rows, fn($a, $b) => ($a->due_date ?? '') <=> ($b->due_date ?? ''));
+        return $rows;
+    }
+
+    public static function mark_paid(int $company_id, int $document_id, string $paid_date = ''): void {
+        global $wpdb;
+        AVBK_Companies::company($company_id, 'import');
+        $document = self::document($company_id, $document_id);
+        if (($document->document_kind ?? 'invoice') !== 'invoice') throw new \RuntimeException('Alleen facturen kunnen als betaald worden gemarkeerd.');
+        $paid_at = current_time('mysql');
+        if ($paid_date !== '') {
+            if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $paid_date, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) throw new \RuntimeException('Vul een geldige betaaldatum in.');
+            $paid_at = $paid_date . ' 00:00:00';
+        }
+        if ($wpdb->update($wpdb->prefix . 'avb_company_documents', ['paid_at' => $paid_at], ['id' => $document_id, 'company_id' => $company_id]) === false) {
+            throw new \RuntimeException('De betaalstatus is niet opgeslagen.');
+        }
+    }
+
+    public static function mark_unpaid(int $company_id, int $document_id): void {
+        global $wpdb;
+        AVBK_Companies::company($company_id, 'import');
+        $document = self::document($company_id, $document_id);
+        if (($document->document_kind ?? 'invoice') !== 'invoice') throw new \RuntimeException('Alleen facturen hebben een betaalstatus.');
+        if ($wpdb->update($wpdb->prefix . 'avb_company_documents', ['paid_at' => null], ['id' => $document_id, 'company_id' => $company_id]) === false) {
+            throw new \RuntimeException('De betaalstatus is niet opgeslagen.');
+        }
     }
 
     public static function document(int $company_id, int $document_id): object {

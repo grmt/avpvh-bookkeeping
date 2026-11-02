@@ -8,6 +8,7 @@ $GLOBALS['test_admin'] = false;
 function get_current_user_id(): int { return $GLOBALS['test_user']; }
 function current_user_can(string $capability): bool { return $GLOBALS['test_admin'] && get_current_user_id() > 0; }
 function get_userdata(int $id) { return $id > 0 ? (object) ['ID' => $id] : false; }
+function current_time(string $type) { return $type === 'mysql' ? '2026-08-15 09:00:00' : strtotime('2026-08-15 09:00:00'); }
 function wp_json_encode($data): string { return json_encode($data, JSON_UNESCAPED_UNICODE); }
 function sanitize_file_name(string $name): string { return basename($name); }
 function remove_accents(string $text): string { return $text; }
@@ -79,7 +80,11 @@ class Company_Test_DB {
         if (str_contains($sql, 'avb_company_documents')) {
             $documents = array_filter($this->documents, function ($doc) use ($sql, $args) {
                 if ($doc->company_id !== $args[0]) return false;
-                if (str_contains($sql, "document_kind = 'invoice'")) return $doc->document_kind === 'invoice';
+                if (str_contains($sql, "document_kind = 'invoice'")) {
+                    if ($doc->document_kind !== 'invoice') return false;
+                    if (str_contains($sql, 'paid_at IS NULL')) return ($doc->due_date ?? null) !== null && ($doc->paid_at ?? null) === null;
+                    return true;
+                }
                 return in_array($doc->document_kind, ['payslip', 'payroll_tax'], true) && $doc->document_period >= $args[1] && $doc->document_period < $args[2];
             });
             preg_match('/SELECT (.+?) FROM/', $sql, $match);
@@ -100,6 +105,15 @@ class Company_Test_DB {
     }
     public function replace(string $table, array $row): int { $this->roles[$row['company_id']][$row['user_id']] = $row['role']; return 1; }
     public function update(string $table, array $row, array $where) {
+        if (str_contains($table, 'avb_company_documents')) {
+            foreach ($this->documents as $doc) {
+                if ($doc->id === $where['id'] && $doc->company_id === $where['company_id']) {
+                    foreach ($row as $key => $value) $doc->$key = $value;
+                    return 1;
+                }
+            }
+            return false;
+        }
         foreach ($this->companies as $id => $company) if ($id !== $where['id'] && ($company->card_account ?? null) === $row['card_account']) return false;
         $this->companies[$where['id']]->card_account = $row['card_account']; return 1;
     }
@@ -211,7 +225,23 @@ try {
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, '', $csv, 'fake.pdf'), 'invoice upload rejects ordinary server files');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-1.pdf'), 'duplicate invoice references rejected');
     company_check(AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-1.pdf', '', '', true) === $document_id, 'batch uploads can safely reuse existing private documents');
+    $due_id = AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-2.pdf', '', '', false, [], ['invoice_date' => '2026-07-01', 'due_date' => '2026-07-31', 'amount_total' => '1234,56']);
+    $stored = AVBK_Company_Documents::document(1, $due_id);
+    company_check($stored->invoice_date === '2026-07-01' && $stored->due_date === '2026-07-31' && (float) $stored->amount_total === 1234.56, 'invoice dates and amount are stored from the upload form');
+    company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-3.pdf', '', '', false, [], ['invoice_date' => '2026-13-40']), 'an invalid invoice date is rejected');
+    company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-4.pdf', '', '', false, [], ['invoice_date' => '2026-07-31', 'due_date' => '2026-07-01']), 'a due date before the invoice date is rejected');
+    company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/invoices/TEST-5.pdf', '', '', false, [], ['amount_total' => '12,345']), 'an invoice amount with more than two decimals is rejected');
+    $unpaid = AVBK_Company_Documents::unpaid(1);
+    company_check(count($unpaid) === 1 && $unpaid[0]->id === $due_id, 'unpaid() lists only invoices with a due date that are not yet paid');
+    company_reject(fn() => AVBK_Company_Documents::mark_paid(1, $due_id, '2026-13-40'), 'an invalid payment date is rejected');
+    company_reject(fn() => AVBK_Company_Documents::mark_paid(2, $due_id), 'marking an invoice paid cannot cross company boundaries');
+    AVBK_Company_Documents::mark_paid(1, $due_id, '2026-08-01');
+    company_check(str_starts_with((string) AVBK_Company_Documents::document(1, $due_id)->paid_at, '2026-08-01'), 'a backdated payment date is stored as given');
+    company_check(AVBK_Company_Documents::unpaid(1) === [], 'a paid invoice no longer appears as unpaid');
+    AVBK_Company_Documents::mark_unpaid(1, $due_id);
+    company_check(AVBK_Company_Documents::document(1, $due_id)->paid_at === null, 'reopening an invoice clears its paid timestamp');
     $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Documents::mark_paid(1, $due_id), 'read-only accountant cannot change invoice payment status');
     company_check(AVBK_Company_Documents::document(1, $document_id)->id === $document_id, 'assigned accountant can inspect invoice evidence');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/new.pdf'), 'read-only accountant cannot upload invoices');
     $GLOBALS['test_user'] = 11;
@@ -561,6 +591,7 @@ try {
     company_check(count($payroll_list) === 2 && !isset($payroll_list[0]->document_data), 'payroll listing contains metadata and keeps attachment bytes out of the page');
     company_check(AVBK_Company_Payroll::documents(1, 2025) === [], 'payroll evidence is filtered to the selected year');
     company_check(!in_array($payslip_id, array_map(fn($doc) => $doc->id, AVBK_Company_Documents::listing(1)), true), 'payslips do not appear among VAT invoices');
+    company_reject(fn() => AVBK_Company_Documents::mark_paid(1, $payslip_id), 'a payroll document has no invoice payment status to mark paid');
     company_check(AVBK_Company_Report::get(1, 2026, 3) === $payroll_snapshot, 'adding payroll evidence leaves the VAT workbook and its totals unchanged');
     $form_method = new ReflectionMethod(AVBK_Company_Admin::class, 'form_renderer');
     $form_start = $form_method->invoke($admin, 1, 2026, 3, 'https://example.test/portal/');

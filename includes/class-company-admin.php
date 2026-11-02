@@ -272,8 +272,18 @@ class AVBK_Company_Admin {
                 if (isset($_FILES['invoice']) && ($_FILES['invoice']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
                     [$path, $filename] = $this->uploaded('invoice', ['pdf', 'jpg', 'jpeg', 'png', 'webp']);
                 }
-                AVBK_Company_Documents::add($company_id, (int) ($_POST['transaction_id'] ?? 0), sanitize_text_field(wp_unslash($_POST['invoice_reference'] ?? '')), $path, $filename);
+                AVBK_Company_Documents::add($company_id, (int) ($_POST['transaction_id'] ?? 0), sanitize_text_field(wp_unslash($_POST['invoice_reference'] ?? '')), $path, $filename, false, [], [
+                    'invoice_date' => sanitize_text_field(wp_unslash($_POST['invoice_date'] ?? '')),
+                    'due_date' => sanitize_text_field(wp_unslash($_POST['due_date'] ?? '')),
+                    'amount_total' => sanitize_text_field(wp_unslash($_POST['amount_total'] ?? '')),
+                ]);
                 $message = 'Factuur toegevoegd. De BTW-behandeling moet nog worden gecontroleerd.';
+            } elseif ($operation === 'invoice_mark_paid') {
+                AVBK_Company_Documents::mark_paid($company_id, (int) ($_POST['document_id'] ?? 0), sanitize_text_field(wp_unslash($_POST['paid_date'] ?? '')));
+                $message = 'Factuur gemarkeerd als betaald.';
+            } elseif ($operation === 'invoice_mark_unpaid') {
+                AVBK_Company_Documents::mark_unpaid($company_id, (int) ($_POST['document_id'] ?? 0));
+                $message = 'Factuur weer als openstaand gemarkeerd.';
             } elseif ($operation === 'import') {
                 AVBK_Companies::company($company_id, 'import');
                 [$path, $filename] = $this->uploaded('bank_export', ['csv', 'xlsx']);

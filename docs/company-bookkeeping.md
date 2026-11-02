@@ -144,6 +144,13 @@ stored privately in the database. They are not WordPress media attachments and h
 no public file URL. Downloads require company access and a nonce. Keep database
 backups because they now include invoice evidence.
 
+An invoice can optionally record its invoice date, due date, and total amount, and be
+marked paid or reopened. These are tracked separately from VAT review and from the
+imported bank payment: recording them does not itself confirm a VAT amount or link a
+payment. The portal lists unpaid invoices with a due date, oldest due date first, and
+flags the overdue ones. Invoices without a due date or amount are not shown in that
+list; they behave exactly as before.
+
 ## Mailbox invoice collection
 
 Run `bin/setup-company-mailbox.py --address MAILBOX` interactively on the Docker
@@ -164,8 +171,9 @@ than following external links automatically. The collector never sends email.
 
 - Extend PDF layout support and reconcile card periods and payments against the
   bank settlements. Statement extraction alone does not verify invoice VAT.
-- Add invoice-based bookkeeping entries, including unpaid invoices, split and mixed
-  VAT treatments, invoice dates, credit notes, reverse charge, and VAT return boxes.
+- Add split and mixed VAT treatments, credit notes, reverse charge, and VAT return
+  boxes to invoice-based bookkeeping. Invoice dates, due dates, amounts, and paid
+  status are tracked now; VAT treatment is still only reviewed in the workbook.
 - Add a general ledger, opening balances, journal entries, period closing, balance
   sheet, profit-and-loss reports, and accountant adjustments with an audit history.
 - Add invoice review in the portal. Currently VAT review happens in the workbook.
@@ -182,4 +190,5 @@ a complete company accounting system or an automated VAT-return preparation tool
 `php tests/test-companies.php` checks tenant isolation, role boundaries, private
 invoice references, bank account/period validation, duplicate imports, rollback,
 worksheet selection, preservation of other sheets, manual rows, formula relocation,
-VAT suggestions/conflicts, and exclusion of pending suggestions from VAT totals.
+VAT suggestions/conflicts, exclusion of pending suggestions from VAT totals, and
+invoice date/due date/amount validation and paid-status round-tripping.

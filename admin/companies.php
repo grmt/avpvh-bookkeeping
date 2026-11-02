@@ -52,16 +52,56 @@ defined('ABSPATH') || exit;
                     <label>Bijbehorende banktransactie <select name="transaction_id"><option value="0">Nog niet gekoppeld</option>
                         <?php foreach ($transactions as $tx) : ?><option value="<?php echo esc_attr($tx->id); ?>"><?php echo esc_html($tx->transaction_date . ' · ' . $tx->counterparty_name . ' · € ' . number_format((float) $tx->amount, 2, ',', '.')); ?></option><?php endforeach; ?>
                     </select></label>
+                    <label>Factuurdatum (optioneel) <input type="date" name="invoice_date"></label>
+                    <label>Vervaldatum (optioneel) <input type="date" name="due_date"></label>
+                    <label>Totaalbedrag (optioneel) <input type="text" name="amount_total" inputmode="decimal" placeholder="0,00"></label>
                     <button type="submit" class="button">Factuur toevoegen</button>
                 </form>
             <?php endif; ?>
-            <ul><?php foreach (AVBK_Company_Documents::listing($company_id) as $document) : ?>
+            <?php $open_invoices = AVBK_Companies::can($company_id, 'import') ? AVBK_Company_Documents::unpaid($company_id) : []; ?>
+            <?php if ($open_invoices) : ?>
+                <h4>Openstaande facturen</h4>
+                <ul class="avbk-company-open-invoices">
+                    <?php foreach ($open_invoices as $open) : $overdue = $open->due_date < wp_date('Y-m-d'); ?>
+                        <li class="<?php echo $overdue ? 'avbk-company-overdue' : ''; ?>">
+                            <?php echo esc_html(($open->filename !== '' ? $open->filename : $open->source_reference) . ' · vervalt ' . $open->due_date . ($open->amount_total !== null ? ' · € ' . number_format((float) $open->amount_total, 2, ',', '.') : '') . ($overdue ? ' · te laat' : '')); ?>
+                            <?php $form_start('invoice_mark_paid', false, 'avbk-company-inline-form'); ?>
+                                <input type="hidden" name="document_id" value="<?php echo esc_attr($open->id); ?>">
+                                <button type="submit" class="button-link">Markeer als betaald</button>
+                            </form>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            <ul><?php foreach (AVBK_Company_Documents::listing($company_id) as $document) :
+                $tracked = $document->due_date !== null || $document->amount_total !== null;
+                $overdue = $tracked && !$document->paid_at && $document->due_date !== null && $document->due_date < wp_date('Y-m-d');
+            ?>
                 <li>
                     <?php if ($document->filename !== '') : ?>
                         <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $document->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($document->filename); ?></a>
                     <?php endif; ?>
                     <?php echo esc_html($document->source_reference); ?>
                     <?php if ($document->transaction_id) echo esc_html(' (transactie #' . $document->transaction_id . ')'); ?>
+                    <?php if ($document->invoice_date) echo esc_html(' · Factuurdatum ' . $document->invoice_date); ?>
+                    <?php if ($document->due_date) echo esc_html(' · Vervalt ' . $document->due_date); ?>
+                    <?php if ($document->amount_total !== null) echo esc_html(' · € ' . number_format((float) $document->amount_total, 2, ',', '.')); ?>
+                    <?php if ($tracked) : ?>
+                        <span class="avbk-company-status <?php echo $document->paid_at ? 'avbk-company-status-paid' : 'avbk-company-status-unpaid'; ?><?php echo $overdue ? ' avbk-company-overdue' : ''; ?>"><?php echo $document->paid_at ? 'Betaald' : ($overdue ? 'Te laat' : 'Openstaand'); ?></span>
+                        <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+                            <?php if ($document->paid_at) : ?>
+                                <?php $form_start('invoice_mark_unpaid', false, 'avbk-company-inline-form'); ?>
+                                    <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
+                                    <button type="submit" class="button-link">Markeer als openstaand</button>
+                                </form>
+                            <?php else : ?>
+                                <?php $form_start('invoice_mark_paid', false, 'avbk-company-inline-form'); ?>
+                                    <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
+                                    <button type="submit" class="button-link">Markeer als betaald</button>
+                                </form>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </li>
             <?php endforeach; ?></ul>
         </section>
