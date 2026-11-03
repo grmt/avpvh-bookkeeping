@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-xlsx-archive.php';
 
 /**
  * Minimal, dependency-free .xlsx reader — mirrors the "no need for
@@ -20,6 +21,18 @@ class AVBK_Xlsx_Reader {
     private const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
     private const DOCUMENT_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
+    public static function sheet_names(string $path): array {
+        $zip = new AVBK_Xlsx_Archive($path);
+        try { $xml = $zip->getFromName('xl/workbook.xml'); }
+        finally { $zip->close(); }
+        if ($xml === false) throw new \RuntimeException('De werkmapstructuur ontbreekt.');
+        $workbook = simplexml_load_string($xml);
+        if ($workbook === false) throw new \RuntimeException('Ongeldige werkmapstructuur.');
+        $names = [];
+        foreach ($workbook->sheets->sheet as $sheet) $names[] = (string) $sheet['name'];
+        return $names;
+    }
+
     /**
      * Read one specifically named worksheet as sparse, position-indexed rows.
      * Row keys are Excel's real 1-based row numbers; cell keys are zero-based
@@ -27,13 +40,7 @@ class AVBK_Xlsx_Reader {
      * contains several sheets and whose first sheet may be an obsolete copy.
      */
     public static function read_named_rows(string $path, string $sheet_name): array {
-        if (!class_exists('ZipArchive')) {
-            throw new \RuntimeException('ZipArchive-extensie is niet beschikbaar.');
-        }
-        $zip = new \ZipArchive();
-        if ($zip->open($path) !== true) {
-            throw new \RuntimeException('Kan het xlsx-bestand niet openen.');
-        }
+        $zip = new AVBK_Xlsx_Archive($path);
         try {
             $shared = self::read_shared_strings($zip);
             $sheet_path = self::named_sheet_path($zip, $sheet_name);
@@ -63,20 +70,13 @@ class AVBK_Xlsx_Reader {
      * @return array{headers: string[], rows: array<int, array<string, string>>, header_cells: array<int, string>, preview_rows: array<int, array{row_number:int,cells:array}>}
      */
     public static function read(string $path, ?int $header_row_number = null): array {
-        if (!class_exists('ZipArchive')) {
-            throw new \RuntimeException('ZipArchive-extensie is niet beschikbaar.');
-        }
-        $zip = new \ZipArchive();
-        if ($zip->open($path) !== true) {
-            throw new \RuntimeException('Kan het xlsx-bestand niet openen.');
-        }
+        $zip = new AVBK_Xlsx_Archive($path);
 
         $shared = self::read_shared_strings($zip);
         $sheet_xml = $zip->getFromName('xl/worksheets/sheet1.xml');
         if ($sheet_xml === false) {
             // Fall back to whichever worksheet part actually exists.
-            for ($i = 0; $i < $zip->numFiles; $i++) {
-                $name = $zip->getNameIndex($i);
+            foreach ($zip->names() as $name) {
                 if ($name !== null && preg_match('#^xl/worksheets/sheet\d+\.xml$#', $name)) {
                     $sheet_xml = $zip->getFromName($name);
                     break;
@@ -212,7 +212,7 @@ class AVBK_Xlsx_Reader {
         return false;
     }
 
-    private static function named_sheet_path(\ZipArchive $zip, string $wanted_name): string {
+    private static function named_sheet_path(AVBK_Xlsx_Archive $zip, string $wanted_name): string {
         $workbook_xml = $zip->getFromName('xl/workbook.xml');
         $relationships_xml = $zip->getFromName('xl/_rels/workbook.xml.rels');
         if ($workbook_xml === false || $relationships_xml === false) {
@@ -251,7 +251,7 @@ class AVBK_Xlsx_Reader {
         throw new \RuntimeException('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
     }
 
-    private static function read_shared_strings(\ZipArchive $zip): array {
+    private static function read_shared_strings(AVBK_Xlsx_Archive $zip): array {
         $xml = $zip->getFromName('xl/sharedStrings.xml');
         if ($xml === false) {
             return [];
