@@ -123,6 +123,37 @@ class AVBK_Company_Documents {
         return $rows;
     }
 
+    /** Linked invoices for every bank transaction of this company, keyed by transaction_id, for display next to the matching review row. */
+    public static function linked_by_transaction(int $company_id): array {
+        global $wpdb;
+        AVBK_Companies::company($company_id);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, transaction_id, source_reference, filename FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' AND transaction_id IS NOT NULL", $company_id));
+        $grouped = [];
+        foreach ($rows as $row) $grouped[(int) $row->transaction_id][] = $row;
+        return $grouped;
+    }
+
+    /** Invoices not yet linked to a bank transaction, offered when linking one to a review row. */
+    public static function unlinked(int $company_id): array {
+        global $wpdb;
+        AVBK_Companies::company($company_id);
+        return $wpdb->get_results($wpdb->prepare("SELECT id, source_reference, filename FROM {$wpdb->prefix}avb_company_documents WHERE company_id = %d AND document_kind = 'invoice' AND transaction_id IS NULL ORDER BY id DESC LIMIT 200", $company_id));
+    }
+
+    /** Link an existing, still-unlinked invoice to a bank transaction from the review row, instead of re-uploading it. */
+    public static function link(int $company_id, int $document_id, int $transaction_id): void {
+        global $wpdb;
+        AVBK_Companies::company($company_id, 'import');
+        $document = self::document($company_id, $document_id);
+        if (($document->document_kind ?? 'invoice') !== 'invoice') throw new \RuntimeException('Alleen facturen kunnen aan een banktransactie worden gekoppeld.');
+        if ($document->transaction_id !== null) throw new \RuntimeException('Deze factuur is al aan een banktransactie gekoppeld.');
+        $found = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_transactions WHERE company_id = %d AND id = %d", $company_id, $transaction_id));
+        if (!$found) throw new \RuntimeException('De banktransactie hoort niet bij deze administratie.');
+        if ($wpdb->update($wpdb->prefix . 'avb_company_documents', ['transaction_id' => $transaction_id], ['id' => $document_id, 'company_id' => $company_id]) === false) {
+            throw new \RuntimeException('De koppeling is niet opgeslagen.');
+        }
+    }
+
     public static function mark_paid(int $company_id, int $document_id, string $paid_date = ''): void {
         global $wpdb;
         AVBK_Companies::company($company_id, 'import');

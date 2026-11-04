@@ -151,6 +151,13 @@ payment. The portal lists unpaid invoices with a due date, oldest due date first
 flags the overdue ones. Invoices without a due date or amount are not shown in that
 list; they behave exactly as before.
 
+The per-row VAT review next to the quarterly result shows any invoice already linked to
+that bank transaction, with a direct download link, instead of only the free-text note.
+An invoice uploaded without a transaction can be linked to one later directly from that
+row, without re-uploading it; this is offered only while the invoice has no transaction
+yet. Linking never replaces an existing link. This surfaces invoice evidence next to its
+VAT decision; it does not itself check that the invoice and the booked VAT agree.
+
 ## Mailbox invoice collection
 
 Run `bin/setup-company-mailbox.py --address MAILBOX` interactively on the Docker
@@ -176,7 +183,10 @@ than following external links automatically. The collector never sends email.
   status are tracked now; VAT treatment is still only reviewed in the workbook.
 - Add a general ledger, opening balances, journal entries, period closing, balance
   sheet, profit-and-loss reports, and accountant adjustments with an audit history.
-- Add invoice review in the portal. Currently VAT review happens in the workbook.
+- Add invoice review in the portal. A linked invoice now shows next to its VAT review
+  and can be linked there directly, but nothing yet confirms the invoice matches the
+  booked VAT, and an invoice with no bank transaction (cash, or still unpaid) has no
+  review step of its own.
 - Add direct OneDrive save-back with version/conflict handling. Currently users
   download the merged workbook and save it to OneDrive themselves.
 - Review collected invoice candidates, allocate them to purchases, and retrieve
@@ -190,5 +200,6 @@ a complete company accounting system or an automated VAT-return preparation tool
 `php tests/test-companies.php` checks tenant isolation, role boundaries, private
 invoice references, bank account/period validation, duplicate imports, rollback,
 worksheet selection, preservation of other sheets, manual rows, formula relocation,
-VAT suggestions/conflicts, exclusion of pending suggestions from VAT totals, and
-invoice date/due date/amount validation and paid-status round-tripping.
+VAT suggestions/conflicts, exclusion of pending suggestions from VAT totals,
+invoice date/due date/amount validation and paid-status round-tripping, and
+grouping/linking invoices by bank transaction for the per-row VAT review.

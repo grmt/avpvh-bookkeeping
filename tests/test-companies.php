@@ -83,6 +83,8 @@ class Company_Test_DB {
                 if (str_contains($sql, "document_kind = 'invoice'")) {
                     if ($doc->document_kind !== 'invoice') return false;
                     if (str_contains($sql, 'paid_at IS NULL')) return ($doc->due_date ?? null) !== null && ($doc->paid_at ?? null) === null;
+                    if (str_contains($sql, 'transaction_id IS NOT NULL')) return ($doc->transaction_id ?? null) !== null;
+                    if (str_contains($sql, 'transaction_id IS NULL')) return ($doc->transaction_id ?? null) === null;
                     return true;
                 }
                 return in_array($doc->document_kind, ['payslip', 'payroll_tax'], true) && $doc->document_period >= $args[1] && $doc->document_period < $args[2];
@@ -245,6 +247,20 @@ try {
     company_check(AVBK_Company_Documents::document(1, $document_id)->id === $document_id, 'assigned accountant can inspect invoice evidence');
     company_reject(fn() => AVBK_Company_Documents::add(1, 0, 'https://example.test/new.pdf'), 'read-only accountant cannot upload invoices');
     $GLOBALS['test_user'] = 11;
+    $linked = AVBK_Company_Documents::linked_by_transaction(1);
+    company_check(isset($linked[$wpdb->transactions[0]->id]) && count($linked[$wpdb->transactions[0]->id]) === 1 && $linked[$wpdb->transactions[0]->id][0]->id === $document_id, 'linked_by_transaction groups invoices already tied to a bank transaction');
+    $unlinked_ids = array_map(fn($doc) => $doc->id, AVBK_Company_Documents::unlinked(1));
+    company_check(in_array($due_id, $unlinked_ids, true) && !in_array($document_id, $unlinked_ids, true), 'unlinked() offers only invoices without a bank transaction yet');
+    company_reject(fn() => AVBK_Company_Documents::link(1, $document_id, $wpdb->transactions[0]->id), 'an already-linked invoice cannot be linked again');
+    company_reject(fn() => AVBK_Company_Documents::link(1, $due_id, 999), 'linking to a transaction outside this company is rejected');
+    company_reject(fn() => AVBK_Company_Documents::link(2, $due_id, $wpdb->transactions[0]->id), 'linking an invoice cannot cross company boundaries');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Documents::link(1, $due_id, $wpdb->transactions[0]->id), 'read-only accountant cannot link an invoice to a transaction');
+    $GLOBALS['test_user'] = 11;
+    AVBK_Company_Documents::link(1, $due_id, $wpdb->transactions[0]->id);
+    company_check(AVBK_Company_Documents::document(1, $due_id)->transaction_id === $wpdb->transactions[0]->id, 'linking an existing invoice records its bank transaction');
+    company_check(!in_array($due_id, array_map(fn($doc) => $doc->id, AVBK_Company_Documents::unlinked(1)), true), 'a newly linked invoice no longer appears as unlinked');
+    company_check(count(AVBK_Company_Documents::linked_by_transaction(1)[$wpdb->transactions[0]->id]) === 2, 'a bank transaction can have more than one linked invoice');
     $wpdb->transactions = []; $wpdb->fail_insert = true;
     company_reject(fn() => AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3), 'database errors roll back imports');
     company_check($wpdb->transactions === [], 'failed import leaves no rows');
@@ -317,6 +333,7 @@ try {
 
     $report = AVBK_Company_Report::build($suggested_path, $wpdb->companies[1], [$supplier], 2026, 3, 'quarter.xlsx');
     company_check(count($report['rows']) === 1 && $report['bank_rows'] === 1, 'result excludes the provisional worksheet footer');
+    company_check($report['rows'][0]['tx_id'] === $supplier->id, 'a matched bank row carries its real transaction id for invoice linking');
     company_check($report['totals']['known_vat_cents'] === 2100 && $report['totals']['known_net_cents'] === 10000, 'result totals show VAT and ex-VAT amounts from row values');
     company_check($report['totals']['pending_rows'] === 1 && $report['totals']['confirmed_vat_cents'] === 0 && $report['totals']['confirmed_net_cents'] === 0, 'unreviewed suggestions are separate from unmarked totals');
     company_check(hash('sha256', base64_decode($report['workbook_data'], true)) === $report['workbook_hash'], 'private downloadable working copy matches the reviewed workbook');

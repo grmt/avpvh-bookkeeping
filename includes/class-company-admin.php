@@ -284,6 +284,9 @@ class AVBK_Company_Admin {
             } elseif ($operation === 'invoice_mark_unpaid') {
                 AVBK_Company_Documents::mark_unpaid($company_id, (int) ($_POST['document_id'] ?? 0));
                 $message = 'Factuur weer als openstaand gemarkeerd.';
+            } elseif ($operation === 'invoice_link') {
+                AVBK_Company_Documents::link($company_id, (int) ($_POST['document_id'] ?? 0), (int) ($_POST['transaction_id'] ?? 0));
+                $message = 'Factuur gekoppeld aan de banktransactie.';
             } elseif ($operation === 'import') {
                 AVBK_Companies::company($company_id, 'import');
                 [$path, $filename] = $this->uploaded('bank_export', ['csv', 'xlsx']);
@@ -335,7 +338,7 @@ class AVBK_Company_Admin {
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
         $args = ['company_id' => $company_id];
         if ($year >= 2000 && $year <= 2100 && $quarter >= 1 && $quarter <= 4) $args += ['book_year' => $year, 'quarter' => $quarter];
-        $anchor = $operation === 'review' ? '#avbk-company-result' : (str_starts_with($operation, 'payroll_') ? '#avbk-company-payroll' : '');
+        $anchor = in_array($operation, ['review', 'invoice_link'], true) ? '#avbk-company-result' : (str_starts_with($operation, 'payroll_') ? '#avbk-company-payroll' : '');
         wp_safe_redirect(add_query_arg($args, $return_to) . $anchor); exit;
     }
 }
