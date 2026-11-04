@@ -8,7 +8,8 @@ class AVBK_Company_Features {
         $stored = get_option('avbk_company_features_' . $company_id, []);
         return ['creditcard' => (bool) ($stored['creditcard'] ?? true),
             'payroll' => (bool) ($stored['payroll'] ?? get_option('avbk_company_payroll_enabled_' . $company_id, false)),
-            'loans' => (bool) ($stored['loans'] ?? false)];
+            'loans' => (bool) ($stored['loans'] ?? false),
+            'ledger' => (bool) ($stored['ledger'] ?? false)];
     }
 
     public static function enabled(int $company_id, string $feature): bool {
@@ -17,7 +18,7 @@ class AVBK_Company_Features {
 
     public static function save(int $company_id, array $features): void {
         AVBK_Companies::company($company_id, 'access');
-        if (count($features) !== 3 || array_diff(array_keys($features), ['creditcard', 'payroll', 'loans']) || count(array_filter($features, 'is_bool')) !== 3) throw new \RuntimeException('Ongeldige bedrijfsinstellingen.');
+        if (count($features) !== 4 || array_diff(array_keys($features), ['creditcard', 'payroll', 'loans', 'ledger']) || count(array_filter($features, 'is_bool')) !== 4) throw new \RuntimeException('Ongeldige bedrijfsinstellingen.');
         $key = 'avbk_company_features_' . $company_id;
         if (!update_option($key, $features, false) && get_option($key) !== $features) throw new \RuntimeException('De bedrijfsinstellingen konden niet worden opgeslagen.');
     }

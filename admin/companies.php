@@ -136,6 +136,8 @@ defined('ABSPATH') || exit;
                     <label><input type="checkbox" name="feature_payroll" value="1" <?php checked($features['payroll']); ?>> Loonadministratie voor werknemers</label>
                     <label><input type="checkbox" name="feature_loans" value="1" <?php checked($features['loans']); ?>> Leningen van toepassing</label>
                     <p>Het vinkje leningen legt vast dat dit bedrijf leningen heeft. Het leningsoverzicht is nog niet beschikbaar.</p>
+                    <label><input type="checkbox" name="feature_ledger" value="1" <?php checked($features['ledger']); ?>> Grootboek gebruiken</label>
+                    <p>Schakelt het handmatige grootboek in: een rekeningschema en boekingen, los van de bank- en BTW-werkmap.</p>
                     <button type="submit" class="button">Bedrijfsinstellingen opslaan</button>
                 </form>
                 <p>Directeur: uploaden, downloaden en toegang beheren. Boekhouder: uploaden en downloaden. Accountant: lezen en downloaden. Toegang geldt alleen voor dit bedrijf.</p>

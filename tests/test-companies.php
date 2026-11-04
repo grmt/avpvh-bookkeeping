@@ -43,6 +43,9 @@ class Company_Test_DB {
     public array $transactions = [];
     public array $card_transactions = [];
     public array $documents = [];
+    public array $accounts = [];
+    public array $journal_entries = [];
+    public array $journal_lines = [];
     public bool $fail_insert = false;
     private array $snapshot = [];
     public function __construct() {
@@ -60,6 +63,15 @@ class Company_Test_DB {
             foreach ($this->documents as $doc) if ($doc->company_id === $args[0] && $doc->content_hash === $args[1]) return $doc->id;
             return null;
         }
+        if (str_contains($sql, 'avb_company_accounts')) {
+            foreach ($this->accounts as $account) if ($account->company_id === $args[0] && $account->code === $args[1]) return $account->id;
+            return null;
+        }
+        if (str_contains($sql, 'MAX(entry_number)')) {
+            $max = 0;
+            foreach ($this->journal_entries as $entry) if ($entry->company_id === $args[0] && $entry->entry_number > $max) $max = $entry->entry_number;
+            return $max + 1;
+        }
         if (str_contains($sql, 'AND id =')) {
             foreach ($this->transactions as $tx) if ($tx->company_id === $args[0] && $tx->id === $args[1]) return $tx->id;
             return null;
@@ -70,6 +82,14 @@ class Company_Test_DB {
     public function get_row(array $query) {
         if (str_contains($query[0], 'avb_company_documents')) {
             foreach ($this->documents as $doc) if ($doc->company_id === $query[1][0] && $doc->id === $query[1][1]) return $doc;
+            return null;
+        }
+        if (str_contains($query[0], 'avb_company_accounts')) {
+            foreach ($this->accounts as $account) if ($account->company_id === $query[1][0] && $account->id === $query[1][1]) return $account;
+            return null;
+        }
+        if (str_contains($query[0], 'avb_company_journal_entries')) {
+            foreach ($this->journal_entries as $entry) if ($entry->company_id === $query[1][0] && $entry->id === $query[1][1]) return $entry;
             return null;
         }
         return $this->companies[$query[1][0]] ?? null;
@@ -94,6 +114,17 @@ class Company_Test_DB {
             return array_values(array_map(fn($doc) => (object) array_intersect_key((array) $doc, $fields), $documents));
         }
         if (str_contains($sql, 'avb_company_card_transactions')) return array_values(array_filter($this->card_transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
+        if (str_contains($sql, 'avb_company_accounts')) {
+            $rows = array_values(array_filter($this->accounts, fn($a) => $a->company_id === $args[0]));
+            usort($rows, fn($a, $b) => $a->code <=> $b->code);
+            return $rows;
+        }
+        if (str_contains($sql, 'avb_company_journal_entries')) {
+            $rows = array_values(array_filter($this->journal_entries, fn($e) => $e->company_id === $args[0]));
+            usort($rows, fn($a, $b) => $a->entry_number <=> $b->entry_number);
+            return $rows;
+        }
+        if (str_contains($sql, 'avb_company_journal_lines')) return array_values(array_filter($this->journal_lines, fn($l) => $l->entry_id === $args[0]));
         if (str_contains($sql, 'INNER JOIN')) return array_values(array_filter($this->companies, fn($c) => isset($this->roles[$c->id][$args[0]])));
         if (str_contains($sql, "direction = 'out' AND amount")) return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->direction === 'out' && number_format((float) $t->amount, 2, '.', '') === $args[1]));
         return array_values(array_filter($this->transactions, fn($t) => $t->company_id === $args[0] && $t->transaction_date >= $args[1] && $t->transaction_date < $args[2]));
@@ -102,6 +133,9 @@ class Company_Test_DB {
         if ($this->fail_insert) { $this->fail_insert = false; return false; }
         if (str_contains($table, 'avb_company_card_transactions')) { $this->card_transactions[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
         if (str_contains($table, 'avb_company_documents')) { $this->documents[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
+        if (str_contains($table, 'avb_company_accounts')) { $this->accounts[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
+        if (str_contains($table, 'avb_company_journal_entries')) { $this->journal_entries[] = (object) (['id' => ++$this->insert_id, 'voided_by' => null, 'voided_at' => null, 'void_reason' => ''] + $row); return 1; }
+        if (str_contains($table, 'avb_company_journal_lines')) { $this->journal_lines[] = (object) (['id' => ++$this->insert_id] + $row); return 1; }
         $this->transactions[] = (object) (['id' => ++$this->insert_id] + $row);
         return 1;
     }
@@ -111,6 +145,24 @@ class Company_Test_DB {
             foreach ($this->documents as $doc) {
                 if ($doc->id === $where['id'] && $doc->company_id === $where['company_id']) {
                     foreach ($row as $key => $value) $doc->$key = $value;
+                    return 1;
+                }
+            }
+            return false;
+        }
+        if (str_contains($table, 'avb_company_accounts')) {
+            foreach ($this->accounts as $account) {
+                if ($account->id === $where['id'] && $account->company_id === $where['company_id']) {
+                    foreach ($row as $key => $value) $account->$key = $value;
+                    return 1;
+                }
+            }
+            return false;
+        }
+        if (str_contains($table, 'avb_company_journal_entries')) {
+            foreach ($this->journal_entries as $entry) {
+                if ($entry->id === $where['id'] && $entry->company_id === $where['company_id']) {
+                    foreach ($row as $key => $value) $entry->$key = $value;
                     return 1;
                 }
             }
@@ -128,8 +180,8 @@ class Company_Test_DB {
             $GLOBALS['test_options'][$args[1]] = unserialize($args[0]);
             return 1;
         }
-        if ($sql === 'START TRANSACTION') $this->snapshot = [$this->transactions, $this->card_transactions];
-        if ($sql === 'ROLLBACK') [$this->transactions, $this->card_transactions] = $this->snapshot;
+        if ($sql === 'START TRANSACTION') $this->snapshot = [$this->transactions, $this->card_transactions, $this->journal_entries, $this->journal_lines];
+        if ($sql === 'ROLLBACK') [$this->transactions, $this->card_transactions, $this->journal_entries, $this->journal_lines] = $this->snapshot;
         return 1;
     }
 }
@@ -150,6 +202,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-review.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-cards.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-card-groups.php';
+require AVBK_PLUGIN_DIR . 'includes/class-company-ledger.php';
 require AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
 
 function company_check(bool $condition, string $message): void {
@@ -261,6 +314,83 @@ try {
     company_check(AVBK_Company_Documents::document(1, $due_id)->transaction_id === $wpdb->transactions[0]->id, 'linking an existing invoice records its bank transaction');
     company_check(!in_array($due_id, array_map(fn($doc) => $doc->id, AVBK_Company_Documents::unlinked(1)), true), 'a newly linked invoice no longer appears as unlinked');
     company_check(count(AVBK_Company_Documents::linked_by_transaction(1)[$wpdb->transactions[0]->id]) === 2, 'a bank transaction can have more than one linked invoice');
+
+    company_check(AVBK_Company_Ledger::accounts(1) === [], 'a company starts with no chart of accounts');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Ledger::seed_default_accounts(1), 'read-only accountant cannot seed the chart of accounts');
+    $GLOBALS['test_user'] = 11;
+    $seeded = AVBK_Company_Ledger::seed_default_accounts(1);
+    company_check($seeded === 10 && count(AVBK_Company_Ledger::accounts(1)) === 10, 'seeding adds the starter RGS-lite chart of accounts');
+    company_reject(fn() => AVBK_Company_Ledger::seed_default_accounts(1), 'seeding again is rejected once a chart exists');
+    company_reject(fn() => AVBK_Company_Ledger::accounts(2), 'chart of accounts cannot cross company boundaries');
+    $accounts_by_code = array_column(AVBK_Company_Ledger::accounts(1), null, 'code');
+    $bank_account = $accounts_by_code['1010']; $income_account = $accounts_by_code['4000'];
+    company_reject(fn() => AVBK_Company_Ledger::add_account(1, '1010', 'Dubbele code', 'asset'), 'a duplicate account code is rejected');
+    company_reject(fn() => AVBK_Company_Ledger::add_account(1, '1900', 'Ongeldig type', 'nonsense'), 'an unknown account type is rejected');
+    $custom_account_id = AVBK_Company_Ledger::add_account(1, '1800', 'Testrekening', 'asset');
+    company_check($custom_account_id > 0 && count(AVBK_Company_Ledger::accounts(1)) === 11, 'a company can extend its chart with its own account');
+
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Te weinig regels', '', [['account_id' => $bank_account->id, 'debit' => '10,00', 'credit' => '']]), 'a journal entry needs at least two lines');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Onbalans', '', [
+        ['account_id' => $bank_account->id, 'debit' => '121,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '100,00'],
+    ]), 'an unbalanced journal entry is rejected');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Beide gevuld', '', [
+        ['account_id' => $bank_account->id, 'debit' => '121,00', 'credit' => '121,00'],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]), 'a line with both a debit and a credit amount is rejected');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Geen van beide', '', [
+        ['account_id' => $bank_account->id, 'debit' => '', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]), 'a line with neither a debit nor a credit amount is rejected');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Onbekende rekening', '', [
+        ['account_id' => 999999, 'debit' => '121,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]), 'a line referencing an unknown account is rejected');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-13-40', 'Ongeldige datum', '', [
+        ['account_id' => $bank_account->id, 'debit' => '121,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]), 'an invalid entry date is rejected');
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Accountant boekt', '', [
+        ['account_id' => $bank_account->id, 'debit' => '121,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]), 'read-only accountant cannot post a journal entry');
+    $GLOBALS['test_user'] = 11;
+    $entry_id = AVBK_Company_Ledger::add_entry(1, '2026-07-01', 'Testverkoop', 'REF-1', [
+        ['account_id' => $bank_account->id, 'debit' => '121,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '121,00'],
+    ]);
+    $entry = AVBK_Company_Ledger::entry(1, $entry_id);
+    company_check($entry->entry_number === 1, 'the first journal entry for a company is numbered 1');
+    $entry_lines = AVBK_Company_Ledger::lines(1, $entry_id);
+    company_check(count($entry_lines) === 2 && $entry_lines[0]->debit_cents === 12100 && $entry_lines[0]->credit_cents === 0 && $entry_lines[1]->credit_cents === 12100, 'a balanced journal entry stores its debit and credit lines in cents');
+    company_check($entry_lines[0]->account_code === '1010' && $entry_lines[0]->account_name === 'Bank', 'journal lines resolve their account code and name for display');
+    $second_entry_id = AVBK_Company_Ledger::add_entry(1, '2026-07-02', 'Tweede boeking', '', [
+        ['account_id' => $bank_account->id, 'debit' => '', 'credit' => '50,00'],
+        ['account_id' => $income_account->id, 'debit' => '50,00', 'credit' => ''],
+    ]);
+    company_check(AVBK_Company_Ledger::entry(1, $second_entry_id)->entry_number === 2, 'journal entries are numbered sequentially per company');
+    company_check(count(AVBK_Company_Ledger::entries(1)) === 2, 'both journal entries are listed for this company');
+    company_reject(fn() => AVBK_Company_Ledger::entries(2), 'journal entries cannot cross company boundaries');
+
+    AVBK_Company_Ledger::deactivate_account(1, $custom_account_id);
+    company_check(!AVBK_Company_Ledger::account(1, $custom_account_id)->is_active, 'a deactivated account is flagged inactive but keeps its history');
+    company_reject(fn() => AVBK_Company_Ledger::add_entry(1, '2026-07-03', 'Inactieve rekening', '', [
+        ['account_id' => $custom_account_id, 'debit' => '10,00', 'credit' => ''],
+        ['account_id' => $income_account->id, 'debit' => '', 'credit' => '10,00'],
+    ]), 'an inactive account cannot be used in a new journal entry');
+
+    $GLOBALS['test_user'] = 12;
+    company_reject(fn() => AVBK_Company_Ledger::void_entry(1, $entry_id, 'Accountant probeert terug te draaien'), 'read-only accountant cannot void a journal entry');
+    $GLOBALS['test_user'] = 11;
+    company_reject(fn() => AVBK_Company_Ledger::void_entry(2, $entry_id, 'Verkeerd bedrijf'), 'voiding an entry cannot cross company boundaries');
+    company_reject(fn() => AVBK_Company_Ledger::void_entry(1, $entry_id, ''), 'voiding without a reason is rejected');
+    AVBK_Company_Ledger::void_entry(1, $entry_id, 'Dubbel geboekt');
+    $voided = AVBK_Company_Ledger::entry(1, $entry_id);
+    company_check($voided->voided_at !== null && $voided->void_reason === 'Dubbel geboekt', 'voiding a journal entry records who, when and why');
+    company_reject(fn() => AVBK_Company_Ledger::void_entry(1, $entry_id, 'Nog een keer'), 'an already-voided journal entry cannot be voided again');
+
     $wpdb->transactions = []; $wpdb->fail_insert = true;
     company_reject(fn() => AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3), 'database errors roll back imports');
     company_check($wpdb->transactions === [], 'failed import leaves no rows');
@@ -644,14 +774,14 @@ try {
     company_reject(fn() => AVBK_Company_Payroll::payments(1, 2026), 'another company cannot read payroll payment instructions');
     $GLOBALS['test_user'] = 13;
     $feature_snapshot = AVBK_Company_Report::get(1, 2026, 3);
-    AVBK_Company_Features::save(1, ['creditcard' => false, 'payroll' => true, 'loans' => true]);
+    AVBK_Company_Features::save(1, ['creditcard' => false, 'payroll' => true, 'loans' => true, 'ledger' => false]);
     company_check(!AVBK_Company_Features::enabled(1, 'creditcard') && AVBK_Company_Payroll::enabled(1) && AVBK_Company_Features::enabled(1, 'loans'), 'creditcard, payroll and loan applicability are independent company settings');
     company_reject(fn() => AVBK_Company_Cards::link(1, '12345678901'), 'disabled creditcard setting blocks linking');
     company_reject(fn() => AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3), 'disabled creditcard setting blocks transaction imports');
     company_check(count(AVBK_Company_Cards::transactions(1, 2026, 3)) === 4 && AVBK_Company_Report::get(1, 2026, 3) === $feature_snapshot, 'disabling a workflow preserves existing card records and VAT calculations');
-    company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true]), 'feature settings cannot be changed across company boundaries');
+    company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true, 'ledger' => false]), 'feature settings cannot be changed across company boundaries');
     $GLOBALS['test_user'] = 11;
-    company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false]), 'bookkeepers cannot change company features');
+    company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false, 'ledger' => false]), 'bookkeepers cannot change company features');
     company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'owner@example.test'), 'bookkeeper cannot choose a reminder recipient');
     $GLOBALS['test_user'] = 13;
     company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'invalid'), 'monthly reminder requires a valid recipient');
