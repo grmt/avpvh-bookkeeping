@@ -91,7 +91,7 @@ class AVBK_Company_Ledger {
         foreach ($lines as $line) {
             $account_id = (int) ($line['account_id'] ?? 0);
             if (!isset($accounts[$account_id])) throw new \RuntimeException('Kies een geldige grootboekrekening voor elke regel.');
-            if (!$accounts[$account_id]->is_active) throw new \RuntimeException('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.');
+            if (!$accounts[$account_id]->is_active) throw new \RuntimeException('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with the account's own name; escaped with esc_html() by admin/company-ledger.php when displayed
             $debit = self::parse_amount((string) ($line['debit'] ?? ''));
             $credit = self::parse_amount((string) ($line['credit'] ?? ''));
             if (($debit > 0) === ($credit > 0)) throw new \RuntimeException('Vul per regel óf een debetbedrag óf een creditbedrag in, niet beide en niet geen van beide.');
