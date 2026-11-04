@@ -10,12 +10,13 @@ class AVBK_Company_Admin {
         add_action('admin_post_avbk_company_workbook', [$this, 'download_workbook']);
         add_shortcode('avbk_company_bookkeeping', [$this, 'shortcode']);
         add_shortcode('avbk_company_payroll', [$this, 'payroll_shortcode']);
+        add_shortcode('avbk_company_ledger', [$this, 'ledger_shortcode']);
         add_action('admin_enqueue_scripts', function ($hook) {
             if (str_contains($hook, 'avbk-companies')) $this->assets();
         });
         add_action('wp_enqueue_scripts', function () {
             global $post;
-            if ($post && (has_shortcode($post->post_content, 'avbk_company_bookkeeping') || has_shortcode($post->post_content, 'avbk_company_payroll'))) $this->assets();
+            if ($post && (has_shortcode($post->post_content, 'avbk_company_bookkeeping') || has_shortcode($post->post_content, 'avbk_company_payroll') || has_shortcode($post->post_content, 'avbk_company_ledger'))) $this->assets();
         });
     }
 
@@ -29,6 +30,7 @@ class AVBK_Company_Admin {
         if (!current_user_can('manage_options') && !AVBK_Companies::accessible()) return;
         add_menu_page('Bedrijfsboekhouding', 'Bedrijfsboekhouding', 'read', 'avbk-companies', [$this, 'render'], 'dashicons-building', 32);
         add_submenu_page('avbk-companies', 'Salaris', 'Salaris', 'read', 'avbk-companies-payroll', [$this, 'render_payroll']);
+        add_submenu_page('avbk-companies', 'Grootboek', 'Grootboek', 'read', 'avbk-companies-ledger', [$this, 'render_ledger']);
     }
 
     public function payroll_shortcode(): string {
@@ -51,6 +53,27 @@ class AVBK_Company_Admin {
         $notice = get_transient('avbk_company_notice_' . get_current_user_id());
         delete_transient('avbk_company_notice_' . get_current_user_id());
         require AVBK_PLUGIN_DIR . 'admin/company-salary.php';
+    }
+
+    public function ledger_shortcode(): string {
+        if (!is_user_logged_in()) return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor het grootboek</a>.</p>';
+        ob_start(); $this->render_ledger(); return ob_get_clean();
+    }
+
+    public function render_ledger(): void {
+        if (!is_user_logged_in()) return;
+        $companies = array_values(array_filter(AVBK_Companies::accessible(), fn($item) => AVBK_Company_Features::enabled((int) $item->id, 'ledger')));
+        $company_id = (int) ($_GET['company_id'] ?? ($companies[0]->id ?? 0));
+        $company = null;
+        foreach ($companies as $item) if ((int) $item->id === $company_id) $company = $item;
+        if (!$company) { echo '<p>Geen grootboek beschikbaar voor deze administratie.</p>'; return; }
+        $return_to = is_admin() ? admin_url('admin.php?page=avbk-companies-ledger') : get_permalink();
+        $form_start = $this->form_renderer($company_id, (int) wp_date('Y'), 1, $return_to);
+        $notice = get_transient('avbk_company_notice_' . get_current_user_id());
+        delete_transient('avbk_company_notice_' . get_current_user_id());
+        $accounts = AVBK_Company_Ledger::accounts($company_id);
+        $entries = AVBK_Company_Ledger::entries($company_id);
+        require AVBK_PLUGIN_DIR . 'admin/company-ledger.php';
     }
 
     public function shortcode(): string {
@@ -208,7 +231,7 @@ class AVBK_Company_Admin {
                 update_option('avbk_payroll_automation_' . $company_id, $settings, false);
                 $message = $settings['enabled'] ? 'Maandelijkse salarisverwerking geactiveerd.' : 'Maandelijkse salarisverwerking gepauzeerd.';
             } elseif ($operation === 'company_features') {
-                AVBK_Company_Features::save($company_id, ['creditcard' => ($_POST['feature_creditcard'] ?? '') === '1', 'payroll' => ($_POST['feature_payroll'] ?? '') === '1', 'loans' => ($_POST['feature_loans'] ?? '') === '1']);
+                AVBK_Company_Features::save($company_id, ['creditcard' => ($_POST['feature_creditcard'] ?? '') === '1', 'payroll' => ($_POST['feature_payroll'] ?? '') === '1', 'loans' => ($_POST['feature_loans'] ?? '') === '1', 'ledger' => ($_POST['feature_ledger'] ?? '') === '1']);
                 $message = 'Bedrijfsinstellingen opgeslagen.';
             } elseif ($operation === 'payroll_settings') {
                 AVBK_Company_Payroll::configure($company_id, ($_POST['payroll_enabled'] ?? '') === '1');
@@ -287,6 +310,39 @@ class AVBK_Company_Admin {
             } elseif ($operation === 'invoice_link') {
                 AVBK_Company_Documents::link($company_id, (int) ($_POST['document_id'] ?? 0), (int) ($_POST['transaction_id'] ?? 0));
                 $message = 'Factuur gekoppeld aan de banktransactie.';
+            } elseif ($operation === 'ledger_seed_accounts') {
+                $added = AVBK_Company_Ledger::seed_default_accounts($company_id);
+                $message = sprintf('%d standaardrekeningen toegevoegd.', $added);
+            } elseif ($operation === 'ledger_add_account') {
+                AVBK_Company_Ledger::add_account($company_id,
+                    sanitize_text_field(wp_unslash($_POST['account_code'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['account_name'] ?? '')),
+                    sanitize_key(wp_unslash($_POST['account_type'] ?? '')));
+                $message = 'Grootboekrekening toegevoegd.';
+            } elseif ($operation === 'ledger_deactivate_account') {
+                AVBK_Company_Ledger::deactivate_account($company_id, (int) ($_POST['account_id'] ?? 0));
+                $message = 'Grootboekrekening gedeactiveerd.';
+            } elseif ($operation === 'ledger_entry') {
+                $account_ids = (array) ($_POST['line_account_id'] ?? []);
+                $debits = (array) ($_POST['line_debit'] ?? []);
+                $credits = (array) ($_POST['line_credit'] ?? []);
+                $notes = (array) ($_POST['line_note'] ?? []);
+                $lines = [];
+                foreach ($account_ids as $i => $account_id) {
+                    $debit = sanitize_text_field(wp_unslash($debits[$i] ?? ''));
+                    $credit = sanitize_text_field(wp_unslash($credits[$i] ?? ''));
+                    if ((string) $account_id === '' && $debit === '' && $credit === '') continue;
+                    $lines[] = ['account_id' => (int) $account_id, 'debit' => $debit, 'credit' => $credit, 'note' => sanitize_text_field(wp_unslash($notes[$i] ?? ''))];
+                }
+                AVBK_Company_Ledger::add_entry($company_id,
+                    sanitize_text_field(wp_unslash($_POST['entry_date'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['entry_description'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['entry_reference'] ?? '')),
+                    $lines);
+                $message = 'Boeking opgeslagen.';
+            } elseif ($operation === 'ledger_void') {
+                AVBK_Company_Ledger::void_entry($company_id, (int) ($_POST['entry_id'] ?? 0), sanitize_text_field(wp_unslash($_POST['void_reason'] ?? '')));
+                $message = 'Boeking teruggedraaid.';
             } elseif ($operation === 'import') {
                 AVBK_Companies::company($company_id, 'import');
                 [$path, $filename] = $this->uploaded('bank_export', ['csv', 'xlsx']);

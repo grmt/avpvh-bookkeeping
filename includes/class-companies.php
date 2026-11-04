@@ -94,6 +94,44 @@ class AVBK_Companies {
             UNIQUE KEY company_hash (company_id,dedupe_hash),
             KEY company_date (company_id,transaction_date)
         ) ENGINE=InnoDB $charset;");
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_company_accounts (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            company_id BIGINT UNSIGNED NOT NULL,
+            code VARCHAR(20) NOT NULL,
+            name VARCHAR(190) NOT NULL,
+            account_type VARCHAR(20) NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY company_code (company_id,code)
+        ) ENGINE=InnoDB $charset;");
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_company_journal_entries (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            company_id BIGINT UNSIGNED NOT NULL,
+            entry_number BIGINT UNSIGNED NOT NULL,
+            entry_date DATE NOT NULL,
+            description VARCHAR(500) NOT NULL,
+            reference VARCHAR(255) NOT NULL DEFAULT '',
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            voided_by BIGINT UNSIGNED NULL DEFAULT NULL,
+            voided_at TIMESTAMP NULL DEFAULT NULL,
+            void_reason VARCHAR(500) NOT NULL DEFAULT '',
+            PRIMARY KEY  (id),
+            UNIQUE KEY company_entry_number (company_id,entry_number)
+        ) ENGINE=InnoDB $charset;");
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_company_journal_lines (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            entry_id BIGINT UNSIGNED NOT NULL,
+            account_id BIGINT UNSIGNED NOT NULL,
+            debit_cents BIGINT NOT NULL DEFAULT 0,
+            credit_cents BIGINT NOT NULL DEFAULT 0,
+            line_note VARCHAR(255) NOT NULL DEFAULT '',
+            PRIMARY KEY  (id),
+            KEY entry_id (entry_id),
+            KEY account_id (account_id)
+        ) ENGINE=InnoDB $charset;");
         // dbDelta does not reliably apply a nullability-only column change.
         $booking_column = $wpdb->get_row("SHOW COLUMNS FROM {$wpdb->prefix}avb_company_card_transactions LIKE 'booking_date'");
         if (!$booking_column || $booking_column->Null !== 'YES') {
@@ -101,7 +139,7 @@ class AVBK_Companies {
                 throw new \RuntimeException('De creditcarddatabase kon niet worden bijgewerkt voor ontbrekende boekingsdatums.');
             }
         }
-        update_option('avbk_company_schema', '6', false);
+        update_option('avbk_company_schema', '7', false);
     }
 
     public static function normalize_iban(string $iban): string {

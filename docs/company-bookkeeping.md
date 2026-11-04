@@ -158,6 +158,26 @@ row, without re-uploading it; this is offered only while the invoice has no tran
 yet. Linking never replaces an existing link. This surfaces invoice evidence next to its
 VAT decision; it does not itself check that the invoice and the booked VAT agree.
 
+## General ledger
+
+A company can switch on a separate, manual general ledger ("Grootboek gebruiken" in
+its company settings), independent of the bank import and BTW workbook above. It has
+its own submenu page and `[avbk_company_ledger]` shortcode. A CEO or bookkeeper loads
+a starter Dutch RGS-lite chart of accounts once (Kas, Bank, Debiteuren, Crediteuren,
+te betalen/vorderen BTW, Eigen vermogen, Omzet, and two cost accounts), covering all
+five account types, and can add further accounts with their own code, name and type.
+An account can be deactivated to stop new postings on it; its posting history stays
+visible.
+
+Journal entries are entered manually as a dated, double-entry set of lines: each line
+names one account and either a debit or a credit amount, never both and never neither.
+An entry needs at least two lines, and its debit and credit totals must match exactly
+before it is stored. Entries are numbered sequentially per company. A posted entry is
+never edited or deleted; it can only be voided, which records who did it, when, and
+why, and keeps the original entry visible — the voided and voiding state together are
+the audit history. Nothing here is derived from the imported bank transactions, card
+purchases, or BTW review; postings are entirely manual.
+
 ## Mailbox invoice collection
 
 Run `bin/setup-company-mailbox.py --address MAILBOX` interactively on the Docker
@@ -181,8 +201,11 @@ than following external links automatically. The collector never sends email.
 - Add split and mixed VAT treatments, credit notes, reverse charge, and VAT return
   boxes to invoice-based bookkeeping. Invoice dates, due dates, amounts, and paid
   status are tracked now; VAT treatment is still only reviewed in the workbook.
-- Add a general ledger, opening balances, journal entries, period closing, balance
-  sheet, profit-and-loss reports, and accountant adjustments with an audit history.
+- Add opening balances, period closing, a balance sheet, and profit-and-loss reports
+  on top of the manual general ledger. A chart of accounts and balanced, numbered
+  journal entries with void-based audit history exist now; nothing yet reports on
+  them, nothing ties them to the imported bank/card/BTW data, and the accountant
+  role still cannot post adjusting entries of its own (only view and export).
 - Add invoice review in the portal. A linked invoice now shows next to its VAT review
   and can be linked there directly, but nothing yet confirms the invoice matches the
   booked VAT, and an invoice with no bank transaction (cash, or still unpaid) has no
@@ -201,5 +224,6 @@ a complete company accounting system or an automated VAT-return preparation tool
 invoice references, bank account/period validation, duplicate imports, rollback,
 worksheet selection, preservation of other sheets, manual rows, formula relocation,
 VAT suggestions/conflicts, exclusion of pending suggestions from VAT totals,
-invoice date/due date/amount validation and paid-status round-tripping, and
-grouping/linking invoices by bank transaction for the per-row VAT review.
+invoice date/due date/amount validation and paid-status round-tripping,
+grouping/linking invoices by bank transaction for the per-row VAT review, and the
+general ledger's chart-of-accounts, balanced-entry, numbering and void rules.
