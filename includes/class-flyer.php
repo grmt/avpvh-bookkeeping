@@ -3,7 +3,7 @@ defined('ABSPATH') || exit;
 
 use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
-use chillerlan\QRCode\Output\QROutputInterface;
+use chillerlan\QRCode\Output\QRMarkupSVG;
 use chillerlan\QRCode\Common\EccLevel;
 
 /**
@@ -117,7 +117,7 @@ class AVBK_Flyer {
      */
     public static function generate_qr_svg(string $url): string {
         $qr_options = new QROptions([
-            'outputType'   => QROutputInterface::MARKUP_SVG,
+            'outputInterface' => QRMarkupSVG::class,
             'eccLevel'     => EccLevel::H,
             'outputBase64' => false,
             'addQuietzone' => true,
