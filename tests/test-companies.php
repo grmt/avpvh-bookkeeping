@@ -774,14 +774,14 @@ try {
     company_reject(fn() => AVBK_Company_Payroll::payments(1, 2026), 'another company cannot read payroll payment instructions');
     $GLOBALS['test_user'] = 13;
     $feature_snapshot = AVBK_Company_Report::get(1, 2026, 3);
-    AVBK_Company_Features::save(1, ['creditcard' => false, 'payroll' => true, 'loans' => true]);
+    AVBK_Company_Features::save(1, ['creditcard' => false, 'payroll' => true, 'loans' => true, 'ledger' => false]);
     company_check(!AVBK_Company_Features::enabled(1, 'creditcard') && AVBK_Company_Payroll::enabled(1) && AVBK_Company_Features::enabled(1, 'loans'), 'creditcard, payroll and loan applicability are independent company settings');
     company_reject(fn() => AVBK_Company_Cards::link(1, '12345678901'), 'disabled creditcard setting blocks linking');
     company_reject(fn() => AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3), 'disabled creditcard setting blocks transaction imports');
     company_check(count(AVBK_Company_Cards::transactions(1, 2026, 3)) === 4 && AVBK_Company_Report::get(1, 2026, 3) === $feature_snapshot, 'disabling a workflow preserves existing card records and VAT calculations');
-    company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true]), 'feature settings cannot be changed across company boundaries');
+    company_reject(fn() => AVBK_Company_Features::save(2, ['creditcard' => false, 'payroll' => false, 'loans' => true, 'ledger' => false]), 'feature settings cannot be changed across company boundaries');
     $GLOBALS['test_user'] = 11;
-    company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false]), 'bookkeepers cannot change company features');
+    company_reject(fn() => AVBK_Company_Features::save(1, ['creditcard' => true, 'payroll' => true, 'loans' => false, 'ledger' => false]), 'bookkeepers cannot change company features');
     company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'owner@example.test'), 'bookkeeper cannot choose a reminder recipient');
     $GLOBALS['test_user'] = 13;
     company_reject(fn() => AVBK_Company_Payroll_Automation::configure(1, 'invalid'), 'monthly reminder requires a valid recipient');
