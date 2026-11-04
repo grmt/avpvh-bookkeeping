@@ -6,7 +6,10 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
     <h3>Resultaat kwartaalwerkblad</h3>
     <?php if (!$report) : ?>
         <p>Werk hieronder de BTW-werkmap bij. Daarna verschijnen hier de regels, BTW en bedragen exclusief BTW van het bijgewerkte kwartaalwerkblad.</p>
-    <?php else : $totals = $report['totals']; ?>
+    <?php else : $totals = $report['totals'];
+        $linked_invoices = AVBK_Company_Documents::linked_by_transaction($company_id);
+        $unlinked_invoices = AVBK_Companies::can($company_id, 'import') ? AVBK_Company_Documents::unlinked($company_id) : [];
+    ?>
         <p><strong><?php echo esc_html($report['sheet']); ?></strong> · <?php echo esc_html($report['filename']); ?> · bijgewerkt <?php echo esc_html($report['generated_at']); ?></p>
         <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'export')) : ?>
             <p><a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_workbook', 'company_id' => $company_id, 'book_year' => $year, 'quarter' => $quarter], admin_url('admin-post.php')), 'avbk_company_workbook')); ?>">Bijgewerkte Excel-werkmap downloaden</a></p>
@@ -56,6 +59,9 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['vat_cents'])); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['net_cents'])); ?></td>
                     <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Gecontroleerd / zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?>
+                        <?php if (!empty($result_row['tx_id']) && !empty($linked_invoices[$result_row['tx_id']])) : ?>
+                            <small>Factuur: <?php foreach ($linked_invoices[$result_row['tx_id']] as $i => $invoice_doc) : ?><?php if ($i) echo ', '; ?><?php if ($invoice_doc->filename !== '') : ?><a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $invoice_doc->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($invoice_doc->filename); ?></a><?php else : echo esc_html($invoice_doc->source_reference); endif; ?><?php endforeach; ?></small>
+                        <?php endif; ?>
                         <?php if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
                             $saved_review = $report['reviews'][$result_row['review_key']] ?? null; ?>
                             <?php if ($result_row['status'] !== 'checked' && in_array($result_row['code'], ['0', '9', '21', 'x'], true) && $result_row['vat_cents'] !== null && $result_row['net_cents'] !== null) : ?>
@@ -84,6 +90,20 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                                     <button type="submit" name="review_state" value="pending" class="button">Opslaan · nog controleren</button>
                                 </form>
                             </details>
+                            <?php if (!empty($result_row['tx_id']) && empty($linked_invoices[$result_row['tx_id']]) && $unlinked_invoices) : ?>
+                                <details class="avbk-company-review"><summary>Factuur koppelen</summary>
+                                    <?php $form_start('invoice_link'); ?>
+                                        <input type="hidden" name="transaction_id" value="<?php echo esc_attr($result_row['tx_id']); ?>">
+                                        <label>Factuur <select name="document_id" required>
+                                            <option value="">Kies een factuur</option>
+                                            <?php foreach ($unlinked_invoices as $doc) : ?>
+                                                <option value="<?php echo esc_attr($doc->id); ?>"><?php echo esc_html($doc->filename !== '' ? $doc->filename : $doc->source_reference); ?></option>
+                                            <?php endforeach; ?>
+                                        </select></label>
+                                        <button type="submit" class="button">Koppelen</button>
+                                    </form>
+                                </details>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </td>
                 </tr>
