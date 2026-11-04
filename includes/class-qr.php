@@ -3,7 +3,8 @@ defined('ABSPATH') || exit;
 
 use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
-use chillerlan\QRCode\Output\QROutputInterface;
+use chillerlan\QRCode\Output\QRMarkupSVG;
+use chillerlan\QRCode\Output\QRGdImagePNG;
 use chillerlan\QRCode\Common\EccLevel;
 
 /**
@@ -91,7 +92,7 @@ class AVBK_QR {
             return null;
         }
         $options = new QROptions([
-            'outputType'   => QROutputInterface::MARKUP_SVG,
+            'outputInterface' => QRMarkupSVG::class,
             'eccLevel'     => EccLevel::M,
             'outputBase64' => false,
             'addQuietzone' => true,
@@ -106,7 +107,7 @@ class AVBK_QR {
             return null;
         }
         $options = new QROptions([
-            'outputType'   => QROutputInterface::GDIMAGE_PNG,
+            'outputInterface' => QRGdImagePNG::class,
             'eccLevel'     => EccLevel::M,
             'outputBase64' => false,
             'addQuietzone' => true,
