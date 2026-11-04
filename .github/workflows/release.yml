@@ -33,12 +33,31 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          # Production runs PHP 8.4.
+          php-version: '8.4'
+          tools: composer
+
+      # vendor/ is not in git but the plugin needs it at runtime
+      # (chillerlan/php-qrcode for the flyer and payment QR codes).
+      - name: Install runtime dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      # Same contents as a production deploy: `git archive` honours
+      # .gitattributes' export-ignore (tests, docs, *.md, dotfiles,
+      # composer.json/.lock), plus the freshly installed vendor/.
       - name: Package avpvh-bookkeeping.zip
         run: |
           STAGE_DIR="$(mktemp -d)/avpvh-bookkeeping"
           mkdir -p "$STAGE_DIR"
-          rsync -a --exclude='.git' --exclude='.github' --exclude='tests' --exclude='bin' --exclude='node_modules' ./ "$STAGE_DIR/"
-          (cd "$(dirname "$STAGE_DIR")" && zip -r "$GITHUB_WORKSPACE/avpvh-bookkeeping.zip" avpvh-bookkeeping)
+          git archive HEAD | tar -x -C "$STAGE_DIR"
+          cp -a vendor "$STAGE_DIR/vendor"
+          test -f "$STAGE_DIR/vendor/autoload.php"
+          test -d "$STAGE_DIR/vendor/chillerlan/php-qrcode"
+          (cd "$(dirname "$STAGE_DIR")" && zip -qr "$GITHUB_WORKSPACE/avpvh-bookkeeping.zip" avpvh-bookkeeping)
+          unzip -l "$GITHUB_WORKSPACE/avpvh-bookkeeping.zip" | tail -1
 
       - name: Create or Update GitHub Release
         env:
