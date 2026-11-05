@@ -7,12 +7,15 @@ on:
     branches: "**"
   pull_request:
 env:
-  php-version: 8.2
   cache-version: 1
 jobs:
   lint:
-    name: "PHP Lint"
+    name: "Tests (PHP ${{ matrix.php }})"
     runs-on: ubuntu-latest
+    # The PHP floor (the servers' PHP) and the newest PHP.
+    strategy:
+      matrix:
+        php: ["8.4", "8.5"]
     steps:
       - name: "Checkout"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -20,7 +23,7 @@ jobs:
       - name: "Setup PHP"
         uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
-          php-version: ${{ env.php-version }}
+          php-version: ${{ matrix.php }}
           extensions: zip, dom, simplexml, mbstring, fileinfo
           coverage: none
 
@@ -36,10 +39,6 @@ jobs:
       - name: "Install Composer dependencies"
         run: |
           composer install -n --prefer-dist
-
-      - name: "PHP syntax check"
-        run: |
-          find . -path ./vendor -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l
 
       - name: "Run test suite"
         # Loops over every tests/*.php file instead of listing each one as
@@ -68,109 +67,66 @@ jobs:
       - name: "Invoice mailbox and statement extraction tests"
         run: python3 -m unittest discover -s tests -p 'test_company_*.py'
 
-  plugin-check:
-    name: "WordPress Plugin Check"
-    runs-on: ubuntu-latest
+  # Shared with the other own plugins: dependencies on the PHP floor, syntax on
+  # 8.4 and 8.5, PHPCompatibility and the WordPress.org Plugin Check.
+  plugin-checks:
+    name: "Shared"
     needs: lint
-    steps:
-      - name: "Checkout avpvh-bookkeeping"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: avpvh-bookkeeping
-
+    uses: grmt/wp-plugin-ci/.github/workflows/plugin-checks.yml@main
+    with:
+      slug: avpvh-bookkeeping
       # Keep checking association compatibility alongside the standalone
-      # company mode. The sibling members plugin supplies AVPVH_DB and
-      # AVPVH_Roles to the association workflows; it is public, so no
-      # token is needed.
-      - name: "Checkout avpvh-members"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: grmt/avpvh-members
-          ref: main
-          path: avpvh-members
-
-      - name: "Setup PHP"
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: ${{ env.php-version }}
-          extensions: zip, dom, simplexml, mbstring, fileinfo
-          coverage: none
-
-      - name: "Install Composer dependencies"
-        working-directory: avpvh-bookkeeping
-        run: |
-          composer install -n --prefer-dist --no-dev
-
-      # plugin-check-action always (re)writes its own .wp-env.json in the
-      # workspace root right before starting wp-env, so a .wp-env.json
-      # committed inside avpvh-bookkeeping/ itself is never actually read.
-      # wp-env's own override mechanism is the supported way to layer
-      # extra config onto a file you don't control: a .wp-env.override.json
-      # next to it gets merged in automatically. testsEnvironment:false
-      # also skips building the unused tests-cli/tests-wordpress images
-      # (wp-env builds both by default) — Plugin Check never touches them,
-      # and that build has its own flaky third-party composer download.
-      - name: "Add avpvh-members as an extra wp-env plugin"
-        run: |
-          echo '{ "plugins": ["./avpvh-members"], "testsEnvironment": false }' > .wp-env.override.json
-
-      # No continue-on-error here (found 2026-10-30: it had been silently
-      # masking real exit-1 failures on every run — fixed in PRs #82/#83).
-      # Everything that's excluded below is excluded deliberately via
-      # exclude-checks/exclude-files/exclude-directories/ignore-codes, not
-      # by swallowing the step's own exit code.
-      - name: "Run plugin check"
-        uses: wordpress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
-        with:
-          build-dir: avpvh-bookkeeping
-          exclude-directories: |
-            .claude
-            .github
-            bin
-            tests
-          # Agent instruction docs live at the plugin root on purpose; they
-          # aren't shipped plugin content (exact filenames only, globs are
-          # not matched by plugin-check-action).
-          exclude-files: |
-            .gitignore
-            .gitattributes
-            AGENTS.md
-            CLAUDE.md
-          # direct_db_queries: this plugin's whole DB layer is custom
-          # $wpdb queries (see class-db.php) — an architectural choice,
-          # not a gap, same reasoning as avpvh-members.
-          # plugin_readme / trademarks: wordpress.org-submission checks
-          # that don't apply — this is a private single-site plugin,
-          # tightly coupled to avpvh-members, never meant for WP.org.
-          # prefixing: entirely WordPress.NamingConventions.PrefixAllGlobals
-          # findings on admin/*.php — those are template partials only ever
-          # `include`d from inside a class method (see class-admin.php's
-          # render calls), never loaded standalone, so their top-level
-          # variables aren't really in the global namespace at runtime.
-          exclude-checks: |
-            direct_db_queries
-            plugin_readme
-            trademarks
-            prefixing
-          # Verified false positives, not a real backlog (checked every
-          # handler by hand on 2026-08-24): every admin-post/admin-ajax
-          # handler in this plugin calls check_admin_referer()/
-          # check_ajax_referer() before touching $_POST — the Nonce
-          # sniff just doesn't correlate that across the function. Every
-          # flagged $_POST/$_GET/$_FILES read is already either cast
-          # ((int)/(float)/array_map('intval', ...)) or run through
-          # sanitize_*(wp_unslash(...)) — the sniff doesn't recognize
-          # sanitization inside a `(int) ($_POST['x'] ?? 0)` cast, or
-          # is_uploaded_file() as the correct check for a $_FILES tmp_name.
-          ignore-codes: |
-            WordPress.Security.NonceVerification.Missing
-            WordPress.Security.NonceVerification.Recommended
-            WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-            WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-            WordPress.Security.ValidatedSanitizedInput.MissingUnslash
-            plugin_updater_detected
-            WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-            WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-            WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
-            WordPress.WP.AlternativeFunctions.file_system_operations_fread
-            PluginCheck.CodeAnalysis.Offloading.OffloadedContent
+      # company mode: the sibling members plugin supplies AVPVH_DB and
+      # AVPVH_Roles to the association workflows.
+      extra-plugins: |
+        grmt/avpvh-members
+      exclude-directories: |
+        .claude
+        bin
+        tests
+      # Agent instruction docs live at the plugin root on purpose; they
+      # aren't shipped plugin content (exact filenames only, globs are
+      # not matched by plugin-check-action).
+      exclude-files: |
+        .gitignore
+        .gitattributes
+        AGENTS.md
+        CLAUDE.md
+      # direct_db_queries: this plugin's whole DB layer is custom
+      # $wpdb queries (see class-db.php) — an architectural choice,
+      # not a gap, same reasoning as avpvh-members.
+      # plugin_readme / trademarks: wordpress.org-submission checks
+      # that don't apply — this is a private single-site plugin,
+      # tightly coupled to avpvh-members, never meant for WP.org.
+      # prefixing: entirely WordPress.NamingConventions.PrefixAllGlobals
+      # findings on admin/*.php — those are template partials only ever
+      # `include`d from inside a class method (see class-admin.php's
+      # render calls), never loaded standalone, so their top-level
+      # variables aren't really in the global namespace at runtime.
+      exclude-checks: |
+        direct_db_queries
+        plugin_readme
+        trademarks
+        prefixing
+      # Verified false positives, not a real backlog (checked every
+      # handler by hand on 2026-08-24): every admin-post/admin-ajax
+      # handler in this plugin calls check_admin_referer()/
+      # check_ajax_referer() before touching $_POST — the Nonce
+      # sniff just doesn't correlate that across the function. Every
+      # flagged $_POST/$_GET/$_FILES read is already either cast
+      # ((int)/(float)/array_map('intval', ...)) or run through
+      # sanitize_*(wp_unslash(...)) — the sniff doesn't recognize
+      # sanitization inside a `(int) ($_POST['x'] ?? 0)` cast, or
+      # is_uploaded_file() as the correct check for a $_FILES tmp_name.
+      ignore-codes: |
+        WordPress.Security.NonceVerification.Missing
+        WordPress.Security.NonceVerification.Recommended
+        WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+        WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+        plugin_updater_detected
+        WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+        WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+        WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+        WordPress.WP.AlternativeFunctions.file_system_operations_fread
+        PluginCheck.CodeAnalysis.Offloading.OffloadedContent
