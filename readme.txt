@@ -8,15 +8,17 @@ Stable tag: 1.32.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne.
+Membership fee and camp contribution bookkeeping for AV Philips van Horne.
 
 == Description ==
 
-Leest bankexports in, koppelt betalingen aan leden en toont het saldo via een
-QR-popup en de profielpagina. De verenigingsboekhouding gebruikt de plugin
-avpvh-members; de bedrijfsboekhouding werkt ook zonder.
+Imports bank exports, matches payments to members and shows each member's
+balance in a QR popup and on their profile page. The association bookkeeping
+uses the avpvh-members plugin; the company bookkeeping also works without it.
+
+The plugin's interface is in Dutch.
 
 == Installation ==
 
-1. Kopieer de plugin naar `wp-content/plugins/avpvh-bookkeeping/`, inclusief `vendor/`.
-2. Activeer de plugin, voor de verenigingsboekhouding samen met avpvh-members.
+1. Copy the plugin to `wp-content/plugins/avpvh-bookkeeping/`, including `vendor/`.
+2. Activate it, together with avpvh-members for the association bookkeeping.
