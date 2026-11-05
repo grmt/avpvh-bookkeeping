@@ -72,7 +72,7 @@ jobs:
   plugin-checks:
     name: "Shared"
     needs: lint
-    uses: grmt/wp-plugin-ci/.github/workflows/plugin-checks.yml@feature/more-plugin-check-inputs
+    uses: grmt/wp-plugin-ci/.github/workflows/plugin-checks.yml@main
     with:
       slug: avpvh-bookkeeping
       # Keep checking association compatibility alongside the standalone
