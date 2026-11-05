@@ -92,22 +92,17 @@ jobs:
         .gitattributes
         AGENTS.md
         CLAUDE.md
-      # direct_db_queries: this plugin's whole DB layer is custom
-      # $wpdb queries (see class-db.php) — an architectural choice,
-      # not a gap, same reasoning as avpvh-members.
-      # plugin_readme / trademarks: wordpress.org-submission checks
-      # that don't apply — this is a private single-site plugin,
-      # tightly coupled to avpvh-members, never meant for WP.org.
-      # prefixing: entirely WordPress.NamingConventions.PrefixAllGlobals
-      # findings on admin/*.php — those are template partials only ever
-      # `include`d from inside a class method (see class-admin.php's
-      # render calls), never loaded standalone, so their top-level
-      # variables aren't really in the global namespace at runtime.
-      exclude-checks: |
-        direct_db_queries
-        plugin_readme
-        trademarks
-        prefixing
+      # No whole checks are skipped; the codes below are ignored one by one.
+      #
+      # DirectDatabaseQuery.*: this plugin's whole DB layer is custom $wpdb
+      # queries (see class-db.php), with schema changes in its migrations —
+      # an architectural choice, not a gap, same reasoning as avpvh-members.
+      #
+      # NonPrefixedVariableFound: the admin/*.php files are template partials
+      # only ever `include`d from inside a class method (see class-admin.php's
+      # render calls), never loaded standalone, so their top-level variables
+      # aren't really in the global namespace at runtime.
+      #
       # Verified false positives, not a real backlog (checked every
       # handler by hand on 2026-08-24): every admin-post/admin-ajax
       # handler in this plugin calls check_admin_referer()/
@@ -130,3 +125,7 @@ jobs:
         WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
         WordPress.WP.AlternativeFunctions.file_system_operations_fread
         PluginCheck.CodeAnalysis.Offloading.OffloadedContent
+        WordPress.DB.DirectDatabaseQuery.DirectQuery
+        WordPress.DB.DirectDatabaseQuery.NoCaching
+        WordPress.DB.DirectDatabaseQuery.SchemaChange
+        WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound

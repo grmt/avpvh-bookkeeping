@@ -24,6 +24,7 @@ repo terechtkomen.
 ## Versiebump bij elke PR
 
 Elke pull request die naar `main` gemerged wordt, bevat een versiebump
-van de `Version:`-header in `avpvh-bookkeeping.php` — als onderdeel van
-diezelfde PR, niet achteraf los. Patch/minor/major naar inschatting van
+van de `Version:`-header in `avpvh-bookkeeping.php` en dezelfde versie als
+`Stable tag:` in `readme.txt` — als onderdeel van diezelfde PR, niet
+achteraf los. Patch/minor/major naar inschatting van
 de omvang van de wijziging.
