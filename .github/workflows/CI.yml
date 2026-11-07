@@ -94,9 +94,9 @@ jobs:
         CLAUDE.md
       # No whole checks are skipped; the codes below are ignored one by one.
       #
-      # DirectDatabaseQuery.*: this plugin's whole DB layer is custom $wpdb
-      # queries (see class-db.php), with schema changes in its migrations —
-      # an architectural choice, not a gap, same reasoning as avpvh-members.
+      # The DirectDatabaseQuery warnings (the custom $wpdb layer in
+      # class-db.php, schema changes in its migrations) are not ignored:
+      # they don't fail the job, but stay visible in the report.
       #
       # NonPrefixedVariableFound: the admin/*.php files are template partials
       # only ever `include`d from inside a class method (see class-admin.php's
@@ -125,7 +125,4 @@ jobs:
         WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
         WordPress.WP.AlternativeFunctions.file_system_operations_fread
         PluginCheck.CodeAnalysis.Offloading.OffloadedContent
-        WordPress.DB.DirectDatabaseQuery.DirectQuery
-        WordPress.DB.DirectDatabaseQuery.NoCaching
-        WordPress.DB.DirectDatabaseQuery.SchemaChange
         WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
