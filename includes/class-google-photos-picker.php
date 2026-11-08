@@ -5,6 +5,14 @@ defined('ABSPATH') || exit;
 class AVBK_Google_Photos_Picker {
     private const SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
     private const API = 'https://photospicker.googleapis.com/v1/';
+    /** Host the Picker API's selection page must be on. */
+    private const PICKER_HOST = 'photos.google.com';
+    /**
+     * Host every picked photo is copied from. Fixed by Google and deliberately
+     * not configurable: the server sends the user's OAuth token with each
+     * download, so this allowlist is what keeps that token off other hosts.
+     */
+    private const MEDIA_HOST = 'googleusercontent.com'; // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent -- server-side download allowlist; nothing is served from this host.
     private const STATE_PREFIX = 'avbk-photos-';
     private const TTL = 3600;
 
@@ -66,7 +74,7 @@ class AVBK_Google_Photos_Picker {
     private static function create_session(array $session): array {
         $picker = self::api($session, 'sessions', 'POST', ['pickingConfig' => ['maxItemCount' => '100']]);
         $url = (string) ($picker['pickerUri'] ?? '');
-        if (empty($picker['id']) || !self::trusted_url($url, 'photos.google.com')) {
+        if (empty($picker['id']) || !self::trusted_url($url, self::PICKER_HOST)) {
             throw new RuntimeException('Google Photos kon geen selectie openen. Probeer opnieuw.');
         }
         $session['id'] = (string) $picker['id'];
@@ -190,7 +198,7 @@ class AVBK_Google_Photos_Picker {
                         if (($item['type'] ?? '') !== 'PHOTO' || !isset(AVBK_Photo_Upload::TYPES[$item['mediaFile']['mimeType'] ?? ''])) {
                             $skipped++; continue;
                         }
-                        if (empty($item['id']) || !self::trusted_url((string) ($item['mediaFile']['baseUrl'] ?? ''), 'googleusercontent.com')) {
+                        if (empty($item['id']) || !self::trusted_url((string) ($item['mediaFile']['baseUrl'] ?? ''), self::MEDIA_HOST)) {
                             throw new RuntimeException('Google Photos gaf geen geldige foto terug. Kies opnieuw.');
                         }
                         $items[] = $item;
@@ -235,7 +243,7 @@ class AVBK_Google_Photos_Picker {
             $name = sanitize_file_name($item['mediaFile']['filename'] ?? 'foto');
             if (empty($session['copied'][$index])) {
                 $url = $item['mediaFile']['baseUrl'] . '=d';
-                if (!self::trusted_url($url, 'googleusercontent.com')) {
+                if (!self::trusted_url($url, self::MEDIA_HOST)) {
                     throw new RuntimeException('Deze foto kan niet worden opgehaald. Kies opnieuw.');
                 }
                 $path = wp_tempnam('avbk-photo');
