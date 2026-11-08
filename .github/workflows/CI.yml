@@ -92,40 +92,25 @@ jobs:
         .gitattributes
         AGENTS.md
         CLAUDE.md
-      # No whole checks are skipped; the codes below are ignored one by one.
+      # No whole checks are skipped, and warnings are never ignored: they
+      # don't fail the job, but stay visible in the report. That includes
+      # the DirectDatabaseQuery ones (the custom $wpdb layer in class-db.php),
+      # NonPrefixedVariableFound (admin/*.php template partials, included
+      # from class methods) and the Nonce/ValidatedSanitizedInput ones
+      # (handlers checked by hand on 2026-08-24: nonces are checked before
+      # $_POST is read, and inputs are cast or sanitized).
       #
-      # DirectDatabaseQuery.*: this plugin's whole DB layer is custom $wpdb
-      # queries (see class-db.php), with schema changes in its migrations —
-      # an architectural choice, not a gap, same reasoning as avpvh-members.
-      #
-      # NonPrefixedVariableFound: the admin/*.php files are template partials
-      # only ever `include`d from inside a class method (see class-admin.php's
-      # render calls), never loaded standalone, so their top-level variables
-      # aren't really in the global namespace at runtime.
-      #
-      # Verified false positives, not a real backlog (checked every
-      # handler by hand on 2026-08-24): every admin-post/admin-ajax
-      # handler in this plugin calls check_admin_referer()/
-      # check_ajax_referer() before touching $_POST — the Nonce
-      # sniff just doesn't correlate that across the function. Every
-      # flagged $_POST/$_GET/$_FILES read is already either cast
-      # ((int)/(float)/array_map('intval', ...)) or run through
-      # sanitize_*(wp_unslash(...)) — the sniff doesn't recognize
-      # sanitization inside a `(int) ($_POST['x'] ?? 0)` cast, or
-      # is_uploaded_file() as the correct check for a $_FILES tmp_name.
+      # Ignored, as errors that don't apply: the direct fopen/fread/fclose
+      # calls read the first bytes of an upload to check its file type, and
+      # fopen/fwrite write CSV exports to php://output — WP_Filesystem has
+      # no equivalent for either. plugin_updater_detected is the Update URI
+      # to this repo. OffloadedContent is not ignored here: the one false
+      # positive (the Google Photos download allowlist) has an inline
+      # phpcs:ignore in class-google-photos-picker.php, so real offloaded
+      # assets elsewhere still fail the job.
       ignore-codes: |
-        WordPress.Security.NonceVerification.Missing
-        WordPress.Security.NonceVerification.Recommended
-        WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-        WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-        WordPress.Security.ValidatedSanitizedInput.MissingUnslash
         plugin_updater_detected
         WordPress.WP.AlternativeFunctions.file_system_operations_fopen
         WordPress.WP.AlternativeFunctions.file_system_operations_fclose
         WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
         WordPress.WP.AlternativeFunctions.file_system_operations_fread
-        PluginCheck.CodeAnalysis.Offloading.OffloadedContent
-        WordPress.DB.DirectDatabaseQuery.DirectQuery
-        WordPress.DB.DirectDatabaseQuery.NoCaching
-        WordPress.DB.DirectDatabaseQuery.SchemaChange
-        WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
