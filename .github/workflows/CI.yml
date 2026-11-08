@@ -104,13 +104,13 @@ jobs:
       # calls read the first bytes of an upload to check its file type, and
       # fopen/fwrite write CSV exports to php://output — WP_Filesystem has
       # no equivalent for either. plugin_updater_detected is the Update URI
-      # to this repo. OffloadedContent matches the googleusercontent.com host
-      # check in class-google-photos-picker.php, which copies photos a user
-      # picked in Google Photos to the server — nothing is served from there.
+      # to this repo. OffloadedContent is not ignored here: the one false
+      # positive (the Google Photos download allowlist) has an inline
+      # phpcs:ignore in class-google-photos-picker.php, so real offloaded
+      # assets elsewhere still fail the job.
       ignore-codes: |
         plugin_updater_detected
         WordPress.WP.AlternativeFunctions.file_system_operations_fopen
         WordPress.WP.AlternativeFunctions.file_system_operations_fclose
         WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
         WordPress.WP.AlternativeFunctions.file_system_operations_fread
-        PluginCheck.CodeAnalysis.Offloading.OffloadedContent
