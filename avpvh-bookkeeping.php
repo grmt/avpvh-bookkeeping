@@ -1,12 +1,13 @@
 <?php
 /**
- * Plugin Name: AV-PvH Boekhouding
+ * Plugin Name: AV-PvH Bookkeeping
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
- * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.32.3
+ * Description: Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page.
+ * Version:     1.32.5
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
+ * Domain Path: /languages
  * Requires at least: 7.1
  * Requires PHP: 8.4
  * License:     GPL-2.0-or-later
