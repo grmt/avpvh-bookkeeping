@@ -67,6 +67,8 @@ function current_user_can(string $cap): bool { return true; }
 function admin_url(string $path = ''): string { return 'https://example.test/wp-admin/' . $path; }
 function avbk_asset_version(string $path): string { return '1.0'; }
 
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
@@ -109,7 +111,7 @@ check(AVBK_DB::count_pending_second_approval(2027) === 0, 'Second approval count
 
 echo "\n--- Testing AVBK_Admin::register_menus badge rendering ---\n";
 
-$admin = new AVBK_Admin();
+$admin = new AVBK_Admin(); $admin->register();
 
 // Case 1: Closed through 2024, so min_year is 2025 (2 items in review queue)
 $GLOBALS['options']['avbk_closed_through_year'] = 2024;

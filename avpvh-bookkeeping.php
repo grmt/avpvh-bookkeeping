@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Boekhouding
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina.
- * Version:     1.32.4
+ * Version:     1.32.5
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -18,6 +18,10 @@ defined('ABSPATH') || exit;
 
 define('AVBK_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AVBK_PLUGIN_URL', plugin_dir_url(__FILE__));
+
+// Loaded up front: every path that loads a component class (activation,
+// plugins_loaded) needs it first.
+require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
 
 /**
  * Cache-busting version for an asset: the file's own mtime — mirrors
@@ -73,8 +77,11 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-card-groups.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-ledger.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
-    if (get_option('avbk_company_schema') !== '7') AVBK_Companies::install();
-    new AVBK_Company_Admin();
+    if (get_option('avbk_company_schema') !== '7') {
+        AVBK_Companies::install();
+    }
+    // The company portal also runs without avpvh-members.
+    (new AVBK_Company_Admin())->register();
     if (file_exists(AVBK_PLUGIN_DIR . 'vendor/autoload.php')) {
         require_once AVBK_PLUGIN_DIR . 'vendor/autoload.php';
     }
@@ -116,17 +123,23 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-frontend-admin-menu.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
-    new AVBK_Fee_Generation();
-    new AVBK_Fee_Popup();
-    new AVBK_Balance_Shortcode();
-    new AVBK_Reimbursements();
-    new AVBK_Congress();
-    new AVBK_Product_Payment();
-    new AVBK_Book_Order();
-    new AVBK_Tshirt_Order();
-    new AVBK_Photo_Share();
-    new AVBK_Photo_Upload();
-    new AVBK_Google_Photos_Picker();
-    new AVBK_Frontend_Admin_Menu();
-    new AVBK_Admin();
+    // The association parts, which need avpvh-members.
+    $components = [
+        AVBK_Fee_Generation::class,
+        AVBK_Fee_Popup::class,
+        AVBK_Balance_Shortcode::class,
+        AVBK_Reimbursements::class,
+        AVBK_Congress::class,
+        AVBK_Product_Payment::class,
+        AVBK_Book_Order::class,
+        AVBK_Tshirt_Order::class,
+        AVBK_Photo_Share::class,
+        AVBK_Photo_Upload::class,
+        AVBK_Google_Photos_Picker::class,
+        AVBK_Frontend_Admin_Menu::class,
+        AVBK_Admin::class,
+    ];
+    foreach ($components as $component) {
+        (new $component())->register();
+    }
 });

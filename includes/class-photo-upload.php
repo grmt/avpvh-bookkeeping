@@ -2,7 +2,7 @@
 defined('ABSPATH') || exit;
 
 /** Photo uploads go directly to the signed-in user's confirmed Drive share. */
-class AVBK_Photo_Upload {
+class AVBK_Photo_Upload implements AVBK_Component {
     public const MAX_BYTES = 25 * 1024 * 1024;
     public const TYPES = [
         'image/jpeg' => ['jpg', 'jpeg', 'jpe'], 'image/png' => ['png'],
@@ -11,7 +11,7 @@ class AVBK_Photo_Upload {
         'image/tiff' => ['tif', 'tiff'], 'image/bmp' => ['bmp'],
     ];
 
-    public function __construct() {
+    public function register(): void {
         add_action('wp_ajax_avbk_photo_upload', [$this, 'upload']);
         add_action('wp_ajax_nopriv_avbk_photo_upload', [$this, 'upload']);
     }

@@ -2,11 +2,11 @@
 defined('ABSPATH') || exit;
 
 /** Shared, amount-free payment requests configured separately for each product. */
-class AVBK_Product_Payment {
+class AVBK_Product_Payment implements AVBK_Component {
     private const PRODUCTS = ['tshirt', 'book'];
     private const MIMES = ['png' => 'image/png', 'jpg|jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'gif' => 'image/gif', 'pdf' => 'application/pdf'];
 
-    public function __construct() {
+    public function register(): void {
         add_action('admin_post_avbk_save_product_payment', [$this, 'handle_save']);
         add_shortcode('avpvh_bk_product_payment', [$this, 'shortcode']);
         add_filter('get_attached_file', [self::class, 'public_file_path'], 10, 2);

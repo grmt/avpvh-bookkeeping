@@ -11,13 +11,13 @@ defined('ABSPATH') || exit;
  * <script type="application/json"> tag instead (same pattern as
  * AVPVH_Access::inject_login_form's #avpvh-login-config).
  */
-class AVBK_Fee_Popup {
+class AVBK_Fee_Popup implements AVBK_Component {
 
     const USER_META = '_avbk_show_popup';
     const DISMISS_COOKIE = 'avbk_popup_dismissed';
     const ENABLED_OPTION = 'avbk_login_payment_popup_enabled';
 
-    public function __construct() {
+    public function register(): void {
         add_action('wp_login', [$this, 'check_on_login'], 10, 2);
         add_action('wp_footer', [$this, 'maybe_render_popup']);
         add_action('wp_ajax_avbk_dismiss_popup', [$this, 'ajax_dismiss']);

@@ -358,6 +358,8 @@ namespace {
         require_once AVBK_PLUGIN_DIR . 'vendor/autoload.php';
     }
 
+    require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-qr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-photo-share.php';
@@ -397,7 +399,7 @@ namespace {
     $GLOBALS['members'][1] = (object) ['id' => 10, 'first_name' => 'Anna', 'suffix' => '', 'last_name' => 'Jansen', 'email' => 'anna@example.test', 'status' => 'active', 'wp_user_id' => 1];
     $GLOBALS['members'][2] = (object) ['id' => 20, 'first_name' => 'Bram', 'suffix' => 'van', 'last_name' => 'Bakker', 'email' => 'bram@example.test', 'status' => 'active', 'wp_user_id' => 2];
 
-    $service = new AVBK_Photo_Share();
+    $service = new AVBK_Photo_Share(); $service->register();
 
     // 1. Shortcode registration
     assert_true(isset($GLOBALS['shortcodes']['avpvh_bk_photo_share']), 'Shortcode avpvh_bk_photo_share registered');

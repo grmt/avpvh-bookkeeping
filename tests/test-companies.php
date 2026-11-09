@@ -186,6 +186,7 @@ class Company_Test_DB {
     }
 }
 $wpdb = new Company_Test_DB();
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
 require AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
 require AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
 require AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';

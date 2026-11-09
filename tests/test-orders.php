@@ -419,6 +419,8 @@ class Mock_Orders_WPDB {
     }
 }
 
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
 require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-tshirt-order.php';
@@ -579,7 +581,7 @@ check(AVBK_DB::fee_item_quantity_label($single_fee_item) === '1 shirt', 'fee_ite
 // Test 4: Frontend T-shirt shortcode form rendering
 // -------------------------------------------------------------
 reset_test_env();
-$controller = new AVBK_Tshirt_Order();
+$controller = new AVBK_Tshirt_Order(); $controller->register();
 $html = $controller->render();
 
 check(str_contains($html, 'Lustrum T-shirts 50 jaar'), 'Form contains title heading');
@@ -747,7 +749,7 @@ check(AVBK_DB::get_member_active_address(1)->street === 'Kerkstraat', "Logged-in
 // -------------------------------------------------------------
 // Test 8: Admin distribution update and settings handlers
 // -------------------------------------------------------------
-$admin = new AVBK_Admin();
+$admin = new AVBK_Admin(); $admin->register();
 $GLOBALS['is_admin'] = true;
 
 $_POST = [

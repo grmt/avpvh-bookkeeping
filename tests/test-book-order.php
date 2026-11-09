@@ -485,6 +485,8 @@ class Mock_WPDB {
     }
 }
 
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
 require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
@@ -646,7 +648,7 @@ $single_fee_item = $GLOBALS['wpdb']->fee_items[$single_fee_id];
 check(AVBK_DB::fee_item_quantity_label($single_fee_item) === '1 exemplaar', 'fee_item_quantity_label returns "1 exemplaar"');
 
 // 8. Frontend Shortcode Form Rendering
-$book_order = new AVBK_Book_Order();
+$book_order = new AVBK_Book_Order(); $book_order->register();
 $form_html = $book_order->render();
 check(str_contains($form_html, 'Over het boek'), 'Order form contains book flaptekst heading');
 check(str_contains($form_html, 'Boekpresentatie begin 2027'), 'Order form contains 2027 presentation section');
@@ -845,7 +847,7 @@ try {
 
 // 14. Admin distribution update permission check
 require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
-$admin = new AVBK_Admin();
+$admin = new AVBK_Admin(); $admin->register();
 
 $GLOBALS['is_admin'] = false;
 $GLOBALS['current_roles'] = [];
@@ -1035,7 +1037,7 @@ try {
 
 // 25. Member profile balance view shows book order notification card
 require_once AVBK_PLUGIN_DIR . 'includes/class-balance-shortcode.php';
-$balance_sc = new AVBK_Balance_Shortcode();
+$balance_sc = new AVBK_Balance_Shortcode(); $balance_sc->register();
 $GLOBALS['current_user_id'] = 42;
 $profile_html = $balance_sc->render();
 check(str_contains($profile_html, 'avbk-profile-book-card'), 'Member profile displays book order notification card');

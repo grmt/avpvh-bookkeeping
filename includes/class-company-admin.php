@@ -2,8 +2,8 @@
 defined('ABSPATH') || exit;
 
 /** The same company portal can be used in wp-admin or on a private front-end page. */
-class AVBK_Company_Admin {
-    public function __construct() {
+class AVBK_Company_Admin implements AVBK_Component {
+    public function register(): void {
         add_action('admin_menu', [$this, 'menus']);
         add_action('admin_post_avbk_company', [$this, 'handle']);
         add_action('admin_post_avbk_company_document', [$this, 'download_document']);

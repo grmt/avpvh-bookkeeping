@@ -62,9 +62,10 @@ function home_url($path = '') { return 'https://example.test' . $path; }
 function get_permalink() { return $GLOBALS['permalink'] ?? 'https://example.test/kleding-pagina/'; }
 function wp_safe_redirect($url) { throw new Response($url, 302); }
 function check($condition, $message) { if (!$condition) { throw new RuntimeException('FAIL: ' . $message); } echo 'PASS: ' . $message . "\n"; }
+require_once dirname(__DIR__) . '/includes/interface-component.php';
 require dirname(__DIR__) . '/includes/class-product-payment.php';
 try {
-    $controller = new AVBK_Product_Payment();
+    $controller = new AVBK_Product_Payment(); $controller->register();
     // A logged-in member with an open order for both products, so the rest
     // of this file exercises the generic payment box as if it were visible —
     // the box's own logged-in/open-order gating is tested separately below.

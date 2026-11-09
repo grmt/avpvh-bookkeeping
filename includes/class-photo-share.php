@@ -8,12 +8,12 @@ defined('ABSPATH') || exit;
  * named YYYYMMDD-firstname-lastname, shares it with the member's email,
  * and displays only the link to their requested upload folder.
  */
-class AVBK_Photo_Share {
+class AVBK_Photo_Share implements AVBK_Component {
 
     public const ROOT_FOLDER_ID  = '1MfTPOBUD-Md2rK2Qdgt3y9dJ3voyzz8B';
     public const ROOT_FOLDER_URL = 'https://drive.google.com/drive/folders/1MfTPOBUD-Md2rK2Qdgt3y9dJ3voyzz8B';
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_photo_share', [$this, 'render_shortcode']);
         add_shortcode('avpvh_photo_share', [$this, 'render_shortcode']);
 
