@@ -1110,7 +1110,7 @@ class AVBK_Admin implements AVBK_Component {
             . 'Omschrijving: <code style="font-size:1.3em">' . esc_html($reference_code) . '</code>'
             . '</p>';
         $default_qr_html = $qr_image_html !== null
-            ? '<p>' . nl2br(esc_html($qr_caption)) . '</p>' . $qr_image_html
+            ? '<p>' . nl2br(esc_html($qr_caption)) . '</p>' . $qr_image_html . '<p><small>' . esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE) . '</small></p>'
             : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>';
         $body_template = sprintf(
             '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s%s%s%s<p>Groet,<br>%s</p></body></html>',
@@ -1969,12 +1969,13 @@ class AVBK_Admin implements AVBK_Component {
             . '(Of alleen ' . AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))
             . ', dat is ook genoeg om je betaling automatisch te herkennen.)';
         $body = sprintf(
-            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
+            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
             $member->first_name,
             implode("\n", $descriptions),
             number_format($total, 2, ',', '.'),
             $payment_details,
             $balance_url,
+            AVBK_QR::UNSUPPORTED_BANKS_NOTE,
             $login_help_text,
             $penningmeester_name
         );

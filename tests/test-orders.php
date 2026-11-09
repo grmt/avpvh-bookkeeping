@@ -81,6 +81,7 @@ class AVPVH_Directory {
 }
 
 class AVBK_QR {
+    public const UNSUPPORTED_BANKS_NOTE = 'De apps van Rabobank, ABN AMRO en Triodos kunnen deze QR-code niet lezen.';
     public static function svg(string $payload): string { return '<svg data-url="' . htmlspecialchars($payload, ENT_QUOTES) . '"></svg>'; }
     public static function for_fee_item(int $member_id, object $item): string {
         return '<svg viewBox="0 0 100 100"><rect width="100" height="100"/></svg>';
