@@ -332,80 +332,90 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
                 <!-- Honeypot -->
                 <div style="display:none;" aria-hidden="true">
-                    <input type="text" name="website" tabindex="-1" autocomplete="off">
+                    <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
                 </div>
 
                 <!-- Clothing selection repeater -->
                 <div class="avbk-form-section avbk-tshirt-items-section" id="avbk-tshirt-selector-section">
+                <?php
+                // One item card, for the first row (index 0) and for the
+                // <template> the script clones for extra rows (__INDEX__, which
+                // tshirt-order.js replaces), so the two can't drift apart.
+                $render_item_row = function (string $index, string $number, bool $first) use ($active_designs, $types, $colors, $sizes, $first_price): void {
+                    ?>
+                    <div class="avbk-tshirt-item-card avbk-tshirt-item-row" data-row-index="<?php echo esc_attr($index); ?>">
+                        <div class="avbk-tshirt-card-top">
+                            <div class="avbk-tshirt-card-badge">
+                                <span class="avbk-tshirt-badge-icon">&#128085;</span>
+                                <strong>Kledingstuk <span class="avbk-tshirt-item-idx"><?php echo esc_html($number); ?></span></strong>
+                            </div>
+                            <button type="button" class="avbk-remove-item-btn" title="Verwijder dit kledingstuk"<?php echo $first ? ' style="display:none;"' : ''; ?>>
+                                &times; Verwijderen
+                            </button>
+                        </div>
+
+                        <div class="avbk-tshirt-card-grid">
+                            <div class="avbk-tshirt-field avbk-col-design">
+                                <label class="avbk-field-label" for="avbk-tshirt-design-<?php echo esc_attr($index); ?>">1. Kies design *</label>
+                                <select name="items[<?php echo esc_attr($index); ?>][design]" id="avbk-tshirt-design-<?php echo esc_attr($index); ?>" class="avbk-tshirt-design-select" required>
+                                    <?php foreach ($active_designs as $design) : ?>
+                                        <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
+                                            <?php echo esc_html($design['name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="avbk-tshirt-field avbk-col-type">
+                                <label class="avbk-field-label" for="avbk-tshirt-type-<?php echo esc_attr($index); ?>">2. Kledingstuk *</label>
+                                <select name="items[<?php echo esc_attr($index); ?>][product_type]" id="avbk-tshirt-type-<?php echo esc_attr($index); ?>" class="avbk-tshirt-type-select" required>
+                                    <?php foreach ($types as $t) : ?>
+                                        <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
+                                            <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="avbk-tshirt-field avbk-col-color">
+                                <label class="avbk-field-label" for="avbk-tshirt-color-<?php echo esc_attr($index); ?>">3. Kleur *</label>
+                                <select name="items[<?php echo esc_attr($index); ?>][color]" id="avbk-tshirt-color-<?php echo esc_attr($index); ?>" class="avbk-tshirt-color-select">
+                                    <?php foreach ($colors as $color) : ?>
+                                        <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="avbk-tshirt-field avbk-col-size">
+                                <label class="avbk-field-label" for="avbk-tshirt-size-<?php echo esc_attr($index); ?>">4. Maat *</label>
+                                <select name="items[<?php echo esc_attr($index); ?>][size]" id="avbk-tshirt-size-<?php echo esc_attr($index); ?>" class="avbk-tshirt-size-select" required>
+                                    <?php foreach ($sizes as $size) : ?>
+                                        <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="avbk-tshirt-field avbk-col-qty">
+                                <label class="avbk-field-label" for="avbk-tshirt-qty-<?php echo esc_attr($index); ?>">Aantal *</label>
+                                <input type="number" name="items[<?php echo esc_attr($index); ?>][quantity]" id="avbk-tshirt-qty-<?php echo esc_attr($index); ?>" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
+                            </div>
+                        </div>
+
+                        <div class="avbk-tshirt-card-footer">
+                            <div class="avbk-tshirt-price-meta">
+                                <span class="avbk-col-unit-price avbk-tshirt-unit-price">Stukprijs: <strong>&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
+                                <span class="avbk-col-subtotal avbk-tshirt-subtotal">Subtotaal: <strong>&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
+                            </div>
+                        </div>
+                    </div>
+                    <?php
+                };
+                ?>
                     <h3>2. Stel je bestelling samen</h3>
                     <p class="description">Kies per kledingstuk het gewenste design, type (T-shirt of Hoodie), kleur, maat en aantal. Je kunt eenvoudig meerdere kledingstukken toevoegen.</p>
 
                     <div class="avbk-tshirt-items-repeater avbk-tshirt-items-table" id="avbk-tshirt-items-body">
-                        <div class="avbk-tshirt-item-card avbk-tshirt-item-row" data-row-index="0">
-                            <div class="avbk-tshirt-card-top">
-                                <div class="avbk-tshirt-card-badge">
-                                    <span class="avbk-tshirt-badge-icon">&#128085;</span>
-                                    <strong>Kledingstuk <span class="avbk-tshirt-item-idx">1</span></strong>
-                                </div>
-                                <button type="button" class="avbk-remove-item-btn" title="Verwijder dit kledingstuk" style="display:none;">
-                                    &times; Verwijderen
-                                </button>
-                            </div>
-
-                            <div class="avbk-tshirt-card-grid">
-                                <div class="avbk-tshirt-field avbk-col-design">
-                                    <label class="avbk-field-label">1. Kies design *</label>
-                                    <select name="items[0][design]" class="avbk-tshirt-design-select" required>
-                                        <?php foreach ($active_designs as $design) : ?>
-                                            <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
-                                                <?php echo esc_html($design['name']); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-
-                                <div class="avbk-tshirt-field avbk-col-type">
-                                    <label class="avbk-field-label">2. Kledingstuk *</label>
-                                    <select name="items[0][product_type]" class="avbk-tshirt-type-select" required>
-                                        <?php foreach ($types as $t) : ?>
-                                            <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
-                                                <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-
-                                <div class="avbk-tshirt-field avbk-col-color">
-                                    <label class="avbk-field-label">3. Kleur *</label>
-                                    <select name="items[0][color]" class="avbk-tshirt-color-select">
-                                        <?php foreach ($colors as $color) : ?>
-                                            <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-
-                                <div class="avbk-tshirt-field avbk-col-size">
-                                    <label class="avbk-field-label">4. Maat *</label>
-                                    <select name="items[0][size]" class="avbk-tshirt-size-select" required>
-                                        <?php foreach ($sizes as $size) : ?>
-                                            <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-
-                                <div class="avbk-tshirt-field avbk-col-qty">
-                                    <label class="avbk-field-label">Aantal *</label>
-                                    <input type="number" name="items[0][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
-                                </div>
-                            </div>
-
-                            <div class="avbk-tshirt-card-footer">
-                                <div class="avbk-tshirt-price-meta">
-                                    <span class="avbk-col-unit-price avbk-tshirt-unit-price">Stukprijs: <strong>&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
-                                    <span class="avbk-col-subtotal avbk-tshirt-subtotal">Subtotaal: <strong>&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
-                                </div>
-                            </div>
-                        </div>
+                        <?php $render_item_row('0', '1', true); ?>
                     </div>
 
                     <div class="avbk-tshirt-add-wrap">
@@ -427,71 +437,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
                 <!-- Template for Javascript row cloning -->
                 <template id="avbk-tshirt-row-template">
-                    <div class="avbk-tshirt-item-card avbk-tshirt-item-row" data-row-index="__INDEX__">
-                        <div class="avbk-tshirt-card-top">
-                            <div class="avbk-tshirt-card-badge">
-                                <span class="avbk-tshirt-badge-icon">&#128085;</span>
-                                <strong>Kledingstuk <span class="avbk-tshirt-item-idx">__INDEX_PLUS_1__</span></strong>
-                            </div>
-                            <button type="button" class="avbk-remove-item-btn" title="Verwijder dit kledingstuk">
-                                &times; Verwijderen
-                            </button>
-                        </div>
-
-                        <div class="avbk-tshirt-card-grid">
-                            <div class="avbk-tshirt-field avbk-col-design">
-                                <label class="avbk-field-label">1. Kies design *</label>
-                                <select name="items[__INDEX__][design]" class="avbk-tshirt-design-select" required>
-                                    <?php foreach ($active_designs as $design) : ?>
-                                        <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
-                                            <?php echo esc_html($design['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-
-                            <div class="avbk-tshirt-field avbk-col-type">
-                                <label class="avbk-field-label">2. Kledingstuk *</label>
-                                <select name="items[__INDEX__][product_type]" class="avbk-tshirt-type-select" required>
-                                    <?php foreach ($types as $t) : ?>
-                                        <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
-                                            <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-
-                            <div class="avbk-tshirt-field avbk-col-color">
-                                <label class="avbk-field-label">3. Kleur *</label>
-                                <select name="items[__INDEX__][color]" class="avbk-tshirt-color-select">
-                                    <?php foreach ($colors as $color) : ?>
-                                        <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-
-                            <div class="avbk-tshirt-field avbk-col-size">
-                                <label class="avbk-field-label">4. Maat *</label>
-                                <select name="items[__INDEX__][size]" class="avbk-tshirt-size-select" required>
-                                    <?php foreach ($sizes as $size) : ?>
-                                        <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-
-                            <div class="avbk-tshirt-field avbk-col-qty">
-                                <label class="avbk-field-label">Aantal *</label>
-                                <input type="number" name="items[__INDEX__][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
-                            </div>
-                        </div>
-
-                        <div class="avbk-tshirt-card-footer">
-                            <div class="avbk-tshirt-price-meta">
-                                <span class="avbk-col-unit-price avbk-tshirt-unit-price">Stukprijs: <strong>&euro;&nbsp;<span class="avbk-price-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
-                                <span class="avbk-col-subtotal avbk-tshirt-subtotal">Subtotaal: <strong>&euro;&nbsp;<span class="avbk-subtotal-val"><?php echo number_format($first_price, 2, ',', '.'); ?></span></strong></span>
-                            </div>
-                        </div>
-                    </div>
+                    <?php $render_item_row('__INDEX__', '__INDEX_PLUS_1__', false); ?>
                 </template>
 
                 <!-- Personal Information -->

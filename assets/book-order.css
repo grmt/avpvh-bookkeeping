@@ -339,9 +339,6 @@
 }
 
 @media (max-width: 600px) {
-    .avbk-book-submit-wrap {
-        text-align: stretch;
-    }
     .avbk-book-submit-btn,
     .avbk-submit-btn {
         width: 100% !important;

@@ -123,7 +123,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <?php wp_nonce_field('avbk_admin_add_tshirt_order'); ?>
                 <input type="hidden" name="action" value="avbk_admin_add_tshirt_order">
                 <input type="hidden" name="redirect_url" value="<?php echo esc_url(add_query_arg('tab', 'tshirt', $page_url)); ?>">
-                <table class="form-table" role="presentation">
+                <table class="form-table">
                     <tr>
                         <th scope="row"><label for="avbk-add-order-member">Lid</label></th>
                         <td>
@@ -145,45 +145,51 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                             <table class="widefat" style="max-width: 820px;">
                                 <thead>
                                     <tr>
-                                        <th>Design</th><th>Type</th><th>Kleur</th><th>Maat</th><th>Aantal</th><th>Prijs (optioneel)</th>
+                                        <th scope="col">Design</th><th scope="col">Type</th><th scope="col">Kleur</th><th scope="col">Maat</th><th scope="col">Aantal</th><th scope="col">Prijs (optioneel)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php for ($i = 0; $i < 3; $i++) : ?>
                                     <tr>
                                         <td>
-                                            <select name="items[<?php echo (int) $i; ?>][design]">
+                                            <label class="screen-reader-text" for="avbk-add-order-design-<?php echo (int) $i; ?>">Design, regel <?php echo (int) $i + 1; ?></label>
+                                            <select name="items[<?php echo (int) $i; ?>][design]" id="avbk-add-order-design-<?php echo (int) $i; ?>">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_designs() as $d) : ?>
                                                     <option value="<?php echo esc_attr($d['id']); ?>"><?php echo esc_html($d['name']); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo (int) $i; ?>][product_type]">
+                                            <label class="screen-reader-text" for="avbk-add-order-product-type-<?php echo (int) $i; ?>">Type, regel <?php echo (int) $i + 1; ?></label>
+                                            <select name="items[<?php echo (int) $i; ?>][product_type]" id="avbk-add-order-product-type-<?php echo (int) $i; ?>">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_types() as $t) : ?>
                                                     <option value="<?php echo esc_attr($t['id']); ?>"><?php echo esc_html($t['name']); ?> (&euro;<?php echo esc_html(number_format((float) $t['price'], 2, ',', '.')); ?>)</option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo (int) $i; ?>][color]">
+                                            <label class="screen-reader-text" for="avbk-add-order-color-<?php echo (int) $i; ?>">Kleur, regel <?php echo (int) $i + 1; ?></label>
+                                            <select name="items[<?php echo (int) $i; ?>][color]" id="avbk-add-order-color-<?php echo (int) $i; ?>">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_colors() as $c) : ?>
                                                     <option value="<?php echo esc_attr($c); ?>"><?php echo esc_html($c); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <select name="items[<?php echo (int) $i; ?>][size]">
+                                            <label class="screen-reader-text" for="avbk-add-order-size-<?php echo (int) $i; ?>">Maat, regel <?php echo (int) $i + 1; ?></label>
+                                            <select name="items[<?php echo (int) $i; ?>][size]" id="avbk-add-order-size-<?php echo (int) $i; ?>">
                                                 <?php foreach (AVBK_Tshirt_Order::get_available_sizes() as $s) : ?>
                                                     <option value="<?php echo esc_attr($s); ?>"><?php echo esc_html($s); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td>
-                                            <input type="number" name="items[<?php echo (int) $i; ?>][quantity]" value="0" min="0" max="20" style="width: 4em;">
+                                            <label class="screen-reader-text" for="avbk-add-order-quantity-<?php echo (int) $i; ?>">Aantal, regel <?php echo (int) $i + 1; ?></label>
+                                            <input type="number" name="items[<?php echo (int) $i; ?>][quantity]" id="avbk-add-order-quantity-<?php echo (int) $i; ?>" value="0" min="0" max="20" style="width: 4em;">
                                         </td>
                                         <td style="white-space: nowrap;">
-                                            &euro; <input type="text" name="items[<?php echo (int) $i; ?>][price]" placeholder="auto" style="width: 5em;">
+                                            <label class="screen-reader-text" for="avbk-add-order-price-<?php echo (int) $i; ?>">Prijs, regel <?php echo (int) $i + 1; ?></label>
+                                            &euro; <input type="text" name="items[<?php echo (int) $i; ?>][price]" id="avbk-add-order-price-<?php echo (int) $i; ?>" placeholder="auto" style="width: 5em;">
                                         </td>
                                     </tr>
                                     <?php endfor; ?>
@@ -565,7 +571,7 @@ $page_url = admin_url('admin.php?page=avbk-orders');
                 <?php wp_nonce_field('avbk_admin_add_book_order'); ?>
                 <input type="hidden" name="action" value="avbk_admin_add_book_order">
                 <input type="hidden" name="redirect_url" value="<?php echo esc_url(add_query_arg('tab', 'book', $page_url)); ?>">
-                <table class="form-table" role="presentation">
+                <table class="form-table">
                     <tr>
                         <th scope="row"><label for="avbk-add-book-member">Lid</label></th>
                         <td>

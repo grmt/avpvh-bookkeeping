@@ -206,8 +206,8 @@ class AVBK_Reimbursements implements AVBK_Component {
                 </p>
 
                 <p>
-                    <label for="avbk-iban-select">Rekeningnummer (waarop je het bedrag terug wilt)</label><br>
                     <?php if (count($known_ibans) > 1) : ?>
+                        <label for="avbk-iban-select">Rekeningnummer (waarop je het bedrag terug wilt)</label><br>
                         <select id="avbk-iban-select" class="avbk-iban-select" data-target="avbk-iban">
                             <?php foreach ($known_ibans as $known) : ?>
                                 <option value="<?php echo esc_attr($known->iban); ?>">
@@ -216,8 +216,10 @@ class AVBK_Reimbursements implements AVBK_Component {
                             <?php endforeach; ?>
                             <option value="">Ander rekeningnummer&hellip;</option>
                         </select>
+                        <label class="screen-reader-text" for="avbk-iban">Ander rekeningnummer</label>
                         <input type="text" name="iban" id="avbk-iban" class="regular-text" value="<?php echo esc_attr($known_ibans[0]->iban); ?>" placeholder="NL00BANK0123456789" hidden>
                     <?php else : ?>
+                        <label for="avbk-iban">Rekeningnummer (waarop je het bedrag terug wilt)</label><br>
                         <input type="text" name="iban" id="avbk-iban" class="regular-text" value="<?php echo esc_attr($known_ibans[0]->iban ?? ''); ?>" placeholder="NL00BANK0123456789" required>
                     <?php endif; ?>
                 </p>

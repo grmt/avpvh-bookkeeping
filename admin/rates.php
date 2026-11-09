@@ -97,7 +97,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <td><input type="text" name="label" value="<?php echo esc_attr($rate->label); ?>" style="width:100%" aria-label="Tariefomschrijving"></td>
                     <td><input type="number" name="min_age" value="<?php echo esc_attr($rate->min_age); ?>" style="width:5em" aria-label="Minimum leeftijd"></td>
                     <td><input type="number" name="max_age" value="<?php echo esc_attr($rate->max_age); ?>" style="width:5em" aria-label="Maximum leeftijd"></td>
-                    <td style="text-align:center"><input type="checkbox" name="for_students" value="1" <?php checked(!empty($rate->for_students)); ?> aria-label="Alleen scholieren/studenten"></td>
+                    <td style="text-align:center"><label class="screen-reader-text" for="avbk-rate-students-<?php echo esc_attr($rate->id); ?>">Alleen scholieren/studenten</label><input type="checkbox" name="for_students" id="avbk-rate-students-<?php echo esc_attr($rate->id); ?>" value="1" <?php checked(!empty($rate->for_students)); ?>></td>
                     <td>
                         <select name="flag_id" aria-label="Koppel met kenmerk">
                             <option value="">&mdash; geen &mdash;</option>
@@ -129,7 +129,7 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <td><input type="text" name="label" placeholder="bijv. Volwassenen" style="width:100%" aria-label="Nieuwe tariefomschrijving"></td>
                 <td><input type="number" name="min_age" style="width:5em" aria-label="Minimum leeftijd"></td>
                 <td><input type="number" name="max_age" style="width:5em" aria-label="Maximum leeftijd"></td>
-                <td style="text-align:center"><input type="checkbox" name="for_students" value="1" aria-label="Alleen scholieren/studenten"></td>
+                <td style="text-align:center"><label class="screen-reader-text" for="avbk-rate-students-new">Alleen scholieren/studenten</label><input type="checkbox" name="for_students" id="avbk-rate-students-new" value="1"></td>
                 <td>
                     <select name="flag_id" aria-label="Koppel met kenmerk">
                         <option value="">&mdash; geen &mdash;</option>

@@ -66,17 +66,17 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                 <label>Omschrijving <input name="entry_description" maxlength="500" required></label>
                 <label>Referentie (optioneel) <input name="entry_reference" maxlength="255"></label>
                 <div class="avbk-company-scroll"><table class="widefat striped">
-                    <thead><tr><th>Rekening</th><th>Debet</th><th>Credit</th><th>Toelichting</th></tr></thead>
+                    <thead><tr><th scope="col">Rekening</th><th scope="col">Debet</th><th scope="col">Credit</th><th scope="col">Toelichting</th></tr></thead>
                     <tbody><?php for ($i = 0; $i < 6; $i++) : ?><tr>
-                        <td><select name="line_account_id[]">
+                        <td><label class="screen-reader-text" for="avbk-ledger-line-<?php echo (int) $i; ?>-account">Rekening, regel <?php echo (int) $i + 1; ?></label><select name="line_account_id[]" id="avbk-ledger-line-<?php echo (int) $i; ?>-account">
                             <option value="">—</option>
                             <?php foreach ($accounts as $account) : if (!$account->is_active) continue; ?>
                                 <option value="<?php echo esc_attr($account->id); ?>"><?php echo esc_html($account->code . ' ' . $account->name); ?></option>
                             <?php endforeach; ?>
                         </select></td>
-                        <td><input name="line_debit[]" inputmode="decimal" placeholder="0,00"></td>
-                        <td><input name="line_credit[]" inputmode="decimal" placeholder="0,00"></td>
-                        <td><input name="line_note[]" maxlength="255"></td>
+                        <td><label class="screen-reader-text" for="avbk-ledger-line-<?php echo (int) $i; ?>-debit">Debet, regel <?php echo (int) $i + 1; ?></label><input name="line_debit[]" id="avbk-ledger-line-<?php echo (int) $i; ?>-debit" inputmode="decimal" placeholder="0,00"></td>
+                        <td><label class="screen-reader-text" for="avbk-ledger-line-<?php echo (int) $i; ?>-credit">Credit, regel <?php echo (int) $i + 1; ?></label><input name="line_credit[]" id="avbk-ledger-line-<?php echo (int) $i; ?>-credit" inputmode="decimal" placeholder="0,00"></td>
+                        <td><label class="screen-reader-text" for="avbk-ledger-line-<?php echo (int) $i; ?>-note">Toelichting, regel <?php echo (int) $i + 1; ?></label><input name="line_note[]" id="avbk-ledger-line-<?php echo (int) $i; ?>-note" maxlength="255"></td>
                     </tr><?php endfor; ?></tbody>
                 </table></div>
                 <button type="submit" class="button button-primary">Boeking opslaan</button>
@@ -93,7 +93,7 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                     Boeking #<?php echo esc_html($entry->entry_number); ?> · <?php echo esc_html($entry->entry_date); ?> · <?php echo esc_html($entry->description); ?><?php if ($entry->reference !== '') echo ' · ' . esc_html($entry->reference); ?>
                     <?php if ($entry->voided_at) : ?><span class="avbk-company-overdue"> · teruggedraaid <?php echo esc_html($entry->voided_at); ?>: <?php echo esc_html($entry->void_reason); ?></span><?php endif; ?>
                 </caption>
-                <thead><tr><th>Rekening</th><th>Debet</th><th>Credit</th><th>Toelichting</th></tr></thead>
+                <thead><tr><th scope="col">Rekening</th><th scope="col">Debet</th><th scope="col">Credit</th><th scope="col">Toelichting</th></tr></thead>
                 <tbody><?php foreach ($entry_lines as $line) : ?><tr>
                     <td><?php echo esc_html($line->account_code . ' ' . $line->account_name); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($line->debit_cents ? $money($line->debit_cents) : ''); ?></td>
