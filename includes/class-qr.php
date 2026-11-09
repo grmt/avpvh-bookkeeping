@@ -16,6 +16,13 @@ use chillerlan\QRCode\Common\EccLevel;
  */
 class AVBK_QR {
 
+    /**
+     * Not every Dutch banking app reads EPC QR codes: Rabobank, ABN AMRO and
+     * Triodos don't (they use iDEAL QR instead). Shown wherever a member is
+     * offered the QR code, so they fall back to the IBAN and omschrijving.
+     */
+    public const UNSUPPORTED_BANKS_NOTE = 'De apps van Rabobank, ABN AMRO en Triodos kunnen deze QR-code niet lezen. Bankier je daar, maak het bedrag dan zelf over met de IBAN en omschrijving.';
+
     /** Deterministic short reference so future payments start auto-matching (see AVBK_Matcher). */
     public static function reference_code(int $member_id): string {
         $prefix = get_option('avbk_reference_prefix', 'PVH');

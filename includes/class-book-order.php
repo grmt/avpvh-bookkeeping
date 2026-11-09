@@ -641,7 +641,7 @@ class AVBK_Book_Order implements AVBK_Component {
                         <div class="avbk-book-qr-render">
                             <?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode ?>
                         </div>
-                        <p class="avbk-book-qr-hint">Gebruik de scanfunctie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling direct klaar te zetten.</p>
+                        <p class="avbk-book-qr-hint">Gebruik de scanfunctie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling direct klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
                         <p class="avbk-book-qr-ref">
                             Bij een handmatige overschrijving:<br>
                             IBAN: <code><?php echo esc_html(get_option('avbk_club_iban', '')); ?></code> t.n.v. <code><?php echo esc_html(get_option('avbk_club_name', '')); ?></code><br>

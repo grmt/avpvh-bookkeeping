@@ -105,7 +105,7 @@ class AVBK_Fee_Popup implements AVBK_Component {
                 <p class="avbk-fee-popup-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
                 <?php if ($qr_svg) : ?>
                     <div class="avbk-fee-popup-qr"><?php echo $qr_svg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
-                    <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
+                    <p class="avbk-fee-popup-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
                     <?php
                     $club_iban = trim((string) get_option('avbk_club_iban', ''));
                     $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';

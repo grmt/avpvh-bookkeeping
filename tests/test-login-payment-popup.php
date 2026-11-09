@@ -13,6 +13,7 @@ class AVBK_DB {
     public static function get_last_processed_date(): string { return '2026-01-01'; }
 }
 class AVBK_QR {
+    public const UNSUPPORTED_BANKS_NOTE = 'De apps van Rabobank, ABN AMRO en Triodos kunnen deze QR-code niet lezen.';
     public static function remittance_for_balance(array $items, int $id): string { return 'TEST'; }
     public static function for_member_balance(int $id, float $balance, array $items): string { return ''; }
 }

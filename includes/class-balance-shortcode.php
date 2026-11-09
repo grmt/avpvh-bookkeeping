@@ -380,7 +380,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                 ?>
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
-                    <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.</p>
+                    <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
                     <?php
                     $club_iban = trim((string) get_option('avbk_club_iban', ''));
                     $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';

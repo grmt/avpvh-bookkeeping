@@ -1110,7 +1110,7 @@ class AVBK_Admin implements AVBK_Component {
             . 'Omschrijving: <code style="font-size:1.3em">' . esc_html($reference_code) . '</code>'
             . '</p>';
         $default_qr_html = $qr_image_html !== null
-            ? '<p>' . nl2br(esc_html($qr_caption)) . '</p>' . $qr_image_html
+            ? '<p>' . nl2br(esc_html($qr_caption)) . '</p>' . $qr_image_html . '<p><small>' . esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE) . '</small></p>'
             : '<p>De QR-code kon niet worden gegenereerd; gebruik de link hieronder.</p>';
         $body_template = sprintf(
             '<!doctype html><html><body><p>Dag %s,</p><p>Zou je de volgende rekening willen betalen?</p><p><strong>%s: € %s</strong></p>%s%s%s%s<p>Groet,<br>%s</p></body></html>',
@@ -1147,14 +1147,26 @@ class AVBK_Admin implements AVBK_Component {
         $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
         $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
         $fee_item = ($member && $activity) ? AVBK_DB::get_fee_item_for_member_activity($member_id, $activity_id) : null;
-        if (!$member || !$activity || !$fee_item) {
+        $fail = static function (string $reason) use ($redirect, $member_id, $activity_id): void {
+            avbk_log_failure('payment request (Deelname en betalingen)', $reason, ['member' => $member_id, 'activity' => $activity_id]);
             $redirect('payment_request_failed');
             exit;
+        };
+        if (!$member) {
+            $fail('no_member');
+        }
+        if (!$activity) {
+            $fail('no_activity');
+        }
+        if (!$fee_item) {
+            $fail('no_fee_item');
         }
         $remaining = AVBK_DB::get_fee_item_remaining($fee_item);
-        if ($remaining <= 0.005 || !is_email($member->email)) {
-            $redirect('payment_request_failed');
-            exit;
+        if ($remaining <= 0.005) {
+            $fail('not_open');
+        }
+        if (!is_email($member->email)) {
+            $fail('invalid_email');
         }
 
         // Skip generating the default QR entirely when a pasted one will
@@ -1238,7 +1250,13 @@ class AVBK_Admin implements AVBK_Component {
         add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         add_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
         add_action('phpmailer_init', $force_sender, PHP_INT_MAX);
+        $mail_error = '';
+        $capture_error = static function ($wp_error) use (&$mail_error): void {
+            $mail_error = $wp_error->get_error_message();
+        };
+        add_action('wp_mail_failed', $capture_error);
         $sent = wp_mail($member->email, $subject, $body, $headers);
+        remove_action('wp_mail_failed', $capture_error);
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
         remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
@@ -1250,6 +1268,9 @@ class AVBK_Admin implements AVBK_Component {
             AVBK_DB::log_payment_request((int) $fee_item->id, $member_id, $activity_id, $member->email);
         }
 
+        if (!$sent) {
+            avbk_log_failure('payment request (Deelname en betalingen)', 'mail_failed', ['member' => $member_id, 'activity' => $activity_id, 'error' => $mail_error]);
+        }
         $redirect($sent ? 'payment_requested' : 'payment_request_failed');
         exit;
     }
@@ -1857,7 +1878,13 @@ class AVBK_Admin implements AVBK_Component {
             $item_member_ids[(int) $item->member_id] = true;
         }
 
-        $fail = static function (string $reason) use ($return_url): void {
+        $fail = static function (string $reason) use ($return_url, $member_id, $requested_ids, $items, $mode): void {
+            avbk_log_failure('payment request (Ledenoverzicht)', $reason, [
+                'member' => $member_id,
+                'mode' => $mode,
+                'requested' => count($requested_ids),
+                'items' => count($items),
+            ]);
             wp_safe_redirect(add_query_arg('payment_request_failed', $reason, $return_url));
             exit;
         };
@@ -1917,12 +1944,38 @@ class AVBK_Admin implements AVBK_Component {
                 (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT
             );
         }
+        // Same omschrijving as the QR code and the "Wil je de boeking zelf
+        // doen?" block on the balance page (AVBK_Balance_Shortcode), so a
+        // member who pays by hand from this mail is matched the same way.
+        if ($also_member_ids) {
+            $entries = [];
+            foreach ($items as $item) {
+                $owner = (int) $item->member_id === $member_id ? $member : AVPVH_DB::get_member((int) $item->member_id);
+                $entries[] = ['item' => $item, 'name' => (string) ($owner->first_name ?? '')];
+            }
+            $remittance = AVBK_QR::remittance_for_combined($entries, $member_id);
+        } else {
+            $remittance = AVBK_QR::remittance_for_balance($items, $member_id);
+        }
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+        $payment_details = "Je kunt het bedrag overmaken met deze gegevens:\n"
+            . ($club_iban !== '' ? 'IBAN: ' . trim(chunk_split($club_iban, 4, ' ')) . "\n" : '')
+            . 'Ten name van: ' . $club_name . "\n"
+            . 'Bedrag: € ' . number_format($total, 2, ',', '.') . "\n"
+            . 'Omschrijving: ' . $remittance . "\n"
+            // The matcher only needs the code (AVBK_Matcher::match_fee_item_reference()),
+            // so someone who doesn't want to type the whole line can use just that.
+            . '(Of alleen ' . AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))
+            . ', dat is ook genoeg om je betaling automatisch te herkennen.)';
         $body = sprintf(
-            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\nJe vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
+            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
             $member->first_name,
             implode("\n", $descriptions),
             number_format($total, 2, ',', '.'),
+            $payment_details,
             $balance_url,
+            AVBK_QR::UNSUPPORTED_BANKS_NOTE,
             $login_help_text,
             $penningmeester_name
         );
@@ -1962,6 +2015,7 @@ class AVBK_Admin implements AVBK_Component {
             // The mailer's own error is only shown to the penningmeester who
             // pressed the button, for a few minutes.
             set_transient('avbk_payment_mail_error_' . get_current_user_id(), $mail_error, 5 * MINUTE_IN_SECONDS);
+            avbk_log_failure('payment request (Ledenoverzicht)', 'mailer_error', ['member' => $member_id, 'error' => $mail_error]);
             $fail('mail_failed');
         }
         wp_safe_redirect(add_query_arg('payment_requested', '1', $return_url));
