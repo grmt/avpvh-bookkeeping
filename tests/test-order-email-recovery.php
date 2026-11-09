@@ -189,6 +189,8 @@ function wp_mail(string|array $to, string $subject, string $message, string|arra
     return true;
 }
 
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-tshirt-order.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';

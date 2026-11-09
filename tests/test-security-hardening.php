@@ -121,6 +121,8 @@ class AVPVH_DB {
     }
 }
 
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-sheet-import.php';
@@ -219,7 +221,7 @@ assert_test(empty(AVPVH_DB::$updated_members), 'Existing real e-mail on name mat
 echo "\n--- Testing SEC-03: Email Check Rate Limiting ---\n";
 
 require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
-$book_order = new AVBK_Book_Order();
+$book_order = new AVBK_Book_Order(); $book_order->register();
 
 $_SERVER['REMOTE_ADDR'] = '198.51.100.25';
 $rate_key = 'avbk_chkmail_' . substr(hash('sha256', '198.51.100.25'), 0, 24);

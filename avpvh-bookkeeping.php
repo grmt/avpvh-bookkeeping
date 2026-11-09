@@ -56,6 +56,7 @@ register_deactivation_hook(__FILE__, function () {
 });
 
 add_action('plugins_loaded', function () {
+    require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
@@ -76,7 +77,8 @@ add_action('plugins_loaded', function () {
     if (get_option('avbk_company_schema') !== '7') {
         AVBK_Companies::install();
     }
-    new AVBK_Company_Admin();
+    // The company portal also runs without avpvh-members.
+    (new AVBK_Company_Admin())->register();
     if (file_exists(AVBK_PLUGIN_DIR . 'vendor/autoload.php')) {
         require_once AVBK_PLUGIN_DIR . 'vendor/autoload.php';
     }
@@ -118,17 +120,23 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-frontend-admin-menu.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 
-    new AVBK_Fee_Generation();
-    new AVBK_Fee_Popup();
-    new AVBK_Balance_Shortcode();
-    new AVBK_Reimbursements();
-    new AVBK_Congress();
-    new AVBK_Product_Payment();
-    new AVBK_Book_Order();
-    new AVBK_Tshirt_Order();
-    new AVBK_Photo_Share();
-    new AVBK_Photo_Upload();
-    new AVBK_Google_Photos_Picker();
-    new AVBK_Frontend_Admin_Menu();
-    new AVBK_Admin();
+    // The association parts, which need avpvh-members.
+    $components = [
+        AVBK_Fee_Generation::class,
+        AVBK_Fee_Popup::class,
+        AVBK_Balance_Shortcode::class,
+        AVBK_Reimbursements::class,
+        AVBK_Congress::class,
+        AVBK_Product_Payment::class,
+        AVBK_Book_Order::class,
+        AVBK_Tshirt_Order::class,
+        AVBK_Photo_Share::class,
+        AVBK_Photo_Upload::class,
+        AVBK_Google_Photos_Picker::class,
+        AVBK_Frontend_Admin_Menu::class,
+        AVBK_Admin::class,
+    ];
+    foreach ($components as $component) {
+        (new $component())->register();
+    }
 });

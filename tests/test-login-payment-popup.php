@@ -56,6 +56,7 @@ function esc_html(string $text): string { return htmlspecialchars($text, ENT_QUO
 function esc_url(string $text): string { return esc_html($text); }
 function esc_html_e(string $text, string $domain): void { echo esc_html($text); }
 function wp_date(string $format, int $time): string { return date($format, $time); }
+require_once dirname(__DIR__) . '/includes/interface-component.php';
 require dirname(__DIR__) . '/includes/class-fee-popup.php';
 
 function check_popup(string $label, bool $ok): void {
@@ -67,7 +68,7 @@ function rendered_popup(AVBK_Fee_Popup $popup): string {
     $popup->maybe_render_popup();
     return ob_get_clean();
 }
-$popup = new AVBK_Fee_Popup();
+$popup = new AVBK_Fee_Popup(); $popup->register();
 $meta[AVBK_Fee_Popup::USER_META] = 1;
 $popup->enqueue_assets();
 check_popup('default off suppresses an already queued popup', rendered_popup($popup) === '' && !$assets && $balance_queries === 0);
