@@ -1,0 +1,20 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: avpvh-bookkeeping\n"
+"PO-Revision-Date: 2026-11-09 00:00+0100\n"
+"Last-Translator: grmt\n"
+"Language-Team: Dutch\n"
+"Language: nl_NL\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Domain: avpvh-bookkeeping\n"
+
+#. Plugin header
+msgid "AV-PvH Bookkeeping"
+msgstr "AV-PvH Boekhouding"
+
+#. Plugin header
+msgid "Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page."
+msgstr "Contributie- en kampbijdrage-boekhouding voor AV Philips van Horne: bankexports inlezen, betalingen aan leden koppelen, saldo tonen via QR-popup en profielpagina."
