@@ -67,31 +67,54 @@ jobs:
       - name: "Invoice mailbox and statement extraction tests"
         run: python3 -m unittest discover -s tests -p 'test_company_*.py'
 
+  # What a deploy ships: git archive honours export-ignore in .gitattributes
+  # (tests, CI files, docs, *.md, dotfiles, composer files), plus the runtime
+  # vendor/ that a deploy syncs separately. Plugin Check runs on this, so a
+  # new dev-only file only needs an export-ignore line, nothing here.
+  build:
+    name: "Build"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      # The runner's own PHP is older than the plugin's floor.
+      - name: "Set up PHP"
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: "8.4"
+          coverage: none
+
+      - name: "Install runtime dependencies"
+        run: composer install -n --prefer-dist --no-dev --no-progress
+
+      - name: "Package what a deploy ships"
+        run: |
+          mkdir build
+          git archive HEAD | tar -x -C build
+          cp -r vendor build/
+
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v7
+        with:
+          name: "build-artifact"
+          path: build
+
   # Shared with the other own plugins: dependencies on the PHP floor, syntax on
-  # 8.4 and 8.5, PHPCompatibility and the WordPress.org Plugin Check.
+  # 8.4 and 8.5, PHPCompatibility and the WordPress.org Plugin Check (on the
+  # build above).
   plugin-checks:
     name: "Shared"
-    needs: lint
+    needs: [lint, build]
     uses: grmt/wp-plugin-ci/.github/workflows/plugin-checks.yml@main
     with:
       slug: avpvh-bookkeeping
+      artifact: build-artifact
       # Keep checking association compatibility alongside the standalone
       # company mode: the sibling members plugin supplies AVPVH_DB and
       # AVPVH_Roles to the association workflows.
       extra-plugins: |
         grmt/avpvh-members
-      exclude-directories: |
-        .claude
-        bin
-        tests
-      # Agent instruction docs live at the plugin root on purpose; they
-      # aren't shipped plugin content (exact filenames only, globs are
-      # not matched by plugin-check-action).
-      exclude-files: |
-        .gitignore
-        .gitattributes
-        AGENTS.md
-        CLAUDE.md
       # No whole checks are skipped, and warnings are never ignored: they
       # don't fail the job, but stay visible in the report. That includes
       # the DirectDatabaseQuery ones (the custom $wpdb layer in class-db.php),
