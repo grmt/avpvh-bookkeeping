@@ -20,8 +20,24 @@ $current_book_year = (int) current_time('Y');
         <div class="notice notice-success"><p>Bedrag bijgewerkt.</p></div>
     <?php elseif (isset($_GET['payment_requested'])) : ?>
         <div class="notice notice-success"><p>Betaalverzoek verstuurd.</p></div>
-    <?php elseif (isset($_GET['payment_request_failed'])) : ?>
-        <div class="notice notice-error"><p>Kies minimaal één openstaande post en controleer of het lid een geldig e-mailadres heeft.</p></div>
+    <?php elseif (isset($_GET['payment_request_failed'])) :
+        $failure = sanitize_key(wp_unslash($_GET['payment_request_failed']));
+        $failure_messages = [
+            'no_member'     => 'Het lid is niet gevonden.',
+            'no_selection'  => 'Er is geen openstaande post aangevinkt (de selectie kwam niet bij de server aan).',
+            'not_open'      => 'De aangevinkte posten staan niet (meer) open, of horen niet bij dit lid of de gekozen huisgenoten.',
+            'unknown_mode'  => 'Onbekende actie; gebruik een van de knoppen onder de tabel.',
+            'invalid_email' => 'Dit lid heeft geen geldig e-mailadres.',
+        ];
+        if ($failure === 'mail_failed') {
+            $mail_error = (string) get_transient('avbk_payment_mail_error_' . get_current_user_id());
+            delete_transient('avbk_payment_mail_error_' . get_current_user_id());
+            $failure_message = 'De e-mail kon niet worden verstuurd' . ($mail_error !== '' ? ': ' . $mail_error : '.');
+        } else {
+            $failure_message = $failure_messages[$failure] ?? 'Het betaalverzoek is niet verstuurd.';
+        }
+        ?>
+        <div class="notice notice-error"><p><?php echo esc_html($failure_message); ?></p></div>
     <?php endif; ?>
 
     <?php if ($detail_member_id) :
