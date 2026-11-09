@@ -73,6 +73,75 @@ class AVBK_Admin implements AVBK_Component {
     }
 
     /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
+    /**
+     * "Op die pagina kun je ook betalingen voor je partner (Anna), je
+     * kinderen (Bram en Cas) en de partner van Bram (Dirk) toevoegen." for
+     * the payment request mail: the people whose open items the balance page
+     * offers to add ("Betaal ook voor", AVPVH_DB::get_extended_household()),
+     * named by how they relate to the member. Parents pay for their partner,
+     * their children and their children's partners, not the other way
+     * round; anyone else isn't mentioned, and without a partner or child
+     * there is no sentence.
+     */
+    public static function household_payment_hint(int $member_id): string {
+        $others = array_filter(
+            AVPVH_DB::get_extended_household($member_id),
+            static fn($m) => (int) $m->id !== $member_id
+        );
+        if (!$others) {
+            return '';
+        }
+        // A relationship label describes the other member towards this one:
+        // "kind van" / "pupil van" means the other is this member's child
+        // (checked against birth dates on 2026-11-09: for every "ouder van"
+        // the member is the younger one).
+        $relation = [];
+        foreach (AVPVH_DB::get_relationships($member_id) as $rel) {
+            if ($rel->category === 'partner') {
+                $relation[(int) $rel->other_id] = 'partner';
+            } elseif (in_array($rel->label, ['kind van', 'pupil van'], true)) {
+                $relation[(int) $rel->other_id] = 'kind';
+            }
+        }
+        $first_names = [];
+        foreach ($others as $m) {
+            $first_names[(int) $m->id] = (string) $m->first_name;
+        }
+        $groups = ['partner' => [], 'kind' => []];
+        $child_partners = [];
+        foreach ($first_names as $id => $first_name) {
+            if (!isset($relation[$id])) {
+                continue;
+            }
+            $groups[$relation[$id]][] = $first_name;
+            if ($relation[$id] !== 'kind') {
+                continue;
+            }
+            foreach (AVPVH_DB::get_relationships($id) as $rel) {
+                $partner_id = (int) $rel->other_id;
+                if ($rel->category === 'partner' && isset($first_names[$partner_id]) && !isset($relation[$partner_id])) {
+                    $child_partners[] = 'de partner van ' . $first_name . ' (' . $first_names[$partner_id] . ')';
+                }
+            }
+        }
+        if (!$groups['partner'] && !$groups['kind']) {
+            return '';
+        }
+        $names = static function (array $list): string {
+            $last = array_pop($list);
+            return $list ? implode(', ', $list) . ' en ' . $last : (string) $last;
+        };
+        $parts = [];
+        if ($groups['partner']) {
+            $parts[] = (count($groups['partner']) === 1 ? 'je partner' : 'je partners') . ' (' . $names($groups['partner']) . ')';
+        }
+        if ($groups['kind']) {
+            $parts[] = (count($groups['kind']) === 1 ? 'je kind' : 'je kinderen') . ' (' . $names($groups['kind']) . ')';
+        }
+        array_push($parts, ...$child_partners);
+        return "\n\nOp die pagina kun je ook betalingen voor " . $names($parts) . ' toevoegen.';
+    }
+
     private function can_manage(): bool {
         return current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('penningmeester');
     }
@@ -1969,13 +2038,14 @@ class AVBK_Admin implements AVBK_Component {
             . '(Of alleen ' . AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))
             . ', dat is ook genoeg om je betaling automatisch te herkennen.)';
         $body = sprintf(
-            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
+            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n%s%s%s\n\nGroet,\n%s",
             $member->first_name,
             implode("\n", $descriptions),
             number_format($total, 2, ',', '.'),
             $payment_details,
             $balance_url,
             AVBK_QR::UNSUPPORTED_BANKS_NOTE,
+            self::household_payment_hint($member_id),
             $login_help_text,
             $penningmeester_name
         );
