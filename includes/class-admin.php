@@ -1857,9 +1857,18 @@ class AVBK_Admin implements AVBK_Component {
             $item_member_ids[(int) $item->member_id] = true;
         }
 
-        if (!$member || !$items) {
-            wp_safe_redirect(add_query_arg('payment_request_failed', '1', $return_url));
+        $fail = static function (string $reason) use ($return_url): void {
+            wp_safe_redirect(add_query_arg('payment_request_failed', $reason, $return_url));
             exit;
+        };
+        if (!$member) {
+            $fail('no_member');
+        }
+        if (!$requested_ids) {
+            $fail('no_selection');
+        }
+        if (!$items) {
+            $fail('not_open');
         }
 
         // Any household member actually represented in the selection must
@@ -1882,9 +1891,11 @@ class AVBK_Admin implements AVBK_Component {
             exit;
         }
 
-        if ($mode !== 'mail' || !is_email($member->email)) {
-            wp_safe_redirect(add_query_arg('payment_request_failed', '1', $return_url));
-            exit;
+        if ($mode !== 'mail') {
+            $fail('unknown_mode');
+        }
+        if (!is_email($member->email)) {
+            $fail('invalid_email');
         }
 
         $descriptions = array_map(
@@ -1933,15 +1944,27 @@ class AVBK_Admin implements AVBK_Component {
         add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         add_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
         add_action('phpmailer_init', $force_sender, PHP_INT_MAX);
+        $mail_error = '';
+        $capture_error = static function ($wp_error) use (&$mail_error): void {
+            $mail_error = $wp_error->get_error_message();
+        };
+        add_action('wp_mail_failed', $capture_error);
         $sent = wp_mail($member->email, $subject, $body, [
             'From: AV-PvH Penningmeester <' . $from_email . '>',
             'Reply-To: ' . $from_email,
         ]);
+        remove_action('wp_mail_failed', $capture_error);
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
         remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
 
-        wp_safe_redirect(add_query_arg($sent ? 'payment_requested' : 'payment_request_failed', '1', $return_url));
+        if (!$sent) {
+            // The mailer's own error is only shown to the penningmeester who
+            // pressed the button, for a few minutes.
+            set_transient('avbk_payment_mail_error_' . get_current_user_id(), $mail_error, 5 * MINUTE_IN_SECONDS);
+            $fail('mail_failed');
+        }
+        wp_safe_redirect(add_query_arg('payment_requested', '1', $return_url));
         exit;
     }
 
