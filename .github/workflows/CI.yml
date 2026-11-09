@@ -1,10 +1,9 @@
 name: "CI"
 on:
+  # Branches are tested through their pull request (the merge result);
+  # main once more after each merge.
   push:
-    # "*" only matches single-segment branch names (no "/") — "**" is
-    # needed to also cover "fix/..."-style branches (see avpvh-members'
-    # same workflow, which hit this).
-    branches: "**"
+    branches: [main]
   pull_request:
 env:
   cache-version: 1
