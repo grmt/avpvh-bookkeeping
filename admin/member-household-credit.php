@@ -40,7 +40,19 @@ $household_credit_total = round(array_sum(array_map(fn($r) => $r->credit, $house
     <table id="avbk-household-credits" class="widefat striped">
         <thead><tr><th scope="col">Lid</th><th scope="col">Tegoed</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
         <tbody>
-        <?php foreach ($household_members as $household_id => $household_member) :
+        <?php avbk_render_household_credit_rows($household_members, $household_credit_per_member, $detail_member_id); ?>
+        </tbody>
+        <tfoot><tr><th scope="row">Totaal familie en huisgenoten</th><td>&euro; <?php echo esc_html(number_format($household_credit_total, 2, ',', '.')); ?></td><td></td></tr></tfoot>
+    </table>
+    <?php avbk_render_household_credit_transactions($household_credit_transactions); ?>
+</section>
+<?php endif; ?>
+<?php
+}
+
+/** One row per household member with credit. */
+function avbk_render_household_credit_rows($household_members, $household_credit_per_member, $detail_member_id): void {
+    foreach ($household_members as $household_id => $household_member) :
             if ($household_credit_per_member[$household_id] <= 0.005) {
                 continue;
             }
@@ -55,10 +67,12 @@ $household_credit_total = round(array_sum(array_map(fn($r) => $r->credit, $house
                 <td><a class="button button-small" href="<?php echo esc_url($household_detail_url); ?>">Bekijk rekening</a></td>
             </tr>
         <?php endforeach; ?>
-        </tbody>
-        <tfoot><tr><th scope="row">Totaal familie en huisgenoten</th><td>&euro; <?php echo esc_html(number_format($household_credit_total, 2, ',', '.')); ?></td><td></td></tr></tfoot>
-    </table>
-    <details style="margin:1rem 0">
+<?php
+}
+
+/** Per-transaction breakdown of the household credit. */
+function avbk_render_household_credit_transactions($household_credit_transactions): void {
+?><details style="margin:1rem 0">
         <summary><strong>Tegoed per transactie</strong></summary>
         <table id="avbk-household-credit-transactions" class="widefat striped" style="margin-top:.5rem">
             <thead><tr><th scope="col">Datum</th><th scope="col">Omschrijving</th><th scope="col">Nog beschikbaar</th></tr></thead>
@@ -73,7 +87,5 @@ $household_credit_total = round(array_sum(array_map(fn($r) => $r->credit, $house
             </tbody>
         </table>
     </details>
-</section>
-<?php endif; ?>
 <?php
 }
