@@ -387,8 +387,8 @@ class AVBK_Company_Admin implements AVBK_Component {
         } catch (\Throwable $e) {
             if ($output) wp_delete_file($output);
             $message = $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.';
-            if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') wp_send_json_error(['message' => $message], 400);
-            if ($operation === 'review' && ($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') wp_send_json_error(['message' => $message], 400);
+            if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') avbk_send_json_error(['message' => $message], 400);
+            if ($operation === 'review' && ($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') avbk_send_json_error(['message' => $message], 400);
             set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => true, 'message' => $message], 120);
         }
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));

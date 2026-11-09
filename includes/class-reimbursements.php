@@ -349,14 +349,14 @@ class AVBK_Reimbursements implements AVBK_Component {
     public function ajax_ocr_receipt(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
         if (!is_user_logged_in() || empty($_FILES['receipt']['tmp_name']) || !is_uploaded_file($_FILES['receipt']['tmp_name'])) {
-            wp_send_json_error();
+            avbk_send_json_error();
         }
 
         $tmp_path = $_FILES['receipt']['tmp_name'];
         $original_name = (string) ($_FILES['receipt']['name'] ?? '');
         $ext = self::validate_receipt_file($tmp_path, $original_name);
         if ($ext === null) {
-            wp_send_json_error('Ongeldig bestand');
+            avbk_send_json_error('Ongeldig bestand');
         }
 
         $member = avpvh_get_member_by_wp_user(get_current_user_id());

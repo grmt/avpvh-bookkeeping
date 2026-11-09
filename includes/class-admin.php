@@ -2112,13 +2112,13 @@ class AVBK_Admin implements AVBK_Component {
     public function ajax_member_fee_detail(): void {
         check_ajax_referer('avbk_review_queue', 'nonce');
         if (!$this->can_manage()) {
-            wp_send_json_error('Geen toegang.', 403);
+            avbk_send_json_error('Geen toegang.', 403);
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
         $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
         if (!$member_id) {
-            wp_send_json_error('Ontbrekende gegevens.', 400);
+            avbk_send_json_error('Ontbrekende gegevens.', 400);
         }
 
         $open_items_data = array_map(function($it) {
@@ -2183,11 +2183,11 @@ class AVBK_Admin implements AVBK_Component {
     public function ajax_household_candidates(): void {
         check_ajax_referer('avbk_review_queue', 'nonce');
         if (!$this->can_manage()) {
-            wp_send_json_error('Geen toegang.', 403);
+            avbk_send_json_error('Geen toegang.', 403);
         }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         if (!$member_id) {
-            wp_send_json_error('Ontbrekend lid.', 400);
+            avbk_send_json_error('Ontbrekend lid.', 400);
         }
         $candidates = AVBK_DB::get_payment_household_candidates($member_id);
         // Adults/account holders first, then children; keep the existing
@@ -2215,11 +2215,11 @@ class AVBK_Admin implements AVBK_Component {
     public function ajax_activity_participants(): void {
         check_ajax_referer('avbk_review_queue', 'nonce');
         if (!$this->can_manage()) {
-            wp_send_json_error('Geen toegang.', 403);
+            avbk_send_json_error('Geen toegang.', 403);
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
         if (!$activity_id) {
-            wp_send_json_error('Ontbrekende activiteit.', 400);
+            avbk_send_json_error('Ontbrekende activiteit.', 400);
         }
         $rows = AVPVH_DB::get_participation_for_activity($activity_id);
         wp_send_json_success(array_map(function ($p) use ($activity_id) {
