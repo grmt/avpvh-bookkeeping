@@ -4,7 +4,7 @@ define('ABSPATH', __DIR__);
 function wp_json_encode($value) { return json_encode($value); }
 function get_option($key, $default = false) { return $GLOBALS['options'][$key] ?? $default; }
 class AVBK_Companies {
-    public static function company($id) { if ($id !== 1) throw new RuntimeException('No access'); }
+    public static function company($id) { if ($id !== 1) throw new RuntimeException('No access'); return (object) ['id' => $id]; }
     public static function normalize_iban($value) { return strtoupper(str_replace(' ', '', $value)); }
 }
 require dirname(__DIR__) . '/includes/class-company-report.php';

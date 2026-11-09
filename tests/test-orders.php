@@ -47,7 +47,7 @@ class AVPVH_DB {
         }
         return $found;
     }
-    public static function ensure_identity(int $member_id, string $type, string $val): void {}
+    public static function ensure_identity(int $member_id, string $type, string $val): bool { return true; }
     public static function create_member(string $uid, string $first, string $suffix, string $last, $birth, string $status): int {
         static $auto_id = 100;
         $id = ++$auto_id;
