@@ -1963,7 +1963,11 @@ class AVBK_Admin implements AVBK_Component {
             . ($club_iban !== '' ? 'IBAN: ' . trim(chunk_split($club_iban, 4, ' ')) . "\n" : '')
             . 'Ten name van: ' . $club_name . "\n"
             . 'Bedrag: € ' . number_format($total, 2, ',', '.') . "\n"
-            . 'Omschrijving: ' . $remittance;
+            . 'Omschrijving: ' . $remittance . "\n"
+            // The matcher only needs the code (AVBK_Matcher::match_fee_item_reference()),
+            // so someone who doesn't want to type the whole line can use just that.
+            . '(Of alleen ' . AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))
+            . ', dat is ook genoeg om je betaling automatisch te herkennen.)';
         $body = sprintf(
             "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
             $member->first_name,
