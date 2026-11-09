@@ -96,7 +96,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
     public function ajax_start(): void {
         AVBK_Photo_Upload::authorize();
         if (!self::configured()) {
-            wp_send_json_error(['message' => 'Google Photos is nog niet gekoppeld.'], 503);
+            avbk_send_json_error(['message' => 'Google Photos is nog niet gekoppeld.'], 503);
         }
         // Cancel an earlier selection before issuing another authorization request.
         self::cleanup();
@@ -216,7 +216,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                 return ['name' => sanitize_file_name($item['mediaFile']['filename'] ?? 'foto')];
             }, $session['items'])]);
         } catch (RuntimeException $e) {
-            wp_send_json_error(['message' => $e->getMessage()], 400);
+            avbk_send_json_error(['message' => $e->getMessage()], 400);
         }
     }
 
@@ -227,7 +227,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
             if ((int) get_option($lock) < time() - 300) {
                 delete_option($lock);
             }
-            wp_send_json_error(['message' => 'Een foto wordt nog opgeslagen. Probeer zo opnieuw.'], 409);
+            avbk_send_json_error(['message' => 'Een foto wordt nog opgeslagen. Probeer zo opnieuw.'], 409);
         }
         $path = ''; $error = ''; $name = '';
         try {
@@ -278,7 +278,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
             delete_option($lock);
         }
         if ($error !== '') {
-            wp_send_json_error(['message' => $error], 400);
+            avbk_send_json_error(['message' => $error], 400);
         }
         wp_send_json_success(['name' => $name, 'message' => 'Foto opgeslagen in je persoonlijke uploadmap.']);
     }

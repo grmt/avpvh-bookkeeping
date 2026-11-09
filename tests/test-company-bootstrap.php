@@ -10,6 +10,7 @@ function plugin_dir_url(string $path): string { return 'https://example.test/wp-
 function register_activation_hook(string $file, callable $handler): void { $GLOBALS['activate'] = $handler; }
 function register_deactivation_hook(string $file, callable $handler): void { $GLOBALS['deactivate'] = $handler; }
 function add_action(string $hook, callable $handler, ...$args): void { $GLOBALS['hooks'][$hook][] = $handler; }
+function add_filter(string $hook, callable $handler, ...$args): void { $GLOBALS['hooks'][$hook][] = $handler; }
 function add_shortcode(string $tag, callable $handler): void { $GLOBALS['shortcodes'][$tag] = $handler; }
 function dbDelta(string $sql): void { $GLOBALS['schemas'][] = $sql; }
 function get_option(string $name, $default = false) { return $GLOBALS['options'][$name] ?? $default; }

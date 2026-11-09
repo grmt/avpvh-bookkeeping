@@ -66,15 +66,15 @@ class AVBK_Photo_Upload implements AVBK_Component {
 
     public static function authorize(): object {
         if (!is_user_logged_in()) {
-            wp_send_json_error(['message' => 'Log opnieuw in om foto’s te uploaden.'], 401);
+            avbk_send_json_error(['message' => 'Log opnieuw in om foto’s te uploaden.'], 401);
         }
         if (!check_ajax_referer('avbk_photo_upload', 'nonce', false)) {
-            wp_send_json_error(['message' => 'Ververs de pagina en probeer opnieuw.'], 403);
+            avbk_send_json_error(['message' => 'Ververs de pagina en probeer opnieuw.'], 403);
         }
         try {
             return self::own_share();
         } catch (RuntimeException $e) {
-            wp_send_json_error(['message' => $e->getMessage()], 403);
+            avbk_send_json_error(['message' => $e->getMessage()], 403);
         }
     }
 
@@ -138,13 +138,13 @@ class AVBK_Photo_Upload implements AVBK_Component {
         $photo = $_FILES['photo'] ?? [];
         if (!is_array($photo) || ($photo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
             || !is_string($photo['tmp_name'] ?? null) || !is_uploaded_file($photo['tmp_name']) || !is_string($photo['name'] ?? null)) {
-            wp_send_json_error(['message' => 'Kies een foto binnen de aangegeven bestandsgrootte.'], 400);
+            avbk_send_json_error(['message' => 'Kies een foto binnen de aangegeven bestandsgrootte.'], 400);
         }
         try {
             self::store($photo['tmp_name'], $photo['name'], self::limit());
             wp_send_json_success(['message' => 'Foto opgeslagen in je persoonlijke uploadmap.']);
         } catch (RuntimeException $e) {
-            wp_send_json_error(['message' => $e->getMessage()], 400);
+            avbk_send_json_error(['message' => $e->getMessage()], 400);
         }
     }
 }

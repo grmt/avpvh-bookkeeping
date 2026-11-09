@@ -123,6 +123,7 @@ class AVPVH_DB {
 }
 
 require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
+require_once AVBK_PLUGIN_DIR . '/includes/functions-errors.php';
 
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';

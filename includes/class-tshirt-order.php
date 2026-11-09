@@ -1134,7 +1134,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         $attempts = (int) get_transient($rate_key);
         if ($attempts >= 15) {
             if ($is_ajax) {
-                wp_send_json_error(['message' => 'Te veel controles vanaf dit IP-adres. Probeer het over een paar minuten opnieuw.', 'status' => 'rate_limited'], 429);
+                avbk_send_json_error(['message' => 'Te veel controles vanaf dit IP-adres. Probeer het over een paar minuten opnieuw.', 'status' => 'rate_limited'], 429);
             }
             wp_safe_redirect(add_query_arg(['email_check' => 'rate_limited'], $page_url) . '#avbk-check-email-box');
             exit;
@@ -1145,7 +1145,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
         if (!is_email($email)) {
             if ($is_ajax) {
-                wp_send_json_error(['message' => 'Vul een geldig e-mailadres in om te controleren.', 'status' => 'invalid_email']);
+                avbk_send_json_error(['message' => 'Vul een geldig e-mailadres in om te controleren.', 'status' => 'invalid_email']);
             }
             wp_safe_redirect(add_query_arg(['email_check' => 'invalid_email'], $page_url) . '#avbk-check-email-box');
             exit;

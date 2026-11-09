@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Bookkeeping
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page.
- * Version:     1.32.12
+ * Version:     1.33.0
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -24,6 +24,10 @@ define('AVBK_PLUGIN_URL', plugin_dir_url(__FILE__));
 // plugins_loaded) needs it first.
 require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
 
+// Every error a user sees also goes to the server log (see the file's docblock).
+require_once AVBK_PLUGIN_DIR . 'includes/functions-errors.php';
+avbk_register_error_logging();
+
 /**
  * Cache-busting version for an asset: the file's own mtime — mirrors
  * avpvh_asset_version() in avpvh-members so deploys invalidate browser
@@ -33,23 +37,6 @@ function avbk_asset_version(string $relative_path): string {
     $path = AVBK_PLUGIN_DIR . ltrim($relative_path, '/');
     $mtime = file_exists($path) ? filemtime($path) : false;
     return $mtime ? (string) $mtime : '0.1';
-}
-
-/**
- * Writes a failed user action to the PHP error log (docker logs of the
- * site), so a failure shown to a user as a notice can also be traced
- * afterwards. Context holds ids, counts and reason codes only: never
- * names, e-mail addresses or other member data.
- *
- * @param array<string, int|string|bool> $context
- */
-function avbk_log_failure(string $action, string $reason, array $context = []): void {
-    $parts = ['user=' . get_current_user_id()];
-    foreach ($context as $key => $value) {
-        $parts[] = $key . '=' . (is_bool($value) ? ($value ? '1' : '0') : preg_replace('/\s+/', '_', (string) $value));
-    }
-    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- deliberate: failed actions must be traceable in the server log.
-    error_log(sprintf('avbk: %s failed: reason=%s %s', $action, $reason, implode(' ', $parts)));
 }
 
 /**
