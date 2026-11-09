@@ -113,8 +113,9 @@ class AVPVH_DB {
         }
         return null;
     }
-    public static function ensure_identity(int $member_id, string $type, string $val): void {
+    public static function ensure_identity(int $member_id, string $type, string $val): bool {
         self::$ensured_identities[] = [$member_id, $type, $val];
+        return true;
     }
     public static function update_member_with_audit(int $member_id, array $fields, array $formats): void {
         self::$updated_members[] = [$member_id, $fields];
