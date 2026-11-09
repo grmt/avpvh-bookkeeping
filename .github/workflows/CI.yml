@@ -78,6 +78,13 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v7
 
+      # The runner's own PHP is older than the plugin's floor.
+      - name: "Set up PHP"
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: "8.4"
+          coverage: none
+
       - name: "Install runtime dependencies"
         run: composer install -n --prefer-dist --no-dev --no-progress
 
