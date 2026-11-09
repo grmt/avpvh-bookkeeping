@@ -1944,11 +1944,32 @@ class AVBK_Admin implements AVBK_Component {
                 (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT
             );
         }
+        // Same omschrijving as the QR code and the "Wil je de boeking zelf
+        // doen?" block on the balance page (AVBK_Balance_Shortcode), so a
+        // member who pays by hand from this mail is matched the same way.
+        if ($also_member_ids) {
+            $entries = [];
+            foreach ($items as $item) {
+                $owner = (int) $item->member_id === $member_id ? $member : AVPVH_DB::get_member((int) $item->member_id);
+                $entries[] = ['item' => $item, 'name' => (string) ($owner->first_name ?? '')];
+            }
+            $remittance = AVBK_QR::remittance_for_combined($entries, $member_id);
+        } else {
+            $remittance = AVBK_QR::remittance_for_balance($items, $member_id);
+        }
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+        $payment_details = "Je kunt het bedrag overmaken met deze gegevens:\n"
+            . ($club_iban !== '' ? 'IBAN: ' . trim(chunk_split($club_iban, 4, ' ')) . "\n" : '')
+            . 'Ten name van: ' . $club_name . "\n"
+            . 'Bedrag: € ' . number_format($total, 2, ',', '.') . "\n"
+            . 'Omschrijving: ' . $remittance;
         $body = sprintf(
-            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\nJe vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
+            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n\nOp die pagina kun je zo nodig ook betalingen voor huisgenoten toevoegen.%s\n\nGroet,\n%s",
             $member->first_name,
             implode("\n", $descriptions),
             number_format($total, 2, ',', '.'),
+            $payment_details,
             $balance_url,
             $login_help_text,
             $penningmeester_name
