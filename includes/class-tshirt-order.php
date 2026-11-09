@@ -332,7 +332,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
                 <!-- Honeypot -->
                 <div style="display:none;" aria-hidden="true">
-                    <input type="text" name="website" tabindex="-1" autocomplete="off">
+                    <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
                 </div>
 
                 <!-- Clothing selection repeater -->
@@ -354,8 +354,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
                             <div class="avbk-tshirt-card-grid">
                                 <div class="avbk-tshirt-field avbk-col-design">
-                                    <label class="avbk-field-label">1. Kies design *</label>
-                                    <select name="items[0][design]" class="avbk-tshirt-design-select" required>
+                                    <label class="avbk-field-label" for="avbk-tshirt-design-0">1. Kies design *</label>
+                                    <select name="items[0][design]" id="avbk-tshirt-design-0" class="avbk-tshirt-design-select" required>
                                         <?php foreach ($active_designs as $design) : ?>
                                             <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
                                                 <?php echo esc_html($design['name']); ?>
@@ -365,8 +365,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                                 </div>
 
                                 <div class="avbk-tshirt-field avbk-col-type">
-                                    <label class="avbk-field-label">2. Kledingstuk *</label>
-                                    <select name="items[0][product_type]" class="avbk-tshirt-type-select" required>
+                                    <label class="avbk-field-label" for="avbk-tshirt-type-0">2. Kledingstuk *</label>
+                                    <select name="items[0][product_type]" id="avbk-tshirt-type-0" class="avbk-tshirt-type-select" required>
                                         <?php foreach ($types as $t) : ?>
                                             <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
                                                 <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
@@ -376,8 +376,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                                 </div>
 
                                 <div class="avbk-tshirt-field avbk-col-color">
-                                    <label class="avbk-field-label">3. Kleur *</label>
-                                    <select name="items[0][color]" class="avbk-tshirt-color-select">
+                                    <label class="avbk-field-label" for="avbk-tshirt-color-0">3. Kleur *</label>
+                                    <select name="items[0][color]" id="avbk-tshirt-color-0" class="avbk-tshirt-color-select">
                                         <?php foreach ($colors as $color) : ?>
                                             <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
                                         <?php endforeach; ?>
@@ -385,8 +385,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                                 </div>
 
                                 <div class="avbk-tshirt-field avbk-col-size">
-                                    <label class="avbk-field-label">4. Maat *</label>
-                                    <select name="items[0][size]" class="avbk-tshirt-size-select" required>
+                                    <label class="avbk-field-label" for="avbk-tshirt-size-0">4. Maat *</label>
+                                    <select name="items[0][size]" id="avbk-tshirt-size-0" class="avbk-tshirt-size-select" required>
                                         <?php foreach ($sizes as $size) : ?>
                                             <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
                                         <?php endforeach; ?>
@@ -394,8 +394,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                                 </div>
 
                                 <div class="avbk-tshirt-field avbk-col-qty">
-                                    <label class="avbk-field-label">Aantal *</label>
-                                    <input type="number" name="items[0][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
+                                    <label class="avbk-field-label" for="avbk-tshirt-qty-0">Aantal *</label>
+                                    <input type="number" name="items[0][quantity]" id="avbk-tshirt-qty-0" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
                                 </div>
                             </div>
 
@@ -440,8 +440,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
                         <div class="avbk-tshirt-card-grid">
                             <div class="avbk-tshirt-field avbk-col-design">
-                                <label class="avbk-field-label">1. Kies design *</label>
-                                <select name="items[__INDEX__][design]" class="avbk-tshirt-design-select" required>
+                                <label class="avbk-field-label" for="avbk-tshirt-design-__INDEX__">1. Kies design *</label>
+                                <select name="items[__INDEX__][design]" id="avbk-tshirt-design-__INDEX__" class="avbk-tshirt-design-select" required>
                                     <?php foreach ($active_designs as $design) : ?>
                                         <option value="<?php echo esc_attr($design['id']); ?>" data-name="<?php echo esc_attr($design['name']); ?>">
                                             <?php echo esc_html($design['name']); ?>
@@ -451,8 +451,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                             </div>
 
                             <div class="avbk-tshirt-field avbk-col-type">
-                                <label class="avbk-field-label">2. Kledingstuk *</label>
-                                <select name="items[__INDEX__][product_type]" class="avbk-tshirt-type-select" required>
+                                <label class="avbk-field-label" for="avbk-tshirt-type-__INDEX__">2. Kledingstuk *</label>
+                                <select name="items[__INDEX__][product_type]" id="avbk-tshirt-type-__INDEX__" class="avbk-tshirt-type-select" required>
                                     <?php foreach ($types as $t) : ?>
                                         <option value="<?php echo esc_attr($t['id']); ?>" data-name="<?php echo esc_attr($t['name']); ?>" data-price="<?php echo esc_attr(number_format((float) $t['price'], 2, '.', '')); ?>">
                                             <?php echo esc_html($t['name']); ?> (&euro;&nbsp;<?php echo number_format((float) $t['price'], 2, ',', '.'); ?>)
@@ -462,8 +462,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                             </div>
 
                             <div class="avbk-tshirt-field avbk-col-color">
-                                <label class="avbk-field-label">3. Kleur *</label>
-                                <select name="items[__INDEX__][color]" class="avbk-tshirt-color-select">
+                                <label class="avbk-field-label" for="avbk-tshirt-color-__INDEX__">3. Kleur *</label>
+                                <select name="items[__INDEX__][color]" id="avbk-tshirt-color-__INDEX__" class="avbk-tshirt-color-select">
                                     <?php foreach ($colors as $color) : ?>
                                         <option value="<?php echo esc_attr($color); ?>"><?php echo esc_html($color); ?></option>
                                     <?php endforeach; ?>
@@ -471,8 +471,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                             </div>
 
                             <div class="avbk-tshirt-field avbk-col-size">
-                                <label class="avbk-field-label">4. Maat *</label>
-                                <select name="items[__INDEX__][size]" class="avbk-tshirt-size-select" required>
+                                <label class="avbk-field-label" for="avbk-tshirt-size-__INDEX__">4. Maat *</label>
+                                <select name="items[__INDEX__][size]" id="avbk-tshirt-size-__INDEX__" class="avbk-tshirt-size-select" required>
                                     <?php foreach ($sizes as $size) : ?>
                                         <option value="<?php echo esc_attr($size); ?>"><?php echo esc_html($size); ?></option>
                                     <?php endforeach; ?>
@@ -480,8 +480,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                             </div>
 
                             <div class="avbk-tshirt-field avbk-col-qty">
-                                <label class="avbk-field-label">Aantal *</label>
-                                <input type="number" name="items[__INDEX__][quantity]" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
+                                <label class="avbk-field-label" for="avbk-tshirt-qty-__INDEX__">Aantal *</label>
+                                <input type="number" name="items[__INDEX__][quantity]" id="avbk-tshirt-qty-__INDEX__" class="avbk-tshirt-qty-input" value="1" min="1" max="99" required>
                             </div>
                         </div>
 

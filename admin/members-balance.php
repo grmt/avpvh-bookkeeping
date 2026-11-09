@@ -185,7 +185,7 @@ $current_book_year = (int) current_time('Y');
                     $credit_transactions = AVBK_DB::get_credit_transactions_for_member($detail_member_id);
                     ?>
                     <tr style="background:#f0f6fc">
-                        <td><input type="checkbox" name="apply_credit" value="1" form="avbk-payment-selection"></td>
+                        <td><label class="screen-reader-text" for="avbk-apply-credit">Tegoed verrekenen</label><input type="checkbox" name="apply_credit" id="avbk-apply-credit" value="1" form="avbk-payment-selection"></td>
                         <?php if ($show_member_column) : ?><td><?php echo esc_html(avpvh_format_name($member)); ?></td><?php endif; ?>
                         <td><strong>Tegoed</strong> <span class="description">(eerdere betaling was meer dan op dat moment openstond)</span></td>
                         <td>&euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?></td>
@@ -228,7 +228,8 @@ $current_book_year = (int) current_time('Y');
                     <tr>
                         <td>
                             <?php if ($item->status === 'open' && $item->remaining > 0.005) : ?>
-                                <input type="checkbox" name="fee_item_ids[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-payment-selection">
+                                <label class="screen-reader-text" for="avbk-fee-item-<?php echo esc_attr($item->id); ?>">Kies <?php echo esc_html($item->description); ?></label>
+                                <input type="checkbox" name="fee_item_ids[]" value="<?php echo esc_attr($item->id); ?>" id="avbk-fee-item-<?php echo esc_attr($item->id); ?>" form="avbk-payment-selection">
                             <?php else : ?>&mdash;<?php endif; ?>
                         </td>
                         <?php if ($show_member_column) : ?><td><?php echo esc_html(avpvh_format_name($item_owner)); ?></td><?php endif; ?>
@@ -253,7 +254,7 @@ $current_book_year = (int) current_time('Y');
                                     <input type="hidden" name="action" value="avbk_update_fee_item_amount">
                                     <input type="hidden" name="id" value="<?php echo esc_attr($item->id); ?>">
                                     <input type="hidden" name="member_id" value="<?php echo esc_attr($item->member_id); ?>">
-                                    &euro; <input type="text" name="amount_due" value="<?php echo esc_attr(number_format((float) $item->amount_due, 2, ',', '')); ?>" size="6"<?php echo $rate_options ? ' list="' . esc_attr($datalist_id) . '"' : ''; ?>>
+                                    <label class="screen-reader-text" for="avbk-amount-due-<?php echo esc_attr($item->id); ?>">Bedrag voor <?php echo esc_html($item->description); ?></label>&euro; <input type="text" name="amount_due" id="avbk-amount-due-<?php echo esc_attr($item->id); ?>" value="<?php echo esc_attr(number_format((float) $item->amount_due, 2, ',', '')); ?>" size="6"<?php echo $rate_options ? ' list="' . esc_attr($datalist_id) . '"' : ''; ?>>
                                     <?php if ($rate_options) : ?>
                                         <datalist id="<?php echo esc_attr($datalist_id); ?>">
                                             <?php foreach ($rate_options as $rate) : ?>
@@ -306,13 +307,13 @@ $current_book_year = (int) current_time('Y');
                     <?php $foot_colspan = $show_member_column ? 6 : 5; ?>
                     <?php if ($per_year) : ?>
                         <tr>
-                            <th colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th>
-                            <th>Huidig: &euro; <?php echo esc_html(number_format($combined_current, 2, ',', '.')); ?></th>
-                            <th>Vorig: &euro; <?php echo esc_html(number_format($combined_other, 2, ',', '.')); ?></th>
-                            <th>Totaal: &euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th>
+                            <th scope="row" colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th>
+                            <td><strong>Huidig: &euro; <?php echo esc_html(number_format($combined_current, 2, ',', '.')); ?></strong></td>
+                            <td><strong>Vorig: &euro; <?php echo esc_html(number_format($combined_other, 2, ',', '.')); ?></strong></td>
+                            <td><strong>Totaal: &euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></strong></td>
                         </tr>
                     <?php else : ?>
-                        <tr><th colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th><th colspan="3">&euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></th></tr>
+                        <tr><th scope="row" colspan="<?php echo (int) $foot_colspan; ?>">Totaal openstaand</th><td colspan="3"><strong>&euro; <?php echo esc_html(number_format($shown_total, 2, ',', '.')); ?></strong></td></tr>
                     <?php endif; ?>
                 </tfoot>
             </table>

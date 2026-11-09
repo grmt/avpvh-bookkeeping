@@ -61,7 +61,7 @@ $presets = AVBK_Flyer::get_presets();
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:750px">
         <?php wp_nonce_field('avbk_generate_flyer'); ?>
         <input type="hidden" name="action" value="avbk_generate_flyer">
-        <table class="form-table" role="presentation">
+        <table class="form-table">
             <tr>
                 <th scope="row"><label for="avbk-flyer-url">Doel-URL *</label></th>
                 <td>

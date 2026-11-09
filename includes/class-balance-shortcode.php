@@ -301,7 +301,8 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         <?php if ($balance['balance'] > 0.005) : ?>
                             <td>
                                 <?php if ($is_credit_row || ($item->status !== 'waived' && $item->remaining > 0.005)) : ?>
-                                    <input type="checkbox" name="pay[]" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?> aria-label="<?php echo esc_attr(sprintf('Selecteer %s voor betaling', $parts['base'])); ?>">
+                                    <label class="screen-reader-text" for="avbk-pay-<?php echo esc_attr($item->id); ?>"><?php echo esc_html(sprintf('Selecteer %s voor betaling', $parts['base'])); ?></label>
+                                    <input type="checkbox" name="pay[]" id="avbk-pay-<?php echo esc_attr($item->id); ?>" value="<?php echo esc_attr($item->id); ?>" form="avbk-balance-payment-selection" <?php checked(in_array((int) $item->id, $selected_pay_ids, true)); ?>>
                                 <?php else : ?>&mdash;<?php endif; ?>
                             </td>
                         <?php endif; ?>
@@ -311,9 +312,9 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         <td class="avbk-col-description">
                             <?php echo esc_html($parts['base']); ?>
                             <?php if (!empty($item->is_estimated)) : ?>
-                                <span class="avbk-estimate-flag" tabindex="0" role="button" aria-label="Toelichting op geschat bedrag">
-                                    &#9888;
-                                    <span class="avbk-estimate-tooltip" role="tooltip"><?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
+                                <span class="avbk-estimate-flag" tabindex="0" aria-describedby="avbk-estimate-<?php echo esc_attr($item->id); ?>">
+                                    <span aria-hidden="true">&#9888;</span><span class="screen-reader-text">Geschat bedrag</span>
+                                    <span class="avbk-estimate-tooltip" role="tooltip" id="avbk-estimate-<?php echo esc_attr($item->id); ?>"><?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
                                 </span>
                             <?php endif; ?>
                         </td>
@@ -400,7 +401,8 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                     <input type="hidden" name="action" value="avbk_submit_dispute">
                     <input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>">
                     <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
-                    <textarea name="message" rows="4" class="avbk-balance-dispute-textarea" required placeholder="Bijv.: ik heb dit al betaald, of dit bedrag klopt volgens mij niet, ..."></textarea>
+                    <label class="screen-reader-text" for="avbk-balance-dispute-message">Wat klopt er niet?</label>
+                    <textarea name="message" id="avbk-balance-dispute-message" rows="4" class="avbk-balance-dispute-textarea" required placeholder="Bijv.: ik heb dit al betaald, of dit bedrag klopt volgens mij niet, ..."></textarea>
                     <br>
                     <button type="submit" class="button">Versturen</button>
                 </form>

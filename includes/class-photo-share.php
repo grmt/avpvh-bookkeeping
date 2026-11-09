@@ -506,7 +506,8 @@ class AVBK_Photo_Share implements AVBK_Component {
             <form method="post" action="<?php echo esc_url(home_url('/foto-delen/')); ?>" class="avbk-photo-share-request-form">
                 <?php wp_nonce_field('avbk_request_photo_share_action', 'avbk_photo_share_nonce'); ?>
                 <div class="avbk-photo-share-form-row">
-                    <input type="email" name="photo_share_email" required placeholder="Jouw e-mailadres" class="avbk-photo-share-input-email">
+                    <label class="screen-reader-text" for="avbk-photo-share-email">Jouw e-mailadres</label>
+                    <input type="email" name="photo_share_email" id="avbk-photo-share-email" required placeholder="Jouw e-mailadres" class="avbk-photo-share-input-email">
                     <button type="submit" name="avbk_photo_share_submit" class="button avbk-photo-share-btn">
                         Stuur activatielink &rarr;
                     </button>
