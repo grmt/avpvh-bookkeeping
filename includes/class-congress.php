@@ -15,9 +15,9 @@ defined('ABSPATH') || exit;
  *    registrants aren't existing WP users so there's no session to check
  *    against.
  */
-class AVBK_Congress {
+class AVBK_Congress implements AVBK_Component {
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_congress', [$this, 'render']);
         add_action('wp_enqueue_scripts', function () {
             wp_enqueue_style('avbk-congress', AVBK_PLUGIN_URL . 'assets/congress.css', [], avbk_asset_version('assets/congress.css'));

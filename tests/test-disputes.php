@@ -107,6 +107,7 @@ class AVBK_Dispute_Test_DB {
         return 1;
     }
 }
+require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
 require AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require AVBK_PLUGIN_DIR . 'includes/class-disputes.php';
 require AVBK_PLUGIN_DIR . 'includes/class-admin.php';

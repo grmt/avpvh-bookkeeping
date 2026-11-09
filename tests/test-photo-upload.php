@@ -95,7 +95,7 @@ namespace {
         parse_str(parse_url($response->data['url'], PHP_URL_QUERY), $params);
         return $params;
     }
-    $picker = new AVBK_Google_Photos_Picker(); $upload = new AVBK_Photo_Upload();
+    $picker = new AVBK_Google_Photos_Picker(); $picker->register(); $upload = new AVBK_Photo_Upload(); $upload->register();
     $GLOBALS['http_queue'] = []; $GLOBALS['http_calls'] = []; $GLOBALS['download_calls'] = [];
     $GLOBALS['png_bytes'] = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6bV0AAAAASUVORK5CYII=');
     $path = tempnam(sys_get_temp_dir(), 'avbk-photo-test'); file_put_contents($path, $GLOBALS['png_bytes']);

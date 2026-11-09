@@ -13,11 +13,11 @@ defined('ABSPATH') || exit;
  *    AVPVH_DB::save_participation()), so they track nights/attendance
  *    right up to camp time without any admin action.
  */
-class AVBK_Fee_Generation {
+class AVBK_Fee_Generation implements AVBK_Component {
 
     const CRON_HOOK = 'avbk_generate_contribution_fees';
 
-    public function __construct() {
+    public function register(): void {
         add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
         add_action('avpvh_activity_participation_saved', [$this, 'on_activity_participation_saved'], 10, 3);
 

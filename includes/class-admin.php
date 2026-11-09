@@ -1,13 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
 
-class AVBK_Admin {
+class AVBK_Admin implements AVBK_Component {
 
     public const DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT = "Inloggen: gebruik als gebruikersnaam je e-mailadres. Als je nog niet eerder bent ingelogd of je je wachtwoord niet weet, klik dan [wachtwoord-link].\n\nAls je met je browser al bent ingelogd bij Google (Gmail) of Microsoft (Outlook/Hotmail), kun je ook de knop Inloggen met Google respectievelijk Inloggen met Microsoft proberen. Dan heb je geen (nieuw) wachtwoord nodig. Het e-mailadres moet wel overeenkomen met het adres dat bij de vereniging bekend is.";
     public const DEFAULT_QR_CAPTION_TEXT = 'Scan deze QR-code met je bankieren-app:';
     public const DEFAULT_GENERIC_PAYMENT_LINK_TEXT = 'Je kan betalen via deze betaallink: [link]';
 
-    public function __construct() {
+    public function register(): void {
         add_action('admin_menu', [$this, 'register_menus'], 5);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('admin_post_avbk_upload_import',        [$this, 'handle_upload_import']);

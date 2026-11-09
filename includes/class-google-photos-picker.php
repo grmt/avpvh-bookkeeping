@@ -2,7 +2,7 @@
 defined('ABSPATH') || exit;
 
 /** User-consented Google Photos selections, bound to the current WordPress session. */
-class AVBK_Google_Photos_Picker {
+class AVBK_Google_Photos_Picker implements AVBK_Component {
     private const SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
     private const API = 'https://photospicker.googleapis.com/v1/';
     /** Host the Picker API's selection page must be on. */
@@ -16,7 +16,7 @@ class AVBK_Google_Photos_Picker {
     private const STATE_PREFIX = 'avbk-photos-';
     private const TTL = 3600;
 
-    public function __construct() {
+    public function register(): void {
         foreach (['start', 'status', 'import', 'finish'] as $action) {
             add_action('wp_ajax_avbk_google_photos_' . $action, [$this, 'ajax_' . $action]);
             add_action('wp_ajax_nopriv_avbk_google_photos_' . $action, [$this, 'ajax_' . $action]);

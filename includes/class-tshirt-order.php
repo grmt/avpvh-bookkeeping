@@ -15,7 +15,7 @@ defined('ABSPATH') || exit;
  *  - EPC QR-code generation and fee item creation (category = 'tshirt')
  *  - Confirmation email & confirmation landing page
  */
-class AVBK_Tshirt_Order {
+class AVBK_Tshirt_Order implements AVBK_Component {
 
     public const DEFAULT_TITLE = 'Lustrumkleding 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 21.00;
@@ -60,7 +60,7 @@ class AVBK_Tshirt_Order {
         ],
     ];
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_tshirt_order',    [$this, 'render']);
         add_shortcode('avpvh_bk_tshirt',          [$this, 'render']);
         add_shortcode('avpvh_bk_jubileumkleding', [$this, 'render']);

@@ -16,7 +16,7 @@ defined('ABSPATH') || exit;
  * (penningmeester included, since AVPVH_Roles folds officer roles into
  * bestuur) or a real WP admin.
  */
-class AVBK_Balance_Shortcode {
+class AVBK_Balance_Shortcode implements AVBK_Component {
 
     /**
      * Pseudo fee-item id for the "Tegoed" row injected into the table
@@ -25,7 +25,7 @@ class AVBK_Balance_Shortcode {
      */
     private const CREDIT_ROW_ID = -1;
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_balance', [$this, 'render']);
         add_action('wp_enqueue_scripts', function () {
             // avpvh-members registers 'avpvh-sortable-table' on its own

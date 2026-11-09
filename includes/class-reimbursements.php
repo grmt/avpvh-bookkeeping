@@ -14,7 +14,7 @@ defined('ABSPATH') || exit;
  * random filename, never a public URL, only ever served through
  * handle_view_receipt()'s ownership/capability check.
  */
-class AVBK_Reimbursements {
+class AVBK_Reimbursements implements AVBK_Component {
 
     public const MAX_BYTES = 25 * 1024 * 1024;
     public const ALLOWED_MIMES = [
@@ -90,7 +90,7 @@ class AVBK_Reimbursements {
         return $ext;
     }
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_reimbursement', [$this, 'render']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_ajax_avbk_ocr_receipt', [$this, 'ajax_ocr_receipt']);

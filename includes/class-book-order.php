@@ -12,7 +12,7 @@ defined('ABSPATH') || exit;
  *  - ?book_token=...: Confirmed order view with order summary, fee amount & status,
  *    EPC QR code, bank transfer details, and link to member profile / login.
  */
-class AVBK_Book_Order {
+class AVBK_Book_Order implements AVBK_Component {
 
     public const DEFAULT_TITLE = 'Doorgraven! - 50 jaar AV Philips van Horne';
     public const DEFAULT_PRICE = 35.00;
@@ -32,7 +32,7 @@ class AVBK_Book_Order {
         return nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
     }
 
-    public function __construct() {
+    public function register(): void {
         add_shortcode('avpvh_bk_book_order', [$this, 'render']);
         add_shortcode('avpvh_bk_book',       [$this, 'render']);
 

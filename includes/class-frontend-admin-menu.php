@@ -2,11 +2,11 @@
 defined('ABSPATH') || exit;
 
 /** Role-aware shortcuts in the site's first (header) Navigation block. */
-class AVBK_Frontend_Admin_Menu {
+class AVBK_Frontend_Admin_Menu implements AVBK_Component {
 
     private bool $block_menu_injected = false;
 
-    public function __construct() {
+    public function register(): void {
         add_filter('render_block_core/navigation', [$this, 'inject_block_navigation'], 20, 2);
         add_action('wp_enqueue_scripts', function () {
             wp_enqueue_style('avbk-frontend-admin-menu', AVBK_PLUGIN_URL . 'assets/frontend-admin-menu.css', [], avbk_asset_version('assets/frontend-admin-menu.css'));
