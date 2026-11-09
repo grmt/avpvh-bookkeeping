@@ -154,10 +154,17 @@
     margin-top: 1rem;
 }
 
+/* A button only so it can take keyboard focus (which shows the tooltip);
+   it looks like the plain warning sign it replaces. */
 .avbk-estimate-flag {
     position: relative;
     display: inline-block;
     margin-left: .35em;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    line-height: inherit;
     color: #b32d2e;
     font-weight: 600;
     cursor: help;

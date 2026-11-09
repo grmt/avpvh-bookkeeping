@@ -312,10 +312,10 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         <td class="avbk-col-description">
                             <?php echo esc_html($parts['base']); ?>
                             <?php if (!empty($item->is_estimated)) : ?>
-                                <span class="avbk-estimate-flag" tabindex="0" aria-describedby="avbk-estimate-<?php echo esc_attr($item->id); ?>">
+                                <button type="button" class="avbk-estimate-flag" aria-describedby="avbk-estimate-<?php echo esc_attr($item->id); ?>">
                                     <span aria-hidden="true">&#9888;</span><span class="screen-reader-text">Geschat bedrag</span>
                                     <span class="avbk-estimate-tooltip" role="tooltip" id="avbk-estimate-<?php echo esc_attr($item->id); ?>"><?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></span>
-                                </span>
+                                </button>
                             <?php endif; ?>
                         </td>
                         <td><?php echo $parts['label'] !== '' ? esc_html($parts['label']) : '&mdash;'; ?></td>
