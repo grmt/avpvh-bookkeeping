@@ -104,7 +104,8 @@ function render(array $query = []): string {
     $_GET = ['page' => 'avbk-members', 'member_id' => 10] + $query;
     ob_start();
     try {
-        require AVBK_PLUGIN_DIR . 'admin/members-balance.php';
+        require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php';
+        avbk_render_members_balance();
         return ob_get_contents();
     } finally {
         ob_end_clean();

@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-ledger.php's markup.
+ *
+ * @param array<string, mixed> $view $accounts, $companies, $company, $company_id, $entries, $form_start, $notice, $return_to.
+ */
+function avbk_render_company_ledger(array $view): void {
+    ['accounts' => $accounts, 'companies' => $companies, 'company' => $company, 'company_id' => $company_id, 'entries' => $entries, 'form_start' => $form_start, 'notice' => $notice, 'return_to' => $return_to] = $view;
 $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
 ?>
 <div class="wrap avbk-company">
@@ -113,3 +121,5 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
         <?php endforeach; ?>
     </section>
 </div>
+<?php
+}

@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/rates.php page. */
+function avbk_render_rates(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -367,3 +370,5 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
         <?php submit_button('Instellingen opslaan'); ?>
     </form>
 </div>
+<?php
+}

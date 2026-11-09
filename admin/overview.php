@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/overview.php page. */
+function avbk_render_overview(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -287,3 +290,5 @@ $total_donations = AVBK_DB::get_total_donations();
         <?php endforeach; ?>
     <?php endif; ?>
 </div>
+<?php
+}

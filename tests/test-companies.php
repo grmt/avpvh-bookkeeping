@@ -502,7 +502,8 @@ try {
     $report['workbook_data'] = null;
     $report_stale = false;
     $company_id = 1;
-    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-report.php'; $html = ob_get_clean();
+    require_once AVBK_PLUGIN_DIR . 'admin/company-report.php';
+    ob_start(); avbk_render_company_report(get_defined_vars()); $html = ob_get_clean();
     company_check(str_contains($html, '&lt;script&gt;') && !str_contains($html, '<script>'), 'result display escapes imported worksheet text');
 
     company_reject(fn() => AVBK_Company_Cards::link(1, '12345678901'), 'bookkeeper cannot change the card account binding');
@@ -744,11 +745,12 @@ try {
     $form_method = new ReflectionMethod(AVBK_Company_Admin::class, 'form_renderer');
     $form_start = $form_method->invoke($admin, 1, 2026, 3, 'https://example.test/portal/');
     $company_id = 1; $company = $wpdb->companies[1]; $year = 2026;
-    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; $payroll_html = ob_get_clean();
+    require_once AVBK_PLUGIN_DIR . 'admin/company-payroll.php';
+    ob_start(); avbk_render_company_payroll(get_defined_vars()); $payroll_html = ob_get_clean();
     company_check(str_contains($payroll_html, 'name="payroll_documents[]"') && str_contains($payroll_html, 'multiple required') && str_contains($payroll_html, '2026-10'), 'payroll UI supports multiple files and displays document month');
     $GLOBALS['test_user'] = 12;
     company_reject(fn() => AVBK_Company_Documents::import_mail(1, 'Read-only upload', 'payslip.pdf', $payroll_pdf, $payslip), 'accountants cannot upload payroll documents');
-    ob_start(); require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; $readonly_payroll = ob_get_clean();
+    ob_start(); avbk_render_company_payroll(get_defined_vars()); $readonly_payroll = ob_get_clean();
     company_check(str_contains($readonly_payroll, 'payslip.pdf') && !str_contains($readonly_payroll, '<form'), 'accountants can see private payroll download links without upload controls');
     $GLOBALS['test_user'] = 14;
     company_check(!AVBK_Company_Payroll::enabled(2), 'enabling payroll does not enable it for another company');

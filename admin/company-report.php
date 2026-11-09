@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-report.php's markup.
+ *
+ * @param array<string, mixed> $view $card_transactions, $company, $company_id, $form_start, $quarter, $report, $report_stale, $transactions, $year.
+ */
+function avbk_render_company_report(array $view): void {
+    ['card_transactions' => $card_transactions, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'quarter' => $quarter, 'report' => $report, 'report_stale' => $report_stale, 'transactions' => $transactions, 'year' => $year] = $view;
 $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($cents / 100, 2, ',', '.');
 ?>
 <section id="avbk-company-result" class="avbk-company-card">
@@ -119,3 +127,5 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         <?php endif; ?>
     <?php endif; ?>
 </section>
+<?php
+}

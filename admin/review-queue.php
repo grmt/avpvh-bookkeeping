@@ -1,65 +1,5 @@
 <?php
 defined('ABSPATH') || exit;
-if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
-    wp_die('Geen toegang.');
-}
-
-$review_order = get_user_meta(get_current_user_id(), 'avbk_review_order', true) === 'desc' ? 'desc' : 'asc';
-$closed_through_year = (int) get_option('avbk_closed_through_year', 0);
-$show_all_years = !empty($_GET['show_all_years']);
-$queue = AVBK_DB::get_review_queue($review_order, $show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
-// A duplicate payment is, in practice, always close in time to the
-// original — going back to December of last year (not just this year) is
-// a buffer for an original that landed right at the turn of the year,
-// without dragging in the club's entire multi-year transaction history as
-// noise to scroll/filter through.
-$duplicate_cutoff = ((int) current_time('Y') - 1) . '-12-01';
-$duplicate_candidates = array_values(array_filter(
-    AVBK_DB::get_transactions(),
-    fn($candidate) => $candidate->direction === 'in' && empty($candidate->duplicate_of)
-        && $candidate->transaction_date >= $duplicate_cutoff
-));
-$all_members = AVBK_DB::get_payable_members();
-
-// Rendered inline on the transaction's own row below (not as a page-top
-// banner) — a treasurer scrolling through a long queue shouldn't have to
-// jump back up top to read why confirming just failed, then scroll back
-// down again to actually fix it.
-$confirm_failed_tx_id = isset($_GET['confirm_failed']) ? (int) ($_GET['confirm_failed_tx'] ?? 0) : 0;
-$confirm_errors = $confirm_failed_tx_id ? get_transient('avbk_confirm_errors_' . get_current_user_id()) : null;
-if ($confirm_failed_tx_id) {
-    delete_transient('avbk_confirm_errors_' . get_current_user_id());
-}
-
-// Every regel picks its own activiteit — no transactie-brede "Type" meer.
-// Contributie/Kamp/Congres (AVBK_DB::activity_fee_type_map()'s keys) match
-// against an existing, already-generated bijdrage-regel — but "Kamp" alone
-// is ambiguous once there's more than one kamp in the list (this year's,
-// last year's, ...), so the dropdown offers the concrete, dated activiteit
-// ("Kamp Zonneveld (2026)") instead of the bare type; picking one matches
-// unambiguously via that activiteit's own id. Recent = the past two years,
-// since older activiteiten are already settled and just clutter the list.
-// Every other type name (Drank, Eten, Weekend, ..., Overig) isn't tied to
-// a specific dated activiteit at all — it creates a brand new, already-paid
-// regel on the spot instead, same as before.
-$fee_type_map = AVBK_DB::activity_fee_type_map();
-$recent_activity_cutoff_year = (int) current_time('Y') - 1;
-$recent_activities = array_values(array_filter(
-    AVPVH_DB::get_activities(),
-    fn($a) => (int) $a->year >= $recent_activity_cutoff_year
-));
-$other_activity_type_names = array_values(array_diff(
-    wp_list_pluck(AVPVH_DB::get_activity_types(), 'name'),
-    array_keys($fee_type_map)
-));
-$other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschrijving met de bank-omschrijving), niet uit de tabel
-// fixed fallback for "Markeer rest als schenking" (review-queue.js) — a
-// real category, not just a free-text label, so it's counted by
-// AVBK_DB::get_total_donations() and the "Schenking"-filter on Alle
-// transacties (incident 2026-10-19: used to fall into the generic
-// "Anders"-categorie and was invisible in both places).
-$other_activity_type_names[] = 'Schenking';
-
 
 function avbk_member_select(string $name, array $members, int $selected_id = 0): void {
     $selected_label = '';
@@ -204,6 +144,70 @@ function avbk_row_detail(array $row): ?array {
     }
     return AVBK_DB::get_member_status_detail($member_id);
 }
+
+/** Renders the admin/review-queue.php page. */
+function avbk_render_review_queue(): void {
+if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
+    wp_die('Geen toegang.');
+}
+
+$review_order = get_user_meta(get_current_user_id(), 'avbk_review_order', true) === 'desc' ? 'desc' : 'asc';
+$closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+$show_all_years = !empty($_GET['show_all_years']);
+$queue = AVBK_DB::get_review_queue($review_order, $show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
+// A duplicate payment is, in practice, always close in time to the
+// original — going back to December of last year (not just this year) is
+// a buffer for an original that landed right at the turn of the year,
+// without dragging in the club's entire multi-year transaction history as
+// noise to scroll/filter through.
+$duplicate_cutoff = ((int) current_time('Y') - 1) . '-12-01';
+$duplicate_candidates = array_values(array_filter(
+    AVBK_DB::get_transactions(),
+    fn($candidate) => $candidate->direction === 'in' && empty($candidate->duplicate_of)
+        && $candidate->transaction_date >= $duplicate_cutoff
+));
+$all_members = AVBK_DB::get_payable_members();
+
+// Rendered inline on the transaction's own row below (not as a page-top
+// banner) — a treasurer scrolling through a long queue shouldn't have to
+// jump back up top to read why confirming just failed, then scroll back
+// down again to actually fix it.
+$confirm_failed_tx_id = isset($_GET['confirm_failed']) ? (int) ($_GET['confirm_failed_tx'] ?? 0) : 0;
+$confirm_errors = $confirm_failed_tx_id ? get_transient('avbk_confirm_errors_' . get_current_user_id()) : null;
+if ($confirm_failed_tx_id) {
+    delete_transient('avbk_confirm_errors_' . get_current_user_id());
+}
+
+// Every regel picks its own activiteit — no transactie-brede "Type" meer.
+// Contributie/Kamp/Congres (AVBK_DB::activity_fee_type_map()'s keys) match
+// against an existing, already-generated bijdrage-regel — but "Kamp" alone
+// is ambiguous once there's more than one kamp in the list (this year's,
+// last year's, ...), so the dropdown offers the concrete, dated activiteit
+// ("Kamp Zonneveld (2026)") instead of the bare type; picking one matches
+// unambiguously via that activiteit's own id. Recent = the past two years,
+// since older activiteiten are already settled and just clutter the list.
+// Every other type name (Drank, Eten, Weekend, ..., Overig) isn't tied to
+// a specific dated activiteit at all — it creates a brand new, already-paid
+// regel on the spot instead, same as before.
+$fee_type_map = AVBK_DB::activity_fee_type_map();
+$recent_activity_cutoff_year = (int) current_time('Y') - 1;
+$recent_activities = array_values(array_filter(
+    AVPVH_DB::get_activities(),
+    fn($a) => (int) $a->year >= $recent_activity_cutoff_year
+));
+$other_activity_type_names = array_values(array_diff(
+    wp_list_pluck(AVPVH_DB::get_activity_types(), 'name'),
+    array_keys($fee_type_map)
+));
+$other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschrijving met de bank-omschrijving), niet uit de tabel
+// fixed fallback for "Markeer rest als schenking" (review-queue.js) — a
+// real category, not just a free-text label, so it's counted by
+// AVBK_DB::get_total_donations() and the "Schenking"-filter on Alle
+// transacties (incident 2026-10-19: used to fall into the generic
+// "Anders"-categorie and was invisible in both places).
+$other_activity_type_names[] = 'Schenking';
+
+
 ?>
 <script type="application/json" id="avbk-review-config"><?php echo wp_json_encode([
     'ajaxUrl'          => admin_url('admin-ajax.php'),
@@ -610,3 +614,5 @@ function avbk_row_detail(array $row): ?array {
         </div>
     <?php endforeach; ?>
 </div>
+<?php
+}

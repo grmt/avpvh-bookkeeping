@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/activity-payments.php page. */
+function avbk_render_activity_payments(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -705,3 +708,5 @@ sort($activity_types);
     });
     </script>
 </div>
+<?php
+}

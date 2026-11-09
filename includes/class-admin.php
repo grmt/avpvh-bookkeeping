@@ -171,18 +171,18 @@ class AVBK_Admin implements AVBK_Component {
         }
     }
 
-    public function render_overview(): void { require AVBK_PLUGIN_DIR . 'admin/overview.php'; }
-    public function render_disputes(): void { require AVBK_PLUGIN_DIR . 'admin/disputes.php'; }
-    public function render_reimbursements(): void { require AVBK_PLUGIN_DIR . 'admin/reimbursements.php'; }
-    public function render_activity_payments(): void { require AVBK_PLUGIN_DIR . 'admin/activity-payments.php'; }
-    public function render_import(): void { require AVBK_PLUGIN_DIR . 'admin/import.php'; }
-    public function render_review(): void { require AVBK_PLUGIN_DIR . 'admin/review-queue.php'; }
-    public function render_second_approval(): void { require AVBK_PLUGIN_DIR . 'admin/second-approval.php'; }
-    public function render_transactions(): void { require AVBK_PLUGIN_DIR . 'admin/transactions.php'; }
-    public function render_members(): void { require AVBK_PLUGIN_DIR . 'admin/members-balance.php'; }
-    public function render_rates(): void { require AVBK_PLUGIN_DIR . 'admin/rates.php'; }
-    public function render_orders(): void { require AVBK_PLUGIN_DIR . 'admin/orders.php'; }
-    public function render_flyers(): void { require AVBK_PLUGIN_DIR . 'admin/flyers.php'; }
+    public function render_overview(): void { require_once AVBK_PLUGIN_DIR . 'admin/overview.php'; avbk_render_overview(); }
+    public function render_disputes(): void { require_once AVBK_PLUGIN_DIR . 'admin/disputes.php'; avbk_render_disputes(); }
+    public function render_reimbursements(): void { require_once AVBK_PLUGIN_DIR . 'admin/reimbursements.php'; avbk_render_reimbursements(); }
+    public function render_activity_payments(): void { require_once AVBK_PLUGIN_DIR . 'admin/activity-payments.php'; avbk_render_activity_payments(); }
+    public function render_import(): void { require_once AVBK_PLUGIN_DIR . 'admin/import.php'; avbk_render_import(); }
+    public function render_review(): void { require_once AVBK_PLUGIN_DIR . 'admin/review-queue.php'; avbk_render_review_queue(); }
+    public function render_second_approval(): void { require_once AVBK_PLUGIN_DIR . 'admin/second-approval.php'; avbk_render_second_approval(); }
+    public function render_transactions(): void { require_once AVBK_PLUGIN_DIR . 'admin/transactions.php'; avbk_render_transactions(); }
+    public function render_members(): void { require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php'; avbk_render_members_balance(); }
+    public function render_rates(): void { require_once AVBK_PLUGIN_DIR . 'admin/rates.php'; avbk_render_rates(); }
+    public function render_orders(): void { require_once AVBK_PLUGIN_DIR . 'admin/orders.php'; avbk_render_orders(); }
+    public function render_flyers(): void { require_once AVBK_PLUGIN_DIR . 'admin/flyers.php'; avbk_render_flyers(); }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');

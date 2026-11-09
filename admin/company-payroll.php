@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-payroll.php's markup.
+ *
+ * @param array<string, mixed> $view $company, $company_id, $form_start, $year.
+ */
+function avbk_render_company_payroll(array $view): void {
+    ['company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'year' => $year] = $view;
 if (!AVBK_Company_Payroll::enabled($company_id)) return;
 $payroll_documents = AVBK_Company_Payroll::documents($company_id, $year);
 ?>
@@ -31,3 +39,5 @@ $payroll_documents = AVBK_Company_Payroll::documents($company_id, $year);
     <?php endif; ?>
     <p>Een belastingopgave is geen bewijs van betaling. Controleer de betaling van loonheffingen met de banktransacties van de betreffende maand.</p>
 </section>
+<?php
+}

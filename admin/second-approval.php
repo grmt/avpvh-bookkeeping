@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/second-approval.php page. */
+function avbk_render_second_approval(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -102,3 +105,5 @@ $current_user_id = get_current_user_id();
         <hr>
     <?php endforeach; endif; ?>
 </div>
+<?php
+}

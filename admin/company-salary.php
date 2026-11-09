@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-salary.php's markup.
+ *
+ * @param array<string, mixed> $view $companies, $company, $company_id, $form_start, $notice, $return_to, $year.
+ */
+function avbk_render_company_salary(array $view): void {
+    ['companies' => $companies, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'notice' => $notice, 'return_to' => $return_to, 'year' => $year] = $view;
 ?>
 <div class="wrap avbk-company">
     <h1 class="avbk-company-heading">Salaris · <?php echo esc_html($company->name); ?></h1>
@@ -21,6 +29,8 @@ defined('ABSPATH') || exit;
             </form><?php endif; ?>
         </section>
     <?php endif; ?>
-    <?php require AVBK_PLUGIN_DIR . 'admin/company-payments.php'; ?>
-    <?php require AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; ?>
+    <?php require_once AVBK_PLUGIN_DIR . 'admin/company-payments.php'; avbk_render_company_payments($view); ?>
+    <?php require_once AVBK_PLUGIN_DIR . 'admin/company-payroll.php'; avbk_render_company_payroll($view); ?>
 </div>
+<?php
+}

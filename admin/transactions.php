@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/transactions.php page. */
+function avbk_render_transactions(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -208,3 +211,5 @@ $ignore_reason_label = [
     </div>
     <p class="description">Een rood gemarkeerde regel is <strong>gekoppeld</strong> aan een lid, maar het bedrag is niet (volledig) op een bijdrage afgeboekt &mdash; vaak doordat de betaling werd bevestigd vóórdat de bijbehorende bijdrage-regel bestond (bijv. een activiteitsbetaling vóór de aanmeldingen-sheet is geïmporteerd). Ga naar "Tweede controle" om zo'n transactie via "Terugzetten voor correctie" terug te zetten en opnieuw te bevestigen, nu de bijdrage wel bestaat.</p>
 </div>
+<?php
+}

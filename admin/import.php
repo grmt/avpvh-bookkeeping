@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/import.php page. */
+function avbk_render_import(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -147,3 +150,5 @@ $layout = AVBK_Bank_Import_Layout::get_config();
         </table>
     <?php endif; ?>
 </div>
+<?php
+}

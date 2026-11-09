@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/flyers.php page. */
+function avbk_render_flyers(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -107,3 +110,5 @@ $presets = AVBK_Flyer::get_presets();
         </p>
     </form>
 </div>
+<?php
+}

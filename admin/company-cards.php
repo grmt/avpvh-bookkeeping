@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-cards.php's markup.
+ *
+ * @param array<string, mixed> $view $card_transactions, $company, $company_id, $form_start.
+ */
+function avbk_render_company_cards(array $view): void {
+    ['card_transactions' => $card_transactions, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start] = $view;
 $creditcard_enabled = AVBK_Company_Features::enabled($company_id, 'creditcard');
 if (!$creditcard_enabled && !$card_transactions) return;
 ?>
@@ -51,3 +59,5 @@ if (!$creditcard_enabled && !$card_transactions) return;
         </table></div>
     <?php endif; ?>
 </section>
+<?php
+}

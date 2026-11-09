@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/reimbursements.php page. */
+function avbk_render_reimbursements(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -197,3 +200,5 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
         </table>
     <?php endif; ?>
 </div>
+<?php
+}

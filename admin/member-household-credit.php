@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** The household credit block on a member's Ledenoverzicht detail view. */
+function avbk_render_member_household_credit(int $detail_member_id, array $household_members): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -72,3 +75,5 @@ $household_credit_total = round(array_sum(array_map(fn($r) => $r->credit, $house
     </details>
 </section>
 <?php endif; ?>
+<?php
+}

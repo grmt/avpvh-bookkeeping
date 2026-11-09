@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/companies.php's markup.
+ *
+ * @param array<string, mixed> $view $companies, $company, $company_id, $form_start, $notice, $quarter, $return_to, $transactions, $year.
+ */
+function avbk_render_companies(array $view): void {
+    ['companies' => $companies, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'notice' => $notice, 'quarter' => $quarter, 'return_to' => $return_to, 'transactions' => $transactions, 'year' => $year] = $view;
 // Variables and the form renderer are supplied after checking company access.
 ?>
 <div class="wrap avbk-company">
@@ -26,7 +34,7 @@ defined('ABSPATH') || exit;
             <h1 class="avbk-company-heading"><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h1>
         <?php endif; ?>
         <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
-        <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
+        <?php require_once AVBK_PLUGIN_DIR . 'admin/company-report.php'; avbk_render_company_report($view); ?>
         <?php if (AVBK_Company_Payroll::enabled($company_id) && get_option('avbk_company_payroll_page_id')) : ?>
             <p><a class="button" href="<?php echo esc_url(add_query_arg(['company_id' => $company_id, 'book_year' => $year], get_permalink((int) get_option('avbk_company_payroll_page_id')))); ?>">Salaris en loonheffingen</a></p>
         <?php endif; ?>
@@ -41,7 +49,7 @@ defined('ABSPATH') || exit;
                 </form>
             </section>
         <?php endif; ?>
-        <?php require AVBK_PLUGIN_DIR . 'admin/company-cards.php'; ?>
+        <?php require_once AVBK_PLUGIN_DIR . 'admin/company-cards.php'; avbk_render_company_cards($view); ?>
         <section class="avbk-company-card">
             <h3>Facturen en bonnetjes</h3>
             <p>Upload de factuur of geef de vindplaats op, bijvoorbeeld een OneDrive-link of bestandspad. Verwijzingen worden bewaard; bestanden worden niet automatisch opgehaald. Een factuur vastleggen bevestigt nog geen BTW-bedrag.</p>
@@ -166,3 +174,5 @@ defined('ABSPATH') || exit;
         </section>
     <?php endif; ?>
 </div>
+<?php
+}

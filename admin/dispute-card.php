@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** One bezwaar card on the Bezwaren page. */
+function avbk_render_dispute_card(object $dispute): void {
 $member = AVPVH_DB::get_member((int) $dispute->member_id);
 $recipient = AVBK_Disputes::recipient($dispute);
 $email = $recipient ? (string) ($recipient->email ?? '') : '';
@@ -104,3 +107,5 @@ $event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 
         </form>
     </div>
 </article>
+<?php
+}

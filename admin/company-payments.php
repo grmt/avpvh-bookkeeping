@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/company-payments.php's markup.
+ *
+ * @param array<string, mixed> $view $company, $company_id, $year.
+ */
+function avbk_render_company_payments(array $view): void {
+    ['company' => $company, 'company_id' => $company_id, 'year' => $year] = $view;
 $payroll_payments = AVBK_Company_Payroll::payments($company_id, $year);
 ?>
 <?php foreach (array_reverse($payroll_payments, true) as $payment_period => $period_payments) : ?>
@@ -26,3 +34,5 @@ $payroll_payments = AVBK_Company_Payroll::payments($company_id, $year);
     </details>
 </section>
 <?php endforeach; ?>
+<?php
+}
