@@ -19,6 +19,10 @@ defined('ABSPATH') || exit;
 define('AVBK_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AVBK_PLUGIN_URL', plugin_dir_url(__FILE__));
 
+// Loaded up front: every path that loads a component class (activation,
+// plugins_loaded) needs it first.
+require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
+
 /**
  * Cache-busting version for an asset: the file's own mtime — mirrors
  * avpvh_asset_version() in avpvh-members so deploys invalidate browser
@@ -56,7 +60,6 @@ register_deactivation_hook(__FILE__, function () {
 });
 
 add_action('plugins_loaded', function () {
-    require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-xlsx-reader.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
