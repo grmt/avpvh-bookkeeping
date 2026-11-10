@@ -108,7 +108,14 @@ $layout = AVBK_Bank_Import_Layout::get_config();
     </form>
 
     <h2>Geschiedenis</h2>
-    <?php $batches = AVBK_DB::get_import_batches(); ?>
+    <?php avbk_render_import_history(); ?>
+</div>
+<?php
+}
+
+/** Previously uploaded bank exports. */
+function avbk_render_import_history(): void {
+    $batches = AVBK_DB::get_import_batches(); ?>
     <?php if (!$batches) : ?>
         <p>Nog geen bankexport geüpload.</p>
     <?php else : ?>
@@ -132,15 +139,7 @@ $layout = AVBK_Bank_Import_Layout::get_config();
                         <td>#<?php echo esc_html($batch->id); ?></td>
                         <td><?php echo esc_html(wp_date('D d M Y H:i', strtotime($batch->uploaded_at))); ?></td>
                         <td><?php echo esc_html($batch->filename); ?></td>
-                        <td>
-                            <?php if ($batch->first_transaction_date && $batch->last_transaction_date) : ?>
-                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->first_transaction_date))); ?>
-                                &ndash;
-                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->last_transaction_date))); ?>
-                            <?php else : ?>
-                                &mdash;
-                            <?php endif; ?>
-                        </td>
+                        <?php avbk_render_import_period($batch); ?>
                         <td><?php echo esc_html($batch->row_count); ?></td>
                         <td><?php echo esc_html($batch->matched_count); ?></td>
                         <td><?php echo esc_html($uploader ? $uploader->display_name : '—'); ?></td>
@@ -149,6 +148,19 @@ $layout = AVBK_Bank_Import_Layout::get_config();
             </tbody>
         </table>
     <?php endif; ?>
-</div>
+<?php
+}
+
+/** The period an import batch covers. */
+function avbk_render_import_period($batch): void {
+?><td>
+                            <?php if ($batch->first_transaction_date && $batch->last_transaction_date) : ?>
+                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->first_transaction_date))); ?>
+                                &ndash;
+                                <?php echo esc_html(wp_date('D d M Y', strtotime($batch->last_transaction_date))); ?>
+                            <?php else : ?>
+                                &mdash;
+                            <?php endif; ?>
+                        </td>
 <?php
 }

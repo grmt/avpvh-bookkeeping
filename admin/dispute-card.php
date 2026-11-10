@@ -29,7 +29,16 @@ $event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 
     </p>
     <div class="avbk-dispute-message"><?php echo nl2br(esc_html($dispute->message)); ?></div>
 
-    <details class="avbk-dispute-history" <?php echo $focused ? 'open' : ''; ?>>
+    <?php avbk_render_dispute_history($focused, $events, $event_labels); ?>
+
+    <?php avbk_render_dispute_actions($focused, $draft, $can_reply, $recipient, $email, $dispute); ?>
+</article>
+<?php
+}
+
+/** The action history of a bezwaar. */
+function avbk_render_dispute_history($focused, $events, $event_labels): void {
+?><details class="avbk-dispute-history" <?php echo $focused ? 'open' : ''; ?>>
         <summary>Actiehistorie (<?php echo esc_html(count($events)); ?>)</summary>
         <?php if (!$events) : ?><p class="description">Nog geen acties vastgelegd.</p><?php endif; ?>
         <ol>
@@ -38,7 +47,17 @@ $event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 
                 $actor_label = $actor ? $actor->display_name : ($event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar');
                 ?>
                 <li>
-                    <strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
+                    <?php avbk_render_dispute_event($event_labels, $event, $actor_label); ?>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+    </details>
+<?php
+}
+
+/** The contents of one entry of a bezwaar's action history. */
+function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
+?><strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
                     <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $event->created_at)); ?> · <?php echo esc_html($actor_label); ?></span>
                     <?php if ($event->event_type === 'reply') : ?>
                         <p class="avbk-dispute-delivery <?php echo $event->delivery_status === 'sent' ? '' : 'avbk-dispute-delivery--warning'; ?>">
@@ -51,34 +70,13 @@ $event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 
                         </p>
                     <?php endif; ?>
                     <?php if ($event->message !== '') : ?><div class="avbk-dispute-event-message"><?php echo nl2br(esc_html($event->message)); ?></div><?php endif; ?>
-                </li>
-            <?php endforeach; ?>
-        </ol>
-    </details>
+<?php
+}
 
-    <div class="avbk-dispute-actions">
-        <details <?php echo $focused && ($draft['action'] ?? '') === 'reply' ? 'open' : ''; ?>>
-            <summary>Antwoorden per e-mail</summary>
-            <?php if ($can_reply) : ?>
-                <p>Ontvanger: <strong><?php echo esc_html(avpvh_format_name($recipient, 'list')); ?></strong> &lt;<?php echo esc_html($email); ?>&gt;</p>
-                <?php if (empty($dispute->submitted_by_member_id)) : ?>
-                    <p class="description">Bij deze oudere melding is de oorspronkelijke indiener niet vastgelegd. Het antwoord gaat naar het lid hierboven; controleer of dat de juiste ontvanger is.</p>
-                <?php endif; ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <?php wp_nonce_field('avbk_update_dispute_' . $dispute->id); ?>
-                    <input type="hidden" name="action" value="avbk_update_dispute">
-                    <input type="hidden" name="id" value="<?php echo esc_attr($dispute->id); ?>">
-                    <input type="hidden" name="dispute_action" value="reply">
-                    <input type="hidden" name="request_key" value="<?php echo esc_attr(wp_generate_uuid4()); ?>">
-                    <label for="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>">Je antwoord</label>
-                    <textarea id="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>" name="message" rows="5" required><?php echo esc_textarea(($draft['action'] ?? '') === 'reply' ? $draft['message'] : ''); ?></textarea>
-                    <p class="description">Je antwoord wordt per e-mail verstuurd en in de historie bewaard. Afhandelen doe je apart.</p>
-                    <p><button type="submit" class="button button-primary">Antwoord versturen</button></p>
-                </form>
-            <?php else : ?>
-                <p>Er is geen geldig e-mailadres voor de ontvanger. Werk eerst de contactgegevens bij. Je kunt wel een interne notitie toevoegen.</p>
-            <?php endif; ?>
-        </details>
+/** Reply, note and resolve/reopen forms of a bezwaar. */
+function avbk_render_dispute_actions($focused, $draft, $can_reply, $recipient, $email, $dispute): void {
+?><div class="avbk-dispute-actions">
+        <?php avbk_render_dispute_reply_form($focused, $draft, $can_reply, $recipient, $email, $dispute); ?>
 
         <details <?php echo $focused && ($draft['action'] ?? '') === 'note' ? 'open' : ''; ?>>
             <summary>Actie of interne notitie vastleggen</summary>
@@ -106,6 +104,32 @@ $event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 
             <p><button type="submit" class="button"><?php echo $dispute->status === 'resolved' ? 'Heropenen' : 'Afhandelen'; ?></button></p>
         </form>
     </div>
-</article>
+<?php
+}
+
+/** The reply-by-e-mail form of a bezwaar. */
+function avbk_render_dispute_reply_form($focused, $draft, $can_reply, $recipient, $email, $dispute): void {
+?><details <?php echo $focused && ($draft['action'] ?? '') === 'reply' ? 'open' : ''; ?>>
+            <summary>Antwoorden per e-mail</summary>
+            <?php if ($can_reply) : ?>
+                <p>Ontvanger: <strong><?php echo esc_html(avpvh_format_name($recipient, 'list')); ?></strong> &lt;<?php echo esc_html($email); ?>&gt;</p>
+                <?php if (empty($dispute->submitted_by_member_id)) : ?>
+                    <p class="description">Bij deze oudere melding is de oorspronkelijke indiener niet vastgelegd. Het antwoord gaat naar het lid hierboven; controleer of dat de juiste ontvanger is.</p>
+                <?php endif; ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('avbk_update_dispute_' . $dispute->id); ?>
+                    <input type="hidden" name="action" value="avbk_update_dispute">
+                    <input type="hidden" name="id" value="<?php echo esc_attr($dispute->id); ?>">
+                    <input type="hidden" name="dispute_action" value="reply">
+                    <input type="hidden" name="request_key" value="<?php echo esc_attr(wp_generate_uuid4()); ?>">
+                    <label for="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>">Je antwoord</label>
+                    <textarea id="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>" name="message" rows="5" required><?php echo esc_textarea(($draft['action'] ?? '') === 'reply' ? $draft['message'] : ''); ?></textarea>
+                    <p class="description">Je antwoord wordt per e-mail verstuurd en in de historie bewaard. Afhandelen doe je apart.</p>
+                    <p><button type="submit" class="button button-primary">Antwoord versturen</button></p>
+                </form>
+            <?php else : ?>
+                <p>Er is geen geldig e-mailadres voor de ontvanger. Werk eerst de contactgegevens bij. Je kunt wel een interne notitie toevoegen.</p>
+            <?php endif; ?>
+        </details>
 <?php
 }
