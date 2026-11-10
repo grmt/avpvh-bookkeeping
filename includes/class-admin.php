@@ -73,7 +73,7 @@ class AVBK_Admin implements AVBK_Component {
     }
 
     /**
-     * "Op die pagina kun je ook betalingen voor Anna, Bram en Cas toevoegen."
+     * "Op die pagina kun je ook betalingen voor Anna, Bram en Cas aanpassen."
      * for the payment request mail: the first names of the people whose open
      * items the balance page offers to add ("Betaal ook voor",
      * AVPVH_DB::get_extended_household()). Parents pay for their partner,
@@ -92,7 +92,7 @@ class AVBK_Admin implements AVBK_Component {
             $named[$child_id] = $child_name;
             $named += self::named_partners($child_id, $first_names);
         }
-        return "\n\nOp die pagina kun je ook betalingen voor " . self::dutch_list(array_values($named)) . ' toevoegen.';
+        return "\n\nOp die pagina kun je ook betalingen voor " . self::dutch_list(array_values($named)) . ' aanpassen.';
     }
 
     /** First names of the member's extended household, without the member. */
@@ -1229,23 +1229,28 @@ class AVBK_Admin implements AVBK_Component {
      * characters. The omschrijving is only the reference code, which is all
      * AVBK_Matcher::match_fee_item_reference() needs.
      */
-    private static function balance_request_mail_html(object $member, array $items, float $total, string $balance_url): string {
+    private static function balance_request_mail_html(object $member, array $items, float $credit_applied, string $balance_url): string {
         $member_id = (int) $member->id;
+        $open_items = array_filter($items, static fn($item) => $item->open_after > 0.005);
+        $total = round(array_sum(wp_list_pluck($open_items, 'open_after')), 2);
         $amount = static fn(float $value): string => '€&nbsp;' . esc_html(number_format($value, 2, ',', '.'));
         $rows = '';
         foreach ($items as $item) {
             $rows .= '<tr><td style="padding:2px 16px 2px 0">' . esc_html(self::balance_request_item_label($item, $member_id)) . '</td>'
                 . '<td style="padding:2px 0;text-align:right;white-space:nowrap">' . $amount((float) $item->remaining) . '</td></tr>';
         }
-        if (count($items) > 1) {
-            $rows .= '<tr><td style="padding:2px 16px 2px 0"><strong>Totaal</strong></td><td style="padding:2px 0;text-align:right;white-space:nowrap"><strong>' . $amount($total) . '</strong></td></tr>';
+        if ($credit_applied > 0.005) {
+            $rows .= '<tr><td style="padding:2px 16px 2px 0">Verrekend met je tegoed</td><td style="padding:2px 0;text-align:right;white-space:nowrap">−&nbsp;' . $amount($credit_applied) . '</td></tr>';
+        }
+        if ($credit_applied > 0.005 || count($items) > 1) {
+            $rows .= '<tr><td style="padding:2px 16px 2px 0"><strong>' . ($credit_applied > 0.005 ? 'Nog te betalen' : 'Totaal') . '</strong></td><td style="padding:2px 0;text-align:right;white-space:nowrap"><strong>' . $amount($total) . '</strong></td></tr>';
         }
         $club_iban = trim((string) get_option('avbk_club_iban', ''));
         $details = [
             'IBAN'         => $club_iban !== '' ? esc_html(trim(chunk_split($club_iban, 4, ' '))) : '',
             'Ten name van' => esc_html(trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'))),
             'Bedrag'       => $amount($total),
-            'Omschrijving' => '<strong>' . esc_html(AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))) . '</strong>',
+            'Omschrijving' => '<strong>' . esc_html(AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($open_items, 'id')))) . '</strong>',
         ];
         $detail_rows = '';
         foreach (array_filter($details) as $label => $value) {
@@ -2018,27 +2023,8 @@ class AVBK_Admin implements AVBK_Component {
         // rekeningtabel — re-derive the allowed set server-side (same
         // AVPVH_DB::get_extended_household() the shortcode's own "Betaal
         // ook voor" uses) rather than trusting which ids the client sent.
-        $allowed_member_ids = $member_id
-            ? array_map('intval', array_merge([$member_id], wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id')))
-            : [];
-
-        $items = [];
-        $total = 0.0;
-        $item_member_ids = [];
-        foreach ($requested_ids as $fee_item_id) {
-            $item = AVBK_DB::get_fee_item($fee_item_id);
-            if (!$item || !in_array((int) $item->member_id, $allowed_member_ids, true) || $item->status === 'waived') {
-                continue;
-            }
-            $remaining = AVBK_DB::get_fee_item_remaining($item);
-            if ($remaining <= 0.005) {
-                continue;
-            }
-            $item->remaining = $remaining;
-            $items[] = $item;
-            $total += $remaining;
-            $item_member_ids[(int) $item->member_id] = true;
-        }
+        $allowed_member_ids = $member_id ? self::balance_allowed_member_ids($member_id) : [];
+        $items = self::balance_selection_items($requested_ids, $allowed_member_ids);
 
         $fail = static function (string $reason) use ($return_url, $member_id, $requested_ids, $items, $mode): void {
             avbk_log_failure('payment request (Ledenoverzicht)', $reason, [
@@ -2059,18 +2045,38 @@ class AVBK_Admin implements AVBK_Component {
         if (!$items) {
             $fail('not_open');
         }
+        if ($mode !== 'show' && $mode !== 'mail') {
+            $fail('unknown_mode');
+        }
+        if ($mode === 'mail' && !is_email($member->email)) {
+            $fail('invalid_email');
+        }
+
+        // The tegoed checkbox: settle the credit against the selection
+        // first, so the page, its QR code and the mail all ask only for
+        // what is still open. The "Tegoed verrekend" mail goes out on its
+        // own only when there is no payment request to mention it in.
+        $credit_applied = !empty($_POST['apply_credit']) ? self::apply_credit_to_items($member_id, $items) : 0.0;
+        $open_items = array_values(array_filter($items, static fn($item) => $item->open_after > 0.005));
+        if (!$open_items || ($credit_applied > 0.005 && $mode === 'show')) {
+            self::mail_credit_applied($member, $credit_applied, $items);
+        }
+        if (!$open_items) {
+            wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
+            exit;
+        }
 
         // Any household member actually represented in the selection must
         // be passed along too, or the frontend page (whose own "Betaal ook
         // voor" independently derives $items from ?also[]) won't recognize
         // their fee item ids and will silently drop them from the combined
         // QR/overzicht.
-        $also_member_ids = array_values(array_diff(array_keys($item_member_ids), [$member_id]));
+        $also_member_ids = array_values(array_diff(array_unique(array_map(static fn($item) => (int) $item->member_id, $open_items)), [$member_id]));
 
         $balance_url = add_query_arg(
             array_filter([
                 'member_id' => $member_id,
-                'pay'       => wp_list_pluck($items, 'id'),
+                'pay'       => wp_list_pluck($open_items, 'id'),
                 'also'      => $also_member_ids ?: null,
             ]),
             home_url('/leden/beheer/member-profile/')
@@ -2080,15 +2086,8 @@ class AVBK_Admin implements AVBK_Component {
             exit;
         }
 
-        if ($mode !== 'mail') {
-            $fail('unknown_mode');
-        }
-        if (!is_email($member->email)) {
-            $fail('invalid_email');
-        }
-
-        $subject = count($items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen';
-        $body = self::balance_request_mail_html($member, $items, $total, $balance_url);
+        $subject = count($open_items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen';
+        $body = self::balance_request_mail_html($member, $items, $credit_applied, $balance_url);
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
@@ -2135,49 +2134,74 @@ class AVBK_Admin implements AVBK_Component {
 
     /**
      * "Verrekenen met tegoed" on the member-detail rekening table: settle
-     * every checked open item against the member's own credit in one go
-     * (oldest credit-transaction first — see apply_credit_fifo()), instead
-     * of picking one item and an amount by hand.
+     * every checked open item, the member's own or a housemate's, against
+     * the member's credit in one go (oldest credit-transaction first, see
+     * apply_credit_fifo()), instead of picking one item and an amount by hand.
      */
     private function settle_credit_selection(int $member_id, array $fee_item_ids, bool $use_credit, string $return_url): void {
-        if (!$member_id || !$use_credit || !$fee_item_ids) {
+        $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+        $items = $member && $use_credit ? self::balance_selection_items($fee_item_ids, self::balance_allowed_member_ids($member_id)) : [];
+        if (!$items || self::apply_credit_to_items($member_id, $items) <= 0.005) {
             wp_safe_redirect(add_query_arg('credit_apply_failed', '1', $return_url));
             exit;
         }
-        $total_applied = 0.0;
-        $descriptions = [];
+        self::mail_credit_applied($member, array_sum(wp_list_pluck($items, 'credit_applied')), $items);
+        wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
+        exit;
+    }
+
+    /**
+     * The member and their extended household: the items a selection may
+     * hold. Re-derived server-side (same AVPVH_DB::get_extended_household()
+     * the shortcode's own "Betaal ook voor" uses) rather than trusting
+     * which ids the client sent.
+     */
+    private static function balance_allowed_member_ids(int $member_id): array {
+        return array_map('intval', array_merge([$member_id], wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id')));
+    }
+
+    /** The selected fee items that are still open, each with ->remaining and ->open_after (the same, until credit is applied). */
+    private static function balance_selection_items(array $fee_item_ids, array $allowed_member_ids): array {
+        $items = [];
         foreach ($fee_item_ids as $fee_item_id) {
-            $item = AVBK_DB::get_fee_item($fee_item_id);
-            if (!$item || (int) $item->member_id !== $member_id || $item->status !== 'open') {
+            $item = AVBK_DB::get_fee_item((int) $fee_item_id);
+            if (!$item || !in_array((int) $item->member_id, $allowed_member_ids, true) || $item->status === 'waived') {
                 continue;
             }
             $remaining = AVBK_DB::get_fee_item_remaining($item);
-            if ($remaining <= 0.005) {
-                continue;
-            }
-            $applied = AVBK_DB::apply_credit_fifo($member_id, $fee_item_id, $remaining);
-            if ($applied > 0.005) {
-                $total_applied = round($total_applied + $applied, 2);
-                $descriptions[] = $item->description;
+            if ($remaining > 0.005) {
+                $item->remaining = $remaining;
+                $item->open_after = $remaining;
+                $item->credit_applied = 0.0;
+                $items[] = $item;
             }
         }
-        if ($total_applied <= 0.005) {
-            wp_safe_redirect(add_query_arg('credit_apply_failed', '1', $return_url));
-            exit;
+        return $items;
+    }
+
+    /** Settles the member's credit against the items in order; sets ->credit_applied and ->open_after on each. @return float the total applied. */
+    private static function apply_credit_to_items(int $member_id, array $items): float {
+        $total = 0.0;
+        foreach ($items as $item) {
+            $applied = AVBK_DB::apply_credit_fifo($member_id, (int) $item->id, (float) $item->open_after);
+            $item->credit_applied = $applied;
+            $item->open_after = round($item->open_after - $applied, 2);
+            $total = round($total + $applied, 2);
         }
-        $member = AVPVH_DB::get_member($member_id);
-        if ($member && is_email($member->email)) {
-            $subject = '[AV-PvH] Tegoed verrekend';
-            $body = sprintf(
-                "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
-                number_format($total_applied, 2, ',', '.'),
-                implode(', ', $descriptions),
-                home_url('/leden/beheer/#bijdrage')
-            );
-            wp_mail($member->email, $subject, $body);
+        return $total;
+    }
+
+    private static function mail_credit_applied(object $member, float $applied, array $items): void {
+        if ($applied <= 0.005 || !is_email($member->email)) {
+            return;
         }
-        wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
-        exit;
+        $descriptions = wp_list_pluck(array_filter($items, static fn($item) => $item->credit_applied > 0.005), 'description');
+        wp_mail($member->email, '[AV-PvH] Tegoed verrekend', sprintf(
+            "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
+            number_format($applied, 2, ',', '.'),
+            implode(', ', $descriptions),
+            home_url('/leden/beheer/#bijdrage')
+        ));
     }
 
     /**
