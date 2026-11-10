@@ -8,60 +8,14 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 }
 
 $activities = AVPVH_DB::get_activities();
-$activity_id = absint(wp_unslash($_GET['activity_id'] ?? 0));
 $current_user_id = get_current_user_id();
-// A cleared/filter-only selection must not revive an unrelated remembered activity.
-if (!isset($_GET['activity_id']) && !isset($_GET['activity_year']) && !isset($_GET['activity_type'])) {
-    $remembered_id = (int) get_user_meta($current_user_id, 'avbk_last_activity_payments_id', true);
-    $remembered_exists = $remembered_id && array_filter($activities, fn($a) => (int) $a->id === $remembered_id);
-    if ($remembered_exists) {
-        $activity_id = $remembered_id;
-    } else {
-        $current = AVPVH_DB::get_current_activity();
-        $activity_id = $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
-    }
-}
-$activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
-$filter_year = isset($_GET['activity_year']) ? absint(wp_unslash($_GET['activity_year'])) : (int) ($activity->year ?? 0);
-$filter_type = isset($_GET['activity_type'])
-    ? sanitize_text_field(wp_unslash($_GET['activity_type']))
-    : (string) ($activity->type_name ?? '');
-$filtered_activities = array_values(array_filter($activities, static function ($candidate) use ($filter_year, $filter_type) {
-    $type = (string) ($candidate->type_name ?? '');
-    return (!$filter_year || (int) $candidate->year === $filter_year)
-        && ($filter_type === '' || ($filter_type === '__none__' ? $type === '' : $type === $filter_type));
-}));
-$matching_ids = array_map(fn($candidate) => (int) $candidate->id, $filtered_activities);
-if (!$activity || !in_array($activity_id, $matching_ids, true)) {
-    $activity_id = count($filtered_activities) === 1 ? (int) $filtered_activities[0]->id : 0;
-    $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
-}
+['activity_id' => $activity_id, 'activity' => $activity, 'filter_year' => $filter_year, 'filter_type' => $filter_type, 'filtered_activities' => $filtered_activities]
+    = avbk_activity_payments_selection($activities, $current_user_id);
 if ($activity) update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
 $is_camp = $activity && ($activity->type_name ?? '') === 'Kamp';
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
 $import_result = get_transient(AVBK_Sheet_Import::result_transient_key($activity_id));
 $participants = $activity_id ? AVPVH_DB::get_participation_for_activity($activity_id) : [];
-$preview_result = $activity_id && !$is_camp
-    ? AVBK_Sheet_Import::fetch_preview($config['sheet_url'], (int) $config['header_row'])
-    : ['headers' => [], 'rows' => [], 'raw_rows' => [], 'error' => null];
-$headers_result = ['headers' => $preview_result['headers'], 'error' => $preview_result['error']];
-// A live sheet-link fetch wins when there is one; otherwise fall back to
-// whatever the last successful fetch/upload saw, so a file-upload-only
-// source (no link to re-fetch from) still gets a real-heading dropdown.
-$sheet_headers = $headers_result['headers'] ?: $config['header_cache'];
-$raw_preview_rows = $preview_result['raw_rows'] ?: ($import_result['preview']['raw_rows'] ?? []);
-$preview_header_candidates = [];
-foreach ($raw_preview_rows as $preview_row) {
-    $candidate_headers = [];
-    foreach (($preview_row['cells'] ?? []) as $index => $cell) {
-        $candidate_headers[AVBK_Sheet_Import::index_to_letter((int) $index)] = trim((string) $cell);
-    }
-    $preview_header_candidates[(int) ($preview_row['row_number'] ?? 0)] = $candidate_headers;
-}
-$activity_years = array_values(array_unique(array_map(fn($a) => (int) $a->year, $activities)));
-rsort($activity_years);
-$activity_types = array_values(array_unique(array_map(fn($a) => (string) ($a->type_name ?? ''), $activities)));
-sort($activity_types);
 ?>
 <script type="application/json" id="avbk-activity-picker-config"><?php echo wp_json_encode([
     'activities' => array_map(fn($a) => [
@@ -75,7 +29,147 @@ sort($activity_types);
     <h1>Deelname en betalingen</h1>
     <p class="description">Verwerk deelnemers uit het bij de activiteit passende bronbestand en beheer de bijbehorende betalingen.</p>
 
-    <form method="get" class="avbk-activity-picker" id="avbk-activity-picker-form">
+    <?php avbk_render_activity_picker($activities, $filter_year, $filter_type, $filtered_activities, $activity_id); ?>
+
+    <?php if (!$activity) : ?>
+        <?php avbk_render_activity_none_notice($activities, $filtered_activities); ?>
+    <?php else : ?>
+        <h2><?php echo esc_html('Deelname en betalingen — ' . $activity->name . ' (' . $activity->year . ')'); ?></h2>
+
+        <?php avbk_render_activity_notices(); ?>
+
+        <h2>Aanmeldingen &mdash; bron</h2>
+        <?php if ($is_camp) : ?>
+            <?php avbk_render_activity_camp_source($activity_id); ?>
+        <?php else : ?>
+        <?php avbk_render_activity_sheet_source($activity_id, $config, $import_result, $activities); ?>
+        <?php endif; ?>
+
+        <?php avbk_render_activity_import_result($import_result, $activity_id); ?>
+
+        <?php avbk_render_activity_participants_section($activity, $participants, $activity_id, $config); ?>
+    <?php endif; ?>
+    <style>
+        .avbk-collapsible-block { margin: 1rem 0; border: 1px solid #ccd0d4; background: #fff; }
+        .avbk-collapsible-block > summary { cursor: pointer; padding: .7rem 1rem; font-weight: 600; }
+        .avbk-collapsible-block > .avbk-collapsible-content { padding: 0 1rem 1rem; }
+    </style>
+    <?php avbk_render_activity_payments_script(); ?>
+</div>
+<?php
+}
+
+/** Why no activity is shown: none exist, none chosen, or none match the filter. */
+function avbk_render_activity_none_notice($activities, $filtered_activities): void {
+?><div class="notice notice-info inline"><p><?php echo esc_html(!$activities
+            ? 'Nog geen activiteit aangemaakt in AV-PvH Leden → Activiteiten.'
+            : ($filtered_activities ? 'Kies hierboven een activiteit om de deelnemers en betalingen te bekijken.' : 'Geen activiteiten gevonden voor dit jaar en type. Pas je filters aan.')); ?></p></div>
+<?php
+}
+
+/** Result of the last sheet import: status, warnings, unmatched rows and conflicts. */
+function avbk_render_activity_import_result($import_result, $activity_id): void {
+    if ($import_result) : ?>
+            <?php avbk_render_activity_import_status($import_result); ?>
+
+            <?php avbk_render_activity_date_warnings($import_result); ?>
+
+            <?php avbk_render_activity_unmatched_rows($import_result, $activity_id); ?>
+        <?php endif; ?>
+
+        <?php avbk_render_activity_unmatched_summary($import_result); ?>
+
+        <?php avbk_render_activity_import_conflicts($import_result); ?>
+<?php
+}
+
+/** The participants of the activity with their payments. */
+function avbk_render_activity_participants_section($activity, $participants, $activity_id, $config): void {
+?><h2>Deelnemers <?php echo esc_html($activity->name); ?> (<?php echo esc_html(count($participants)); ?>)</h2>
+        <p class="description">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
+        <p class="description"><strong>Ingeschreven op</strong> is uitsluitend de oorspronkelijke formulierdatum van een daadwerkelijke deelname aan deze activiteit. Er wordt geen datum uit een betaling, ledenrecord of koppelactiviteit afgeleid.</p>
+        <?php avbk_render_activity_payment_request_notices(); ?>
+        <?php if (!$participants) : ?>
+            <p>Nog geen deelnemers.</p>
+        <?php else : ?>
+            <?php avbk_render_activity_participants_table($activity_id, $participants, $config); ?>
+        <?php endif; ?>
+<?php
+}
+
+/**
+ * The activity to show and the year/type filter around it.
+ *
+ * @return array{activity_id: int, activity: ?object, filter_year: int, filter_type: string, filtered_activities: object[]}
+ */
+function avbk_activity_payments_selection(array $activities, int $current_user_id): array {
+    $activity_id = avbk_activity_payments_requested_id($activities, $current_user_id);
+    $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+    $filter_year = isset($_GET['activity_year']) ? absint(wp_unslash($_GET['activity_year'])) : (int) ($activity->year ?? 0);
+    $filter_type = isset($_GET['activity_type'])
+        ? sanitize_text_field(wp_unslash($_GET['activity_type']))
+        : (string) ($activity->type_name ?? '');
+    $filtered_activities = avbk_activity_payments_filtered($activities, $filter_year, $filter_type);
+    $matching_ids = array_map(fn($candidate) => (int) $candidate->id, $filtered_activities);
+    if (!$activity || !in_array($activity_id, $matching_ids, true)) {
+        $activity_id = count($filtered_activities) === 1 ? (int) $filtered_activities[0]->id : 0;
+        $activity = $activity_id ? AVPVH_DB::get_activity($activity_id) : null;
+    }
+    return ['activity_id' => $activity_id, 'activity' => $activity, 'filter_year' => $filter_year, 'filter_type' => $filter_type, 'filtered_activities' => $filtered_activities];
+}
+
+/**
+ * The requested activity; without any selection or filter in the URL, the
+ * remembered one, else the current one. A cleared/filter-only selection
+ * must not revive an unrelated remembered activity.
+ */
+function avbk_activity_payments_requested_id(array $activities, int $current_user_id): int {
+    $activity_id = absint(wp_unslash($_GET['activity_id'] ?? 0));
+    if (isset($_GET['activity_id']) || isset($_GET['activity_year']) || isset($_GET['activity_type'])) {
+        return $activity_id;
+    }
+    $remembered_id = (int) get_user_meta($current_user_id, 'avbk_last_activity_payments_id', true);
+    if ($remembered_id && array_filter($activities, fn($a) => (int) $a->id === $remembered_id)) {
+        return $remembered_id;
+    }
+    $current = AVPVH_DB::get_current_activity();
+    return $current ? (int) $current->id : ($activities ? (int) $activities[0]->id : 0);
+}
+
+/** The activities of the chosen year and type ("__none__" = without a type). */
+function avbk_activity_payments_filtered(array $activities, int $filter_year, string $filter_type): array {
+    return array_values(array_filter($activities, static function ($candidate) use ($filter_year, $filter_type) {
+        $type = (string) ($candidate->type_name ?? '');
+        return (!$filter_year || (int) $candidate->year === $filter_year)
+            && ($filter_type === '' || ($filter_type === '__none__' ? $type === '' : $type === $filter_type));
+    }));
+}
+
+/**
+ * Each preview row as a possible header row: its cells by column letter,
+ * keyed by row number.
+ *
+ * @return array<int, array<string, string>>
+ */
+function avbk_activity_preview_header_candidates(array $raw_preview_rows): array {
+    $candidates = [];
+    foreach ($raw_preview_rows as $preview_row) {
+        $candidate_headers = [];
+        foreach (($preview_row['cells'] ?? []) as $index => $cell) {
+            $candidate_headers[AVBK_Sheet_Import::index_to_letter((int) $index)] = trim((string) $cell);
+        }
+        $candidates[(int) ($preview_row['row_number'] ?? 0)] = $candidate_headers;
+    }
+    return $candidates;
+}
+
+/** Year, type and activity selection. */
+function avbk_render_activity_picker($activities, $filter_year, $filter_type, $filtered_activities, $activity_id): void {
+    $activity_years = array_values(array_unique(array_map(fn($a) => (int) $a->year, $activities)));
+    rsort($activity_years);
+    $activity_types = array_values(array_unique(array_map(fn($a) => (string) ($a->type_name ?? ''), $activities)));
+    sort($activity_types);
+?><form method="get" class="avbk-activity-picker" id="avbk-activity-picker-form">
         <input type="hidden" name="page" value="avbk-activity-payments">
         <div class="avbk-activity-picker__fields">
             <label for="avbk-activity-year-filter">Jaar
@@ -109,15 +203,74 @@ sort($activity_types);
         </div>
         <p class="description">Jaar en type bepalen welke activiteiten je kunt kiezen. Kies daarna een activiteit om de deelnemers en betalingen te bekijken.</p>
     </form>
+<?php
+}
 
-    <?php if (!$activity) : ?>
-        <div class="notice notice-info inline"><p><?php echo esc_html(!$activities
-            ? 'Nog geen activiteit aangemaakt in AV-PvH Leden → Activiteiten.'
-            : ($filtered_activities ? 'Kies hierboven een activiteit om de deelnemers en betalingen te bekijken.' : 'Geen activiteiten gevonden voor dit jaar en type. Pas je filters aan.')); ?></p></div>
-    <?php else : ?>
-        <h2><?php echo esc_html('Deelname en betalingen — ' . $activity->name . ' (' . $activity->year . ')'); ?></h2>
+/** For a sheet-based activity: the sheet link or upload, preview, column mapping and header choice. */
+function avbk_render_activity_sheet_source($activity_id, $config, $import_result, $activities): void {
+    $preview_result = AVBK_Sheet_Import::fetch_preview($config['sheet_url'], (int) $config['header_row']);
+    $headers_result = ['headers' => $preview_result['headers'], 'error' => $preview_result['error']];
+    // A live sheet-link fetch wins when there is one; otherwise fall back to
+    // whatever the last successful fetch/upload saw, so a file-upload-only
+    // source (no link to re-fetch from) still gets a real-heading dropdown.
+    $sheet_headers = $headers_result['headers'] ?: $config['header_cache'];
+    $raw_preview_rows = $preview_result['raw_rows'] ?: ($import_result['preview']['raw_rows'] ?? []);
+    $preview_header_candidates = avbk_activity_preview_header_candidates($raw_preview_rows);
+?><p class="description">
+            De aanmeldingen komen ofwel uit een <strong>live Google Sheet-link</strong> (kies dit als het Google
+            Form/Sheet blijft bestaan — elke keer op "Ververs" klikken haalt de nieuwste stand op), ofwel uit een
+            <strong>los Excel-bestand</strong> dat je zelf van iemand krijgt toegestuurd (elke keer dat je een nieuwe
+            versie krijgt, upload je die opnieuw). Beide leveren dezelfde soort tabel op; je hoeft er maar één van te gebruiken.
+        </p>
 
-        <?php if (isset($_GET['config_saved'])) : ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:0.5rem">
+            <?php wp_nonce_field('avbk_save_sheet_url'); ?>
+            <input type="hidden" name="action" value="avbk_save_sheet_url">
+            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+            <input type="hidden" name="preview_header_candidates" value="<?php echo esc_attr(wp_json_encode($preview_header_candidates)); ?>">
+            <input type="hidden" id="avbk_source_match_activity_id" name="match_activity_id" value="<?php echo esc_attr((int) ($config['match_activity_id'] ?? 0)); ?>">
+            <?php avbk_render_activity_source_settings($config); ?>
+            <?php submit_button('Link opslaan', 'secondary', 'submit', false); ?>
+            <?php if ($config['sheet_url']) : ?>
+                <button type="submit" name="refresh_after_save" value="1" class="button button-primary">Opslaan en verversen vanuit Google Sheet</button>
+            <?php endif; ?>
+        </form>
+
+        <?php avbk_render_activity_upload_form($activity_id); ?>
+
+        <?php avbk_render_activity_raw_preview($raw_preview_rows); ?>
+
+        <h2>Kolomindeling</h2>
+        <p class="description">
+            Eén "slot" hieronder = één persoon die in een enkele rij van het formulier genoemd kan worden.
+            De meeste formulieren (boek, t-shirt, kamp) hebben maar 1 persoon per rij — dan vul je alleen
+            <strong>Persoon 1</strong> in. Per persoon is <strong>Naam of E-mail</strong> verplicht; beide invullen geeft de betrouwbaarste koppeling. Een formulier waarbij je in één keer meerdere mensen tegelijk kunt
+            aanmelden (zoals "wil je nog iemand aanmelden?") heeft per mogelijke extra persoon een eigen slot nodig —
+            vul dan ook Persoon 2, 3, ... in. Een leeg slot wordt genegeerd.
+        </p>
+        <?php avbk_render_activity_headers_notice($headers_result, $sheet_headers); ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <?php wp_nonce_field('avbk_save_sheet_import_config'); ?>
+            <input type="hidden" name="action" value="avbk_save_sheet_import_config">
+            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
+            <input type="hidden" id="avbk_config_header_row" name="header_row" value="<?php echo esc_attr(max(1, (int) $config['header_row'])); ?>">
+            <input type="hidden" name="preview_header_candidates" value="<?php echo esc_attr(wp_json_encode($preview_header_candidates)); ?>">
+            <?php avbk_render_activity_sheet_settings($config, $sheet_headers, $activities, $activity_id); ?>
+            <?php avbk_render_activity_column_mapping($config, $sheet_headers); ?>
+            <p class="description">
+                Vul een "Bedrag"-kolom alleen in als het bedrag per persoon verschilt (bijv. een drankrekening) — anders het vaste bedrag hierboven gebruiken.
+                Vul een "Nieuwsbrief"-kolom alleen in als het formulier een nieuwsbrief-vraag bevat &mdash; het antwoord wordt dan rechtstreeks als kenmerk "nieuwsbrief" op het gekoppelde lid gezet.
+            </p>
+            <?php submit_button($config['sheet_url'] ? 'Instellingen opslaan en Google Sheet opnieuw verwerken' : 'Instellingen opslaan'); ?>
+        </form>
+
+        <?php avbk_render_activity_header_candidates($preview_header_candidates); ?>
+<?php
+}
+
+/** Result notices of the activity actions. */
+function avbk_render_activity_notices(): void {
+    if (isset($_GET['config_saved'])) : ?>
             <div class="notice notice-success is-dismissible"><p>Instellingen opgeslagen.</p></div>
         <?php endif; ?>
         <?php if (isset($_GET['linked'])) : ?>
@@ -131,10 +284,12 @@ sort($activity_types);
         <?php elseif (isset($_GET['email_add_failed'])) : ?>
             <div class="notice notice-error"><p>E-mailadres kon niet worden toegevoegd. Het adres is mogelijk al aan een ander lid gekoppeld, ongeldig, of dit lid heeft al het maximumaantal adressen.</p></div>
         <?php endif; ?>
+<?php
+}
 
-        <h2>Aanmeldingen &mdash; bron</h2>
-        <?php if ($is_camp) : ?>
-            <p class="description">
+/** For a camp: upload the registration export or sync from the form. */
+function avbk_render_activity_camp_source($activity_id): void {
+?><p class="description">
                 Voor een kamp wordt automatisch de speciale indeling van het werkblad
                 <code>totaal inschrijvingen</code> gebruikt. Je hoeft daarom geen kopregel of kolomindeling in te stellen.
                 Namen staan in D, kampdagen in E–T en nawacht, opmerkingen en dieet in W–Z.
@@ -161,21 +316,12 @@ sort($activity_types);
                 <input type="url" name="camp_sheet_url" class="regular-text" style="width:32em" placeholder="https://docs.google.com/spreadsheets/d/..." aria-label="Google Sheets URL voor kampbestand">
                 <?php submit_button('Ophalen en verwerken', 'secondary', 'submit', false); ?>
             </form>
-        <?php else : ?>
-        <p class="description">
-            De aanmeldingen komen ofwel uit een <strong>live Google Sheet-link</strong> (kies dit als het Google
-            Form/Sheet blijft bestaan — elke keer op "Ververs" klikken haalt de nieuwste stand op), ofwel uit een
-            <strong>los Excel-bestand</strong> dat je zelf van iemand krijgt toegestuurd (elke keer dat je een nieuwe
-            versie krijgt, upload je die opnieuw). Beide leveren dezelfde soort tabel op; je hoeft er maar één van te gebruiken.
-        </p>
+<?php
+}
 
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:0.5rem">
-            <?php wp_nonce_field('avbk_save_sheet_url'); ?>
-            <input type="hidden" name="action" value="avbk_save_sheet_url">
-            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-            <input type="hidden" name="preview_header_candidates" value="<?php echo esc_attr(wp_json_encode($preview_header_candidates)); ?>">
-            <input type="hidden" id="avbk_source_match_activity_id" name="match_activity_id" value="<?php echo esc_attr((int) ($config['match_activity_id'] ?? 0)); ?>">
-            <table class="form-table" style="max-width:700px">
+/** Where the registrations come from: sheet URL and tab. */
+function avbk_render_activity_source_settings($config): void {
+?><table class="form-table" style="max-width:700px">
                 <tr>
                     <th><label for="sheet_url">Sheet-link</label></th>
                     <td><input type="url" id="sheet_url" name="sheet_url" class="regular-text" value="<?php echo esc_attr($config['sheet_url']); ?>" style="width:32em">
@@ -195,13 +341,12 @@ sort($activity_types);
                     </td>
                 </tr>
             </table>
-            <?php submit_button('Link opslaan', 'secondary', 'submit', false); ?>
-            <?php if ($config['sheet_url']) : ?>
-                <button type="submit" name="refresh_after_save" value="1" class="button button-primary">Opslaan en verversen vanuit Google Sheet</button>
-            <?php endif; ?>
-        </form>
+<?php
+}
 
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" style="margin:1rem 0 1.5rem">
+/** The form for uploading the sheet as a file. */
+function avbk_render_activity_upload_form($activity_id): void {
+?><form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" style="margin:1rem 0 1.5rem">
             <?php wp_nonce_field('avbk_sheet_import_upload'); ?>
             <input type="hidden" name="action" value="avbk_sheet_import_upload">
             <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
@@ -212,8 +357,12 @@ sort($activity_types);
             </div>
             <?php submit_button('Upload en verwerk', 'secondary', 'submit', false); ?>
         </form>
+<?php
+}
 
-        <?php if ($raw_preview_rows) : ?>
+/** The first rows of the sheet as they were read. */
+function avbk_render_activity_raw_preview($raw_preview_rows): void {
+    if ($raw_preview_rows) : ?>
             <h2>Eerste drie regels bronbestand</h2>
             <p class="description">De eerste drie niet-lege regels uit de Google Sheet of het Excel-bestand. Zo kun je controleren op welke rij de kolomkoppen staan.</p>
             <div style="max-width:100%;overflow:auto;margin-bottom:1.5rem">
@@ -237,27 +386,22 @@ sort($activity_types);
                 </table>
             </div>
         <?php endif; ?>
+<?php
+}
 
-        <h2>Kolomindeling</h2>
-        <p class="description">
-            Eén "slot" hieronder = één persoon die in een enkele rij van het formulier genoemd kan worden.
-            De meeste formulieren (boek, t-shirt, kamp) hebben maar 1 persoon per rij — dan vul je alleen
-            <strong>Persoon 1</strong> in. Per persoon is <strong>Naam of E-mail</strong> verplicht; beide invullen geeft de betrouwbaarste koppeling. Een formulier waarbij je in één keer meerdere mensen tegelijk kunt
-            aanmelden (zoals "wil je nog iemand aanmelden?") heeft per mogelijke extra persoon een eigen slot nodig —
-            vul dan ook Persoon 2, 3, ... in. Een leeg slot wordt genegeerd.
-        </p>
-        <?php if ($headers_result['error']) : ?>
+/** Why the sheet columns could not be read. */
+function avbk_render_activity_headers_notice($headers_result, $sheet_headers): void {
+    if ($headers_result['error']) : ?>
             <div class="notice notice-warning inline"><p><?php echo esc_html($headers_result['error']); ?></p></div>
         <?php elseif (!$sheet_headers) : ?>
             <p class="description"><em>Vul hierboven een sheet-link in en sla op, óf upload eenmalig een Excel-bestand — de pagina laadt dan opnieuw en toont hierna een keuzelijst met de echte kolomkoppen, in plaats van kolomletters.</em></p>
         <?php endif; ?>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-            <?php wp_nonce_field('avbk_save_sheet_import_config'); ?>
-            <input type="hidden" name="action" value="avbk_save_sheet_import_config">
-            <input type="hidden" name="activity_id" value="<?php echo esc_attr($activity_id); ?>">
-            <input type="hidden" id="avbk_config_header_row" name="header_row" value="<?php echo esc_attr(max(1, (int) $config['header_row'])); ?>">
-            <input type="hidden" name="preview_header_candidates" value="<?php echo esc_attr(wp_json_encode($preview_header_candidates)); ?>">
-            <table class="form-table" style="max-width:700px">
+<?php
+}
+
+/** Settings of the sheet import: header row, price and options. */
+function avbk_render_activity_sheet_settings($config, $sheet_headers, $activities, $activity_id): void {
+?><table class="form-table" style="max-width:700px">
                 <tr>
                     <th><label for="price_per_person">Vast bedrag per persoon</label></th>
                     <td>&euro; <input type="text" id="price_per_person" name="price_per_person" value="<?php echo esc_attr($config['price_per_person'] ? number_format((float) $config['price_per_person'], 2, ',', '') : ''); ?>" style="width:6em" placeholder="0,00">
@@ -311,7 +455,12 @@ sort($activity_types);
                     </td>
                 </tr>
             </table>
-            <table class="wp-list-table widefat striped" style="max-width:1200px">
+<?php
+}
+
+/** The column mapping table of the sheet. */
+function avbk_render_activity_column_mapping($config, $sheet_headers): void {
+?><table class="wp-list-table widefat striped" style="max-width:1200px">
                 <thead><tr><th scope="col">Slot</th><th scope="col">Naam <em>(of e-mail)</em></th><th scope="col">E-mail <em>(of naam)</em></th><th scope="col">Allergie/notitie</th><th scope="col">Overige notitie</th><th scope="col">Bedrag <em>(optioneel)</em></th><th scope="col">Nieuwsbrief <em>(optioneel)</em></th></tr></thead>
                 <tbody>
                 <?php
@@ -341,7 +490,19 @@ sort($activity_types);
                             $aria_label = ($slot_field_labels[$input_name] ?? $input_name) . ' ' . $slot_label;
                         ?>
                             <td>
-                                <?php if ($sheet_headers) : ?>
+                                <?php avbk_render_activity_column_field($sheet_headers, $input_name, $aria_label, $value); ?>
+                            </td>
+                        <?php endforeach; ?>
+                    </tr>
+                <?php endfor; ?>
+                </tbody>
+            </table>
+<?php
+}
+
+/** One column choice: a dropdown of the sheet's columns, or a text field when they are unknown. */
+function avbk_render_activity_column_field($sheet_headers, $input_name, $aria_label, $value): void {
+    if ($sheet_headers) : ?>
                                     <select name="<?php echo esc_attr($input_name); ?>[]" data-avbk-column-select aria-label="<?php echo esc_attr($aria_label); ?>" style="max-width:20em">
                                         <option value="">&mdash; niet gebruikt &mdash;</option>
                                         <?php foreach ($sheet_headers as $letter => $header_text) : ?>
@@ -354,20 +515,12 @@ sort($activity_types);
                                 <?php else : ?>
                                     <input type="text" name="<?php echo esc_attr($input_name); ?>[]" value="<?php echo esc_attr($value); ?>" aria-label="<?php echo esc_attr($aria_label); ?>" style="width:5em" placeholder="bijv. B">
                                 <?php endif; ?>
-                            </td>
-                        <?php endforeach; ?>
-                    </tr>
-                <?php endfor; ?>
-                </tbody>
-            </table>
-            <p class="description">
-                Vul een "Bedrag"-kolom alleen in als het bedrag per persoon verschilt (bijv. een drankrekening) — anders het vaste bedrag hierboven gebruiken.
-                Vul een "Nieuwsbrief"-kolom alleen in als het formulier een nieuwsbrief-vraag bevat &mdash; het antwoord wordt dan rechtstreeks als kenmerk "nieuwsbrief" op het gekoppelde lid gezet.
-            </p>
-            <?php submit_button($config['sheet_url'] ? 'Instellingen opslaan en Google Sheet opnieuw verwerken' : 'Instellingen opslaan'); ?>
-        </form>
+<?php
+}
 
-        <?php if ($preview_header_candidates) : ?>
+/** Possible header rows found in the sheet preview. */
+function avbk_render_activity_header_candidates($preview_header_candidates): void {
+    if ($preview_header_candidates) : ?>
             <script>
             (() => {
                 const headerRow = document.getElementById('header_row');
@@ -397,10 +550,12 @@ sort($activity_types);
             })();
             </script>
         <?php endif; ?>
-        <?php endif; ?>
+<?php
+}
 
-        <?php if ($import_result) : ?>
-            <?php if ($import_result['errors']) : ?>
+/** Errors or the result counts of the last sheet import. */
+function avbk_render_activity_import_status($import_result): void {
+    if ($import_result['errors']) : ?>
                 <div class="notice notice-error"><p><?php echo esc_html(implode(' ', $import_result['errors'])); ?></p></div>
             <?php else : ?>
                 <div class="notice notice-success">
@@ -410,8 +565,12 @@ sort($activity_types);
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
+<?php
+}
 
-            <?php if (!empty($import_result['date_warnings'])) : ?>
+/** Warnings about registration dates in the sheet. */
+function avbk_render_activity_date_warnings($import_result): void {
+    if (!empty($import_result['date_warnings'])) : ?>
                 <div class="notice notice-warning">
                     <p><strong>Controleer deze inschrijfdatums</strong> — mogelijk staat het datumformaat (hierboven, "Datumformaat inschrijfdatum") verkeerd:</p>
                     <ul style="list-style:disc; margin-left:1.5em">
@@ -421,12 +580,24 @@ sort($activity_types);
                     </ul>
                 </div>
             <?php endif; ?>
+<?php
+}
 
-            <?php if ($import_result['unmatched']) : ?>
+/** Sheet rows that matched no member, with link, ignore and add-e-mail forms. */
+function avbk_render_activity_unmatched_rows($import_result, $activity_id): void {
+    if ($import_result['unmatched']) : ?>
                 <h3 id="avbk-unmatched">Niet herkend &mdash; handmatig koppelen</h3>
                 <p class="description">Deze namen/e-mailadressen konden niet eenduidig aan een bestaand lid worden gekoppeld. Maak eerst zo nodig een nieuw lid aan bij AV-PvH Leden, kies 'm dan hieronder.</p>
                 <?php foreach ($import_result['unmatched'] as $person) : ?>
-                    <div class="avbk-review-row">
+                    <?php avbk_render_activity_unmatched_person($person, $activity_id); ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
+<?php
+}
+
+/** One unmatched sheet row: link to a member, or ignore it. */
+function avbk_render_activity_unmatched_person($person, $activity_id): void {
+?><div class="avbk-review-row">
                         <p><strong><?php echo esc_html($person['name'] ?: $person['email']); ?></strong> &mdash; <?php echo esc_html($person['email'] ?: 'geen e-mail'); ?><?php echo $person['allergies'] ? ' — allergieën: ' . esc_html($person['allergies']) : ''; ?><?php echo !empty($person['amount']) ? ' — € ' . esc_html(number_format((float) $person['amount'], 2, ',', '.')) : ''; ?></p>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                             <?php wp_nonce_field('avbk_sheet_import_link_attendee'); ?>
@@ -439,33 +610,10 @@ sort($activity_types);
                             <input type="hidden" name="amount" value="<?php echo esc_attr($person['amount'] ?? 0); ?>">
                             <input type="hidden" name="registered_at" value="<?php echo esc_attr($person['registered_at'] ?? ''); ?>">
                             <input type="hidden" name="source_timestamp" value="<?php echo esc_attr($person['source_timestamp'] ?? ''); ?>">
-                            <?php if (array_key_exists('newsletter', $person) && $person['newsletter'] !== null) : ?>
-                                <input type="hidden" name="newsletter" value="<?php echo $person['newsletter'] ? '1' : '0'; ?>">
-                            <?php endif; ?>
-                            <?php if (isset($person['camp_days'])) : ?>
-                                <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
-                                <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
-                            <?php endif; ?>
+                            <?php avbk_render_activity_person_extra_fields($person); ?>
                             <label style="display:block;margin:.4rem 0"><span class="screen-reader-text">Zoek lid</span><input type="search" class="avbk-unmatched-member-search" placeholder="Zoek lid, bijv. paul" aria-label="Zoek lid" style="width:20em"></label>
                             <label style="display:block;margin:.4rem 0"><input type="checkbox" class="avbk-show-inactive-members"> Toon inactieve leden</label>
-                            <select name="member_id" class="avbk-unmatched-member-select" aria-label="Kies lid" required>
-                                <option value="">&mdash; kies lid (ook oud-leden/bezoekers) &mdash;</option>
-                                <?php if (!empty($person['suggestions'])) : ?>
-                                    <optgroup label="Waarschijnlijke actieve leden">
-                                        <?php foreach ($person['suggestions'] as $suggestion) :
-                                            $suggested_member = $suggestion['member']; ?>
-                                            <option value="<?php echo esc_attr($suggested_member->id); ?>">
-                                                <?php echo esc_html(avpvh_format_name($suggested_member, 'list') . ' — overeenkomst ' . $suggestion['score'] . '%' . (!empty($suggestion['registered']) ? ', al ingeschreven' : '')); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </optgroup>
-                                    <optgroup label="Alle leden">
-                                <?php endif; ?>
-                                <?php foreach (AVPVH_DB::get_members() as $m) : ?>
-                                    <option value="<?php echo esc_attr($m->id); ?>" data-member-status="<?php echo esc_attr($m->status); ?>"><?php echo esc_html(avpvh_format_name($m, 'list') . ' (' . $m->status . ')'); ?></option>
-                                <?php endforeach; ?>
-                                <?php if (!empty($person['suggestions'])) : ?></optgroup><?php endif; ?>
-                            </select>
+                            <?php avbk_render_activity_member_select($person); ?>
                             <?php if (is_email($person['email'])) : ?>
                                 <label style="display:block;margin:0.5rem 0">
                                     <input type="checkbox" name="add_source_email" value="1">
@@ -484,11 +632,47 @@ sort($activity_types);
                             <button type="submit" class="button">Negeer deze bronregel</button>
                         </form>
                     </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        <?php endif; ?>
+<?php
+}
 
-        <?php if ($import_result && $import_result['unmatched']) : ?>
+/** Newsletter choice and camp days of an unmatched row, as hidden fields. */
+function avbk_render_activity_person_extra_fields($person): void {
+    if (array_key_exists('newsletter', $person) && $person['newsletter'] !== null) : ?>
+                                <input type="hidden" name="newsletter" value="<?php echo $person['newsletter'] ? '1' : '0'; ?>">
+                            <?php endif; ?>
+                            <?php if (isset($person['camp_days'])) : ?>
+                                <input type="hidden" name="camp_days" value="<?php echo esc_attr(wp_json_encode($person['camp_days'])); ?>">
+                                <input type="hidden" name="camp_nawacht" value="<?php echo !empty($person['camp_nawacht']) ? '1' : ''; ?>">
+                            <?php endif; ?>
+<?php
+}
+
+/** Member dropdown with the likely matches first. */
+function avbk_render_activity_member_select($person): void {
+?><select name="member_id" class="avbk-unmatched-member-select" aria-label="Kies lid" required>
+                                <option value="">&mdash; kies lid (ook oud-leden/bezoekers) &mdash;</option>
+                                <?php if (!empty($person['suggestions'])) : ?>
+                                    <optgroup label="Waarschijnlijke actieve leden">
+                                        <?php foreach ($person['suggestions'] as $suggestion) :
+                                            $suggested_member = $suggestion['member']; ?>
+                                            <option value="<?php echo esc_attr($suggested_member->id); ?>">
+                                                <?php echo esc_html(avpvh_format_name($suggested_member, 'list') . ' — overeenkomst ' . $suggestion['score'] . '%' . (!empty($suggestion['registered']) ? ', al ingeschreven' : '')); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                    <optgroup label="Alle leden">
+                                <?php endif; ?>
+                                <?php foreach (AVPVH_DB::get_members() as $m) : ?>
+                                    <option value="<?php echo esc_attr($m->id); ?>" data-member-status="<?php echo esc_attr($m->status); ?>"><?php echo esc_html(avpvh_format_name($m, 'list') . ' (' . $m->status . ')'); ?></option>
+                                <?php endforeach; ?>
+                                <?php if (!empty($person['suggestions'])) : ?></optgroup><?php endif; ?>
+                            </select>
+<?php
+}
+
+/** Summary of sheet rows that matched no member. */
+function avbk_render_activity_unmatched_summary($import_result): void {
+    if ($import_result && $import_result['unmatched']) : ?>
             <script>
             document.querySelectorAll('.avbk-review-row').forEach(function (row) {
                 var search = row.querySelector('.avbk-unmatched-member-search');
@@ -509,8 +693,12 @@ sort($activity_types);
             });
             </script>
         <?php endif; ?>
+<?php
+}
 
-        <?php if (!empty($import_result['conflicts'])) : ?>
+/** Rows whose sheet data conflicts with the member record. */
+function avbk_render_activity_import_conflicts($import_result): void {
+    if (!empty($import_result['conflicts'])) : ?>
             <h3 id="avbk-conflicts">Handmatige wijzigingen afwijkend van bronbestand</h3>
             <p class="description">
                 Deze velden zijn sinds de vorige import handmatig aangepast en wijken nu af van wat het bronbestand zegt &mdash; de handmatige waarde is behouden. Kies hieronder zelf of het bronbestand alsnog moet overnemen.
@@ -535,19 +723,22 @@ sort($activity_types);
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
+<?php
+}
 
-        <h2>Deelnemers <?php echo esc_html($activity->name); ?> (<?php echo esc_html(count($participants)); ?>)</h2>
-        <p class="description">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
-        <p class="description"><strong>Ingeschreven op</strong> is uitsluitend de oorspronkelijke formulierdatum van een daadwerkelijke deelname aan deze activiteit. Er wordt geen datum uit een betaling, ledenrecord of koppelactiviteit afgeleid.</p>
-        <?php if (isset($_GET['payment_requested'])) : ?>
+/** Result notices of a payment request. */
+function avbk_render_activity_payment_request_notices(): void {
+    if (isset($_GET['payment_requested'])) : ?>
             <div class="notice notice-success is-dismissible"><p>Betaalverzoek verstuurd.</p></div>
         <?php elseif (isset($_GET['payment_request_failed'])) : ?>
             <div class="notice notice-error is-dismissible"><p>Betaalverzoek kon niet worden verstuurd (geen openstaand bedrag, geen e-mailadres bekend, of het versturen is mislukt).</p></div>
         <?php endif; ?>
-        <?php if (!$participants) : ?>
-            <p>Nog geen deelnemers.</p>
-        <?php else : ?>
-            <p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
+<?php
+}
+
+/** The participants table with paid and due totals. */
+function avbk_render_activity_participants_table($activity_id, $participants, $config): void {
+?><p class="description">Zoek of filter in de velden onder de kolomkoppen. Klik op een kolomkop om te sorteren.</p>
             <div data-avpvh-sortable>
             <div class="avpvh-table-tools">
                 <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
@@ -569,49 +760,146 @@ sort($activity_types);
                 </tr></thead>
                 <tbody>
                 <?php $participants_paid_total = 0.0; $participants_due_total = 0.0; foreach ($participants as $p) :
-                    $fee_item = AVBK_DB::get_fee_item_for_member_activity((int) $p->member_id, $activity_id);
-                    $paid = $fee_item ? AVBK_DB::get_fee_item_paid((int) $fee_item->id) : 0.0;
-                    $due = $fee_item ? (float) $fee_item->amount_due : (float) $config['price_per_person'];
-                    $remaining = $fee_item ? round($due - $paid, 2) : 0.0;
-                    $participants_paid_total += $paid;
-                    $participants_due_total += $due;
-                    $registration_meta = AVBK_DB::get_sheet_participation_meta($activity_id, (int) $p->member_id);
-                    $payments = $fee_item ? AVBK_DB::get_payments_for_fee_item((int) $fee_item->id) : [];
-                    $payment_request = $fee_item ? AVBK_DB::get_last_payment_request((int) $fee_item->id) : null;
-                    $registration_sort = $registration_meta && $registration_meta->registered_at
-                        ? $registration_meta->registered_at
-                        : ($registration_meta->source_timestamp ?? '');
+                    $values = avbk_activity_participant_values($p, $activity_id, $config);
+                    $participants_paid_total += $values['paid'];
+                    $participants_due_total += $values['due'];
                     ?>
-                    <?php
-                    $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
-                    // Almost every participant has at most one account, so
-                    // this joined string is also each one's clean, single
-                    // filter value in the common case; someone with two
-                    // different banks just gets their own combined option
-                    // in the filter list rather than silently hiding one.
-                    $bank_names = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_bank_name($k->iban), $known_ibans)));
-                    $countries = array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_country($k->iban), $known_ibans)));
-                    ?>
+                    <?php avbk_render_activity_participant_row($p, $values, $activity_id); ?>
+                <?php endforeach; ?>
+                </tbody>
+                <tfoot><tr>
+                    <th scope="row">Totaal</th><td></td><td></td><td></td><td></td><td></td><td></td>
+                    <td data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></td>
+                    <td data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></td>
+                    <td></td>
+                </tr></tfoot>
+            </table>
+            </div>
+            </div>
+<?php
+}
+
+/** Script for the activity picker and the column mapping. */
+function avbk_render_activity_payments_script(): void {
+?><script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var headings = Array.prototype.slice.call(document.querySelectorAll('.wrap > h2, .wrap > h3'));
+        var wanted = ['Aanmeldingen', 'Eerste drie regels bronbestand', 'Kolomindeling', 'Niet herkend'];
+        headings.forEach(function (heading) {
+            var title = heading.textContent.trim();
+            var label = wanted.find(function (item) { return title.indexOf(item) === 0; });
+            if (!label || heading.parentElement.classList.contains('avbk-collapsible-block')) return;
+            var details = document.createElement('details');
+            details.className = 'avbk-collapsible-block';
+            var summary = document.createElement('summary');
+            summary.textContent = title;
+            var content = document.createElement('div');
+            content.className = 'avbk-collapsible-content';
+            heading.parentNode.insertBefore(details, heading);
+            details.appendChild(summary);
+            details.appendChild(content);
+            content.appendChild(heading);
+            var node = details.nextElementSibling;
+            while (node && !(/^H[23]$/.test(node.tagName))) {
+                var next = node.nextElementSibling;
+                content.appendChild(node);
+                node = next;
+            }
+        });
+    });
+    </script>
+<?php
+}
+
+/**
+ * One participant: member, bank accounts, registration, diet, notes,
+ * paid, due and the payment request controls.
+ *
+ * @param array<string, mixed> $values From avbk_activity_participant_values().
+ */
+function avbk_render_activity_participant_row(object $p, array $values, int $activity_id): void {
+    ['paid' => $paid, 'due' => $due, 'remaining' => $remaining, 'registration_meta' => $registration_meta, 'payments' => $payments, 'payment_request' => $payment_request, 'registration_sort' => $registration_sort, 'known_ibans' => $known_ibans, 'bank_names' => $bank_names, 'countries' => $countries] = $values;
+    ?>
                     <tr>
                         <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avpvh-member-detail', 'id' => $p->member_id], admin_url('admin.php'))); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($p, 'list')); ?></a></td>
                         <td data-filter-value="<?php echo esc_attr(implode(', ', wp_list_pluck($known_ibans, 'iban'))); ?>">
-                            <?php if (!$known_ibans) : ?>&mdash;<?php else : foreach ($known_ibans as $known) : ?>
-                                <div><?php echo esc_html($known->iban); ?><?php echo $known->account_name ? ' (' . esc_html($known->account_name) . ')' : ''; ?></div>
-                            <?php endforeach; endif; ?>
+                            <?php avbk_render_activity_participant_ibans($known_ibans); ?>
                         </td>
                         <td data-filter-value="<?php echo esc_attr(implode(', ', $bank_names)); ?>"><?php echo esc_html($bank_names ? implode(', ', $bank_names) : '—'); ?></td>
                         <td data-filter-value="<?php echo esc_attr(implode(', ', $countries)); ?>"><?php echo esc_html($countries ? implode(', ', $countries) : '—'); ?></td>
                         <td style="white-space:nowrap" data-sort-value="<?php echo esc_attr($registration_sort); ?>" data-filter-value="<?php echo esc_attr($registration_meta && ($registration_meta->registered_at || $registration_meta->source_timestamp) ? 'Datum bekend' : 'Geen datum'); ?>">
-                            <?php if ($registration_meta && $registration_meta->registered_at) : ?>
-                                <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($registration_meta->registered_at))); ?>
-                            <?php elseif ($registration_meta && $registration_meta->source_timestamp) : ?>
-                                <?php echo esc_html($registration_meta->source_timestamp); ?>
-                            <?php else : ?>&mdash;<?php endif; ?>
+                            <?php avbk_render_activity_registration_date($registration_meta); ?>
                         </td>
                         <td><?php echo esc_html($p->diet ?: '—'); ?></td>
                         <td><?php echo esc_html($p->notes ?: '—'); ?></td>
                         <td data-sort-value="<?php echo esc_attr(number_format($paid, 2, '.', '')); ?>">
-                            <?php echo esc_html('€ ' . number_format($paid, 2, ',', '.')); ?>
+                            <?php avbk_render_activity_participant_payments($paid, $payments); ?>
+                        </td>
+                        <td data-sort-value="<?php echo esc_attr(number_format($due, 2, '.', '')); ?>">
+                            <?php echo esc_html('€ ' . number_format($due, 2, ',', '.')); ?>
+                        </td>
+                        <td data-filter-value="<?php echo esc_attr($payment_request ? 'Gevraagd' : 'Niet gevraagd'); ?>">
+                            <?php avbk_render_activity_payment_request($remaining, $activity_id, $p, $payment_request); ?>
+                        </td>
+                    </tr>
+<?php
+}
+
+/**
+ * What the participants table shows for one participant: paid, due and
+ * remaining from their fee item (the activity price when there is none
+ * yet), payments, last payment request, registration and bank accounts.
+ *
+ * Almost every participant has at most one account, so the joined bank
+ * names are also each one's clean, single filter value in the common case;
+ * someone with two different banks just gets their own combined option in
+ * the filter list rather than silently hiding one.
+ *
+ * @return array<string, mixed>
+ */
+function avbk_activity_participant_values(object $p, int $activity_id, array $config): array {
+    $fee_item = AVBK_DB::get_fee_item_for_member_activity((int) $p->member_id, $activity_id);
+    $paid = $fee_item ? AVBK_DB::get_fee_item_paid((int) $fee_item->id) : 0.0;
+    $due = $fee_item ? (float) $fee_item->amount_due : (float) $config['price_per_person'];
+    $registration_meta = AVBK_DB::get_sheet_participation_meta($activity_id, (int) $p->member_id);
+    $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
+    return [
+        'paid' => $paid,
+        'due' => $due,
+        'remaining' => $fee_item ? round($due - $paid, 2) : 0.0,
+        'registration_meta' => $registration_meta,
+        'payments' => $fee_item ? AVBK_DB::get_payments_for_fee_item((int) $fee_item->id) : [],
+        'payment_request' => $fee_item ? AVBK_DB::get_last_payment_request((int) $fee_item->id) : null,
+        'registration_sort' => $registration_meta && $registration_meta->registered_at
+            ? $registration_meta->registered_at
+            : ($registration_meta->source_timestamp ?? ''),
+        'known_ibans' => $known_ibans,
+        'bank_names' => array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_bank_name($k->iban), $known_ibans))),
+        'countries' => array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_country($k->iban), $known_ibans))),
+    ];
+}
+
+/** The participant's known bank accounts. */
+function avbk_render_activity_participant_ibans($known_ibans): void {
+    if (!$known_ibans) : ?>&mdash;<?php else : foreach ($known_ibans as $known) : ?>
+                                <div><?php echo esc_html($known->iban); ?><?php echo $known->account_name ? ' (' . esc_html($known->account_name) . ')' : ''; ?></div>
+                            <?php endforeach; endif; ?>
+<?php
+}
+
+/** When the participant registered, from the form or the sheet. */
+function avbk_render_activity_registration_date($registration_meta): void {
+    if ($registration_meta && $registration_meta->registered_at) : ?>
+                                <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($registration_meta->registered_at))); ?>
+                            <?php elseif ($registration_meta && $registration_meta->source_timestamp) : ?>
+                                <?php echo esc_html($registration_meta->source_timestamp); ?>
+                            <?php else : ?>&mdash;<?php endif; ?>
+<?php
+}
+
+/** The amount paid by a participant, with its transactions. */
+function avbk_render_activity_participant_payments($paid, $payments): void {
+    echo esc_html('€ ' . number_format($paid, 2, ',', '.')); ?>
                             <?php foreach ($payments as $payment) :
                                 $transaction_url = add_query_arg(
                                     ['page' => 'avbk-transactions', 'show_all_years' => '1'],
@@ -623,12 +911,12 @@ sort($activity_types);
                                     &mdash; transactie #<?php echo esc_html($payment->transaction_id); ?>
                                 </a>
                             <?php endforeach; ?>
-                        </td>
-                        <td data-sort-value="<?php echo esc_attr(number_format($due, 2, '.', '')); ?>">
-                            <?php echo esc_html('€ ' . number_format($due, 2, ',', '.')); ?>
-                        </td>
-                        <td data-filter-value="<?php echo esc_attr($payment_request ? 'Gevraagd' : 'Niet gevraagd'); ?>">
-                            <?php if ($remaining > 0.005) : ?>
+<?php
+}
+
+/** Request-payment form, mail preview and QR links, and when it was last requested. */
+function avbk_render_activity_payment_request($remaining, $activity_id, $p, $payment_request): void {
+    if ($remaining > 0.005) : ?>
                                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
                                     <?php wp_nonce_field('avbk_request_payment'); ?>
                                     <input type="hidden" name="action" value="avbk_request_payment">
@@ -660,53 +948,5 @@ sort($activity_types);
                             <?php if ($payment_request) : ?>
                                 <div class="description" style="white-space:nowrap">Gevraagd op <?php echo esc_html(mysql2date('d-m-Y H:i', $payment_request->requested_at)); ?></div>
                             <?php elseif ($remaining <= 0.005) : ?>&mdash;<?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-                <tfoot><tr>
-                    <th scope="row">Totaal</th><td></td><td></td><td></td><td></td><td></td><td></td>
-                    <td data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></td>
-                    <td data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></td>
-                    <td></td>
-                </tr></tfoot>
-            </table>
-            </div>
-            </div>
-        <?php endif; ?>
-    <?php endif; ?>
-    <style>
-        .avbk-collapsible-block { margin: 1rem 0; border: 1px solid #ccd0d4; background: #fff; }
-        .avbk-collapsible-block > summary { cursor: pointer; padding: .7rem 1rem; font-weight: 600; }
-        .avbk-collapsible-block > .avbk-collapsible-content { padding: 0 1rem 1rem; }
-    </style>
-    <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        var headings = Array.prototype.slice.call(document.querySelectorAll('.wrap > h2, .wrap > h3'));
-        var wanted = ['Aanmeldingen', 'Eerste drie regels bronbestand', 'Kolomindeling', 'Niet herkend'];
-        headings.forEach(function (heading) {
-            var title = heading.textContent.trim();
-            var label = wanted.find(function (item) { return title.indexOf(item) === 0; });
-            if (!label || heading.parentElement.classList.contains('avbk-collapsible-block')) return;
-            var details = document.createElement('details');
-            details.className = 'avbk-collapsible-block';
-            var summary = document.createElement('summary');
-            summary.textContent = title;
-            var content = document.createElement('div');
-            content.className = 'avbk-collapsible-content';
-            heading.parentNode.insertBefore(details, heading);
-            details.appendChild(summary);
-            details.appendChild(content);
-            content.appendChild(heading);
-            var node = details.nextElementSibling;
-            while (node && !(/^H[23]$/.test(node.tagName))) {
-                var next = node.nextElementSibling;
-                content.appendChild(node);
-                node = next;
-            }
-        });
-    });
-    </script>
-</div>
 <?php
 }
