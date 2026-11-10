@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/members-balance.php page. */
+function avbk_render_members_balance(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -99,7 +102,7 @@ $current_book_year = (int) current_time('Y');
                 &nbsp;|&nbsp;
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
             </p>
-            <?php require AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; ?>
+            <?php require_once AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; avbk_render_member_household_credit($detail_member_id, $household_members); ?>
 
             <?php if (isset($_GET['credit_applied'])) : ?>
                 <div class="notice notice-success inline"><p>Tegoed verrekend. Het lid krijgt hierna automatisch een mailtje.</p></div>
@@ -437,3 +440,5 @@ $current_book_year = (int) current_time('Y');
         </div>
     <?php endif; ?>
 </div>
+<?php
+}

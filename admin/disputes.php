@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/disputes.php page. */
+function avbk_render_disputes(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -35,15 +38,17 @@ $notices = [
     <h2>Open (<?php echo esc_html(count($open)); ?>)</h2>
     <?php if (!$open) : ?><p>Niets openstaand.</p><?php endif; ?>
     <?php foreach ($open as $dispute) : ?>
-        <?php require AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; ?>
+        <?php require_once AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; avbk_render_dispute_card($dispute); ?>
     <?php endforeach; ?>
 
     <?php if ($resolved) : ?>
         <details class="avbk-disputes-resolved" <?php echo $show_resolved ? 'open' : ''; ?>>
             <summary>Afgehandeld (<?php echo esc_html(count($resolved)); ?>)</summary>
             <?php foreach ($resolved as $dispute) : ?>
-                <?php require AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; ?>
+                <?php require_once AVBK_PLUGIN_DIR . 'admin/dispute-card.php'; avbk_render_dispute_card($dispute); ?>
             <?php endforeach; ?>
         </details>
     <?php endif; ?>
 </div>
+<?php
+}

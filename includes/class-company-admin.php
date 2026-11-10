@@ -52,7 +52,8 @@ class AVBK_Company_Admin implements AVBK_Component {
         $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
         $notice = get_transient('avbk_company_notice_' . get_current_user_id());
         delete_transient('avbk_company_notice_' . get_current_user_id());
-        require AVBK_PLUGIN_DIR . 'admin/company-salary.php';
+        require_once AVBK_PLUGIN_DIR . 'admin/company-salary.php';
+        avbk_render_company_salary(compact('companies', 'company', 'company_id', 'form_start', 'notice', 'return_to', 'year'));
     }
 
     public function ledger_shortcode(): string {
@@ -73,7 +74,8 @@ class AVBK_Company_Admin implements AVBK_Component {
         delete_transient('avbk_company_notice_' . get_current_user_id());
         $accounts = AVBK_Company_Ledger::accounts($company_id);
         $entries = AVBK_Company_Ledger::entries($company_id);
-        require AVBK_PLUGIN_DIR . 'admin/company-ledger.php';
+        require_once AVBK_PLUGIN_DIR . 'admin/company-ledger.php';
+        avbk_render_company_ledger(compact('accounts', 'companies', 'company', 'company_id', 'entries', 'form_start', 'notice', 'return_to'));
     }
 
     public function shortcode(): string {
@@ -101,7 +103,8 @@ class AVBK_Company_Admin implements AVBK_Component {
         $report_stale = $report && ($report['transactions_hash'] !== AVBK_Company_Report::fingerprint($transactions)
             || ($report['cards_hash'] ?? '') !== AVBK_Company_Report::fingerprint($card_transactions));
         $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
-        require AVBK_PLUGIN_DIR . 'admin/companies.php';
+        require_once AVBK_PLUGIN_DIR . 'admin/companies.php';
+        avbk_render_companies(compact('companies', 'company', 'company_id', 'form_start', 'notice', 'quarter', 'return_to', 'transactions', 'year', 'card_transactions', 'report', 'report_stale'));
     }
 
     private function form_renderer(int $company_id, int $year, int $quarter, string $return_to): \Closure {
@@ -128,7 +131,8 @@ class AVBK_Company_Admin implements AVBK_Component {
             || $report['cards_hash'] !== AVBK_Company_Report::fingerprint($card_transactions);
         $form_start = $this->form_renderer($company_id, $year, $quarter, $return_to);
         ob_start();
-        try { require AVBK_PLUGIN_DIR . 'admin/company-report.php'; return ob_get_contents(); }
+        require_once AVBK_PLUGIN_DIR . 'admin/company-report.php';
+        try { avbk_render_company_report(compact('card_transactions', 'company', 'company_id', 'form_start', 'quarter', 'report', 'report_stale', 'transactions', 'year')); return ob_get_contents(); }
         finally { ob_end_clean(); }
     }
 

@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/orders.php page. */
+function avbk_render_orders(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -1328,3 +1331,5 @@ $page_url = admin_url('admin.php?page=avbk-orders');
     });
     </script>
 </div>
+<?php
+}
