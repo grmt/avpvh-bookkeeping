@@ -56,6 +56,13 @@ check(str_contains($html, 'Nog te betalen') && substr_count($html, '€&nbsp;20,
 check(str_contains($html, 'PVH-1-F11<'), 'the reference code only holds items that are still open');
 check(str_contains($html, 'Post 11 voor Bram'), "a housemate's item names them");
 
+// More credit than the selection: the item is settled in full and the rest of the credit stays.
+AVBK_DB::$credit = 70.0; AVBK_DB::$applied = [];
+$items = call('balance_selection_items', [10], $allowed);
+check(call('apply_credit_to_items', 1, $items) === 35.0, 'only what the item needs is applied');
+check(AVBK_DB::$credit === 35.0, 'the rest of the credit stays available');
+check(array_filter($items, fn($item) => $item->open_after > 0.005) === [], 'nothing is left to pay, so no payment request is sent');
+
 // No credit: a plain request with a total.
 $items = call('balance_selection_items', [10, 11], $allowed);
 $html = call('balance_request_mail_html', (object) ['id' => 1, 'first_name' => 'Anna'], $items, 0.0, 'https://example.test/');
