@@ -46,17 +46,18 @@ function avbk_render_dispute_history($focused, $events, $event_labels): void {
                 $actor = $event->actor_id ? get_userdata((int) $event->actor_id) : null;
                 $actor_label = $actor ? $actor->display_name : ($event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar');
                 ?>
-                <?php avbk_render_dispute_event($event_labels, $event, $actor_label); ?>
+                <li>
+                    <?php avbk_render_dispute_event($event_labels, $event, $actor_label); ?>
+                </li>
             <?php endforeach; ?>
         </ol>
     </details>
 <?php
 }
 
-/** One entry of a bezwaar's action history. */
+/** The contents of one entry of a bezwaar's action history. */
 function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
-?><li>
-                    <strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
+?><strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
                     <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $event->created_at)); ?> · <?php echo esc_html($actor_label); ?></span>
                     <?php if ($event->event_type === 'reply') : ?>
                         <p class="avbk-dispute-delivery <?php echo $event->delivery_status === 'sent' ? '' : 'avbk-dispute-delivery--warning'; ?>">
@@ -69,7 +70,6 @@ function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
                         </p>
                     <?php endif; ?>
                     <?php if ($event->message !== '') : ?><div class="avbk-dispute-event-message"><?php echo nl2br(esc_html($event->message)); ?></div><?php endif; ?>
-                </li>
 <?php
 }
 
