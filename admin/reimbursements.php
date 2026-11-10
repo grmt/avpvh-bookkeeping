@@ -24,7 +24,24 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
     </datalist>
     <p class="description">Bonnetjes die leden hebben ingediend om terugbetaald te krijgen. Scan de QR code met de bankieren-app om het bedrag over te maken, en klik daarna &ldquo;Betaald&rdquo;.</p>
 
-    <?php if (isset($_GET['paid'])) : ?>
+    <?php avbk_render_reimbursements_notices(); ?>
+
+    <h2>Openstaand (<?php echo esc_html(count($pending)); ?>)</h2>
+    <?php if (!$pending) : ?>
+        <p>Niets openstaand.</p>
+    <?php else : foreach ($pending as $r) : ?>
+        <?php avbk_render_reimbursement_card($r, $activities); ?>
+        <hr>
+    <?php endforeach; endif; ?>
+
+    <?php avbk_render_reimbursements_handled($paid, $rejected, $withdrawn); ?>
+</div>
+<?php
+}
+
+/** Result notices of paying, rejecting and editing. */
+function avbk_render_reimbursements_notices(): void {
+    if (isset($_GET['paid'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Gemarkeerd als betaald.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['rejected'])) : ?>
@@ -33,34 +50,21 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
     <?php if (isset($_GET['updated'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Wijziging opgeslagen.</p></div>
     <?php endif; ?>
+<?php
+}
 
-    <h2>Openstaand (<?php echo esc_html(count($pending)); ?>)</h2>
-    <?php if (!$pending) : ?>
-        <p>Niets openstaand.</p>
-    <?php else : foreach ($pending as $r) :
-        $member = AVPVH_DB::get_member((int) $r->member_id);
-        $activity = $r->activity_id ? AVPVH_DB::get_activity((int) $r->activity_id) : null;
-        $member_name = $member ? avpvh_format_name($member) : 'Onbekend lid';
-        $remittance = 'Declaratie' . ($r->description ? ': ' . $r->description : '') . ($activity ? ' (' . $activity->name . ')' : '');
-        $qr = AVBK_QR::for_reimbursement($r->iban, $member_name, (float) $r->amount, $remittance);
-        $known_ibans = AVBK_DB::get_known_ibans_for_member((int) $r->member_id);
-        $iban_account_name = '';
-        foreach ($known_ibans as $known) {
-            if ($known->iban === $r->iban) {
-                $iban_account_name = $known->account_name;
-                break;
-            }
-        }
-        $receipts = AVBK_DB::get_reimbursement_receipts((int) $r->id);
-        // A wide ±14 day buffer around the activity's own dates — early
-        // purchases (camp shopping the week before) and late submissions
-        // are normal, this is just a nudge for the penningmeester to take
-        // a closer look, never a block. Flagged if ANY attached receipt
-        // falls outside the window.
-        $window_start = ($activity && $activity->start_date) ? strtotime($activity->start_date) - 14 * DAY_IN_SECONDS : null;
-        $window_end = ($activity && $activity->start_date) ? strtotime($activity->end_date ?: $activity->start_date) + 14 * DAY_IN_SECONDS : null;
-        ?>
-        <div class="avbk-reimbursement-card">
+/** One open reimbursement: details, receipts, QR, edit form and decision. */
+function avbk_render_reimbursement_card(object $r, array $activities): void {
+    $member = AVPVH_DB::get_member((int) $r->member_id);
+    $activity = $r->activity_id ? AVPVH_DB::get_activity((int) $r->activity_id) : null;
+    $member_name = $member ? avpvh_format_name($member) : 'Onbekend lid';
+    $remittance = 'Declaratie' . ($r->description ? ': ' . $r->description : '') . ($activity ? ' (' . $activity->name . ')' : '');
+    $qr = AVBK_QR::for_reimbursement($r->iban, $member_name, (float) $r->amount, $remittance);
+    $known_ibans = AVBK_DB::get_known_ibans_for_member((int) $r->member_id);
+    $iban_account_name = avbk_reimbursement_iban_account_name($known_ibans, (string) $r->iban);
+    $receipts = AVBK_DB::get_reimbursement_receipts((int) $r->id);
+    [$window_start, $window_end] = avbk_reimbursement_receipt_window($activity);
+?><div class="avbk-reimbursement-card">
             <table class="wp-list-table widefat striped" style="max-width:700px">
                 <tbody>
                     <tr><th>Lid</th><td><?php echo esc_html($member_name); ?></td></tr>
@@ -70,7 +74,33 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
                     <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?><?php echo $r->ocr_amount ? ' (OCR herkende totaal € ' . esc_html(number_format((float) $r->ocr_amount, 2, ',', '.')) . ')' : ''; ?></td></tr>
                     <tr><th>Rekeningnummer</th><td><?php echo esc_html($r->iban); ?><?php echo $iban_account_name ? ' &mdash; ' . esc_html($iban_account_name) : ''; ?><?php echo count($known_ibans) > 1 ? ' <span class="description">(meerdere rekeningen bekend bij dit lid &mdash; zie &ldquo;aanpassen&rdquo; hieronder)</span>' : ''; ?></td></tr>
                     <tr><th>Bonnetje(s)</th><td>
-                        <?php foreach ($receipts as $rec) :
+                        <?php avbk_render_reimbursement_receipts($receipts, $window_start, $window_end, $r, $member_name); ?>
+                    </td></tr>
+                </tbody>
+            </table>
+
+            <?php avbk_render_reimbursement_qr($qr); ?>
+
+            <?php avbk_render_reimbursement_edit($r, $activities, $known_ibans); ?>
+
+            <?php avbk_render_reimbursement_decision($r); ?>
+        </div>
+<?php
+}
+
+/** The account name of the member's known IBAN that matches, or ''. */
+function avbk_reimbursement_iban_account_name(array $known_ibans, string $iban): string {
+    foreach ($known_ibans as $known) {
+        if ($known->iban === $iban) {
+            return (string) $known->account_name;
+        }
+    }
+    return '';
+}
+
+/** The receipts of a reimbursement, each with its edit form. */
+function avbk_render_reimbursement_receipts($receipts, $window_start, $window_end, $r, $member_name): void {
+    foreach ($receipts as $rec) :
                             $rec_effective_date = $rec->date ?? $rec->ocr_date;
                             $rec_date_flag = $rec_effective_date && $window_start && (strtotime($rec_effective_date) < $window_start || strtotime($rec_effective_date) > $window_end);
                             $rec_has_photo = !empty($rec->receipt_path);
@@ -98,17 +128,22 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
                                 </form>
                             </span>
                         <?php endforeach; ?>
-                    </td></tr>
-                </tbody>
-            </table>
+<?php
+}
 
-            <?php if ($qr) : ?>
+/** The payment QR of a reimbursement. */
+function avbk_render_reimbursement_qr($qr): void {
+    if ($qr) : ?>
                 <div class="avbk-reimbursement-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
             <?php else : ?>
                 <p class="description">Geen QR mogelijk &mdash; rekeningnummer ontbreekt of is ongeldig.</p>
             <?php endif; ?>
+<?php
+}
 
-            <details class="avbk-reimbursement-edit">
+/** The form for changing a reimbursement's amount, description, activity or IBAN. */
+function avbk_render_reimbursement_edit($r, $activities, $known_ibans): void {
+?><details class="avbk-reimbursement-edit">
                 <summary>Bedrag, omschrijving, activiteit of rekeningnummer aanpassen</summary>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('avbk_update_reimbursement'); ?>
@@ -162,8 +197,12 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
                     <?php submit_button('Wijziging opslaan', 'secondary', 'submit', false); ?>
                 </form>
             </details>
+<?php
+}
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+/** The paid and reject buttons of a reimbursement. */
+function avbk_render_reimbursement_decision($r): void {
+?><form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
                 <?php wp_nonce_field('avbk_mark_reimbursement_paid'); ?>
                 <input type="hidden" name="action" value="avbk_mark_reimbursement_paid">
                 <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
@@ -175,11 +214,12 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
                 <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
                 <?php submit_button('Afwijzen', 'secondary', 'submit', false, ['onclick' => "return confirm('Declaratie afwijzen?');"]); ?>
             </form>
-        </div>
-        <hr>
-    <?php endforeach; endif; ?>
+<?php
+}
 
-    <?php if ($paid || $rejected || $withdrawn) : ?>
+/** Paid, rejected and withdrawn reimbursements. */
+function avbk_render_reimbursements_handled($paid, $rejected, $withdrawn): void {
+    if ($paid || $rejected || $withdrawn) : ?>
         <h2>Afgehandeld</h2>
         <table class="wp-list-table widefat striped">
             <thead><tr><th>Datum</th><th>Lid</th><th>Omschrijving</th><th>Bedrag</th><th>Status</th></tr></thead>
@@ -199,6 +239,26 @@ $all_known_ibans = AVBK_DB::get_all_known_ibans();
             </tbody>
         </table>
     <?php endif; ?>
-</div>
 <?php
+}
+
+/**
+ * The dates between which a receipt for this activity looks normal.
+ *
+ * A wide ±14 day buffer around the activity's own dates — early
+ * purchases (camp shopping the week before) and late submissions
+ * are normal, this is just a nudge for the penningmeester to take
+ * a closer look, never a block. Flagged if ANY attached receipt
+ * falls outside the window.
+ *
+ * @return array{0: ?int, 1: ?int} Start and end timestamps, or nulls without an activity date.
+ */
+function avbk_reimbursement_receipt_window(?object $activity): array {
+    if (!$activity || !$activity->start_date) {
+        return [null, null];
+    }
+    return [
+        strtotime($activity->start_date) - 14 * DAY_IN_SECONDS,
+        strtotime($activity->end_date ?: $activity->start_date) + 14 * DAY_IN_SECONDS,
+    ];
 }
