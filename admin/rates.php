@@ -28,7 +28,66 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
 <div class="wrap">
     <h1>Tarieven &amp; instellingen</h1>
 
-    <?php if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['settings_saved'])) : ?>
+    <?php avbk_render_rates_notices(); ?>
+
+    <h2>Activiteittarieven</h2>
+    <p class="description">Leeftijd wordt bepaald op 1 januari van het jaar (contributie) of op de startdatum (kamp/activiteit met datum). Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd. Een rij aan een <strong>kenmerk</strong> koppelen (i.p.v. leeftijd/student) wint over alles &mdash; zet dan geen leeftijd/studentvinkje, die worden genegeerd.</p>
+    <form method="get" style="margin-bottom:1rem">
+        <input type="hidden" name="page" value="avbk-rates">
+        <label>Activiteit:
+            <select name="activity_id" onchange="this.form.submit()">
+                <?php foreach ($activities as $activity) : ?>
+                    <option value="<?php echo esc_attr($activity->id); ?>" <?php selected($activity_id, (int) $activity->id); ?>>
+                        <?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
+    </form>
+
+    <?php avbk_render_rates_activity($activity_id, $rate_copy_sources, $rates, $all_flags, $is_contribution, $selected_activity); ?>
+
+    <h2>Instellingen</h2>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+        <?php wp_nonce_field('avbk_save_settings'); ?>
+        <input type="hidden" name="action" value="avbk_save_settings">
+        <table class="form-table" style="max-width:900px">
+            <?php avbk_render_rates_general_settings(); ?>
+            <?php avbk_render_rates_book_settings(); ?>
+        </table>
+        <?php submit_button('Instellingen opslaan'); ?>
+    </form>
+</div>
+<?php
+}
+
+/** Rates, fee generation and payment link of the selected activity. */
+function avbk_render_rates_activity($activity_id, $rate_copy_sources, $rates, $all_flags, $is_contribution, $selected_activity): void {
+    if (!$activity_id) : ?>
+        <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
+    <?php else : ?>
+    <?php avbk_render_rates_copy_form($rate_copy_sources, $activity_id); ?>
+    <table class="wp-list-table widefat striped" style="max-width:800px">
+        <thead><tr><th scope="col">Label</th><th scope="col">Min. leeftijd</th><th scope="col">Max. leeftijd</th><th scope="col">Scholieren/studenten</th><th scope="col">Kenmerk</th><th scope="col">Tarief</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
+        <tbody>
+        <?php foreach ($rates as $rate) : ?>
+            <?php avbk_render_rates_row($rate, $activity_id, $all_flags); ?>
+        <?php endforeach; ?>
+        <?php avbk_render_rates_new_row($activity_id, $all_flags); ?>
+        </tbody>
+    </table>
+
+    <?php avbk_render_rates_generate_fees($is_contribution, $selected_activity, $activity_id); ?>
+
+    <?php avbk_render_rates_payment_link($activity_id); ?>
+    <?php endif; ?>
+<?php
+}
+
+/** Result notices of saving, generating and copying. */
+function avbk_render_rates_notices(): void {
+    if (isset($_GET['rate_saved']) || isset($_GET['rate_deleted']) || isset($_GET['settings_saved'])) : ?>
         <div class="notice notice-success"><p>Opgeslagen.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['contribution_fees_generated'])) : ?>
@@ -48,27 +107,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
             <div class="notice notice-error"><p>De tarieven konden niet worden overgenomen.</p></div>
         <?php endif; ?>
     <?php endif; ?>
+<?php
+}
 
-    <h2>Activiteittarieven</h2>
-    <p class="description">Leeftijd wordt bepaald op 1 januari van het jaar (contributie) of op de startdatum (kamp/activiteit met datum). Laat min/max leeg voor &ldquo;geen ondergrens&rdquo; / &ldquo;geen bovengrens&rdquo;. &ldquo;Voor scholieren/studenten&rdquo; is een status (ingesteld per lid op het profiel), geen leeftijdsgrens &mdash; die rij wint voor gemarkeerde leden, ongeacht leeftijd. Een rij aan een <strong>kenmerk</strong> koppelen (i.p.v. leeftijd/student) wint over alles &mdash; zet dan geen leeftijd/studentvinkje, die worden genegeerd.</p>
-    <form method="get" style="margin-bottom:1rem">
-        <input type="hidden" name="page" value="avbk-rates">
-        <label>Activiteit:
-            <select name="activity_id" onchange="this.form.submit()">
-                <?php foreach ($activities as $activity) : ?>
-                    <option value="<?php echo esc_attr($activity->id); ?>" <?php selected($activity_id, (int) $activity->id); ?>>
-                        <?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <noscript><?php submit_button('Wisselen', 'secondary', '', false); ?></noscript>
-    </form>
-
-    <?php if (!$activity_id) : ?>
-        <p>Nog geen activiteit aangemaakt in AV-PvH Leden &rarr; Activiteiten.</p>
-    <?php else : ?>
-    <?php if ($rate_copy_sources) : ?>
+/** The form that copies rates from another activity. */
+function avbk_render_rates_copy_form($rate_copy_sources, $activity_id): void {
+    if ($rate_copy_sources) : ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0 0 1rem;padding:.75rem 1rem;background:#fff;border-left:4px solid #72aee6;max-width:768px">
             <?php wp_nonce_field('avbk_copy_activity_rates'); ?>
             <input type="hidden" name="action" value="avbk_copy_activity_rates">
@@ -87,11 +131,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
             <p class="description">Dit kan alleen zolang de huidige activiteit nog geen tarieven heeft. Labels, leeftijdsgrenzen, studentstatus en bedragen worden gekopieerd.</p>
         </form>
     <?php endif; ?>
-    <table class="wp-list-table widefat striped" style="max-width:800px">
-        <thead><tr><th scope="col">Label</th><th scope="col">Min. leeftijd</th><th scope="col">Max. leeftijd</th><th scope="col">Scholieren/studenten</th><th scope="col">Kenmerk</th><th scope="col">Tarief</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
-        <tbody>
-        <?php foreach ($rates as $rate) : ?>
-            <tr>
+<?php
+}
+
+/** The table row of an existing rate, with save and delete forms. */
+function avbk_render_rates_row($rate, $activity_id, $all_flags): void {
+?><tr>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('avbk_save_activity_rate'); ?>
                     <input type="hidden" name="action" value="avbk_save_activity_rate">
@@ -122,8 +167,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 </form>
                     </td>
             </tr>
-        <?php endforeach; ?>
-        <tr>
+<?php
+}
+
+/** The table row for adding a rate. */
+function avbk_render_rates_new_row($activity_id, $all_flags): void {
+?><tr>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <?php wp_nonce_field('avbk_save_activity_rate'); ?>
                 <input type="hidden" name="action" value="avbk_save_activity_rate">
@@ -145,10 +194,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <td><button type="submit" class="button button-small button-primary">Toevoegen</button></td>
             </form>
         </tr>
-        </tbody>
-    </table>
+<?php
+}
 
-    <?php if ($is_contribution) : ?>
+/** The button that generates fees for the selected activity. */
+function avbk_render_rates_generate_fees($is_contribution, $selected_activity, $activity_id): void {
+    if ($is_contribution) : ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0.75rem 0">
             <?php wp_nonce_field('avbk_generate_contribution_fees_now'); ?>
             <input type="hidden" name="action" value="avbk_generate_contribution_fees_now">
@@ -165,8 +216,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
             <span class="description">Nodig na het instellen/wijzigen van tarieven &mdash; bestaande deelnameregistraties genereren anders pas een bijdrage bij hun eerstvolgende wijziging. (Zonder gekoppelde deelnameregistraties, zoals bij Congres, is dit een no-op &mdash; die bijdragen ontstaan al bij aanmelding.)</span>
         </form>
     <?php endif; ?>
+<?php
+}
 
-    <?php $payment_link = AVBK_DB::get_activity_payment_link($activity_id); ?>
+/** The optional shared payment request link and QR of an activity. */
+function avbk_render_rates_payment_link($activity_id): void {
+    $payment_link = AVBK_DB::get_activity_payment_link($activity_id); ?>
     <details<?php echo (!empty($payment_link->payment_url) || !empty($payment_link->qr_image)) ? ' open' : ''; ?>>
     <summary><h2 style="display:inline">Generiek betaalverzoek (optioneel)</h2></summary>
     <p class="description">Eén gedeelde betaalverzoeklink/QR voor de hierboven gekozen activiteit (bijv. een ING Betaalverzoek- of Tikkie-link) — voor als je liever één link deelt dan voor iedereen apart een QR verstuurt. Wordt nergens automatisch getoond of in de "Vraag om betaling"-mail gezet; puur hier bewaard zodat je 'm makkelijk terugvindt.</p>
@@ -184,7 +239,16 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <?php endif; ?>
             </p>
         </form>
-        <div style="flex:1 1 260px; max-width:320px">
+        <?php avbk_render_rates_payment_qr($payment_link, $activity_id); ?>
+    </div>
+    <?php avbk_render_rates_payment_qr_script(); ?>
+    </details>
+<?php
+}
+
+/** The shared payment request QR: preview, delete and upload forms. */
+function avbk_render_rates_payment_qr($payment_link, $activity_id): void {
+?><div style="flex:1 1 260px; max-width:320px">
             <p style="margin:0 0 .3rem">Betaalverzoek-QR</p>
             <div id="avbk-payment-qr-drop" style="border:2px dashed #999; border-radius:4px; min-height:160px; display:flex; align-items:center; justify-content:center; text-align:center; color:#888; padding:.75rem; box-sizing:border-box">
                 <?php if (!empty($payment_link->qr_image)) : ?>
@@ -209,8 +273,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                 <input type="hidden" name="qr_image_mime" id="avbk-payment-qr-mime">
             </form>
         </div>
-    </div>
-    <script>
+<?php
+}
+
+/** Script that strips the payment URL prefix and reads a dropped QR image. */
+function avbk_render_rates_payment_qr_script(): void {
+?><script>
     (function () {
         var urlInput = document.getElementById('avbk-payment-url');
         function stripPrefix() {
@@ -257,15 +325,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
         });
     })();
     </script>
-    </details>
-    <?php endif; ?>
+<?php
+}
 
-    <h2>Instellingen</h2>
-    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-        <?php wp_nonce_field('avbk_save_settings'); ?>
-        <input type="hidden" name="action" value="avbk_save_settings">
-        <table class="form-table" style="max-width:900px">
-            <tr>
+/** Settings rows for payments, popups and mails. */
+function avbk_render_rates_general_settings(): void {
+?><tr>
                 <th><label for="login_payment_popup_enabled">Betaalpopup bij inloggen</label></th>
                 <td>
                     <label><input type="checkbox" id="login_payment_popup_enabled" name="login_payment_popup_enabled" value="1" <?php checked((bool) get_option(AVBK_Fee_Popup::ENABLED_OPTION, 0)); ?>> Toon een popup bij een openstaand saldo</label>
@@ -323,7 +388,12 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <p class="description">Gebruik <code>[link]</code> voor de betaalverzoeklink zelf. Wordt toegevoegd via de knop "Betaalverzoeklink toevoegen" bij het opstellen van een "Vraag om betaling"-e-mail.</p>
                 </td>
             </tr>
-            <tr>
+<?php
+}
+
+/** Settings rows for the jubilee book. */
+function avbk_render_rates_book_settings(): void {
+?><tr>
                 <th colspan="2" style="padding-top:2rem;"><h3>Jubileumboek</h3></th>
             </tr>
             <tr>
@@ -366,9 +436,5 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
                     <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]). Ondersteunt alinea's, witregels en HTML (zoals <code>&lt;em&gt;</code>, <code>&lt;blockquote&gt;</code>, <code>&lt;br&gt;</code> en <code>&lt;strong&gt;</code>).</p>
                 </td>
             </tr>
-        </table>
-        <?php submit_button('Instellingen opslaan'); ?>
-    </form>
-</div>
 <?php
 }
