@@ -4,6 +4,7 @@ defined('ABSPATH') || exit;
 class AVBK_Admin implements AVBK_Component {
 
     public const DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT = "Inloggen: gebruik als gebruikersnaam je e-mailadres. Als je nog niet eerder bent ingelogd of je je wachtwoord niet weet, klik dan [wachtwoord-link].\n\nAls je met je browser al bent ingelogd bij Google (Gmail) of Microsoft (Outlook/Hotmail), kun je ook de knop Inloggen met Google respectievelijk Inloggen met Microsoft proberen. Dan heb je geen (nieuw) wachtwoord nodig. Het e-mailadres moet wel overeenkomen met het adres dat bij de vereniging bekend is.";
+    private const NO_SETTLEMENT = ['applied' => 0.0, 'sources' => [], 'left' => 0.0];
     public const DEFAULT_QR_CAPTION_TEXT = 'Scan deze QR-code met je bankieren-app:';
     public const DEFAULT_GENERIC_PAYMENT_LINK_TEXT = 'Je kan betalen via deze betaallink: [link]';
 
@@ -1229,27 +1230,15 @@ class AVBK_Admin implements AVBK_Component {
      * characters. The omschrijving is only the reference code, which is all
      * AVBK_Matcher::match_fee_item_reference() needs.
      */
-    private static function balance_request_mail_html(object $member, array $items, float $credit_applied, string $balance_url): string {
+    private static function balance_request_mail_html(object $member, array $items, array $settlement, string $balance_url): string {
         $member_id = (int) $member->id;
         $open_items = array_filter($items, static fn($item) => $item->open_after > 0.005);
         $total = round(array_sum(wp_list_pluck($open_items, 'open_after')), 2);
-        $amount = static fn(float $value): string => '€&nbsp;' . esc_html(number_format($value, 2, ',', '.'));
-        $rows = '';
-        foreach ($items as $item) {
-            $rows .= '<tr><td style="padding:2px 16px 2px 0">' . esc_html(self::balance_request_item_label($item, $member_id)) . '</td>'
-                . '<td style="padding:2px 0;text-align:right;white-space:nowrap">' . $amount((float) $item->remaining) . '</td></tr>';
-        }
-        if ($credit_applied > 0.005) {
-            $rows .= '<tr><td style="padding:2px 16px 2px 0">Verrekend met je tegoed</td><td style="padding:2px 0;text-align:right;white-space:nowrap">−&nbsp;' . $amount($credit_applied) . '</td></tr>';
-        }
-        if ($credit_applied > 0.005 || count($items) > 1) {
-            $rows .= '<tr><td style="padding:2px 16px 2px 0"><strong>' . ($credit_applied > 0.005 ? 'Nog te betalen' : 'Totaal') . '</strong></td><td style="padding:2px 0;text-align:right;white-space:nowrap"><strong>' . $amount($total) . '</strong></td></tr>';
-        }
         $club_iban = trim((string) get_option('avbk_club_iban', ''));
         $details = [
             'IBAN'         => $club_iban !== '' ? esc_html(trim(chunk_split($club_iban, 4, ' '))) : '',
             'Ten name van' => esc_html(trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'))),
-            'Bedrag'       => $amount($total),
+            'Bedrag'       => self::mail_amount_html($total),
             'Omschrijving' => '<strong>' . esc_html(AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($open_items, 'id')))) . '</strong>',
         ];
         $detail_rows = '';
@@ -1260,7 +1249,8 @@ class AVBK_Admin implements AVBK_Component {
         return '<!doctype html><html><body style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">'
             . '<p>Dag ' . esc_html((string) $member->first_name) . ',</p>'
             . '<p>Zou je dit willen betalen?</p>'
-            . '<table style="border-collapse:collapse;margin:0 0 1em">' . $rows . '</table>'
+            . self::balance_items_table_html($items, $settlement['applied'], $member_id)
+            . self::credit_explanation_html($settlement, $member_id)
             . '<p style="margin-bottom:0">Overmaken kan naar:</p>'
             . '<table style="border-collapse:collapse;margin:0 0 1em">' . $detail_rows . '</table>'
             . '<p>Met dat kenmerk herkennen we je betaling automatisch.</p>'
@@ -1270,6 +1260,67 @@ class AVBK_Admin implements AVBK_Component {
             . self::balance_request_login_help_html($balance_url)
             . '<p>Groet,<br>' . esc_html((string) get_option('avbk_penningmeester_name', 'de penningmeester')) . '</p>'
             . '</body></html>';
+    }
+
+    private static function mail_amount_html(float $value): string {
+        return '€&nbsp;' . esc_html(number_format($value, 2, ',', '.'));
+    }
+
+    /** Label/amount rows as a small mail table; a row label is escaped here, an amount is already HTML. */
+    private static function mail_table_html(array $rows): string {
+        $html = '';
+        foreach ($rows as [$label, $value, $bold]) {
+            $label = esc_html($label);
+            if ($bold) {
+                $label = '<strong>' . $label . '</strong>';
+                $value = '<strong>' . $value . '</strong>';
+            }
+            $html .= '<tr><td style="padding:2px 16px 2px 0">' . $label . '</td><td style="padding:2px 0;text-align:right;white-space:nowrap">' . $value . '</td></tr>';
+        }
+        return '<table style="border-collapse:collapse;margin:0 0 1em">' . $html . '</table>';
+    }
+
+    /** The selected items, then the settled credit and what is still to pay, or a total for several items. */
+    private static function balance_items_table_html(array $items, float $credit_applied, int $member_id): string {
+        $rows = [];
+        foreach ($items as $item) {
+            $rows[] = [self::balance_request_item_label($item, $member_id), self::mail_amount_html((float) $item->remaining), false];
+        }
+        $total = round(array_sum(array_map(static fn($item) => max(0.0, (float) $item->open_after), $items)), 2);
+        if ($credit_applied > 0.005) {
+            $rows[] = ['Verrekend met je tegoed', '−&nbsp;' . self::mail_amount_html($credit_applied), false];
+            $rows[] = ['Nog te betalen', self::mail_amount_html($total), true];
+        } elseif (count($items) > 1) {
+            $rows[] = ['Totaal', self::mail_amount_html($total), true];
+        }
+        return self::mail_table_html($rows);
+    }
+
+    /**
+     * Where the settled credit came from, straight from the books: per bank
+     * transfer its date and amount, what it had already paid, what was left
+     * of it, and how much credit remains after this settlement.
+     */
+    private static function credit_explanation_html(array $settlement, int $member_id): string {
+        if ($settlement['applied'] <= 0.005) {
+            return '';
+        }
+        $html = '<p style="margin-bottom:0"><strong>Waar komt je tegoed vandaan?</strong></p>';
+        foreach ($settlement['sources'] as $source) {
+            $intro = 'De overboeking van ' . self::mail_amount_html((float) $source->amount) . ' op ' . esc_html(wp_date('j F Y', strtotime((string) $source->transaction_date)));
+            $rows = [];
+            foreach ($source->paid_before as $allocation) {
+                $fee_item = AVBK_DB::get_fee_item((int) $allocation->fee_item_id);
+                $rows[] = [$fee_item ? self::balance_request_item_label($fee_item, $member_id) : 'Bijdrage', self::mail_amount_html((float) $allocation->amount), false];
+            }
+            $rows[] = ['Er bleef over', self::mail_amount_html((float) $source->credit), true];
+            $html .= '<p style="margin-bottom:0">' . $intro . ($rows !== [] && count($rows) > 1 ? ' betaalde:' : ' is nog niet voor een bijdrage gebruikt.') . '</p>'
+                . self::mail_table_html($rows);
+        }
+        $left = $settlement['left'] > 0.005
+            ? 'Je houdt ' . self::mail_amount_html($settlement['left']) . ' tegoed over.'
+            : 'Je tegoed is daarmee op.';
+        return $html . '<p>Daarvan is nu ' . self::mail_amount_html($settlement['applied']) . ' verrekend. ' . $left . '</p>';
     }
 
     /** "Doorgraven!, 1 exemplaar" or "Contributie 2026 voor Anna": what the item is, without brackets. */
@@ -2056,10 +2107,10 @@ class AVBK_Admin implements AVBK_Component {
         // first, so the page, its QR code and the mail all ask only for
         // what is still open. The "Tegoed verrekend" mail goes out on its
         // own only when there is no payment request to mention it in.
-        $credit_applied = !empty($_POST['apply_credit']) ? self::apply_credit_to_items($member_id, $items) : 0.0;
+        $settlement = !empty($_POST['apply_credit']) ? self::settle_credit($member_id, $items) : self::NO_SETTLEMENT;
         $open_items = array_values(array_filter($items, static fn($item) => $item->open_after > 0.005));
-        if (!$open_items || ($credit_applied > 0.005 && $mode === 'show')) {
-            self::mail_credit_applied($member, $credit_applied, $items);
+        if (!$open_items || ($settlement['applied'] > 0.005 && $mode === 'show')) {
+            self::mail_credit_applied($member, $items, $settlement);
         }
         if (!$open_items) {
             wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
@@ -2087,7 +2138,7 @@ class AVBK_Admin implements AVBK_Component {
         }
 
         $subject = count($open_items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen';
-        $body = self::balance_request_mail_html($member, $items, $credit_applied, $balance_url);
+        $body = self::balance_request_mail_html($member, $items, $settlement, $balance_url);
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
@@ -2141,11 +2192,12 @@ class AVBK_Admin implements AVBK_Component {
     private function settle_credit_selection(int $member_id, array $fee_item_ids, bool $use_credit, string $return_url): void {
         $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
         $items = $member && $use_credit ? self::balance_selection_items($fee_item_ids, self::balance_allowed_member_ids($member_id)) : [];
-        if (!$items || self::apply_credit_to_items($member_id, $items) <= 0.005) {
+        $settlement = $items ? self::settle_credit($member_id, $items) : self::NO_SETTLEMENT;
+        if ($settlement['applied'] <= 0.005) {
             wp_safe_redirect(add_query_arg('credit_apply_failed', '1', $return_url));
             exit;
         }
-        self::mail_credit_applied($member, array_sum(wp_list_pluck($items, 'credit_applied')), $items);
+        self::mail_credit_applied($member, $items, $settlement);
         wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
         exit;
     }
@@ -2191,17 +2243,42 @@ class AVBK_Admin implements AVBK_Component {
         return $total;
     }
 
-    private static function mail_credit_applied(object $member, float $applied, array $items): void {
-        if ($applied <= 0.005 || !is_email($member->email)) {
+    /**
+     * Applies the member's credit to the items and records, from the books,
+     * which transfers it came from: each credit transaction's unused rest
+     * before and after, and what that transfer had already paid.
+     *
+     * @return array{applied: float, sources: object[], left: float}
+     */
+    private static function settle_credit(int $member_id, array $items): array {
+        $before = AVBK_DB::get_credit_transactions_for_member($member_id);
+        foreach ($before as $source) {
+            $source->paid_before = AVBK_DB::get_allocations_for_transaction((int) $source->id);
+        }
+        $applied = self::apply_credit_to_items($member_id, $items);
+        $after = [];
+        foreach (AVBK_DB::get_credit_transactions_for_member($member_id) as $row) {
+            $after[(int) $row->id] = (float) $row->credit;
+        }
+        $sources = array_values(array_filter($before, static fn($source) => (float) $source->credit - ($after[(int) $source->id] ?? 0.0) > 0.005));
+        return ['applied' => $applied, 'sources' => $sources, 'left' => round(array_sum($after), 2)];
+    }
+
+    /** "Tegoed verrekend": what the credit paid, where it came from, and what is left. */
+    private static function mail_credit_applied(object $member, array $items, array $settlement): void {
+        if ($settlement['applied'] <= 0.005 || !is_email($member->email)) {
             return;
         }
-        $descriptions = wp_list_pluck(array_filter($items, static fn($item) => $item->credit_applied > 0.005), 'description');
-        wp_mail($member->email, '[AV-PvH] Tegoed verrekend', sprintf(
-            "De penningmeester heeft € %s van je tegoed verrekend met \"%s\".\n\nJe overzicht: %s",
-            number_format($applied, 2, ',', '.'),
-            implode(', ', $descriptions),
-            home_url('/leden/beheer/#bijdrage')
-        ));
+        $member_id = (int) $member->id;
+        $body = '<!doctype html><html><body style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">'
+            . '<p>Dag ' . esc_html((string) $member->first_name) . ',</p>'
+            . '<p>We hebben je tegoed verrekend:</p>'
+            . self::balance_items_table_html($items, $settlement['applied'], $member_id)
+            . self::credit_explanation_html($settlement, $member_id)
+            . '<p>Je overzicht staat op je ledenpagina: <a href="' . esc_url(home_url('/leden/beheer/#bijdrage')) . '">Bekijk je overzicht</a></p>'
+            . '<p>Groet,<br>' . esc_html((string) get_option('avbk_penningmeester_name', 'de penningmeester')) . '</p>'
+            . '</body></html>';
+        wp_mail($member->email, '[AV-PvH] Tegoed verrekend', $body, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /**
