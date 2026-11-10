@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/overview.php page. */
+function avbk_render_overview(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -10,64 +13,18 @@ $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
 $show_all_years = !empty($_GET['show_all_years']);
 $camps_without_rate = AVBK_DB::get_camps_without_rate($show_all_years || !$closed_through_year ? 0 : $closed_through_year + 1);
 
-global $wpdb;
 $members = AVPVH_DB::get_members(['status' => 'active']);
 $current_book_year = (int) current_time('Y');
 $previous_book_year = $current_book_year - 1;
 $shown_book_years = [$current_book_year, $previous_book_year];
-$open_by_year = array_fill_keys($shown_book_years, 0.0);
-$open_by_year_activity = array_fill_keys($shown_book_years, []);
-$members_with_balance_by_year = array_fill_keys($shown_book_years, 0);
 // Het vorige boekjaar krijgt zijn eigen rij tegels zodra de kalender al
 // verder is dan dat jaar zelf, maar de penningmeester het nog niet heeft
 // afgesloten (avbk_closed_through_year) — anders verdwijnt het nog
 // openstaande saldo van dat jaar na 1 januari stilletjes uit beeld.
 $show_previous_year_blocks = $previous_book_year > $closed_through_year;
-$activity_names = [];
-$activity_years = [];
-$activity_links = [];
-foreach (AVPVH_DB::get_activities() as $activity) {
-    $activity_id = (int) $activity->id;
-    $activity_names[$activity_id] = trim((string) $activity->name . (!empty($activity->year) ? ' (' . (int) $activity->year . ')' : ''));
-    $activity_years[$activity_id] = (int) ($activity->year ?? 0);
-    $activity_links[$activity_names[$activity_id]] = add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php'));
-}
-foreach ($members as $m) {
-    $balance = AVBK_DB::get_member_balance((int) $m->id);
-    $member_open_by_year = array_fill_keys($shown_book_years, 0.0);
-    foreach ($balance['items'] as $item) {
-        if ($item->status === 'waived' || abs((float) $item->remaining) <= 0.005) {
-            continue;
-        }
-        $activity_id = (int) ($item->activity_id ?? 0);
-        $book_year = (int) ($item->year ?? 0);
-        if (!$book_year && $activity_id) {
-            $book_year = $activity_years[$activity_id] ?? 0;
-        }
-        if (!$book_year && !empty($item->created_at)) {
-            $book_year = (int) wp_date('Y', strtotime($item->created_at));
-        }
-        if (!in_array($book_year, $shown_book_years, true)) {
-            continue;
-        }
-        $label = $activity_id && isset($activity_names[$activity_id])
-            ? $activity_names[$activity_id]
-            : 'Overige / niet aan activiteit gekoppeld';
-        $remaining = (float) $item->remaining;
-        $open_by_year[$book_year] += $remaining;
-        $open_by_year_activity[$book_year][$label] = ($open_by_year_activity[$book_year][$label] ?? 0.0) + $remaining;
-        $member_open_by_year[$book_year] += $remaining;
-    }
-    foreach ($shown_book_years as $year) {
-        if ($member_open_by_year[$year] > 0.005) {
-            $members_with_balance_by_year[$year]++;
-        }
-    }
-}
-foreach ($open_by_year_activity as &$activity_amounts) {
-    uasort($activity_amounts, static fn($a, $b) => abs($b) <=> abs($a));
-}
-unset($activity_amounts);
+['names' => $activity_names, 'years' => $activity_years, 'links' => $activity_links] = avbk_overview_activities();
+['by_year' => $open_by_year, 'by_year_activity' => $open_by_year_activity, 'members_by_year' => $members_with_balance_by_year]
+    = avbk_overview_open_balances($members, $shown_book_years, $activity_names, $activity_years);
 // Contribution and camp fee items both need an age bracket. A birth *year*
 // alone (no exact date) still gets a real, if approximate, age — only a
 // member with neither falls back to the "assume adult" estimate this
@@ -106,7 +63,41 @@ $total_donations = AVBK_DB::get_total_donations();
         </a>
     </div>
 
-    <?php if ($show_previous_year_blocks) : ?>
+    <?php avbk_render_overview_previous_year_tiles($show_previous_year_blocks, $open_by_year, $previous_book_year, $members_with_balance_by_year); ?>
+
+    <h2>Openstaand per boekjaar en activiteit</h2>
+    <?php foreach ($shown_book_years as $book_year) : ?>
+        <h3><?php echo esc_html($book_year); ?></h3>
+        <?php avbk_render_overview_year_coverage($transaction_date_ranges[$book_year] ?? null, (int) $book_year); ?>
+        <?php avbk_render_overview_year_table($open_by_year_activity, $book_year, $activity_links, $open_by_year); ?>
+    <?php endforeach; ?>
+
+    <?php if ($review_queue) : ?>
+        <div class="notice notice-warning">
+            <p><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-review')); ?>">
+                <?php echo esc_html(count($review_queue)); ?> transactie(s) wachten op controle &rarr;
+            </a></p>
+        </div>
+    <?php endif; ?>
+
+    <?php avbk_render_overview_missing_birth_dates($members_without_birth_date, $last_payment_dates); ?>
+
+    <?php avbk_render_overview_stale_fee_items($stale_fee_items); ?>
+
+    <?php avbk_render_overview_camps_without_rate($camps_without_rate, $closed_through_year, $show_all_years); ?>
+
+    <?php avbk_render_overview_imports($batches); ?>
+
+    <?php avbk_render_overview_close_year($closed_through_year); ?>
+
+    <?php avbk_render_overview_reassign($assigned_payment_counts); ?>
+</div>
+<?php
+}
+
+/** Tiles for a previous book year that is not closed yet. */
+function avbk_render_overview_previous_year_tiles($show_previous_year_blocks, $open_by_year, $previous_book_year, $members_with_balance_by_year): void {
+    if ($show_previous_year_blocks) : ?>
         <div class="avbk-stat-grid">
             <a class="avbk-stat-tile" href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>" style="color:inherit;text-decoration:none">
                 <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($open_by_year[$previous_book_year], 2, ',', '.')); ?></span>
@@ -118,17 +109,16 @@ $total_donations = AVBK_DB::get_total_donations();
             </a>
         </div>
     <?php endif; ?>
+<?php
+}
 
-    <h2>Openstaand per boekjaar en activiteit</h2>
-    <?php foreach ($shown_book_years as $book_year) : ?>
-        <h3><?php echo esc_html($book_year); ?></h3>
-        <?php
-        $transaction_range = $transaction_date_ranges[$book_year] ?? null;
-        $range_from = $transaction_range ? ($transaction_range->covered_from ?? $transaction_range->first_date) : null;
-        $range_until = $transaction_range ? ($transaction_range->covered_until ?? $transaction_range->last_date) : null;
-        $has_export_coverage = $transaction_range && !empty($transaction_range->covered_from);
-        $starts_at_year_beginning = $range_from === $book_year . '-01-01';
-        ?>
+/** Which period of a book year the bank transactions cover. */
+function avbk_render_overview_year_coverage(?object $transaction_range, int $book_year): void {
+    $range_from = $transaction_range ? ($transaction_range->covered_from ?? $transaction_range->first_date) : null;
+    $range_until = $transaction_range ? ($transaction_range->covered_until ?? $transaction_range->last_date) : null;
+    $has_export_coverage = $transaction_range && !empty($transaction_range->covered_from);
+    $starts_at_year_beginning = $range_from === $book_year . '-01-01';
+    ?>
         <div style="max-width:728px;margin:.5rem 0;padding:.65rem .9rem;border-left:4px solid <?php echo $starts_at_year_beginning ? '#00a32a' : '#d63638'; ?>;background:<?php echo $starts_at_year_beginning ? '#edfaef' : '#fcf0f1'; ?>">
             <?php if ($range_from && $range_until) : ?>
                 <?php echo $has_export_coverage ? 'Bankexport verwerkt voor de periode' : 'Transacties aanwezig van'; ?>
@@ -141,7 +131,12 @@ $total_donations = AVBK_DB::get_total_donations();
                 <strong>Voor dit boekjaar zijn nog geen transacties verwerkt.</strong>
             <?php endif; ?>
         </div>
-        <table class="wp-list-table widefat striped" style="max-width:760px;margin-bottom:1rem">
+<?php
+}
+
+/** Open amounts of one book year per activity. */
+function avbk_render_overview_year_table($open_by_year_activity, $book_year, $activity_links, $open_by_year): void {
+?><table class="wp-list-table widefat striped" style="max-width:760px;margin-bottom:1rem">
             <thead><tr><th scope="col">Activiteit</th><th scope="col" style="width:12em">Openstaand</th></tr></thead>
             <tbody>
             <?php if (!$open_by_year_activity[$book_year]) : ?>
@@ -152,17 +147,12 @@ $total_donations = AVBK_DB::get_total_donations();
             </tbody>
             <tfoot><tr><th scope="row">Totaal <?php echo esc_html($book_year); ?></th><td>&euro; <?php echo esc_html(number_format($open_by_year[$book_year], 2, ',', '.')); ?></td></tr></tfoot>
         </table>
-    <?php endforeach; ?>
+<?php
+}
 
-    <?php if ($review_queue) : ?>
-        <div class="notice notice-warning">
-            <p><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-review')); ?>">
-                <?php echo esc_html(count($review_queue)); ?> transactie(s) wachten op controle &rarr;
-            </a></p>
-        </div>
-    <?php endif; ?>
-
-    <?php if ($members_without_birth_date) : ?>
+/** Warning about members without a birth date. */
+function avbk_render_overview_missing_birth_dates($members_without_birth_date, $last_payment_dates): void {
+    if ($members_without_birth_date) : ?>
         <div class="notice notice-warning">
             <details>
                 <summary><?php echo esc_html(count($members_without_birth_date)); ?> <?php echo count($members_without_birth_date) === 1 ? 'lid' : 'leden'; ?> zonder geboortedatum &mdash; hun contributie/kampbijdrage wordt gegenereerd met het volwassen tarief als aanname (gemarkeerd in rood bij hun bijdrage). Voeg de geboortedatum toe en genereer opnieuw om dit te corrigeren.</summary>
@@ -183,8 +173,12 @@ $total_donations = AVBK_DB::get_total_donations();
             </details>
         </div>
     <?php endif; ?>
+<?php
+}
 
-    <?php if ($stale_fee_items) : ?>
+/** Warning about fee items whose amount no longer matches a fresh calculation. */
+function avbk_render_overview_stale_fee_items($stale_fee_items): void {
+    if ($stale_fee_items) : ?>
         <div class="notice notice-warning">
             <p><?php echo esc_html(count($stale_fee_items)); ?> bijdrage-regel(s) zijn mogelijk verouderd &mdash; het bedrag in het systeem komt niet meer overeen met een verse berekening op basis van de huidige gegevens (bijv. geboortedatum of aantal nachten gewijzigd nadat de bijdrage werd berekend). Genereer opnieuw via <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-rates')); ?>">Tarieven</a> om te corrigeren:</p>
             <ul style="margin-left:1.5em;list-style:disc">
@@ -199,8 +193,12 @@ $total_donations = AVBK_DB::get_total_donations();
             </ul>
         </div>
     <?php endif; ?>
+<?php
+}
 
-    <?php if ($camps_without_rate) : ?>
+/** Warning about camps without a fee rate. */
+function avbk_render_overview_camps_without_rate($camps_without_rate, $closed_through_year, $show_all_years): void {
+    if ($camps_without_rate) : ?>
         <div class="notice notice-warning">
             <p>Geen kampbijdrage-tarief ingesteld voor:
                 <?php echo esc_html(implode(', ', array_map(fn($c) => "{$c->name} ({$c->year})", $camps_without_rate))); ?>
@@ -218,8 +216,12 @@ $total_donations = AVBK_DB::get_total_donations();
             </p>
         </div>
     <?php endif; ?>
+<?php
+}
 
-    <h2>Recente imports</h2>
+/** The ten most recent imports. */
+function avbk_render_overview_imports($batches): void {
+?><h2>Recente imports</h2>
     <table class="wp-list-table widefat striped">
         <thead><tr><th>Bestand</th><th>Datum</th><th>Rijen</th><th>Automatisch gematcht</th></tr></thead>
         <tbody>
@@ -235,8 +237,12 @@ $total_donations = AVBK_DB::get_total_donations();
         <?php endforeach; endif; ?>
         </tbody>
     </table>
+<?php
+}
 
-    <h2>Boekjaar afsluiten</h2>
+/** The closed-through-year setting. */
+function avbk_render_overview_close_year($closed_through_year): void {
+?><h2>Boekjaar afsluiten</h2>
     <?php if (isset($_GET['year_closed'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Opgeslagen.</p></div>
     <?php endif; ?>
@@ -257,8 +263,12 @@ $total_donations = AVBK_DB::get_total_donations();
         </label>
         <?php submit_button('Opslaan', 'secondary', 'submit', false); ?>
     </form>
+<?php
+}
 
-    <h2>Betalingen opnieuw toewijzen</h2>
+/** Per year, a form that reverts all assigned incoming payments to review. */
+function avbk_render_overview_reassign($assigned_payment_counts): void {
+?><h2>Betalingen opnieuw toewijzen</h2>
     <?php if (isset($_GET['reset_error'])) : ?>
         <div class="notice notice-error"><p>Niet teruggezet: vul ter bevestiging exact hetzelfde jaartal in.</p></div>
     <?php endif; ?>
@@ -286,4 +296,103 @@ $total_donations = AVBK_DB::get_total_donations();
             </details>
         <?php endforeach; ?>
     <?php endif; ?>
-</div>
+<?php
+}
+
+/**
+ * Name, year and payments-page link of every activity.
+ *
+ * @return array{names: array<int, string>, years: array<int, int>, links: array<string, string>}
+ */
+function avbk_overview_activities(): array {
+    $names = [];
+    $years = [];
+    $links = [];
+    foreach (AVPVH_DB::get_activities() as $activity) {
+        $activity_id = (int) $activity->id;
+        $names[$activity_id] = trim((string) $activity->name . (!empty($activity->year) ? ' (' . (int) $activity->year . ')' : ''));
+        $years[$activity_id] = (int) ($activity->year ?? 0);
+        $links[$names[$activity_id]] = add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php'));
+    }
+    return ['names' => $names, 'years' => $years, 'links' => $links];
+}
+
+/**
+ * The book year of a fee item: its own year, else its activity's year, else
+ * the year it was created.
+ *
+ * @param array<int, int> $activity_years
+ */
+function avbk_overview_item_book_year(object $item, array $activity_years): int {
+    $activity_id = (int) ($item->activity_id ?? 0);
+    $book_year = (int) ($item->year ?? 0);
+    if (!$book_year && $activity_id) {
+        $book_year = $activity_years[$activity_id] ?? 0;
+    }
+    if (!$book_year && !empty($item->created_at)) {
+        $book_year = (int) wp_date('Y', strtotime($item->created_at));
+    }
+    return $book_year;
+}
+
+/**
+ * A member's open fee items in the shown book years, as [book year, activity
+ * label, remaining amount].
+ *
+ * @param int[]              $shown_book_years
+ * @param array<int, string> $activity_names
+ * @param array<int, int>    $activity_years
+ * @return array<int, array{0: int, 1: string, 2: float}>
+ */
+function avbk_overview_open_items(int $member_id, array $shown_book_years, array $activity_names, array $activity_years): array {
+    $open = [];
+    foreach (AVBK_DB::get_member_balance($member_id)['items'] as $item) {
+        if ($item->status === 'waived' || abs((float) $item->remaining) <= 0.005) {
+            continue;
+        }
+        $book_year = avbk_overview_item_book_year($item, $activity_years);
+        if (!in_array($book_year, $shown_book_years, true)) {
+            continue;
+        }
+        $activity_id = (int) ($item->activity_id ?? 0);
+        $label = $activity_id && isset($activity_names[$activity_id])
+            ? $activity_names[$activity_id]
+            : 'Overige / niet aan activiteit gekoppeld';
+        $open[] = [$book_year, $label, (float) $item->remaining];
+    }
+    return $open;
+}
+
+/**
+ * Open amounts of the shown book years: in total, per activity (largest
+ * first) and the number of members with an open balance.
+ *
+ * @param object[]              $members
+ * @param int[]                 $shown_book_years
+ * @param array<int, string>    $activity_names
+ * @param array<int, int>       $activity_years
+ * @return array{by_year: array<int, float>, by_year_activity: array<int, array<string, float>>, members_by_year: array<int, int>}
+ */
+function avbk_overview_open_balances(array $members, array $shown_book_years, array $activity_names, array $activity_years): array {
+    $open_by_year = array_fill_keys($shown_book_years, 0.0);
+    $open_by_year_activity = array_fill_keys($shown_book_years, []);
+    $members_with_balance_by_year = array_fill_keys($shown_book_years, 0);
+    foreach ($members as $m) {
+        $member_open_by_year = array_fill_keys($shown_book_years, 0.0);
+        foreach (avbk_overview_open_items((int) $m->id, $shown_book_years, $activity_names, $activity_years) as [$book_year, $label, $remaining]) {
+            $open_by_year[$book_year] += $remaining;
+            $open_by_year_activity[$book_year][$label] = ($open_by_year_activity[$book_year][$label] ?? 0.0) + $remaining;
+            $member_open_by_year[$book_year] += $remaining;
+        }
+        foreach ($shown_book_years as $year) {
+            if ($member_open_by_year[$year] > 0.005) {
+                $members_with_balance_by_year[$year]++;
+            }
+        }
+    }
+    foreach ($open_by_year_activity as &$activity_amounts) {
+        uasort($activity_amounts, static fn($a, $b) => abs($b) <=> abs($a));
+    }
+    unset($activity_amounts);
+    return ['by_year' => $open_by_year, 'by_year_activity' => $open_by_year_activity, 'members_by_year' => $members_with_balance_by_year];
+}

@@ -1,5 +1,8 @@
 <?php
 defined('ABSPATH') || exit;
+
+/** Renders the admin/second-approval.php page. */
+function avbk_render_second_approval(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
     wp_die('Geen toegang.');
 }
@@ -12,17 +15,7 @@ $current_user_id = get_current_user_id();
 <div class="wrap">
     <h1>Tweede controle</h1>
     <p class="description">Vier-ogen-principe: elke gekoppelde betaling moet, naast degene die 'm heeft bevestigd, ook door een <strong>andere</strong> persoon worden goedgekeurd. Dit verandert niets aan de betaling zelf &mdash; die is al verwerkt.</p>
-    <?php if ($closed_through_year) : ?>
-        <p class="description">
-            <?php if ($show_all_years) : ?>
-                Toont ook betalingen tot en met <?php echo esc_html($closed_through_year); ?> (afgesloten).
-                <a href="<?php echo esc_url(remove_query_arg('show_all_years')); ?>">Verberg afgesloten jaren</a>.
-            <?php else : ?>
-                Betalingen tot en met <?php echo esc_html($closed_through_year); ?> zijn afgesloten en worden hier verborgen.
-                <a href="<?php echo esc_url(add_query_arg('show_all_years', '1')); ?>">Toon oudere jaren</a>.
-            <?php endif; ?>
-        </p>
-    <?php endif; ?>
+    <?php avbk_render_second_approval_closed_years($closed_through_year, $show_all_years); ?>
 
     <?php if (isset($_GET['approved'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Goedgekeurd.</p></div>
@@ -37,26 +30,46 @@ $current_user_id = get_current_user_id();
     <h2>Wachten op tweede akkoord (<?php echo esc_html(count($pending)); ?>)</h2>
     <?php if (!$pending) : ?>
         <p>Niets wachtend op een tweede akkoord.</p>
-    <?php else : foreach ($pending as $tx) :
-        $confirmer = $tx->confirmed_by ? get_userdata((int) $tx->confirmed_by) : null;
-        $is_own = $tx->confirmed_by && (int) $tx->confirmed_by === $current_user_id;
-        $allocations = AVBK_DB::get_allocations_for_transaction((int) $tx->id);
-        $allocated = 0.0;
-        foreach ($allocations as $a) {
-            $allocated += (float) $a->amount;
-        }
-        $shortfall = $tx->direction === 'in' ? round((float) $tx->amount - $allocated, 2) : 0.0;
-        ?>
-        <div class="avbk-review-row" id="tx-<?php echo esc_attr($tx->id); ?>"<?php echo $shortfall > 0.005 ? ' style="background:#fcf0f1"' : ''; ?>>
+    <?php else : foreach ($pending as $tx) : ?>
+        <?php avbk_render_second_approval_card($tx, $current_user_id, $show_all_years); ?>
+        <hr>
+    <?php endforeach; endif; ?>
+</div>
+<?php
+}
+
+/** Notice about hidden closed years. */
+function avbk_render_second_approval_closed_years($closed_through_year, $show_all_years): void {
+    if ($closed_through_year) : ?>
+        <p class="description">
+            <?php if ($show_all_years) : ?>
+                Toont ook betalingen tot en met <?php echo esc_html($closed_through_year); ?> (afgesloten).
+                <a href="<?php echo esc_url(remove_query_arg('show_all_years')); ?>">Verberg afgesloten jaren</a>.
+            <?php else : ?>
+                Betalingen tot en met <?php echo esc_html($closed_through_year); ?> zijn afgesloten en worden hier verborgen.
+                <a href="<?php echo esc_url(add_query_arg('show_all_years', '1')); ?>">Toon oudere jaren</a>.
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
+<?php
+}
+
+/** One payment awaiting second approval, with its allocations and forms. */
+function avbk_render_second_approval_card($tx, $current_user_id, $show_all_years): void {
+    $confirmer = $tx->confirmed_by ? get_userdata((int) $tx->confirmed_by) : null;
+    $is_own = $tx->confirmed_by && (int) $tx->confirmed_by === $current_user_id;
+    $allocations = AVBK_DB::get_allocations_for_transaction((int) $tx->id);
+    $allocated = 0.0;
+    foreach ($allocations as $a) {
+        $allocated += (float) $a->amount;
+    }
+    $shortfall = $tx->direction === 'in' ? round((float) $tx->amount - $allocated, 2) : 0.0;
+?><div class="avbk-review-row" id="tx-<?php echo esc_attr($tx->id); ?>"<?php echo $shortfall > 0.005 ? ' style="background:#fcf0f1"' : ''; ?>>
             <table class="wp-list-table widefat striped" style="max-width:700px">
                 <tbody>
                     <tr><th>Excel regel</th><td><?php echo $tx->source_row ? esc_html($tx->source_row) : '&mdash;'; ?></td></tr>
                     <tr><th>Import</th><td>
-                        <?php if ($tx->import_batch_id) : ?>
-                            <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-import'], admin_url('admin.php'))); ?>">#<?php echo esc_html($tx->import_batch_id); ?></a>
-                            <?php if (!empty($tx->import_uploaded_at)) : ?> &mdash; <?php echo esc_html(wp_date('d-m-Y', strtotime($tx->import_uploaded_at))); ?><?php endif; ?>
-                            <?php if (!empty($tx->import_filename)) : ?><br><span class="description"><?php echo esc_html($tx->import_filename); ?></span><?php endif; ?>
-                        <?php else : ?>&mdash;<?php endif; ?>
+                        <?php avbk_render_second_approval_import($tx); ?>
                     </td></tr>
                     <tr><th>Datum</th><td><?php echo esc_html(wp_date('d-m-Y', strtotime($tx->transaction_date))); ?></td></tr>
                     <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></td></tr>
@@ -64,7 +77,29 @@ $current_user_id = get_current_user_id();
                     <tr><th>Omschrijving</th><td><?php echo AVBK_Matcher::format_description_html(AVBK_Matcher::strip_name_field($tx->description)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_description_html() esc_html()'s the raw text first, then only wraps already-safe hardcoded labels in <strong>. ?></td></tr>
                     <tr><th>Bevestigd door</th><td><?php echo $confirmer ? esc_html($confirmer->display_name) : '&mdash; (automatisch bij import, of van vóór deze functie)'; ?></td></tr>
                     <tr><th>Toegewezen aan</th><td>
-                        <?php if (!$allocations) : ?>
+                        <?php avbk_render_second_approval_allocations($allocations, $shortfall, $tx, $allocated); ?>
+                    </td></tr>
+                </tbody>
+            </table>
+
+            <?php avbk_render_second_approval_actions($is_own, $tx, $show_all_years); ?>
+        </div>
+<?php
+}
+
+/** The import batch a payment came from. */
+function avbk_render_second_approval_import($tx): void {
+    if ($tx->import_batch_id) : ?>
+                            <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-import'], admin_url('admin.php'))); ?>">#<?php echo esc_html($tx->import_batch_id); ?></a>
+                            <?php if (!empty($tx->import_uploaded_at)) : ?> &mdash; <?php echo esc_html(wp_date('d-m-Y', strtotime($tx->import_uploaded_at))); ?><?php endif; ?>
+                            <?php if (!empty($tx->import_filename)) : ?><br><span class="description"><?php echo esc_html($tx->import_filename); ?></span><?php endif; ?>
+                        <?php else : ?>&mdash;<?php endif; ?>
+<?php
+}
+
+/** Allocations of a payment, with a warning when it is not fully allocated. */
+function avbk_render_second_approval_allocations($allocations, $shortfall, $tx, $allocated): void {
+    if (!$allocations) : ?>
                             &mdash;
                         <?php else : foreach ($allocations as $a) :
                             $member = AVPVH_DB::get_member((int) $a->member_id);
@@ -77,11 +112,12 @@ $current_user_id = get_current_user_id();
                             ?>
                             <a href="<?php echo esc_url($transactions_url); ?>" style="color:#a00">&euro; <?php echo esc_html(number_format($allocated, 2, ',', '.')); ?> van &euro; <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?> &mdash; niet volledig toegewezen (verschil: &euro; <?php echo esc_html(number_format($shortfall, 2, ',', '.')); ?>)</a>
                         <?php endif; ?>
-                    </td></tr>
-                </tbody>
-            </table>
+<?php
+}
 
-            <?php if ($is_own) : ?>
+/** Approve and revert forms of a payment awaiting second approval. */
+function avbk_render_second_approval_actions($is_own, $tx, $show_all_years): void {
+    if ($is_own) : ?>
                 <p class="description">Jij hebt deze betaling zelf bevestigd &mdash; een andere penningmeester/bestuurslid moet 'm goedkeuren.</p>
             <?php else : ?>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block">
@@ -98,7 +134,5 @@ $current_user_id = get_current_user_id();
                 <?php if ($show_all_years) : ?><input type="hidden" name="show_all_years" value="1"><?php endif; ?>
                 <?php submit_button('Terugzetten voor correctie', 'secondary', 'submit', false, ['onclick' => "return confirm('Toewijzing ongedaan maken en terugzetten naar \\'Te controleren\\'?');"]); ?>
             </form>
-        </div>
-        <hr>
-    <?php endforeach; endif; ?>
-</div>
+<?php
+}

@@ -1,5 +1,13 @@
 <?php
 defined('ABSPATH') || exit;
+
+/**
+ * Renders admin/companies.php's markup.
+ *
+ * @param array<string, mixed> $view $companies, $company, $company_id, $form_start, $notice, $quarter, $return_to, $transactions, $year.
+ */
+function avbk_render_companies(array $view): void {
+    ['companies' => $companies, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'notice' => $notice, 'quarter' => $quarter, 'return_to' => $return_to, 'transactions' => $transactions, 'year' => $year] = $view;
 // Variables and the form renderer are supplied after checking company access.
 ?>
 <div class="wrap avbk-company">
@@ -7,7 +15,55 @@ defined('ABSPATH') || exit;
     <?php if ($notice) : ?>
         <p role="status" class="avbk-company-notice <?php echo $notice['error'] ? 'avbk-company-error' : ''; ?>"><?php echo esc_html($notice['message']); ?></p>
     <?php endif; ?>
-    <?php if ($companies) : ?>
+    <?php avbk_render_companies_picker($companies, $return_to, $company_id, $year, $quarter); ?>
+
+    <?php if ($company) : ?>
+        <?php if (is_admin()) : ?>
+            <h2><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h2>
+        <?php else : ?>
+            <h1 class="avbk-company-heading"><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h1>
+        <?php endif; ?>
+        <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
+        <?php require_once AVBK_PLUGIN_DIR . 'admin/company-report.php'; avbk_render_company_report($view); ?>
+        <?php if (AVBK_Company_Payroll::enabled($company_id) && get_option('avbk_company_payroll_page_id')) : ?>
+            <p><a class="button" href="<?php echo esc_url(add_query_arg(['company_id' => $company_id, 'book_year' => $year], get_permalink((int) get_option('avbk_company_payroll_page_id')))); ?>">Salaris en loonheffingen</a></p>
+        <?php endif; ?>
+        <?php avbk_render_company_bank_import($company_id, $form_start); ?>
+        <?php require_once AVBK_PLUGIN_DIR . 'admin/company-cards.php'; avbk_render_company_cards($view); ?>
+        <?php avbk_render_company_invoices($company_id, $form_start, $transactions); ?>
+        <?php avbk_render_company_export($company_id, $company, $year, $quarter, $form_start, $transactions); ?>
+        <?php avbk_render_company_transactions($transactions); ?>
+
+        <?php avbk_render_company_settings($company_id, $form_start); ?>
+    <?php endif; ?>
+
+    <?php avbk_render_companies_create($form_start); ?>
+</div>
+<?php
+}
+
+/** Invoices and receipts: add form, unpaid invoices and the full list. */
+function avbk_render_company_invoices($company_id, $form_start, $transactions): void {
+?><section class="avbk-company-card">
+            <h3>Facturen en bonnetjes</h3>
+            <p>Upload de factuur of geef de vindplaats op, bijvoorbeeld een OneDrive-link of bestandspad. Verwijzingen worden bewaard; bestanden worden niet automatisch opgehaald. Een factuur vastleggen bevestigt nog geen BTW-bedrag.</p>
+            <?php avbk_render_company_invoice_form($company_id, $form_start, $transactions); ?>
+            <?php avbk_render_company_open_invoices($company_id, $form_start); ?>
+            <ul><?php foreach (AVBK_Company_Documents::listing($company_id) as $document) :
+                $tracked = $document->due_date !== null || $document->amount_total !== null;
+                $overdue = $tracked && !$document->paid_at && $document->due_date !== null && $document->due_date < wp_date('Y-m-d');
+            ?>
+                <li>
+                    <?php avbk_render_company_document($document, $company_id, $tracked, $overdue, $form_start); ?>
+                </li>
+            <?php endforeach; ?></ul>
+        </section>
+<?php
+}
+
+/** The company, year and quarter picker. */
+function avbk_render_companies_picker($companies, $return_to, $company_id, $year, $quarter): void {
+    if ($companies) : ?>
         <form method="get" action="<?php echo esc_url($return_to); ?>" class="avbk-company-picker">
             <?php if (is_admin()) : ?><input type="hidden" name="page" value="avbk-companies"><?php endif; ?>
             <label>Administratie <select name="company_id">
@@ -18,19 +74,12 @@ defined('ABSPATH') || exit;
             <button type="submit" class="button">Tonen</button>
         </form>
     <?php else : ?><p>Er zijn nog geen administraties waartoe je toegang hebt.</p><?php endif; ?>
+<?php
+}
 
-    <?php if ($company) : ?>
-        <?php if (is_admin()) : ?>
-            <h2><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h2>
-        <?php else : ?>
-            <h1 class="avbk-company-heading"><?php echo esc_html($company->name . ' · ' . $year . ' Q' . $quarter); ?></h1>
-        <?php endif; ?>
-        <p>Bankrekening: <strong><?php echo esc_html($company->iban); ?></strong>. Werkblad: <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong>.</p>
-        <?php require AVBK_PLUGIN_DIR . 'admin/company-report.php'; ?>
-        <?php if (AVBK_Company_Payroll::enabled($company_id) && get_option('avbk_company_payroll_page_id')) : ?>
-            <p><a class="button" href="<?php echo esc_url(add_query_arg(['company_id' => $company_id, 'book_year' => $year], get_permalink((int) get_option('avbk_company_payroll_page_id')))); ?>">Salaris en loonheffingen</a></p>
-        <?php endif; ?>
-        <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+/** The bank export upload form. */
+function avbk_render_company_bank_import($company_id, $form_start): void {
+    if (AVBK_Companies::can($company_id, 'import')) : ?>
             <section class="avbk-company-card">
                 <h3>1. Bankexport uploaden</h3>
                 <p>Kies een ING-export (.csv of .xlsx) voor deze bankrekening. Een export over meerdere kwartalen is toegestaan: alleen transacties uit het gekozen boekjaar en kwartaal worden verwerkt. Je ziet na de import hoeveel transacties buiten die periode zijn overgeslagen. Ontvangsten en uitgaven worden bewaard. Overlappende imports slaan bestaande transacties over.</p>
@@ -41,11 +90,12 @@ defined('ABSPATH') || exit;
                 </form>
             </section>
         <?php endif; ?>
-        <?php require AVBK_PLUGIN_DIR . 'admin/company-cards.php'; ?>
-        <section class="avbk-company-card">
-            <h3>Facturen en bonnetjes</h3>
-            <p>Upload de factuur of geef de vindplaats op, bijvoorbeeld een OneDrive-link of bestandspad. Verwijzingen worden bewaard; bestanden worden niet automatisch opgehaald. Een factuur vastleggen bevestigt nog geen BTW-bedrag.</p>
-            <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+<?php
+}
+
+/** The form for adding an invoice. */
+function avbk_render_company_invoice_form($company_id, $form_start, $transactions): void {
+    if (AVBK_Companies::can($company_id, 'import')) : ?>
                 <?php $form_start('invoice', true); ?>
                     <label>Factuur (PDF, JPG, PNG of WebP; maximaal 3 MB) <input type="file" name="invoice" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
                     <label>Vindplaats / factuurverwijzing <input name="invoice_reference" maxlength="2000"></label>
@@ -58,13 +108,18 @@ defined('ABSPATH') || exit;
                     <button type="submit" class="button">Factuur toevoegen</button>
                 </form>
             <?php endif; ?>
-            <?php $open_invoices = AVBK_Companies::can($company_id, 'import') ? AVBK_Company_Documents::unpaid($company_id) : []; ?>
+<?php
+}
+
+/** Unpaid invoices, each with a mark-as-paid form. */
+function avbk_render_company_open_invoices($company_id, $form_start): void {
+    $open_invoices = AVBK_Companies::can($company_id, 'import') ? AVBK_Company_Documents::unpaid($company_id) : []; ?>
             <?php if ($open_invoices) : ?>
                 <h4>Openstaande facturen</h4>
                 <ul class="avbk-company-open-invoices">
                     <?php foreach ($open_invoices as $open) : $overdue = $open->due_date < wp_date('Y-m-d'); ?>
                         <li class="<?php echo $overdue ? 'avbk-company-overdue' : ''; ?>">
-                            <?php echo esc_html(($open->filename !== '' ? $open->filename : $open->source_reference) . ' · vervalt ' . $open->due_date . ($open->amount_total !== null ? ' · € ' . number_format((float) $open->amount_total, 2, ',', '.') : '') . ($overdue ? ' · te laat' : '')); ?>
+                            <?php echo esc_html(avbk_company_open_invoice_label($open, $overdue)); ?>
                             <?php $form_start('invoice_mark_paid', false, 'avbk-company-inline-form'); ?>
                                 <input type="hidden" name="document_id" value="<?php echo esc_attr($open->id); ?>">
                                 <button type="submit" class="button-link">Markeer als betaald</button>
@@ -73,12 +128,12 @@ defined('ABSPATH') || exit;
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
-            <ul><?php foreach (AVBK_Company_Documents::listing($company_id) as $document) :
-                $tracked = $document->due_date !== null || $document->amount_total !== null;
-                $overdue = $tracked && !$document->paid_at && $document->due_date !== null && $document->due_date < wp_date('Y-m-d');
-            ?>
-                <li>
-                    <?php if ($document->filename !== '') : ?>
+<?php
+}
+
+/** The contents of one invoice or receipt entry, with its paid status. */
+function avbk_render_company_document($document, $company_id, $tracked, $overdue, $form_start): void {
+    if ($document->filename !== '') : ?>
                         <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $document->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($document->filename); ?></a>
                     <?php endif; ?>
                     <?php echo esc_html($document->source_reference); ?>
@@ -86,9 +141,22 @@ defined('ABSPATH') || exit;
                     <?php if ($document->invoice_date) echo esc_html(' · Factuurdatum ' . $document->invoice_date); ?>
                     <?php if ($document->due_date) echo esc_html(' · Vervalt ' . $document->due_date); ?>
                     <?php if ($document->amount_total !== null) echo esc_html(' · € ' . number_format((float) $document->amount_total, 2, ',', '.')); ?>
-                    <?php if ($tracked) : ?>
+                    <?php avbk_render_company_document_status($tracked, $document, $overdue, $company_id, $form_start); ?>
+<?php
+}
+
+/** Paid status of a tracked invoice, with a form to change it. */
+function avbk_render_company_document_status($tracked, $document, $overdue, $company_id, $form_start): void {
+    if ($tracked) : ?>
                         <span class="avbk-company-status <?php echo $document->paid_at ? 'avbk-company-status-paid' : 'avbk-company-status-unpaid'; ?><?php echo $overdue ? ' avbk-company-overdue' : ''; ?>"><?php echo $document->paid_at ? 'Betaald' : ($overdue ? 'Te laat' : 'Openstaand'); ?></span>
-                        <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+                        <?php avbk_render_company_document_paid_form($company_id, $document, $form_start); ?>
+                    <?php endif; ?>
+<?php
+}
+
+/** The form that marks an invoice as paid or unpaid. */
+function avbk_render_company_document_paid_form($company_id, $document, $form_start): void {
+    if (AVBK_Companies::can($company_id, 'import')) : ?>
                             <?php if ($document->paid_at) : ?>
                                 <?php $form_start('invoice_mark_unpaid', false, 'avbk-company-inline-form'); ?>
                                     <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
@@ -101,11 +169,12 @@ defined('ABSPATH') || exit;
                                 </form>
                             <?php endif; ?>
                         <?php endif; ?>
-                    <?php endif; ?>
-                </li>
-            <?php endforeach; ?></ul>
-        </section>
-        <?php if (AVBK_Companies::can($company_id, 'export')) : ?>
+<?php
+}
+
+/** The form that updates the quarter sheet in the VAT workbook. */
+function avbk_render_company_export($company_id, $company, $year, $quarter, $form_start, $transactions): void {
+    if (AVBK_Companies::can($company_id, 'export')) : ?>
             <section class="avbk-company-card">
                 <h3>3. Het juiste kwartaalwerkblad bijwerken</h3>
                 <p>Upload de nieuwste BTW-werkmap. Je krijgt de volledige werkmap terug met <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong> bijgewerkt. Andere werkbladen blijven behouden. Bewaar de download als de nieuwe versie in OneDrive.</p>
@@ -119,7 +188,12 @@ defined('ABSPATH') || exit;
                 </form>
             </section>
         <?php endif; ?>
-        <h3>Geïmporteerde banktransacties (<?php echo esc_html(count($transactions)); ?>)</h3>
+<?php
+}
+
+/** The imported bank transactions of the period. */
+function avbk_render_company_transactions($transactions): void {
+?><h3>Geïmporteerde banktransacties (<?php echo esc_html(count($transactions)); ?>)</h3>
         <p>Dit is het bankoverzicht. Het kwartaalwerkblad met BTW, bedragen exclusief BTW en de controle per regel staat bovenaan.</p>
         <div class="avbk-company-scroll"><table class="widefat striped">
             <thead><tr><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Bedrag</th><th>Mededelingen</th></tr></thead>
@@ -127,8 +201,12 @@ defined('ABSPATH') || exit;
                 <td><?php echo esc_html($tx->transaction_date); ?></td><td><?php echo esc_html($tx->counterparty_name); ?></td><td><?php echo $tx->direction === 'out' ? 'Af' : 'Bij'; ?></td><td>€ <?php echo esc_html(number_format((float) $tx->amount, 2, ',', '.')); ?></td><td><?php echo esc_html($tx->description); ?></td>
             </tr><?php endforeach; ?></tbody>
         </table></div>
+<?php
+}
 
-        <?php if (AVBK_Companies::can($company_id, 'access')) : ?>
+/** Feature settings and access management of a company. */
+function avbk_render_company_settings($company_id, $form_start): void {
+    if (AVBK_Companies::can($company_id, 'access')) : ?>
             <section class="avbk-company-card">
                 <h3>Bedrijfsinstellingen en toegang</h3>
                 <?php $features = AVBK_Company_Features::get($company_id); $form_start('company_features'); ?>
@@ -151,9 +229,12 @@ defined('ABSPATH') || exit;
                 </form>
             </section>
         <?php endif; ?>
-    <?php endif; ?>
+<?php
+}
 
-    <?php if (current_user_can('manage_options')) : ?>
+/** The form for adding a company administration (site admins only). */
+function avbk_render_companies_create($form_start): void {
+    if (current_user_can('manage_options')) : ?>
         <section class="avbk-company-card">
             <h2>Administratie toevoegen</h2>
             <?php $form_start('create'); ?>
@@ -165,4 +246,10 @@ defined('ABSPATH') || exit;
             </form>
         </section>
     <?php endif; ?>
-</div>
+<?php
+}
+
+/** "<file or reference> · vervalt <date>[ · € amount][ · te laat]" for an unpaid invoice. */
+function avbk_company_open_invoice_label(object $open, bool $overdue): string {
+    return ($open->filename !== '' ? $open->filename : $open->source_reference) . ' · vervalt ' . $open->due_date . ($open->amount_total !== null ? ' · € ' . number_format((float) $open->amount_total, 2, ',', '.') : '') . ($overdue ? ' · te laat' : '');
+}
