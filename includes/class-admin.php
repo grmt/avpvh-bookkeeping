@@ -72,7 +72,6 @@ class AVBK_Admin implements AVBK_Component {
         add_action('wp_ajax_avbk_activity_participants', [$this, 'ajax_activity_participants']);
     }
 
-    /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
     /**
      * "Op die pagina kun je ook betalingen voor Anna, Bram en Cas toevoegen."
      * for the payment request mail: the first names of the people whose open
@@ -83,21 +82,47 @@ class AVBK_Admin implements AVBK_Component {
      * their partner); without a partner or child there is no sentence.
      */
     public static function household_payment_hint(int $member_id): string {
+        $first_names = self::household_first_names($member_id);
+        [$partners, $children] = self::household_partners_and_children($member_id, $first_names);
+        if (!$partners && !$children) {
+            return '';
+        }
+        $named = $partners;
+        foreach ($children as $child_id => $child_name) {
+            $named[$child_id] = $child_name;
+            $named += self::named_partners($child_id, $first_names);
+        }
+        return "\n\nOp die pagina kun je ook betalingen voor " . self::dutch_list(array_values($named)) . ' toevoegen.';
+    }
+
+    /** First names of the member's extended household, without the member. */
+    private static function household_first_names(int $member_id): array {
         $first_names = [];
         foreach (AVPVH_DB::get_extended_household($member_id) as $m) {
             if ((int) $m->id !== $member_id) {
                 $first_names[(int) $m->id] = (string) $m->first_name;
             }
         }
-        if (!$first_names) {
-            return '';
-        }
-        // A relationship label describes the other member towards this one:
-        // "kind van" / "pupil van" means the other is this member's child
-        // (checked against birth dates on 2026-11-09: for every "ouder van"
-        // the member is the younger one).
+        return $first_names;
+    }
+
+    /**
+     * The member's partners and children among the household, by id.
+     *
+     * A relationship label describes the other member towards this one:
+     * "kind van" / "pupil van" means the other is this member's child
+     * (checked against birth dates on 2026-11-09: for every "ouder van"
+     * the member is the younger one).
+     *
+     * @param array<int, string> $first_names
+     * @return array{0: array<int, string>, 1: array<int, string>}
+     */
+    private static function household_partners_and_children(int $member_id, array $first_names): array {
         $partners = [];
         $children = [];
+        if (!$first_names) {
+            return [$partners, $children];
+        }
         foreach (AVPVH_DB::get_relationships($member_id) as $rel) {
             $other_id = (int) $rel->other_id;
             if (!isset($first_names[$other_id])) {
@@ -109,25 +134,33 @@ class AVBK_Admin implements AVBK_Component {
                 $children[$other_id] = $first_names[$other_id];
             }
         }
-        if (!$partners && !$children) {
-            return '';
-        }
-        $named = $partners;
-        foreach ($children as $child_id => $child_name) {
-            $named[$child_id] = $child_name;
-            foreach (AVPVH_DB::get_relationships($child_id) as $rel) {
-                $partner_id = (int) $rel->other_id;
-                if ($rel->category === 'partner' && isset($first_names[$partner_id])) {
-                    $named[$partner_id] = $first_names[$partner_id];
-                }
-            }
-        }
-        $list = array_values($named);
-        $last = array_pop($list);
-        $names = $list ? implode(', ', $list) . ' en ' . $last : $last;
-        return "\n\nOp die pagina kun je ook betalingen voor " . $names . ' toevoegen.';
+        return [$partners, $children];
     }
 
+    /**
+     * The partners of a member who are in the household, by id.
+     *
+     * @param array<int, string> $first_names
+     * @return array<int, string>
+     */
+    private static function named_partners(int $member_id, array $first_names): array {
+        $named = [];
+        foreach (AVPVH_DB::get_relationships($member_id) as $rel) {
+            $partner_id = (int) $rel->other_id;
+            if ($rel->category === 'partner' && isset($first_names[$partner_id])) {
+                $named[$partner_id] = $first_names[$partner_id];
+            }
+        }
+        return $named;
+    }
+
+    /** "Anna", "Anna en Bram", "Anna, Bram en Cas". */
+    private static function dutch_list(array $names): string {
+        $last = array_pop($names);
+        return $names ? implode(', ', $names) . ' en ' . $last : (string) $last;
+    }
+
+    /** Real WP admins, or whoever currently holds/is delegated penningmeester (AVPVH_Roles folds officer roles into bestuur, but this screen is specifically financial — keep it to penningmeester, not all of bestuur). */
     private function can_manage(): bool {
         return current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('penningmeester');
     }
