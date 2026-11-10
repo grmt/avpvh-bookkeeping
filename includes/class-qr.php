@@ -57,6 +57,17 @@ class AVBK_QR {
     }
 
     /**
+     * The short reference to type by hand: PVH-<member>-B<id>, where B<id>
+     * stands for exactly these fee items (AVBK_DB::payment_reference_id()).
+     * The matcher resolves it like the long F-form. Falls back to the long
+     * form if the selection can't be stored.
+     */
+    public static function short_reference_code(int $member_id, array $fee_item_ids): string {
+        $reference_id = $fee_item_ids ? AVBK_DB::payment_reference_id($member_id, $fee_item_ids) : 0;
+        return $reference_id ? self::reference_code($member_id) . '-B' . $reference_id : self::fee_reference_code($member_id, $fee_item_ids);
+    }
+
+    /**
      * EPC069-12 "BCD" payload, one field per line. BIC (field 5) is left
      * blank — allowed for IBANs from SEPA countries, which covers every
      * transaction seen in the sample export (NL/BE).

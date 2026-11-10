@@ -381,14 +381,14 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                     <p class="avbk-balance-qr-hint">Gebruik de QR-code met de scanfunctie in je <strong>bankieren-app</strong>, niet met de camera-app, om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
                     <?php
                     // Same layout and omschrijving as the payment request mail
-                    // (AVBK_Admin::balance_request_mail_html()): only the
+                    // (AVBK_Admin::balance_request_mail_html()): only the short
                     // reference code, which is all the matcher needs.
                     $club_iban = trim((string) get_option('avbk_club_iban', ''));
                     $payment_details = [
                         'IBAN'         => $club_iban !== '' ? trim(chunk_split($club_iban, 4, ' ')) : '',
                         'Ten name van' => trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne')),
                         'Bedrag'       => '€ ' . number_format($selected_total, 2, ',', '.'),
-                        'Omschrijving' => AVBK_QR::fee_reference_code($target_id, array_map(
+                        'Omschrijving' => AVBK_QR::short_reference_code($target_id, array_map(
                             static fn($item) => (int) $item->id,
                             array_filter($selected_items, static fn($item) => $item->status !== 'waived' && $item->remaining > 0.005)
                         )),

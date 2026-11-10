@@ -18,7 +18,7 @@ class AVPVH_DB {
 }
 class AVBK_QR {
     public const UNSUPPORTED_BANKS_NOTE = 'Let op.';
-    public static function fee_reference_code(int $member_id, array $ids): string { return "PVH-$member_id-F" . implode('-', $ids); }
+    public static function short_reference_code(int $member_id, array $ids): string { return "PVH-$member_id-F" . implode('-', $ids); }
 }
 class AVBK_DB {
     public static array $items = [];
