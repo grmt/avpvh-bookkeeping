@@ -938,19 +938,24 @@ class AVBK_Admin implements AVBK_Component {
             if (!$activity_id) {
                 $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
             } else {
-                try {
-                    $path = avbk_uploaded_file_path((string) $file['tmp_name']);
-                    $result = $this->is_camp_activity($activity_id)
-                        ? AVBK_Camp_Sheet_Import::import($activity_id, $path)
-                        : AVBK_Sheet_Import::import($activity_id, $path);
-                } catch (\RuntimeException $e) {
-                    $result = ['matched' => [], 'unmatched' => [], 'errors' => [$e->getMessage()]];
-                }
+                $result = $this->import_activity_sheet($activity_id, (string) $file['tmp_name']);
             }
         }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id, 'imported' => '1'], admin_url('admin.php')));
         exit;
+    }
+
+    /** Reads the uploaded sheet with the camp or the general importer; a rejected upload path becomes an import error. */
+    private function import_activity_sheet(int $activity_id, string $tmp_name): array {
+        try {
+            $path = avbk_uploaded_file_path($tmp_name);
+        } catch (AVBK_Upload_Exception $e) {
+            return ['matched' => [], 'unmatched' => [], 'errors' => [$e->getMessage()]];
+        }
+        return $this->is_camp_activity($activity_id)
+            ? AVBK_Camp_Sheet_Import::import($activity_id, $path)
+            : AVBK_Sheet_Import::import($activity_id, $path);
     }
 
     /** Camp-sheet counterpart of handle_sheet_import_upload() for a Google Sheets link instead of an uploaded file — see AVBK_Camp_Sheet_Import::import_from_url(). */
