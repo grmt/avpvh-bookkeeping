@@ -702,7 +702,7 @@ function avbk_render_tshirt_orders_table($orders): void {
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) : ?>
-                        <?php avbk_render_tshirt_order_row($order); ?>
+                        <?php avbk_render_order_row($order, 'tshirt'); ?>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
@@ -1029,7 +1029,7 @@ function avbk_render_book_orders_table($orders): void {
                     </tr>
                 <?php else : ?>
                     <?php foreach ($orders as $order) : ?>
-                        <?php avbk_render_book_order_row($order); ?>
+                        <?php avbk_render_order_row($order, 'book'); ?>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
@@ -1258,8 +1258,8 @@ function avbk_render_book_settings_table(): void {
 <?php
 }
 
-/** One row of the T-shirt order table. */
-function avbk_render_tshirt_order_row(object $order): void {
+/** One row of the T-shirt or book order table. */
+function avbk_render_order_row(object $order, string $order_type): void {
     ['full_name' => $full_name, 'is_paid' => $is_paid, 'member_profile_url' => $member_profile_url, 'email_suggestion' => $email_suggestion, 'has_email_issue' => $has_email_issue] = avbk_order_row_values($order);
 ?><tr id="order-<?php echo (int) $order->id; ?>">
                             <td>#<?php echo (int) $order->id; ?></td>
@@ -1270,44 +1270,40 @@ function avbk_render_tshirt_order_row(object $order): void {
                             <td>
                                 <?php avbk_render_order_address($order); ?>
                             </td>
-                            <td>
-                                <?php avbk_render_tshirt_order_items($order); ?>
-                            </td>
+                            <?php avbk_render_order_quantity_cell($order, $order_type); ?>
                             <td data-sort-value="<?php echo esc_attr(number_format((float) $order->total_amount, 2, '.', '')); ?>">&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
                             <td data-filter-value="<?php echo $is_paid ? 'Betaald' : 'Open'; ?>">
                                 <?php avbk_render_order_payment($is_paid, $order); ?>
                             </td>
-                            <td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
-                                <?php avbk_render_order_distribution($order, 'tshirt'); ?>
+                            <?php avbk_render_book_presentation_cell($order, $order_type); ?><td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
+                                <?php avbk_render_order_distribution($order, $order_type); ?>
                             </td>
                             <td>
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
                             </td>
                             <td>
-                                <?php avbk_render_order_actions($order, $full_name, $email_suggestion, 'tshirt'); ?>
+                                <?php avbk_render_order_actions($order, $full_name, $email_suggestion, $order_type); ?>
                             </td>
                         </tr>
 <?php
 }
 
-/** One row of the book order table. */
-function avbk_render_book_order_row(object $order): void {
-    ['full_name' => $full_name, 'is_paid' => $is_paid, 'member_profile_url' => $member_profile_url, 'email_suggestion' => $email_suggestion, 'has_email_issue' => $has_email_issue] = avbk_order_row_values($order);
-?><tr id="order-<?php echo (int) $order->id; ?>">
-                            <td>#<?php echo (int) $order->id; ?></td>
-                            <td data-sort-value="<?php echo esc_attr(wp_date('Y-m-d', strtotime($order->created_at))); ?>"><?php echo esc_html(wp_date('d-m-Y', strtotime($order->created_at))); ?></td>
-                            <td>
-                                <?php avbk_render_order_customer($member_profile_url, $full_name, $order, $email_suggestion, $has_email_issue); ?>
+
+/** The items column: the shirts of a T-shirt order, or the number of books. */
+function avbk_render_order_quantity_cell(object $order, string $order_type): void {
+    if ($order_type === 'book') : ?><td><strong><?php echo (int) $order->quantity; ?></strong></td>
+<?php else : ?><td>
+                                <?php avbk_render_tshirt_order_items($order); ?>
                             </td>
-                            <td>
-                                <?php avbk_render_order_address($order); ?>
-                            </td>
-                            <td><strong><?php echo (int) $order->quantity; ?></strong></td>
-                            <td data-sort-value="<?php echo esc_attr(number_format((float) $order->total_amount, 2, '.', '')); ?>">&euro;&nbsp;<?php echo number_format((float) $order->total_amount, 2, ',', '.'); ?></td>
-                            <td data-filter-value="<?php echo $is_paid ? 'Betaald' : 'Open'; ?>">
-                                <?php avbk_render_order_payment($is_paid, $order); ?>
-                            </td>
-                            <td data-filter-value="<?php
+<?php endif;
+}
+
+/** The presentation column of a book order (attend / keep informed); nothing for T-shirts. */
+function avbk_render_book_presentation_cell(object $order, string $order_type): void {
+    if ($order_type !== 'book') {
+        return;
+    }
+    ?><td data-filter-value="<?php
                                 $presentatie_parts = [];
                                 if (!empty($order->attend_presentation)) { $presentatie_parts[] = 'Aanwezig'; }
                                 if (!empty($order->keep_updated)) { $presentatie_parts[] = 'Info'; }
@@ -1323,17 +1319,7 @@ function avbk_render_book_order_row(object $order): void {
                                     &mdash;
                                 <?php endif; ?>
                             </td>
-                            <td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
-                                <?php avbk_render_order_distribution($order, 'book'); ?>
-                            </td>
-                            <td>
-                                <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
-                            </td>
-                            <td>
-                                <?php avbk_render_order_actions($order, $full_name, $email_suggestion, 'book'); ?>
-                            </td>
-                        </tr>
-<?php
+                            <?php
 }
 
 /**
