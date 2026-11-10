@@ -45,7 +45,10 @@ class AVBK_QR {
      * unitemized payment, nothing new to depend on.
      */
     public static function fee_reference_code(int $member_id, array $fee_item_ids): string {
+        // Sorted, so the mail, the member page and the QR code give the same
+        // code for the same selection whatever order the items came in.
         $ids = array_values(array_unique(array_filter(array_map('intval', $fee_item_ids))));
+        sort($ids);
         if (!$ids) {
             return self::reference_code($member_id);
         }

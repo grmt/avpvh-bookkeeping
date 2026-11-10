@@ -372,25 +372,35 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         $entries[] = ['item' => $item, 'name' => ($combined_members[(int) $item->member_id] ?? $target_member)->first_name];
                     }
                     $qr = AVBK_QR::for_combined_balance($target_id, $selected_total, $entries);
-                    $reference_text = AVBK_QR::remittance_for_combined($entries, $target_id);
                 } else {
                     $qr = AVBK_QR::for_member_balance($target_id, $selected_total, $selected_items);
-                    $reference_text = AVBK_QR::remittance_for_balance($selected_items, $target_id);
                 }
                 ?>
                 <?php if ($qr) : ?>
                     <div class="avbk-balance-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
-                    <p class="avbk-balance-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
+                    <p class="avbk-balance-qr-hint">Gebruik de QR-code met de scanfunctie in je <strong>bankieren-app</strong>, niet met de camera-app, om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
                     <?php
+                    // Same layout and omschrijving as the payment request mail
+                    // (AVBK_Admin::balance_request_mail_html()): only the
+                    // reference code, which is all the matcher needs.
                     $club_iban = trim((string) get_option('avbk_club_iban', ''));
-                    $club_iban_display = $club_iban ? trim(chunk_split($club_iban, 4, ' ')) : '';
-                    $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
+                    $payment_details = [
+                        'IBAN'         => $club_iban !== '' ? trim(chunk_split($club_iban, 4, ' ')) : '',
+                        'Ten name van' => trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne')),
+                        'Bedrag'       => '€ ' . number_format($selected_total, 2, ',', '.'),
+                        'Omschrijving' => AVBK_QR::fee_reference_code($target_id, array_map(
+                            static fn($item) => (int) $item->id,
+                            array_filter($selected_items, static fn($item) => $item->status !== 'waived' && $item->remaining > 0.005)
+                        )),
+                    ];
                     ?>
-                    <p class="avbk-balance-qr-ref">Wil je de boeking zelf doen? Gebruik dan de volgende gegevens:<br>
-                        <?php if ($club_iban) : ?>IBAN: <code><?php echo esc_html($club_iban_display); ?></code><br><?php endif; ?>
-                        Ten name van: <?php echo esc_html($club_name); ?><br>
-                        Omschrijving: <code><?php echo esc_html($reference_text); ?></code>
-                    </p>
+                    <p class="avbk-balance-qr-ref">Wil je de boeking zelf doen? Overmaken kan naar:</p>
+                    <table class="avbk-balance-payment-details">
+                        <?php foreach (array_filter($payment_details) as $label => $value) : ?>
+                            <tr><th scope="row"><?php echo esc_html($label); ?></th><td><?php echo $label === 'Omschrijving' ? '<strong>' . esc_html($value) . '</strong>' : esc_html($value); ?></td></tr>
+                        <?php endforeach; ?>
+                    </table>
+                    <p>Met dat kenmerk herkennen we je betaling automatisch.</p>
                 <?php endif; ?>
             <?php endif; ?>
 
