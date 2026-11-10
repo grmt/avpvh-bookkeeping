@@ -108,7 +108,7 @@ class AVBK_DB {
             counterparty_name VARCHAR(255) NOT NULL DEFAULT '',
             counterparty_iban VARCHAR(34) NOT NULL DEFAULT '',
             description TEXT NULL,
-            dedupe_hash CHAR(40) NOT NULL,
+            dedupe_hash CHAR(64) NOT NULL,
             duplicate_of INT UNSIGNED NULL,
             activity_id INT UNSIGNED NULL,
             status ENUM('unmatched','suggested','matched','ignored','duplicate') NOT NULL DEFAULT 'unmatched',
@@ -1230,6 +1230,14 @@ class AVBK_DB {
                 "UPDATE {$wpdb->prefix}avb_fee_items SET category = 'Schenking', description = 'Schenking' WHERE category = 'Anders' AND description = 'Anders (Schenking)'"
             );
             update_option('avbk_db_version', '1.45');
+        }
+        if (version_compare($version, '1.46', '<')) {
+            // dedupe_hash moved from sha1 (40 chars) to sha256 (64). Stored
+            // sha1 values stay: find_semantic_duplicate() recomputes every
+            // candidate's hash from its own columns, so re-importing an
+            // export that overlaps older rows is still recognised.
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions MODIFY dedupe_hash CHAR(64) NOT NULL");
+            update_option('avbk_db_version', '1.46');
         }
     }
 
@@ -3039,7 +3047,7 @@ class AVBK_DB {
         string $counterparty_name = '',
         string $direction = ''
     ): string {
-        return sha1(implode('|', [
+        return hash('sha256', implode('|', [
             strtolower(trim($direction)),
             $date,
             number_format($amount, 2, '.', ''),
