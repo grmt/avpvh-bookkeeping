@@ -32,7 +32,21 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                 </form>
             <?php endif; ?>
         <?php else : ?>
-            <div class="avbk-company-scroll"><table class="widefat striped">
+            <?php avbk_render_company_ledger_accounts($accounts, $company_id, $form_start); ?>
+        <?php endif; ?>
+        <?php avbk_render_company_ledger_add_account($company_id, $form_start); ?>
+    </section>
+
+    <?php avbk_render_company_ledger_entry_form($accounts, $company_id, $form_start); ?>
+
+    <?php avbk_render_company_ledger_entries($entries, $company_id, $money, $form_start); ?>
+</div>
+<?php
+}
+
+/** The chart of accounts. */
+function avbk_render_company_ledger_accounts($accounts, $company_id, $form_start): void {
+?><div class="avbk-company-scroll"><table class="widefat striped">
                 <thead><tr><th>Code</th><th>Naam</th><th>Type</th><th>Status</th></tr></thead>
                 <tbody><?php foreach ($accounts as $account) : ?><tr>
                     <td><?php echo esc_html($account->code); ?></td>
@@ -48,8 +62,12 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                     </td>
                 </tr><?php endforeach; ?></tbody>
             </table></div>
-        <?php endif; ?>
-        <?php if (AVBK_Companies::can($company_id, 'import')) : ?>
+<?php
+}
+
+/** The form for adding an account. */
+function avbk_render_company_ledger_add_account($company_id, $form_start): void {
+    if (AVBK_Companies::can($company_id, 'import')) : ?>
             <details class="avbk-company-review"><summary>Rekening toevoegen</summary>
                 <?php $form_start('ledger_add_account'); ?>
                     <label>Code <input name="account_code" maxlength="20" required></label>
@@ -63,9 +81,12 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                 </form>
             </details>
         <?php endif; ?>
-    </section>
+<?php
+}
 
-    <?php if ($accounts && AVBK_Companies::can($company_id, 'import')) : ?>
+/** The form for a new ledger entry. */
+function avbk_render_company_ledger_entry_form($accounts, $company_id, $form_start): void {
+    if ($accounts && AVBK_Companies::can($company_id, 'import')) : ?>
         <section class="avbk-company-card">
             <h3>Nieuwe boeking</h3>
             <p>Debet en credit moeten gelijk zijn. Vul per regel een rekening in met óf een debetbedrag óf een creditbedrag.</p>
@@ -91,12 +112,24 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
             </form>
         </section>
     <?php endif; ?>
+<?php
+}
 
-    <section class="avbk-company-card">
+/** All ledger entries, newest first. */
+function avbk_render_company_ledger_entries($entries, $company_id, $money, $form_start): void {
+?><section class="avbk-company-card">
         <h3>Boekingen</h3>
         <?php if (!$entries) : ?><p>Nog geen boekingen.</p><?php endif; ?>
         <?php foreach (array_reverse($entries) as $entry) : $entry_lines = AVBK_Company_Ledger::lines($company_id, $entry->id); ?>
-            <div class="avbk-company-scroll"><table class="widefat striped">
+            <?php avbk_render_company_ledger_entry($entry, $entry_lines, $money, $company_id, $form_start); ?>
+        <?php endforeach; ?>
+    </section>
+<?php
+}
+
+/** One ledger entry with its lines and void form. */
+function avbk_render_company_ledger_entry($entry, $entry_lines, $money, $company_id, $form_start): void {
+?><div class="avbk-company-scroll"><table class="widefat striped">
                 <caption>
                     Boeking #<?php echo esc_html($entry->entry_number); ?> · <?php echo esc_html($entry->entry_date); ?> · <?php echo esc_html($entry->description); ?><?php if ($entry->reference !== '') echo ' · ' . esc_html($entry->reference); ?>
                     <?php if ($entry->voided_at) : ?><span class="avbk-company-overdue"> · teruggedraaid <?php echo esc_html($entry->voided_at); ?>: <?php echo esc_html($entry->void_reason); ?></span><?php endif; ?>
@@ -118,8 +151,5 @@ $money = fn($cents) => '€ ' . number_format($cents / 100, 2, ',', '.');
                     </form>
                 </details>
             <?php endif; ?>
-        <?php endforeach; ?>
-    </section>
-</div>
 <?php
 }
