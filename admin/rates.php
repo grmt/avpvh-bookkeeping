@@ -52,13 +52,118 @@ $rate_copy_sources = array_values(array_filter($activities, static function ($ac
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
         <?php wp_nonce_field('avbk_save_settings'); ?>
         <input type="hidden" name="action" value="avbk_save_settings">
-        <table class="form-table" style="max-width:900px">
-            <?php avbk_render_rates_general_settings(); ?>
-            <?php avbk_render_rates_book_settings(); ?>
-        </table>
+        <?php avbk_render_rates_settings_table(); ?>
         <?php submit_button('Instellingen opslaan'); ?>
     </form>
 </div>
+<?php
+}
+
+/** The settings table: payments, popups, mails and the jubilee book. */
+function avbk_render_rates_settings_table(): void {
+?><table class="form-table" style="max-width:900px">
+            <tr>
+                <th><label for="login_payment_popup_enabled">Betaalpopup bij inloggen</label></th>
+                <td>
+                    <label><input type="checkbox" id="login_payment_popup_enabled" name="login_payment_popup_enabled" value="1" <?php checked((bool) get_option(AVBK_Fee_Popup::ENABLED_OPTION, 0)); ?>> Toon een popup bij een openstaand saldo</label>
+                    <p class="description">Standaard uitgeschakeld voor iedereen. Het betaaloverzicht en de QR-code blijven beschikbaar via Mijn betalingen in het accountmenu.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="club_iban">IBAN vereniging</label></th>
+                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', '')); ?>"></td>
+            </tr>
+            <tr>
+                <th><label for="club_name">Naam op rekening</label></th>
+                <td><input type="text" id="club_name" name="club_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_name', "Archeologische Vereniging Philips van Horne")); ?>"></td>
+            </tr>
+            <tr>
+                <th><label for="reference_prefix">Betalingskenmerk-prefix</label></th>
+                <td>
+                    <input type="text" id="reference_prefix" name="reference_prefix" value="<?php echo esc_attr(get_option('avbk_reference_prefix', 'PVH')); ?>" style="width:8em">
+                    <p class="description">Wordt gebruikt in de QR-code, bijv. &ldquo;PVH-42&rdquo;. Betalingen met dit kenmerk in de omschrijving worden automatisch gekoppeld.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="penningmeester_email">E-mail penningmeester</label></th>
+                <td>
+                    <input type="email" id="penningmeester_email" name="penningmeester_email" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>">
+                    <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="penningmeester_name">Naam penningmeester</label></th>
+                <td>
+                    <input type="text" id="penningmeester_name" name="penningmeester_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_name', 'de penningmeester')); ?>">
+                    <p class="description">Ondertekening van een "Vraag om betaling"-e-mail, bijv. "Nina".</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="payment_email_login_help">Inloguitleg in betaalmail</label></th>
+                <td>
+                    <label><input type="checkbox" id="payment_email_login_help" name="payment_email_login_help" value="1" <?php checked((bool) get_option('avbk_payment_email_login_help', 1)); ?>> Voeg uitleg over wachtwoord, Google en Microsoft toe</label>
+                    <textarea id="payment_email_login_text" name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem; width:100%; max-width:700px;" aria-label="Aangepaste inloguitleg in betaalmail"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', '') ?: AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT); ?></textarea>
+                    <p class="description">Gebruik <code>[wachtwoord-link]</code> voor de klikbare link “hier” naar het scherm om in te loggen of een wachtwoord in te stellen. De QR-code en profiel-link blijven altijd in de betaalmail staan.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="qr_caption_text">Uitleg boven QR-code</label></th>
+                <td>
+                    <textarea id="qr_caption_text" name="qr_caption_text" rows="5" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_qr_caption_text', '') ?: AVBK_Admin::DEFAULT_QR_CAPTION_TEXT); ?></textarea>
+                    <p class="description">Tekst boven de QR-code in de "Vraag om betaling"-e-mail.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="generic_payment_link_text">Tekst bij generieke betaalverzoeklink</label></th>
+                <td>
+                    <textarea id="generic_payment_link_text" name="generic_payment_link_text" rows="3" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_generic_payment_link_text', '') ?: AVBK_Admin::DEFAULT_GENERIC_PAYMENT_LINK_TEXT); ?></textarea>
+                    <p class="description">Gebruik <code>[link]</code> voor de betaalverzoeklink zelf. Wordt toegevoegd via de knop "Betaalverzoeklink toevoegen" bij het opstellen van een "Vraag om betaling"-e-mail.</p>
+                </td>
+            </tr>
+            <tr>
+                <th colspan="2" style="padding-top:2rem;"><h3>Jubileumboek</h3></th>
+            </tr>
+            <tr>
+                <th><label for="book_title">Titel jubileumboek</label></th>
+                <td>
+                    <input type="text" id="book_title" name="book_title" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_title', AVBK_Book_Order::DEFAULT_TITLE)); ?>">
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_price">Prijs per exemplaar (&euro;)</label></th>
+                <td>
+                    <input type="number" step="0.50" id="book_price" name="book_price" class="small-text" value="<?php echo esc_attr(number_format((float) get_option('avbk_book_price', AVBK_Book_Order::DEFAULT_PRICE), 2, '.', '')); ?>">
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_price_note">Prijsnotitie (bijv. BTW)</label></th>
+                <td>
+                    <input type="text" id="book_price_note" name="book_price_note" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_price_note', AVBK_Book_Order::DEFAULT_PRICE_NOTE)); ?>">
+                    <p class="description">Zichtbaar op de bestelpagina bij de prijs (bijv. <code>De definitieve prijs hangt af van het totale aantal bestelde exemplaren. Alle prijzen zijn zonder btw.</code>).</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_distribution_notice">Uitleg distributie / afhalen</label></th>
+                <td>
+                    <textarea id="book_distribution_notice" name="book_distribution_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_distribution_notice', AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE)); ?></textarea>
+                    <p class="description">Melding over het niet per post verzenden van boeken.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_presentation_notice">Toelichting boekpresentatie</label></th>
+                <td>
+                    <textarea id="book_presentation_notice" name="book_presentation_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_presentation_notice', AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE)); ?></textarea>
+                    <p class="description">Uitleg boven de presentatie-vinkjes voor begin 2027.</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="book_flaptekst">Flaptekst</label></th>
+                <td>
+                    <textarea id="book_flaptekst" name="book_flaptekst" rows="12" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
+                    <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]). Ondersteunt alinea's, witregels en HTML (zoals <code>&lt;em&gt;</code>, <code>&lt;blockquote&gt;</code>, <code>&lt;br&gt;</code> en <code>&lt;strong&gt;</code>).</p>
+                </td>
+            </tr>
+        </table>
 <?php
 }
 
@@ -328,113 +433,4 @@ function avbk_render_rates_payment_qr_script(): void {
 <?php
 }
 
-/** Settings rows for payments, popups and mails. */
-function avbk_render_rates_general_settings(): void {
-?><tr>
-                <th><label for="login_payment_popup_enabled">Betaalpopup bij inloggen</label></th>
-                <td>
-                    <label><input type="checkbox" id="login_payment_popup_enabled" name="login_payment_popup_enabled" value="1" <?php checked((bool) get_option(AVBK_Fee_Popup::ENABLED_OPTION, 0)); ?>> Toon een popup bij een openstaand saldo</label>
-                    <p class="description">Standaard uitgeschakeld voor iedereen. Het betaaloverzicht en de QR-code blijven beschikbaar via Mijn betalingen in het accountmenu.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="club_iban">IBAN vereniging</label></th>
-                <td><input type="text" id="club_iban" name="club_iban" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_iban', '')); ?>"></td>
-            </tr>
-            <tr>
-                <th><label for="club_name">Naam op rekening</label></th>
-                <td><input type="text" id="club_name" name="club_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_club_name', "Archeologische Vereniging Philips van Horne")); ?>"></td>
-            </tr>
-            <tr>
-                <th><label for="reference_prefix">Betalingskenmerk-prefix</label></th>
-                <td>
-                    <input type="text" id="reference_prefix" name="reference_prefix" value="<?php echo esc_attr(get_option('avbk_reference_prefix', 'PVH')); ?>" style="width:8em">
-                    <p class="description">Wordt gebruikt in de QR-code, bijv. &ldquo;PVH-42&rdquo;. Betalingen met dit kenmerk in de omschrijving worden automatisch gekoppeld.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="penningmeester_email">E-mail penningmeester</label></th>
-                <td>
-                    <input type="email" id="penningmeester_email" name="penningmeester_email" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>">
-                    <p class="description">Hier komt een melding binnen als een lid bezwaar maakt tegen zijn/haar overzicht.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="penningmeester_name">Naam penningmeester</label></th>
-                <td>
-                    <input type="text" id="penningmeester_name" name="penningmeester_name" class="regular-text" value="<?php echo esc_attr(get_option('avbk_penningmeester_name', 'de penningmeester')); ?>">
-                    <p class="description">Ondertekening van een "Vraag om betaling"-e-mail, bijv. "Nina".</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="payment_email_login_help">Inloguitleg in betaalmail</label></th>
-                <td>
-                    <label><input type="checkbox" id="payment_email_login_help" name="payment_email_login_help" value="1" <?php checked((bool) get_option('avbk_payment_email_login_help', 1)); ?>> Voeg uitleg over wachtwoord, Google en Microsoft toe</label>
-                    <textarea id="payment_email_login_text" name="payment_email_login_text" rows="8" class="large-text" style="margin-top:.5rem; width:100%; max-width:700px;" aria-label="Aangepaste inloguitleg in betaalmail"><?php echo esc_textarea(get_option('avbk_payment_email_login_text', '') ?: AVBK_Admin::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT); ?></textarea>
-                    <p class="description">Gebruik <code>[wachtwoord-link]</code> voor de klikbare link “hier” naar het scherm om in te loggen of een wachtwoord in te stellen. De QR-code en profiel-link blijven altijd in de betaalmail staan.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="qr_caption_text">Uitleg boven QR-code</label></th>
-                <td>
-                    <textarea id="qr_caption_text" name="qr_caption_text" rows="5" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_qr_caption_text', '') ?: AVBK_Admin::DEFAULT_QR_CAPTION_TEXT); ?></textarea>
-                    <p class="description">Tekst boven de QR-code in de "Vraag om betaling"-e-mail.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="generic_payment_link_text">Tekst bij generieke betaalverzoeklink</label></th>
-                <td>
-                    <textarea id="generic_payment_link_text" name="generic_payment_link_text" rows="3" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_generic_payment_link_text', '') ?: AVBK_Admin::DEFAULT_GENERIC_PAYMENT_LINK_TEXT); ?></textarea>
-                    <p class="description">Gebruik <code>[link]</code> voor de betaalverzoeklink zelf. Wordt toegevoegd via de knop "Betaalverzoeklink toevoegen" bij het opstellen van een "Vraag om betaling"-e-mail.</p>
-                </td>
-            </tr>
-<?php
-}
 
-/** Settings rows for the jubilee book. */
-function avbk_render_rates_book_settings(): void {
-?><tr>
-                <th colspan="2" style="padding-top:2rem;"><h3>Jubileumboek</h3></th>
-            </tr>
-            <tr>
-                <th><label for="book_title">Titel jubileumboek</label></th>
-                <td>
-                    <input type="text" id="book_title" name="book_title" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_title', AVBK_Book_Order::DEFAULT_TITLE)); ?>">
-                </td>
-            </tr>
-            <tr>
-                <th><label for="book_price">Prijs per exemplaar (&euro;)</label></th>
-                <td>
-                    <input type="number" step="0.50" id="book_price" name="book_price" class="small-text" value="<?php echo esc_attr(number_format((float) get_option('avbk_book_price', AVBK_Book_Order::DEFAULT_PRICE), 2, '.', '')); ?>">
-                </td>
-            </tr>
-            <tr>
-                <th><label for="book_price_note">Prijsnotitie (bijv. BTW)</label></th>
-                <td>
-                    <input type="text" id="book_price_note" name="book_price_note" class="regular-text" style="width:100%; max-width:700px;" value="<?php echo esc_attr(get_option('avbk_book_price_note', AVBK_Book_Order::DEFAULT_PRICE_NOTE)); ?>">
-                    <p class="description">Zichtbaar op de bestelpagina bij de prijs (bijv. <code>De definitieve prijs hangt af van het totale aantal bestelde exemplaren. Alle prijzen zijn zonder btw.</code>).</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="book_distribution_notice">Uitleg distributie / afhalen</label></th>
-                <td>
-                    <textarea id="book_distribution_notice" name="book_distribution_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_distribution_notice', AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE)); ?></textarea>
-                    <p class="description">Melding over het niet per post verzenden van boeken.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="book_presentation_notice">Toelichting boekpresentatie</label></th>
-                <td>
-                    <textarea id="book_presentation_notice" name="book_presentation_notice" rows="2" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_presentation_notice', AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE)); ?></textarea>
-                    <p class="description">Uitleg boven de presentatie-vinkjes voor begin 2027.</p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="book_flaptekst">Flaptekst</label></th>
-                <td>
-                    <textarea id="book_flaptekst" name="book_flaptekst" rows="12" class="large-text" style="width:100%; max-width:700px;"><?php echo esc_textarea(get_option('avbk_book_flaptekst', AVBK_Book_Order::DEFAULT_FLAPTEKST)); ?></textarea>
-                    <p class="description">Tekst die getoond wordt op de bestelpagina ([avpvh_bk_book_order]). Ondersteunt alinea's, witregels en HTML (zoals <code>&lt;em&gt;</code>, <code>&lt;blockquote&gt;</code>, <code>&lt;br&gt;</code> en <code>&lt;strong&gt;</code>).</p>
-                </td>
-            </tr>
-<?php
-}
