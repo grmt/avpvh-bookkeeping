@@ -18,12 +18,40 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         $linked_invoices = AVBK_Company_Documents::linked_by_transaction($company_id);
         $unlinked_invoices = AVBK_Companies::can($company_id, 'import') ? AVBK_Company_Documents::unlinked($company_id) : [];
     ?>
-        <p><strong><?php echo esc_html($report['sheet']); ?></strong> · <?php echo esc_html($report['filename']); ?> · bijgewerkt <?php echo esc_html($report['generated_at']); ?></p>
+        <?php avbk_render_company_report_heading($report, $report_stale, $company_id, $year, $quarter); ?>
+        <?php avbk_render_company_report_totals($money, $totals, $report, $company_id, $report_stale); ?>
+        <div class="avbk-company-scroll"><table class="widefat striped">
+            <caption><?php echo esc_html($report['bank_rows']); ?> bankregels en <?php echo esc_html($report['card_rows'] ?? 0); ?> kaarttransacties, gegroepeerd per afschrift. De rijnummers verwijzen naar Excel.</caption>
+            <thead><tr><th>Rij</th><th>Bron</th><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Incl. BTW</th><th>BTW %</th><th>BTW</th><th>Excl. BTW</th><th>Controle</th></tr></thead>
+            <tbody><?php
+            $display_groups = avbk_company_report_groups($report, $company, $transactions, $card_transactions, (bool) $report_stale);
+            $row_context = compact('company_id', 'form_start', 'linked_invoices', 'money', 'report', 'report_stale', 'unlinked_invoices');
+            foreach ($display_groups as $display_group) : $statement = $display_group['statement']; ?>
+                <?php avbk_render_company_group_header($display_group, $statement, $company_id, $money); ?>
+                <?php foreach ($display_group['rows'] as $result_row) : ?>
+                <?php avbk_render_company_report_row($result_row, $row_context); ?>
+            <?php endforeach; endforeach; ?></tbody>
+        </table></div>
+        <p>BTW-controles in het portaal worden bewaard voor dit bedrijf en kwartaal, ook als je later een oudere werkmap uploadt. Ze krijgen voorrang op de BTW-cellen in die upload. Overige wijzigingen in Excel verschijnen hier nadat je de werkmap opnieuw uploadt en bijwerkt. Regels met handmatige aankoopdetails controleer je in Excel.</p>
+        <?php avbk_render_company_review_log($report, $money); ?>
+    <?php endif; ?>
+</section>
+<?php
+}
+
+/** Sheet, file and update time of the result, with the workbook download. */
+function avbk_render_company_report_heading($report, $report_stale, $company_id, $year, $quarter): void {
+?><p><strong><?php echo esc_html($report['sheet']); ?></strong> · <?php echo esc_html($report['filename']); ?> · bijgewerkt <?php echo esc_html($report['generated_at']); ?></p>
         <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'export')) : ?>
             <p><a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_workbook', 'company_id' => $company_id, 'book_year' => $year, 'quarter' => $quarter], admin_url('admin-post.php')), 'avbk_company_workbook')); ?>">Bijgewerkte Excel-werkmap downloaden</a></p>
         <?php endif; ?>
         <?php if ($report_stale) : ?><p class="avbk-company-notice avbk-company-error">De bankgegevens zijn gewijzigd sinds dit resultaat. Werk de BTW-werkmap opnieuw bij voor een actueel overzicht.</p><?php endif; ?>
-        <div class="avbk-company-totals">
+<?php
+}
+
+/** The totals and VAT status of the quarter result. */
+function avbk_render_company_report_totals($money, $totals, $report, $company_id, $report_stale): void {
+?><div class="avbk-company-totals">
             <div><span>Incl. BTW · bank en kaart, zonder kaartafrekeningen</span><strong><?php echo esc_html($money($totals['purchase_gross_cents'] ?? $totals['gross_cents'])); ?></strong></div>
             <div><span>BTW · bekende bedragen incl. suggesties</span><strong><?php echo esc_html($money($totals['known_vat_cents'])); ?></strong></div>
             <div><span>Excl. BTW · bekende bedragen incl. suggesties</span><strong><?php echo esc_html($money($totals['known_net_cents'])); ?></strong></div>
@@ -38,15 +66,12 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
         <?php if (!$report_stale && !empty($report['workbook_data']) && AVBK_Companies::can($company_id, 'import')) : ?>
             <p>Klopt de BTW bij een regel? Klik op <strong>OK</strong> om die direct te bevestigen. Voor een ander tarief of een notitie open je <strong>BTW controleren</strong>. Bevestigde regels tellen mee in het gecontroleerde totaal en de Excel-download wordt direct bijgewerkt. Een bankafrekening van de creditcard telt niet opnieuw als kosten.</p>
         <?php endif; ?>
-        <div class="avbk-company-scroll"><table class="widefat striped">
-            <caption><?php echo esc_html($report['bank_rows']); ?> bankregels en <?php echo esc_html($report['card_rows'] ?? 0); ?> kaarttransacties, gegroepeerd per afschrift. De rijnummers verwijzen naar Excel.</caption>
-            <thead><tr><th>Rij</th><th>Bron</th><th>Datum</th><th>Naam / omschrijving</th><th>Af / bij</th><th>Incl. BTW</th><th>BTW %</th><th>BTW</th><th>Excl. BTW</th><th>Controle</th></tr></thead>
-            <tbody><?php
-            $display_groups = isset($company, $transactions, $card_transactions)
-                ? AVBK_Company_Card_Groups::build($report, $company, $report_stale ? [] : $transactions, $card_transactions)
-                : [['id' => 'bank', 'statement' => null, 'rows' => $report['rows']]];
-            foreach ($display_groups as $display_group) : $statement = $display_group['statement']; ?>
-                <tr id="avbk-company-group-<?php echo esc_attr($display_group['id']); ?>" class="avbk-company-group"><th colspan="10" scope="rowgroup">
+<?php
+}
+
+/** The header row of a statement group. */
+function avbk_render_company_group_header($display_group, $statement, $company_id, $money): void {
+?><tr id="avbk-company-group-<?php echo esc_attr($display_group['id']); ?>" class="avbk-company-group"><th colspan="10" scope="rowgroup">
                     <?php if ($statement) : ?>
                         Creditcardafschrift <?php echo esc_html($statement['date']); ?>
                         · <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $statement['document_id']], admin_url('admin-post.php')), 'avbk_company_document')); ?>">PDF bekijken</a>
@@ -57,8 +82,17 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                         <?php if ($display_group['id'] !== 'bank') : ?><span>Er is geen eenduidige koppeling met een verwerkt afschrift. Alle bedragen blijven zichtbaar.</span><?php endif; ?>
                     <?php endif; ?>
                 </th></tr>
-                <?php foreach ($display_group['rows'] as $result_row) : ?>
-                <tr id="avbk-company-row-<?php echo esc_attr(($result_row['review_key'] ?? '') ?: 'number-' . $result_row['number']); ?>">
+<?php
+}
+
+/**
+ * One row of the quarter result, with its review controls.
+ *
+ * @param array<string, mixed> $row_context $company_id, $form_start, $linked_invoices, $money, $report, $report_stale, $unlinked_invoices.
+ */
+function avbk_render_company_report_row(array $result_row, array $row_context): void {
+    ['company_id' => $company_id, 'form_start' => $form_start, 'linked_invoices' => $linked_invoices, 'money' => $money, 'report' => $report, 'report_stale' => $report_stale, 'unlinked_invoices' => $unlinked_invoices] = $row_context;
+?><tr id="avbk-company-row-<?php echo esc_attr(($result_row['review_key'] ?? '') ?: 'number-' . $result_row['number']); ?>">
                     <td><?php echo esc_html($result_row['number']); ?></td><td><?php echo esc_html($result_row['source'] ?? 'Bank'); ?></td><td><?php echo esc_html($result_row['date']); ?></td>
                     <td><?php if ($result_row['detail']) echo '↳ '; ?><?php echo esc_html($result_row['name']); ?></td>
                     <td><?php echo $result_row['direction'] === 'out' ? 'Af' : 'Bij'; ?></td>
@@ -67,12 +101,35 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['vat_cents'])); ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['net_cents'])); ?></td>
                     <td><span class="avbk-company-status"><?php echo esc_html(['unknown' => 'Onbekend', 'suggested' => 'Suggestie · controleren', 'instructed' => 'BTW-indeling door gebruiker opgegeven', 'checked' => 'Gecontroleerd / zonder controlemarkering', 'detail' => 'Detailregel', 'settlement' => 'Afrekening · geen extra kosten'][$result_row['status']]); ?></span><?php if ($result_row['note'] !== '') : ?><small><?php echo esc_html($result_row['note']); ?></small><?php endif; ?>
-                        <?php if (!empty($result_row['tx_id']) && !empty($linked_invoices[$result_row['tx_id']])) : ?>
+                        <?php avbk_render_company_linked_invoices($result_row, $linked_invoices, $company_id); ?>
+                        <?php avbk_render_company_review_controls($report_stale, $report, $result_row, $company_id, $form_start, $linked_invoices, $unlinked_invoices); ?>
+                    </td>
+                </tr>
+<?php
+}
+
+/** The invoices linked to the transaction of a result row. */
+function avbk_render_company_linked_invoices($result_row, $linked_invoices, $company_id): void {
+    if (!empty($result_row['tx_id']) && !empty($linked_invoices[$result_row['tx_id']])) : ?>
                             <small>Factuur: <?php foreach ($linked_invoices[$result_row['tx_id']] as $i => $invoice_doc) : ?><?php if ($i) echo ', '; ?><?php if ($invoice_doc->filename !== '') : ?><a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $invoice_doc->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($invoice_doc->filename); ?></a><?php else : echo esc_html($invoice_doc->source_reference); endif; ?><?php endforeach; ?></small>
                         <?php endif; ?>
-                        <?php if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
+<?php
+}
+
+/** Review, quick-confirm and invoice-link controls of a result row. */
+function avbk_render_company_review_controls($report_stale, $report, $result_row, $company_id, $form_start, $linked_invoices, $unlinked_invoices): void {
+    if (!$report_stale && !empty($report['workbook_data']) && !empty($result_row['review_key']) && AVBK_Companies::can($company_id, 'import')) :
                             $saved_review = $report['reviews'][$result_row['review_key']] ?? null; ?>
-                            <?php if ($result_row['status'] !== 'checked' && in_array($result_row['code'], ['0', '9', '21', 'x'], true) && $result_row['vat_cents'] !== null && $result_row['net_cents'] !== null) : ?>
+                            <?php avbk_render_company_quick_review($result_row, $form_start, $report, $saved_review); ?>
+                            <?php avbk_render_company_review_form($form_start, $report, $result_row, $saved_review); ?>
+                            <?php avbk_render_company_invoice_link($result_row, $linked_invoices, $unlinked_invoices, $form_start); ?>
+                        <?php endif; ?>
+<?php
+}
+
+/** The OK button that confirms a suggested VAT rate in one click. */
+function avbk_render_company_quick_review($result_row, $form_start, $report, $saved_review): void {
+    if ($result_row['status'] !== 'checked' && in_array($result_row['code'], ['0', '9', '21', 'x'], true) && $result_row['vat_cents'] !== null && $result_row['net_cents'] !== null) : ?>
                                 <?php $form_start('review', false, 'avbk-company-quick-review'); ?>
                                     <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
                                     <input type="hidden" name="review_key" value="<?php echo esc_attr($result_row['review_key']); ?>">
@@ -83,7 +140,12 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                                     <span class="avbk-company-review-message" role="status" aria-live="polite"></span>
                                 </form>
                             <?php endif; ?>
-                            <details class="avbk-company-review"><summary>BTW controleren</summary>
+<?php
+}
+
+/** The full VAT review form: rate, fixed amount and note. */
+function avbk_render_company_review_form($form_start, $report, $result_row, $saved_review): void {
+?><details class="avbk-company-review"><summary>BTW controleren</summary>
                                 <?php $form_start('review'); ?>
                                     <input type="hidden" name="workbook_hash" value="<?php echo esc_attr($report['workbook_hash']); ?>">
                                     <input type="hidden" name="review_key" value="<?php echo esc_attr($result_row['review_key']); ?>">
@@ -98,7 +160,12 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                                     <button type="submit" name="review_state" value="pending" class="button">Opslaan · nog controleren</button>
                                 </form>
                             </details>
-                            <?php if (!empty($result_row['tx_id']) && empty($linked_invoices[$result_row['tx_id']]) && $unlinked_invoices) : ?>
+<?php
+}
+
+/** The form that links an unlinked invoice to a transaction. */
+function avbk_render_company_invoice_link($result_row, $linked_invoices, $unlinked_invoices, $form_start): void {
+    if (!empty($result_row['tx_id']) && empty($linked_invoices[$result_row['tx_id']]) && $unlinked_invoices) : ?>
                                 <details class="avbk-company-review"><summary>Factuur koppelen</summary>
                                     <?php $form_start('invoice_link'); ?>
                                         <input type="hidden" name="transaction_id" value="<?php echo esc_attr($result_row['tx_id']); ?>">
@@ -112,20 +179,39 @@ $money = fn($cents) => $cents === null ? 'Onbekend' : '€ ' . number_format($ce
                                     </form>
                                 </details>
                             <?php endif; ?>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-            <?php endforeach; endforeach; ?></tbody>
-        </table></div>
-        <p>BTW-controles in het portaal worden bewaard voor dit bedrijf en kwartaal, ook als je later een oudere werkmap uploadt. Ze krijgen voorrang op de BTW-cellen in die upload. Overige wijzigingen in Excel verschijnen hier nadat je de werkmap opnieuw uploadt en bijwerkt. Regels met handmatige aankoopdetails controleer je in Excel.</p>
-        <?php if (!empty($report['review_log'])) : ?>
+<?php
+}
+
+/** The VAT review history of the quarter. */
+function avbk_render_company_review_log($report, $money): void {
+    if (!empty($report['review_log'])) : ?>
             <details><summary>Wijzigingshistorie (<?php echo esc_html(count($report['review_log'])); ?>)</summary>
                 <ul><?php foreach (array_reverse($report['review_log']) as $event) : ?>
-                    <li><?php echo esc_html($event['after']['at'] . ' · ' . $event['date'] . ' · ' . $event['name'] . ' · gebruiker #' . $event['after']['by'] . ' · BTW ' . ($event['before']['code'] === '' ? 'onbekend' : $event['before']['code']) . ' → ' . ($event['after']['code'] === '' ? 'onbekend' : $event['after']['code']) . ' · ' . $money($event['after']['vat_cents']) . ' · ' . ($event['after']['state'] === 'checked' ? 'bevestigd' : 'nog controleren') . ($event['after']['note'] !== '' ? ' · ' . $event['after']['note'] : '')); ?></li>
+                    <li><?php echo esc_html(avbk_company_review_log_line($event, $money)); ?></li>
                 <?php endforeach; ?></ul>
             </details>
         <?php endif; ?>
-    <?php endif; ?>
-</section>
 <?php
+}
+
+/** "<when> · <date> · <name> · gebruiker #<id> · BTW <old> → <new> · <VAT> · <state>[ · <note>]" for one VAT review change. */
+function avbk_company_review_log_line(array $event, callable $money): string {
+    $code = static fn($c) => $c === '' ? 'onbekend' : $c;
+    return $event['after']['at'] . ' · ' . $event['date'] . ' · ' . $event['name'] . ' · gebruiker #' . $event['after']['by']
+        . ' · BTW ' . $code($event['before']['code']) . ' → ' . $code($event['after']['code'])
+        . ' · ' . $money($event['after']['vat_cents']) . ' · ' . ($event['after']['state'] === 'checked' ? 'bevestigd' : 'nog controleren')
+        . ($event['after']['note'] !== '' ? ' · ' . $event['after']['note'] : '');
+}
+
+/**
+ * The result rows grouped per credit card statement, or one bank group when
+ * the bank and card data are not available.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function avbk_company_report_groups($report, $company, $transactions, $card_transactions, bool $report_stale): array {
+    if (!isset($company, $transactions, $card_transactions)) {
+        return [['id' => 'bank', 'statement' => null, 'rows' => $report['rows']]];
+    }
+    return AVBK_Company_Card_Groups::build($report, $company, $report_stale ? [] : $transactions, $card_transactions);
 }
