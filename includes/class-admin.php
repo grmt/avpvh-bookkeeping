@@ -73,7 +73,7 @@ class AVBK_Admin implements AVBK_Component {
     }
 
     /**
-     * "Op die pagina kun je ook betalingen voor Anna, Bram en Cas toevoegen."
+     * "Op die pagina kun je ook betalingen voor Anna, Bram en Cas aanpassen."
      * for the payment request mail: the first names of the people whose open
      * items the balance page offers to add ("Betaal ook voor",
      * AVPVH_DB::get_extended_household()). Parents pay for their partner,
@@ -92,7 +92,7 @@ class AVBK_Admin implements AVBK_Component {
             $named[$child_id] = $child_name;
             $named += self::named_partners($child_id, $first_names);
         }
-        return "\n\nOp die pagina kun je ook betalingen voor " . self::dutch_list(array_values($named)) . ' toevoegen.';
+        return "\n\nOp die pagina kun je ook betalingen voor " . self::dutch_list(array_values($named)) . ' aanpassen.';
     }
 
     /** First names of the member's extended household, without the member. */
