@@ -1224,6 +1224,70 @@ class AVBK_Admin implements AVBK_Component {
         return [$subject, $body_template, $default_details_html, $default_qr_html];
     }
 
+    /**
+     * HTML, not plain text: mail programs hard-wrap plain text at about 70
+     * characters. The omschrijving is only the reference code, which is all
+     * AVBK_Matcher::match_fee_item_reference() needs.
+     */
+    private static function balance_request_mail_html(object $member, array $items, float $total, string $balance_url): string {
+        $member_id = (int) $member->id;
+        $amount = static fn(float $value): string => '€&nbsp;' . esc_html(number_format($value, 2, ',', '.'));
+        $rows = '';
+        foreach ($items as $item) {
+            $rows .= '<tr><td style="padding:2px 16px 2px 0">' . esc_html(self::balance_request_item_label($item, $member_id)) . '</td>'
+                . '<td style="padding:2px 0;text-align:right;white-space:nowrap">' . $amount((float) $item->remaining) . '</td></tr>';
+        }
+        if (count($items) > 1) {
+            $rows .= '<tr><td style="padding:2px 16px 2px 0"><strong>Totaal</strong></td><td style="padding:2px 0;text-align:right;white-space:nowrap"><strong>' . $amount($total) . '</strong></td></tr>';
+        }
+        $club_iban = trim((string) get_option('avbk_club_iban', ''));
+        $details = [
+            'IBAN'         => $club_iban !== '' ? esc_html(trim(chunk_split($club_iban, 4, ' '))) : '',
+            'Ten name van' => esc_html(trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'))),
+            'Bedrag'       => $amount($total),
+            'Omschrijving' => '<strong>' . esc_html(AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))) . '</strong>',
+        ];
+        $detail_rows = '';
+        foreach (array_filter($details) as $label => $value) {
+            $detail_rows .= '<tr><td style="padding:2px 16px 2px 0">' . esc_html($label) . '</td><td style="padding:2px 0">' . $value . '</td></tr>';
+        }
+        $household_hint = trim(self::household_payment_hint($member_id));
+        return '<!doctype html><html><body style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">'
+            . '<p>Dag ' . esc_html((string) $member->first_name) . ',</p>'
+            . '<p>Zou je dit willen betalen?</p>'
+            . '<table style="border-collapse:collapse;margin:0 0 1em">' . $rows . '</table>'
+            . '<p style="margin-bottom:0">Overmaken kan naar:</p>'
+            . '<table style="border-collapse:collapse;margin:0 0 1em">' . $detail_rows . '</table>'
+            . '<p>Met dat kenmerk herkennen we je betaling automatisch.</p>'
+            . '<p>Of betaal met de QR-code op je ledenpagina: <a href="' . esc_url($balance_url) . '">Bekijk je betaling</a><br>'
+            . esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE) . '</p>'
+            . ($household_hint !== '' ? '<p>' . esc_html($household_hint) . '</p>' : '')
+            . self::balance_request_login_help_html($balance_url)
+            . '<p>Groet,<br>' . esc_html((string) get_option('avbk_penningmeester_name', 'de penningmeester')) . '</p>'
+            . '</body></html>';
+    }
+
+    /** "Doorgraven!, 1 exemplaar" or "Contributie 2026 voor Anna": what the item is, without brackets. */
+    private static function balance_request_item_label(object $item, int $member_id): string {
+        $label = AVBK_DB::split_fee_description((string) $item->description)['base'];
+        $quantity = AVBK_DB::fee_item_quantity_label($item);
+        if ($quantity !== '') {
+            $label .= ', ' . $quantity;
+        }
+        if ((int) $item->member_id !== $member_id) {
+            $label .= ' voor ' . avpvh_format_name(AVPVH_DB::get_member((int) $item->member_id));
+        }
+        return $label;
+    }
+
+    private static function balance_request_login_help_html(string $balance_url): string {
+        if (!get_option('avbk_payment_email_login_help', 1)) {
+            return '';
+        }
+        $login_text = (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT;
+        return wpautop(str_replace('[wachtwoord-link]', '<a href="' . esc_url(wp_login_url($balance_url)) . '">hier</a>', esc_html($login_text)));
+    }
+
     public function handle_request_payment(): void {
         check_admin_referer('avbk_request_payment');
         if (!$this->can_manage()) {
@@ -2023,61 +2087,8 @@ class AVBK_Admin implements AVBK_Component {
             $fail('invalid_email');
         }
 
-        $descriptions = array_map(
-            fn($item) => sprintf(
-                '%s%s: € %s',
-                $item->description,
-                (int) $item->member_id !== $member_id ? ' (' . avpvh_format_name(AVPVH_DB::get_member((int) $item->member_id)) . ')' : '',
-                number_format((float) $item->remaining, 2, ',', '.')
-            ),
-            $items
-        );
-        $penningmeester_name = get_option('avbk_penningmeester_name', 'de penningmeester');
         $subject = count($items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen';
-        $login_help_text = '';
-        if (get_option('avbk_payment_email_login_help', 1)) {
-            $login_help_text = "\n\n" . str_replace(
-                '[wachtwoord-link]',
-                wp_login_url($balance_url),
-                (string) get_option('avbk_payment_email_login_text', '') ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT
-            );
-        }
-        // Same omschrijving as the QR code and the "Wil je de boeking zelf
-        // doen?" block on the balance page (AVBK_Balance_Shortcode), so a
-        // member who pays by hand from this mail is matched the same way.
-        if ($also_member_ids) {
-            $entries = [];
-            foreach ($items as $item) {
-                $owner = (int) $item->member_id === $member_id ? $member : AVPVH_DB::get_member((int) $item->member_id);
-                $entries[] = ['item' => $item, 'name' => (string) ($owner->first_name ?? '')];
-            }
-            $remittance = AVBK_QR::remittance_for_combined($entries, $member_id);
-        } else {
-            $remittance = AVBK_QR::remittance_for_balance($items, $member_id);
-        }
-        $club_iban = trim((string) get_option('avbk_club_iban', ''));
-        $club_name = trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'));
-        $payment_details = "Je kunt het bedrag overmaken met deze gegevens:\n"
-            . ($club_iban !== '' ? 'IBAN: ' . trim(chunk_split($club_iban, 4, ' ')) . "\n" : '')
-            . 'Ten name van: ' . $club_name . "\n"
-            . 'Bedrag: € ' . number_format($total, 2, ',', '.') . "\n"
-            . 'Omschrijving: ' . $remittance . "\n"
-            // The matcher only needs the code (AVBK_Matcher::match_fee_item_reference()),
-            // so someone who doesn't want to type the whole line can use just that.
-            . '(Of alleen ' . AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($items, 'id')))
-            . ', dat is ook genoeg om je betaling automatisch te herkennen.)';
-        $body = sprintf(
-            "Dag %s,\n\nZou je de volgende rekening willen betalen?\n\n%s\n\nTotaal: € %s\n\n%s\n\nOf betaal met de QR-code. Je vindt het overzicht en de QR-code voor deze selectie hier (inloggen met je AV-PvH-account):\n%s\n%s%s%s\n\nGroet,\n%s",
-            $member->first_name,
-            implode("\n", $descriptions),
-            number_format($total, 2, ',', '.'),
-            $payment_details,
-            $balance_url,
-            AVBK_QR::UNSUPPORTED_BANKS_NOTE,
-            self::household_payment_hint($member_id),
-            $login_help_text,
-            $penningmeester_name
-        );
+        $body = self::balance_request_mail_html($member, $items, $total, $balance_url);
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
@@ -2104,6 +2115,7 @@ class AVBK_Admin implements AVBK_Component {
         $sent = wp_mail($member->email, $subject, $body, [
             'From: AV-PvH Penningmeester <' . $from_email . '>',
             'Reply-To: ' . $from_email,
+            'Content-Type: text/html; charset=UTF-8',
         ]);
         remove_action('wp_mail_failed', $capture_error);
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);

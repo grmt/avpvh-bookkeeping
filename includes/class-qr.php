@@ -21,7 +21,7 @@ class AVBK_QR {
      * Triodos don't (they use iDEAL QR instead). Shown wherever a member is
      * offered the QR code, so they fall back to the IBAN and omschrijving.
      */
-    public const UNSUPPORTED_BANKS_NOTE = 'De apps van Rabobank, ABN AMRO en Triodos kunnen deze QR-code niet lezen. Bankier je daar, maak het bedrag dan zelf over met de IBAN en omschrijving.';
+    public const UNSUPPORTED_BANKS_NOTE = 'Let op: de bankieren-apps van Rabobank, ABN AMRO en Triodos kunnen die QR-code niet lezen. Andere banken, zoals ING, en de Belgische banken wel.';
 
     /** Deterministic short reference so future payments start auto-matching (see AVBK_Matcher). */
     public static function reference_code(int $member_id): string {
