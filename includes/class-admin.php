@@ -289,7 +289,7 @@ class AVBK_Admin implements AVBK_Component {
             // export contains IBANs and personal transaction data, and
             // AVBK_Import::process_file() only needs to read it once from
             // PHP's own private upload tmp path.
-            $result = AVBK_Import::process_file($_FILES['bank_export']['tmp_name'], $filename, get_current_user_id());
+            $result = AVBK_Import::process_file(avbk_uploaded_file_path($_FILES['bank_export']['tmp_name']), $filename, get_current_user_id());
         } catch (\Throwable $e) {
             wp_safe_redirect(add_query_arg([
                 'page' => 'avbk-import', 'import_error' => '1', 'import_error_message' => rawurlencode($e->getMessage()),
@@ -937,10 +937,15 @@ class AVBK_Admin implements AVBK_Component {
             // private upload tmp path, same as the bank-export upload.
             if (!$activity_id) {
                 $result = ['matched' => [], 'unmatched' => [], 'errors' => ['Geen activiteit gekozen.']];
-            } elseif ($this->is_camp_activity($activity_id)) {
-                $result = AVBK_Camp_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
             } else {
-                $result = AVBK_Sheet_Import::import($activity_id, (string) $file['tmp_name']);
+                try {
+                    $path = avbk_uploaded_file_path((string) $file['tmp_name']);
+                    $result = $this->is_camp_activity($activity_id)
+                        ? AVBK_Camp_Sheet_Import::import($activity_id, $path)
+                        : AVBK_Sheet_Import::import($activity_id, $path);
+                } catch (\RuntimeException $e) {
+                    $result = ['matched' => [], 'unmatched' => [], 'errors' => [$e->getMessage()]];
+                }
             }
         }
         set_transient(AVBK_Sheet_Import::result_transient_key($activity_id), $result, 12 * HOUR_IN_SECONDS);

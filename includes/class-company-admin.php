@@ -172,7 +172,7 @@ class AVBK_Company_Admin implements AVBK_Component {
         }
         $name = sanitize_file_name(wp_unslash($file['name']));
         if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), $extensions, true)) throw new \RuntimeException('Ongeldig bestandstype.');
-        return [$file['tmp_name'], $name];
+        return [avbk_uploaded_file_path($file['tmp_name']), $name];
     }
 
     public function download_document(): void {
