@@ -228,6 +228,7 @@ class AVBK_DB {
             KEY status (status)
         ) $charset;");
         self::install_dispute_history_schema();
+        self::install_payment_reference_schema();
 
         // One row per public congress/reunion sign-up (see AVBK_Congress).
         // member_id starts NULL until find_or_create_member_for_registration()
@@ -1239,6 +1240,56 @@ class AVBK_DB {
             $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_transactions MODIFY dedupe_hash CHAR(64) NOT NULL");
             update_option('avbk_db_version', '1.46');
         }
+        if (version_compare($version, '1.47', '<') && self::install_payment_reference_schema()) {
+            update_option('avbk_db_version', '1.47');
+        }
+    }
+
+    /**
+     * Short payment references (PVH-<member>-B<id>): one row per distinct
+     * selection of fee items, so a member typing the omschrijving by hand
+     * needs a few characters instead of every fee item id.
+     */
+    private static function install_payment_reference_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_payment_references (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id INT UNSIGNED NOT NULL,
+            fee_item_ids VARCHAR(1000) NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY member_items (member_id, fee_item_ids(191))
+        ) {$wpdb->get_charset_collate()};");
+        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_payment_references')))
+            === $wpdb->prefix . 'avb_payment_references';
+    }
+
+    /** The id of the short reference for this member and exact selection, created on first use; 0 if it can't be stored. */
+    public static function payment_reference_id(int $member_id, array $fee_item_ids): int {
+        global $wpdb;
+        $ids = array_values(array_unique(array_filter(array_map('intval', $fee_item_ids))));
+        sort($ids);
+        $key = implode('.', $ids);
+        if (!$member_id || $key === '' || strlen($key) > 1000) {
+            return 0;
+        }
+        $table = "{$wpdb->prefix}avb_payment_references";
+        $existing = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE member_id = %d AND fee_item_ids = %s ORDER BY id LIMIT 1", $member_id, $key));
+        if ($existing) {
+            return $existing;
+        }
+        $inserted = $wpdb->insert($table, ['member_id' => $member_id, 'fee_item_ids' => $key, 'created_at' => current_time('mysql', true)]);
+        return $inserted ? (int) $wpdb->insert_id : 0;
+    }
+
+    /** The fee item ids behind short reference B<id>; [] when it doesn't exist or belongs to another member. */
+    public static function payment_reference_fee_item_ids(int $reference_id, int $member_id): array {
+        global $wpdb;
+        $key = (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT fee_item_ids FROM {$wpdb->prefix}avb_payment_references WHERE id = %d AND member_id = %d", $reference_id, $member_id
+        ));
+        return $key === '' ? [] : array_values(array_filter(array_map('intval', explode('.', $key))));
     }
 
     private static function install_dispute_history_schema(): bool {

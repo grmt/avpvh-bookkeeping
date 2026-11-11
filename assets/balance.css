@@ -79,8 +79,7 @@
 
 .avbk-balance-qr {
     max-width: 200px;
-    margin: 1.5rem auto 0;
-    text-align: center;
+    margin: 1.5rem 0 0;
 }
 
 .avbk-balance-qr svg {
@@ -90,12 +89,27 @@
 
 .avbk-balance-qr-hint {
     max-width: 480px;
-    margin: .5rem auto 0;
-    text-align: center;
+    margin: .5rem 0 0;
 }
 
 .avbk-balance-qr-ref {
-    text-align: center;
+    margin-bottom: 0;
+}
+
+/* Label/value list like the payment request mail, not a data table. */
+.avbk-balance-payment-details {
+    border-collapse: collapse;
+    margin: 0 0 1em;
+    width: auto;
+}
+
+.avbk-balance-payment-details th,
+.avbk-balance-payment-details td {
+    border: 0;
+    padding: 2px 16px 2px 0;
+    text-align: left;
+    font-weight: normal;
+    background: none;
 }
 
 .avbk-balance-notice {

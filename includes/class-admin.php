@@ -1227,7 +1227,8 @@ class AVBK_Admin implements AVBK_Component {
 
     /**
      * HTML, not plain text: mail programs hard-wrap plain text at about 70
-     * characters. The omschrijving is only the reference code, which is all
+     * characters. The omschrijving is only the short reference code
+     * (AVBK_QR::short_reference_code()), which is all
      * AVBK_Matcher::match_fee_item_reference() needs.
      */
     private static function balance_request_mail_html(object $member, array $items, array $settlement, string $balance_url): string {
@@ -1239,7 +1240,7 @@ class AVBK_Admin implements AVBK_Component {
             'IBAN'         => $club_iban !== '' ? esc_html(trim(chunk_split($club_iban, 4, ' '))) : '',
             'Ten name van' => esc_html(trim((string) get_option('avbk_club_name', 'Archeologische Vereniging Philips van Horne'))),
             'Bedrag'       => self::mail_amount_html($total),
-            'Omschrijving' => '<strong>' . esc_html(AVBK_QR::fee_reference_code($member_id, array_map('intval', wp_list_pluck($open_items, 'id')))) . '</strong>',
+            'Omschrijving' => '<strong>' . esc_html(AVBK_QR::short_reference_code($member_id, array_map('intval', wp_list_pluck($open_items, 'id')))) . '</strong>',
         ];
         $detail_rows = '';
         foreach (array_filter($details) as $label => $value) {

@@ -22,6 +22,9 @@ class AVBK_DB {
     public static array $drafts = [];
     public static array $queue = [];
     public static int $guesses = 0;
+    /** Short references: id => [member_id, fee item ids]. */
+    public static array $references = [5 => [1001, [1001, 1002]]];
+    public static function payment_reference_fee_item_ids(int $id, int $member_id): array { return (self::$references[$id][0] ?? 0) === $member_id ? self::$references[$id][1] : []; }
     public static function get_fee_item(int $id): ?object { return isset(self::$fees[$id]) ? clone self::$fees[$id] : null; }
     public static function fee_item_book_year(object $item): int { return (int) $item->year; }
     public static function get_fee_item_remaining(object $item): float {
@@ -153,6 +156,8 @@ check($review['remaining'] === 0.0 && count($review['rows']) === 2 && count($rev
 AVBK_DB::$fees[1002]->year = 2026;
 AVBK_DB::$fees[1002]->status = 'waived';
 check(AVBK_Import::get_exact_reference_review('PVH-1001-F1002')['remaining'] === 0.0, 'waived reference never becomes payable again');
+check(AVBK_Matcher::match_fee_item_reference('PVH-1001-B5') === [1001, 1002], 'short hand-typed reference resolves to its exact fee items');
+check(AVBK_Matcher::match_fee_item_reference('PVH-1002-B5') === [] && AVBK_Matcher::match_fee_item_reference('PVH-1001-B6') === [], 'short reference of another member or unknown id matches nothing');
 check(AVBK_Matcher::match_reference_code('PVH-1001: Contributie') === 1001 && AVBK_Matcher::match_fee_item_reference('PVH-1001: Contributie') === [], 'legacy member-only reference format remains supported');
 check(AVBK_Matcher::classify_types('Name: Piet Boekman Description: contributie en kamp IBAN: XXTEST') === ['Kamp', 'Contributie'], 'surname in bank metadata does not create a book suggestion');
 check(AVBK_Matcher::classify_types('Naam: Piet Boekman Omschrijving: Boek IBAN: XXTEST') === ['Boek'], 'real book purchase in Dutch memo still recognized');

@@ -229,10 +229,14 @@ class AVBK_Matcher {
     /** Exact fee ids embedded by current AVBK_QR codes (legacy PVH-<member> references simply return []). */
     public static function match_fee_item_reference(string $description): array {
         $prefix = preg_quote((string) get_option('avbk_reference_prefix', 'PVH'), '/');
-        if (!preg_match('/\b' . $prefix . '-\d+-F(\d+(?:\.\d+)*)\b/i', $description, $m)) {
-            return [];
+        if (preg_match('/\b' . $prefix . '-\d+-F(\d+(?:\.\d+)*)\b/i', $description, $m)) {
+            return array_values(array_unique(array_filter(array_map('intval', explode('.', $m[1])))));
         }
-        return array_values(array_unique(array_filter(array_map('intval', explode('.', $m[1])))));
+        // The short form typed by hand: PVH-<member>-B<id>, see AVBK_QR::short_reference_code().
+        if (preg_match('/\b' . $prefix . '-(\d+)-B(\d+)\b/i', $description, $m)) {
+            return AVBK_DB::payment_reference_fee_item_ids((int) $m[2], (int) $m[1]);
+        }
+        return [];
     }
 
     /**
