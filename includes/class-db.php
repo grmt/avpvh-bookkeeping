@@ -229,6 +229,7 @@ class AVBK_DB {
         ) $charset;");
         self::install_dispute_history_schema();
         self::install_payment_reference_schema();
+        AVBK_Audit::install();
 
         // One row per public congress/reunion sign-up (see AVBK_Congress).
         // member_id starts NULL until find_or_create_member_for_registration()
@@ -1243,6 +1244,9 @@ class AVBK_DB {
         if (version_compare($version, '1.47', '<') && self::install_payment_reference_schema()) {
             update_option('avbk_db_version', '1.47');
         }
+        if (version_compare($version, '1.48', '<') && AVBK_Audit::install()) {
+            update_option('avbk_db_version', '1.48');
+        }
     }
 
     /**
@@ -1837,6 +1841,21 @@ class AVBK_DB {
         return self::get_open_other_fee_item($member_id, 'tshirt');
     }
 
+    /** Logboek entry, see AVBK_Audit; a no-op where the audit class isn't loaded (tests, early boot). */
+    private static function audit(string $action, string $object_type, int $object_id, array $details = [], ?int $member_id = null): void {
+        if (class_exists('AVBK_Audit')) {
+            AVBK_Audit::log($action, $object_type, $object_id, $details, $member_id);
+        }
+    }
+
+    /** The allocations of a transaction as [fee item, member, amount] lists, for a logboek snapshot. */
+    private static function allocation_snapshot(int $transaction_id): array {
+        return array_map(
+            static fn($a) => ['fee_item_id' => (int) $a->fee_item_id, 'member_id' => (int) $a->member_id, 'amount' => (float) $a->amount],
+            self::get_allocations_for_transaction($transaction_id)
+        );
+    }
+
     public static function get_open_book_fee_item(int $member_id): ?object {
         return self::get_open_other_fee_item($member_id, 'book');
     }
@@ -1851,7 +1870,11 @@ class AVBK_DB {
             'amount_due'  => $amount,
             'activity_id' => $activity_id ?: null,
         ]);
-        return (int) $wpdb->insert_id;
+        $fee_item_id = (int) $wpdb->insert_id;
+        if ($fee_item_id) {
+            self::audit('fee_item.created', 'fee_item', $fee_item_id, ['category' => $category, 'amount_due' => round($amount, 2), 'activity_id' => $activity_id ?: null], $member_id);
+        }
+        return $fee_item_id;
     }
 
     /**
@@ -2038,7 +2061,11 @@ class AVBK_DB {
 
     public static function waive_fee_item(int $id): void {
         global $wpdb;
+        $before = self::get_fee_item($id);
         $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $id]);
+        if ($before && $before->status !== 'waived') {
+            self::audit('fee_item.waived', 'fee_item', $id, ['status' => [$before->status, 'waived'], 'amount_due' => (float) $before->amount_due, 'description' => (string) $before->description], (int) $before->member_id);
+        }
     }
 
     /** Records that the "overpaid, now treated as a donation" courtesy e-mail actually went out for this fee item — see AVBK_Admin::maybe_send_donation_emails(). */
@@ -2076,7 +2103,12 @@ class AVBK_DB {
      */
     public static function update_fee_item_amount(int $id, float $amount): void {
         global $wpdb;
-        $wpdb->update("{$wpdb->prefix}avb_fee_items", ['amount_due' => max(0, round($amount, 2))], ['id' => $id]);
+        $before = self::get_fee_item($id);
+        $new_amount = max(0, round($amount, 2));
+        $wpdb->update("{$wpdb->prefix}avb_fee_items", ['amount_due' => $new_amount], ['id' => $id]);
+        if ($before && abs((float) $before->amount_due - $new_amount) > 0.005) {
+            self::audit('fee_item.amount', 'fee_item', $id, ['amount_due' => [(float) $before->amount_due, $new_amount], 'description' => (string) $before->description], (int) $before->member_id);
+        }
     }
 
     /** Amount already allocated (paid) towards a single fee item. */
@@ -2292,7 +2324,9 @@ class AVBK_DB {
             return 0.0;
         }
         $fee_item_id = self::create_other_fee_item($member_id, 'Schenking', '', $amount);
-        return self::apply_credit_fifo($member_id, $fee_item_id, $amount);
+        $donated = self::apply_credit_fifo($member_id, $fee_item_id, $amount);
+        self::audit('credit.donated', 'fee_item', $fee_item_id, ['amount' => $donated], $member_id);
+        return $donated;
     }
 
     /** Running total of all credit ever donated via donate_credit(), across all members, all years. */
@@ -3320,6 +3354,7 @@ class AVBK_DB {
             ['status' => 'ignored', 'ignore_reason' => sanitize_key($reason)],
             ['id' => $id]
         );
+        self::audit('transaction.ignored', 'transaction', $id, ['reason' => sanitize_key($reason)]);
     }
 
     /** Marks an incoming, unallocated transaction as a duplicate of another bank row. */
@@ -3343,6 +3378,9 @@ class AVBK_DB {
             ['%s', '%d'],
             ['%d']
         );
+        if ($updated !== false) {
+            self::audit('transaction.duplicate', 'transaction', $id, ['status' => [$transaction->status, 'duplicate'], 'duplicate_of' => $duplicate_of]);
+        }
         return $updated !== false;
     }
 
@@ -3577,7 +3615,11 @@ class AVBK_DB {
             'member_id'      => $member_id,
             'amount'         => $amount,
         ]);
-        return (int) $wpdb->insert_id;
+        $allocation_id = (int) $wpdb->insert_id;
+        if ($allocation_id) {
+            self::audit('allocation.added', 'transaction', $transaction_id, ['fee_item_id' => $fee_item_id, 'amount' => round($amount, 2), 'allocation_id' => $allocation_id], $member_id);
+        }
+        return $allocation_id;
     }
 
     public static function get_allocations_for_transaction(int $transaction_id): array {
@@ -3591,6 +3633,10 @@ class AVBK_DB {
     /** Rolls back an unsuccessful automatic allocation attempt. */
     public static function clear_transaction_allocations(int $transaction_id): void {
         global $wpdb;
+        $snapshot = self::allocation_snapshot($transaction_id);
+        if ($snapshot) {
+            self::audit('allocation.cleared', 'transaction', $transaction_id, ['removed' => $snapshot]);
+        }
         $wpdb->delete("{$wpdb->prefix}avb_transaction_allocations", ['transaction_id' => $transaction_id]);
     }
 
@@ -3643,6 +3689,7 @@ class AVBK_DB {
         foreach ($ids as $id) {
             self::revert_transaction_to_review((int) $id);
         }
+        self::audit('transactions.reverted_year', '', 0, ['year' => $year, 'count' => count($ids)]);
         return count($ids);
     }
 
@@ -3661,6 +3708,10 @@ class AVBK_DB {
     public static function revert_transaction_to_review(int $transaction_id): void {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
+        self::audit('transaction.reverted', 'transaction', $transaction_id, [
+            'status'  => [$transaction->status ?? '', 'review'],
+            'removed' => self::allocation_snapshot($transaction_id),
+        ]);
         $review_status = $transaction
             && (trim((string) $transaction->suggested_member_ids) !== '' || trim((string) $transaction->suggested_type) !== '')
                 ? 'suggested'
@@ -4509,6 +4560,16 @@ class AVBK_DB {
             ]);
         }
 
+        if ($order_id) {
+            self::audit('order.created', 'order', $order_id, [
+                'order_type'   => (string) ($order_data['order_type'] ?? ''),
+                'quantity'     => (int) ($order_data['quantity'] ?? 0),
+                'total_amount' => (float) ($order_data['total_amount'] ?? 0),
+                'status'       => (string) ($order_data['status'] ?? 'pending_confirmation'),
+                'items'        => array_map(static fn($item) => trim(($item['quantity'] ?? 1) . 'x ' . ($item['title'] ?? '') . ' ' . ($item['variant'] ?? '')), $items),
+            ], !empty($order_data['member_id']) ? (int) $order_data['member_id'] : null);
+        }
+
         return ['id' => $order_id, 'token' => $token];
     }
 
@@ -4629,6 +4690,9 @@ class AVBK_DB {
         if ($fee_item_id > 0 && $member_id > 0) {
             $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => $fee_item_id]);
         }
+        if ($order->status !== 'confirmed' || (int) ($order->fee_item_id ?? 0) !== $fee_item_id) {
+            self::audit('order.confirmed', 'order', $id, ['status' => [$order->status, 'confirmed'], 'fee_item_id' => $fee_item_id ?: null], $member_id ?: null);
+        }
     }
 
     public static function delete_order(int $id, bool $send_email = false): array {
@@ -4638,6 +4702,7 @@ class AVBK_DB {
             return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
         }
 
+        $fee_item_outcome = '';
         // Clean up associated fee item if present
         if (!empty($order->fee_item_id)) {
             $fee_item_id = (int) $order->fee_item_id;
@@ -4647,8 +4712,10 @@ class AVBK_DB {
             ));
             if ($allocated <= 0.005) {
                 $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $fee_item_id]);
+                $fee_item_outcome = 'verwijderd';
             } else {
                 $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $fee_item_id]);
+                $fee_item_outcome = 'kwijtgescholden, er was al betaald';
             }
         }
 
@@ -4657,6 +4724,16 @@ class AVBK_DB {
 
         // Delete order row
         $wpdb->delete("{$wpdb->prefix}avb_orders", ['id' => $id]);
+        self::audit('order.deleted', 'order', $id, [
+            'order_type'        => (string) $order->order_type,
+            'quantity'          => (int) $order->quantity,
+            'total_amount'      => (float) $order->total_amount,
+            'status'            => (string) $order->status,
+            'items'             => array_map(static fn($item) => trim($item->quantity . 'x ' . $item->title . ' ' . $item->variant), (array) ($order->items ?? [])),
+            'fee_item_id'       => !empty($order->fee_item_id) ? (int) $order->fee_item_id : null,
+            'fee_item'          => $fee_item_outcome ?: null,
+            'cancellation_mail' => $send_email && !empty($order->email) && is_email($order->email),
+        ], !empty($order->member_id) ? (int) $order->member_id : null);
 
         // Optional notification email to the customer
         if ($send_email && !empty($order->email) && is_email($order->email)) {
@@ -4784,6 +4861,16 @@ class AVBK_DB {
         }
 
         $wpdb->update("{$wpdb->prefix}avb_orders", $update_fields, ['id' => $id]);
+        $changes = [];
+        if ((string) $order->email !== $new_email) {
+            $changes['email'] = [(string) $order->email, $new_email];
+        }
+        if (isset($update_fields['member_id']) && (int) ($order->member_id ?? 0) !== $member_id) {
+            $changes['member_id'] = [!empty($order->member_id) ? (int) $order->member_id : null, $member_id];
+        }
+        if ($changes) {
+            self::audit('order.email_changed', 'order', $id, $changes, $member_id ?: (!empty($order->member_id) ? (int) $order->member_id : null));
+        }
 
         if ($member_id !== null && $member_id > 0 && !empty($order->fee_item_id)) {
             $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => (int) $order->fee_item_id]);
@@ -4818,17 +4905,25 @@ class AVBK_DB {
         if (!in_array($distribution_status, ['pending', 'collected', 'distributed'], true)) {
             return false;
         }
+        $before = self::get_order($id);
         $updated = $wpdb->update("{$wpdb->prefix}avb_orders", [
             'distribution_status' => $distribution_status,
         ], ['id' => $id]);
+        if ($updated && $before && $before->distribution_status !== $distribution_status) {
+            self::audit('order.distribution', 'order', $id, ['distribution_status' => [$before->distribution_status, $distribution_status]], !empty($before->member_id) ? (int) $before->member_id : null);
+        }
         return $updated !== false;
     }
 
     public static function update_order_notes(int $id, string $notes): bool {
         global $wpdb;
+        $before = self::get_order($id);
         $updated = $wpdb->update("{$wpdb->prefix}avb_orders", [
             'notes' => $notes,
         ], ['id' => $id], ['%s'], ['%d']);
+        if ($updated && $before && (string) $before->notes !== $notes) {
+            self::audit('order.notes', 'order', $id, ['notes' => [mb_substr((string) $before->notes, 0, 500), mb_substr($notes, 0, 500)]], !empty($before->member_id) ? (int) $before->member_id : null);
+        }
         return $updated !== false;
     }
 

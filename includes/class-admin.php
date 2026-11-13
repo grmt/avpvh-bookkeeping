@@ -213,6 +213,7 @@ class AVBK_Admin implements AVBK_Component {
         $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
         add_submenu_page('avbk-overview', 'QR-flyers', 'QR-flyers', 'read', 'avbk-flyers', [$this, 'render_flyers']);
+        add_submenu_page('avbk-overview', 'Logboek', 'Logboek', 'read', 'avbk-audit-log', [$this, 'render_audit_log']);
     }
 
     public function enqueue_assets(string $hook): void {
@@ -272,6 +273,7 @@ class AVBK_Admin implements AVBK_Component {
     public function render_rates(): void { require_once AVBK_PLUGIN_DIR . 'admin/rates.php'; avbk_render_rates(); }
     public function render_orders(): void { require_once AVBK_PLUGIN_DIR . 'admin/orders.php'; avbk_render_orders(); }
     public function render_flyers(): void { require_once AVBK_PLUGIN_DIR . 'admin/flyers.php'; avbk_render_flyers(); }
+    public function render_audit_log(): void { require_once AVBK_PLUGIN_DIR . 'admin/audit-log.php'; avbk_render_audit_log(); }
 
     public function handle_upload_import(): void {
         check_admin_referer('avbk_upload_import');
