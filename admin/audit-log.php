@@ -142,24 +142,38 @@ function avbk_audit_field_label(string $key): string {
 
 /** [old, new] pairs, lists, booleans and nested arrays as short text. */
 function avbk_audit_value_html($value): string {
+    if (is_array($value)) {
+        return avbk_audit_array_html($value);
+    }
+    $text = '—';
     if (is_bool($value)) {
-        return $value ? 'ja' : 'nee';
+        $text = $value ? 'ja' : 'nee';
+    } elseif ($value !== null && $value !== '') {
+        $text = (string) $value;
     }
-    if ($value === null || $value === '') {
-        return '—';
-    }
-    if (!is_array($value)) {
-        return esc_html((string) $value);
-    }
+    return esc_html($text);
+}
+
+/** An [old, new] pair as "old → new"; any other list as compact code. */
+function avbk_audit_array_html(array $value): string {
     if (array_keys($value) === [0, 1] && !is_array($value[0]) && !is_array($value[1])) {
         return avbk_audit_value_html($value[0]) . ' → ' . avbk_audit_value_html($value[1]);
     }
     $parts = [];
     foreach ($value as $key => $item) {
-        $text = is_array($item) ? implode(', ', array_map(static fn($k, $v) => $k . ' ' . (is_array($v) ? wp_json_encode($v) : $v), array_keys($item), $item)) : (string) $item;
-        $parts[] = (is_int($key) ? '' : $key . '=') . $text;
+        $prefix = is_int($key) ? '' : $key . '=';
+        $parts[] = $prefix . (is_array($item) ? avbk_audit_pairs_text($item) : (string) $item);
     }
     return '<code>' . esc_html(implode('; ', $parts)) . '</code>';
+}
+
+/** ['fee_item_id' => 5, 'amount' => 12.5] as "fee_item_id 5, amount 12.5". */
+function avbk_audit_pairs_text(array $item): string {
+    $pairs = [];
+    foreach ($item as $key => $value) {
+        $pairs[] = $key . ' ' . (is_array($value) ? wp_json_encode($value) : (string) $value);
+    }
+    return implode(', ', $pairs);
 }
 
 function avbk_render_audit_log_pagination(int $total, int $per_page, int $paged): void {

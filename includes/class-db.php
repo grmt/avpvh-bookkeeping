@@ -4702,38 +4702,14 @@ class AVBK_DB {
             return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
         }
 
-        $fee_item_outcome = '';
-        // Clean up associated fee item if present
-        if (!empty($order->fee_item_id)) {
-            $fee_item_id = (int) $order->fee_item_id;
-            $allocated = (float) $wpdb->get_var($wpdb->prepare(
-                "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_transaction_allocations WHERE fee_item_id = %d",
-                $fee_item_id
-            ));
-            if ($allocated <= 0.005) {
-                $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $fee_item_id]);
-                $fee_item_outcome = 'verwijderd';
-            } else {
-                $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $fee_item_id]);
-                $fee_item_outcome = 'kwijtgescholden, er was al betaald';
-            }
-        }
+        $fee_item_outcome = self::release_order_fee_item($order);
 
         // Delete line items
         $wpdb->delete("{$wpdb->prefix}avb_order_items", ['order_id' => $id]);
 
         // Delete order row
         $wpdb->delete("{$wpdb->prefix}avb_orders", ['id' => $id]);
-        self::audit('order.deleted', 'order', $id, [
-            'order_type'        => (string) $order->order_type,
-            'quantity'          => (int) $order->quantity,
-            'total_amount'      => (float) $order->total_amount,
-            'status'            => (string) $order->status,
-            'items'             => array_map(static fn($item) => trim($item->quantity . 'x ' . $item->title . ' ' . $item->variant), (array) ($order->items ?? [])),
-            'fee_item_id'       => !empty($order->fee_item_id) ? (int) $order->fee_item_id : null,
-            'fee_item'          => $fee_item_outcome ?: null,
-            'cancellation_mail' => $send_email && !empty($order->email) && is_email($order->email),
-        ], !empty($order->member_id) ? (int) $order->member_id : null);
+        self::audit_order_deleted($order, $fee_item_outcome, $send_email);
 
         // Optional notification email to the customer
         if ($send_email && !empty($order->email) && is_email($order->email)) {
@@ -4767,6 +4743,45 @@ class AVBK_DB {
         }
 
         return ['success' => true];
+    }
+
+    /**
+     * A deleted order's fee item: removed when nothing was paid on it,
+     * otherwise waived so the payment stays accounted for.
+     *
+     * @return string What happened, for the logboek; '' without a fee item.
+     */
+    private static function release_order_fee_item(object $order): string {
+        global $wpdb;
+        if (empty($order->fee_item_id)) {
+            return '';
+        }
+        $fee_item_id = (int) $order->fee_item_id;
+        $allocated = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_transaction_allocations WHERE fee_item_id = %d",
+            $fee_item_id
+        ));
+        if ($allocated <= 0.005) {
+            $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $fee_item_id]);
+            return 'verwijderd';
+        }
+        $wpdb->update("{$wpdb->prefix}avb_fee_items", ['status' => 'waived'], ['id' => $fee_item_id]);
+        return 'kwijtgescholden, er was al betaald';
+    }
+
+    /** Logboek snapshot of a deleted order: what it was and what happened to its fee item. */
+    private static function audit_order_deleted(object $order, string $fee_item_outcome, bool $send_email): void {
+        $member_id = empty($order->member_id) ? null : (int) $order->member_id;
+        self::audit('order.deleted', 'order', (int) $order->id, [
+            'order_type'        => (string) $order->order_type,
+            'quantity'          => (int) $order->quantity,
+            'total_amount'      => (float) $order->total_amount,
+            'status'            => (string) $order->status,
+            'items'             => array_map(static fn($item) => trim($item->quantity . 'x ' . $item->title . ' ' . $item->variant), (array) ($order->items ?? [])),
+            'fee_item_id'       => empty($order->fee_item_id) ? null : (int) $order->fee_item_id,
+            'fee_item'          => $fee_item_outcome ?: null,
+            'cancellation_mail' => $send_email && !empty($order->email) && is_email($order->email),
+        ], $member_id);
     }
 
     public static function delete_book_order(int $id, bool $send_email = false): array {
@@ -4861,16 +4876,7 @@ class AVBK_DB {
         }
 
         $wpdb->update("{$wpdb->prefix}avb_orders", $update_fields, ['id' => $id]);
-        $changes = [];
-        if ((string) $order->email !== $new_email) {
-            $changes['email'] = [(string) $order->email, $new_email];
-        }
-        if (isset($update_fields['member_id']) && (int) ($order->member_id ?? 0) !== $member_id) {
-            $changes['member_id'] = [!empty($order->member_id) ? (int) $order->member_id : null, $member_id];
-        }
-        if ($changes) {
-            self::audit('order.email_changed', 'order', $id, $changes, $member_id ?: (!empty($order->member_id) ? (int) $order->member_id : null));
-        }
+        self::audit_order_email_change($order, $new_email, $update_fields['member_id'] ?? null);
 
         if ($member_id !== null && $member_id > 0 && !empty($order->fee_item_id)) {
             $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => (int) $order->fee_item_id]);
@@ -4883,6 +4889,21 @@ class AVBK_DB {
         }
 
         return ['success' => true];
+    }
+
+    /** Logboek entry for a changed order e-mail address and/or member; nothing when both stayed the same. */
+    private static function audit_order_email_change(object $order, string $new_email, ?int $new_member_id): void {
+        $old_member_id = empty($order->member_id) ? null : (int) $order->member_id;
+        $changes = [];
+        if ((string) $order->email !== $new_email) {
+            $changes['email'] = [(string) $order->email, $new_email];
+        }
+        if ($new_member_id !== null && $old_member_id !== $new_member_id) {
+            $changes['member_id'] = [$old_member_id, $new_member_id];
+        }
+        if ($changes) {
+            self::audit('order.email_changed', 'order', (int) $order->id, $changes, $new_member_id ?? $old_member_id);
+        }
     }
 
     public static function resend_order_email(int $id): array {

@@ -185,40 +185,25 @@ class AVBK_Audit implements AVBK_Component {
      */
     public static function search(array $filters, int $limit = 100, int $offset = 0): array {
         global $wpdb;
-        $where = ['1=1'];
-        $args = [];
-        if (!empty($filters['member_id'])) {
-            $where[] = 'member_id = %d';
-            $args[] = (int) $filters['member_id'];
-        }
-        if (!empty($filters['object_type'])) {
-            $where[] = 'object_type = %s';
-            $args[] = (string) $filters['object_type'];
-            if (!empty($filters['object_id'])) {
-                $where[] = 'object_id = %d';
-                $args[] = (int) $filters['object_id'];
-            }
-        }
-        if (!empty($filters['request_id'])) {
-            $where[] = 'request_id = %s';
-            $args[] = (string) $filters['request_id'];
-        }
-        if (!empty($filters['from'])) {
-            $where[] = 'created_at >= %s';
-            $args[] = get_gmt_from_date($filters['from'] . ' 00:00:00');
-        }
-        if (!empty($filters['to'])) {
-            $where[] = 'created_at <= %s';
-            $args[] = get_gmt_from_date($filters['to'] . ' 23:59:59');
-        }
-        if (empty($filters['with_requests'])) {
-            $where[] = "action NOT LIKE 'request:%%'";
-        }
-        $table = "{$wpdb->prefix}avb_audit_log";
-        $sql_where = implode(' AND ', $where);
-        $total = (int) $wpdb->get_var($args ? $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE {$sql_where}", ...$args) : "SELECT COUNT(*) FROM {$table} WHERE {$sql_where}");
+        // One fixed statement: an empty filter value switches its condition off.
+        $where = "(%d = 0 OR member_id = %d) AND (%s = '' OR object_type = %s) AND (%d = 0 OR object_id = %d)
+            AND (%s = '' OR request_id = %s) AND created_at >= %s AND created_at <= %s AND (%d = 1 OR action NOT LIKE %s)";
+        $member_id = (int) ($filters['member_id'] ?? 0);
+        $object_type = (string) ($filters['object_type'] ?? '');
+        $object_id = $object_type !== '' ? (int) ($filters['object_id'] ?? 0) : 0;
+        $request_id = (string) ($filters['request_id'] ?? '');
+        $from = !empty($filters['from']) ? get_gmt_from_date($filters['from'] . ' 00:00:00') : '1970-01-01 00:00:00';
+        $to = !empty($filters['to']) ? get_gmt_from_date($filters['to'] . ' 23:59:59') : '9999-12-31 23:59:59';
+        $args = [
+            $member_id, $member_id, $object_type, $object_type, $object_id, $object_id, $request_id, $request_id,
+            $from, $to, empty($filters['with_requests']) ? 0 : 1, $wpdb->esc_like('request:') . '%',
+        ];
+        $total = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_audit_log WHERE {$where}", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is the fixed string above.
+            ...$args
+        ));
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE {$sql_where} ORDER BY id DESC LIMIT %d OFFSET %d",
+            "SELECT * FROM {$wpdb->prefix}avb_audit_log WHERE {$where} ORDER BY id DESC LIMIT %d OFFSET %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is the fixed string above.
             ...array_merge($args, [max(1, $limit), max(0, $offset)])
         )) ?: [];
         return ['rows' => $rows, 'total' => $total];
@@ -258,17 +243,16 @@ class AVBK_Audit implements AVBK_Component {
     }
 
     private static function actor(): string {
+        $actor = 'beheer';
         if (defined('WP_CLI') && WP_CLI) {
-            return 'wp-cli';
+            $actor = 'wp-cli';
+        } elseif (function_exists('wp_doing_cron') && wp_doing_cron()) {
+            $actor = 'systeem';
+        } elseif (!get_current_user_id()) {
+            $actor = 'website';
+        } elseif (!current_user_can('manage_options') && !(class_exists('AVPVH_Roles') && AVPVH_Roles::current_user_has_role('penningmeester'))) {
+            $actor = 'lid';
         }
-        if (function_exists('wp_doing_cron') && wp_doing_cron()) {
-            return 'systeem';
-        }
-        if (!get_current_user_id()) {
-            return 'website';
-        }
-        $manager = current_user_can('manage_options')
-            || (class_exists('AVPVH_Roles') && AVPVH_Roles::current_user_has_role('penningmeester'));
-        return $manager ? 'beheer' : 'lid';
+        return $actor;
     }
 }
