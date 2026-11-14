@@ -42,7 +42,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
     private static function session(): array {
         $session = get_transient(self::key());
         if (!is_array($session)) {
-            throw new AVBK_Photo_Exception('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+            throw AVBK_Photo_Exception::selection_expired();
         }
         return $session;
     }
@@ -171,7 +171,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                 throw new AVBK_Photo_Exception($session['error']);
             }
             if (time() >= $session['expires']) {
-                throw new AVBK_Photo_Exception('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+                throw AVBK_Photo_Exception::selection_expired();
             }
             if (!empty($session['pending'])) {
                 wp_send_json_success(['ready' => false, 'interval' => 5, 'timeout' => max(0, $session['expires'] - time())]);
@@ -234,7 +234,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
         try {
             $session = self::session();
             if (time() >= $session['expires']) {
-                throw new AVBK_Photo_Exception('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+                throw AVBK_Photo_Exception::selection_expired();
             }
             $index = filter_var(wp_unslash($_POST['index'] ?? ''), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
             $item = $index !== false ? ($session['items'][$index] ?? null) : null;

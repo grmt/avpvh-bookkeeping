@@ -4,7 +4,6 @@ require_once __DIR__ . '/class-exceptions.php';
 
 /** ING Commercial Cards exports stay separate from bank settlement payments. */
 class AVBK_Company_Cards {
-    private const DISABLED = 'Creditcard is uitgeschakeld voor deze administratie.';
     public static function account(string $value): string {
         return strtoupper(preg_replace('/\s+/', '', trim($value, " \t\r\n'\"")));
     }
@@ -13,7 +12,7 @@ class AVBK_Company_Cards {
         global $wpdb;
         $company = AVBK_Companies::company($company_id, 'access');
         if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) {
-            throw new AVBK_Company_Exception(self::DISABLED);
+            throw AVBK_Company_Exception::creditcard_disabled();
         }
         $account = self::account($account);
         if (!preg_match('/^[A-Z0-9]{6,34}$/D', $account)) {
@@ -88,7 +87,7 @@ class AVBK_Company_Cards {
     public static function import(int $company_id, string $path, string $filename, int $year, int $quarter): array {
         $company = AVBK_Companies::company($company_id, 'import');
         if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) {
-            throw new AVBK_Company_Exception(self::DISABLED);
+            throw AVBK_Company_Exception::creditcard_disabled();
         }
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         if (!in_array($ext, ['csv', 'xlsx'], true)) {
@@ -104,7 +103,7 @@ class AVBK_Company_Cards {
         }
         $company = AVBK_Companies::company($company_id, 'import');
         if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) {
-            throw new AVBK_Company_Exception(self::DISABLED);
+            throw AVBK_Company_Exception::creditcard_disabled();
         }
         $reference = ltrim((string) ($parsed['customer_reference'] ?? ''), '0');
         if (!str_starts_with($company->iban, 'NL') || $reference === '' || ltrim(substr($company->iban, -10), '0') !== $reference

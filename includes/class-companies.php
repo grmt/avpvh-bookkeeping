@@ -148,7 +148,7 @@ class AVBK_Companies {
     }
 
     public static function valid_iban(string $iban): bool {
-        if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/D', $iban)) {
+        if (!preg_match('/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/D', $iban)) {
             return false;
         }
         $remainder = 0;
