@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 class AVBK_DB {
 
@@ -3286,7 +3287,7 @@ class AVBK_DB {
         return $marked;
     }
 
-    /** @throws \RuntimeException if the row doesn't actually get written — this used to be silently swallowed (row_count still ticked up in the calling import loop, but no row ever existed; see incident 2026-10-07, a QR-paid congresbijdrage that vanished with zero error). */
+    /** @throws AVBK_Import_Exception if the row doesn't actually get written — this used to be silently swallowed (row_count still ticked up in the calling import loop, but no row ever existed; see incident 2026-10-07, a QR-paid congresbijdrage that vanished with zero error). */
     public static function insert_transaction(array $row): int {
         global $wpdb;
         $inserted = $wpdb->insert("{$wpdb->prefix}avb_transactions", [
@@ -3306,7 +3307,7 @@ class AVBK_DB {
             'source_row'           => $row['source_row'] ?? null,
         ]);
         if ($inserted === false) {
-            throw new \RuntimeException(
+            throw new AVBK_Import_Exception(
                 // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception message not rendered to browser
                 'Kon transactie niet opslaan (regel ' . ($row['source_row'] ?? '?') . '): ' . $wpdb->last_error
             );

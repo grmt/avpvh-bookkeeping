@@ -100,7 +100,8 @@ class AVBK_Company_Card_Groups {
         }
         uasort($groups, function ($a, $b) {
             if ($a['id'] === 'bank' || $b['id'] === 'bank') {
-                return $a['id'] === $b['id'] ? 0 : ($a['id'] === 'bank' ? -1 : 1);
+                // The bank group always comes first.
+                return ($b['id'] === 'bank') <=> ($a['id'] === 'bank');
             }
             return strcmp($b['statement']['date'] ?? '', $a['statement']['date'] ?? '') ?: strcmp($a['id'], $b['id']);
         });

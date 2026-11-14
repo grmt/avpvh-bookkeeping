@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Company-scoped payroll evidence, separate from invoice and VAT calculations. */
 class AVBK_Company_Payroll {
@@ -17,7 +18,7 @@ class AVBK_Company_Payroll {
 
     public static function period(string $value): string {
         if (!preg_match('/^(20\d{2}|2100)-(0[1-9]|1[0-2])$/D', $value)) {
-            throw new \RuntimeException('Kies de maand waarop het loonstrookje of de belastingopgave betrekking heeft.');
+            throw new AVBK_Company_Exception('Kies de maand waarop het loonstrookje of de belastingopgave betrekking heeft.');
         }
         return $value . '-01';
     }
@@ -36,7 +37,7 @@ class AVBK_Company_Payroll {
         AVBK_Companies::company($company_id, 'import');
         $date = self::period($period);
         if (!self::enabled($company_id) || !$entries || count($entries) > 20) {
-            throw new \RuntimeException('Ongeldige loonbetalingen.');
+            throw new AVBK_Company_Exception('Ongeldige loonbetalingen.');
         }
         foreach ($entries as &$entry) {
             $doc = AVBK_Company_Documents::document($company_id, (int) ($entry['document_id'] ?? 0));
@@ -47,13 +48,13 @@ class AVBK_Company_Payroll {
                 || !AVBK_Companies::valid_iban($iban) || $name === '' || mb_strlen($name) > 70 || $reference === '' || mb_strlen($reference) > 140
                 || preg_match('/[\x00-\x1f\x7f]/', $name . $reference) || !is_int($entry['amount_cents'] ?? null) || $entry['amount_cents'] <= 0 || $entry['amount_cents'] > 99999999999
                 || !in_array($entry['state'] ?? '', ['pending', 'review'], true) || mb_strlen($entry['note'] ?? '') > 2000) {
-                throw new \RuntimeException('Controleer bron, ontvanger, IBAN, bedrag en betalingskenmerk.');
+                throw new AVBK_Company_Exception('Controleer bron, ontvanger, IBAN, bedrag en betalingskenmerk.');
             }
             if ($kind === 'payroll_tax' && !preg_match('/^\d{16}$/D', $reference)) {
-                throw new \RuntimeException('Gebruik het volledige 16-cijferige betalingskenmerk van de belastingopgave.');
+                throw new AVBK_Company_Exception('Gebruik het volledige 16-cijferige betalingskenmerk van de belastingopgave.');
             }
             if (!empty($entry['due_date']) && !AVBK_Bank_Import_Layout::parse_date($entry['due_date'], 'Y-m-d')) {
-                throw new \RuntimeException('Ongeldige uiterste betaaldatum.');
+                throw new AVBK_Company_Exception('Ongeldige uiterste betaaldatum.');
             }
             $entry['iban'] = $iban; $entry['name'] = $name; $entry['reference'] = $reference;
             $entry['prepared_by'] = get_current_user_id(); $entry['prepared_at'] = gmdate('Y-m-d H:i:s') . ' UTC';
@@ -62,7 +63,7 @@ class AVBK_Company_Payroll {
         $key = 'avbk_company_payroll_payments_' . $company_id . '_' . substr($period, 0, 4);
         $payments = get_option($key, []); $payments[$period] = $entries;
         if (!update_option($key, $payments, false) && get_option($key) !== $payments) {
-            throw new \RuntimeException('De betaalgegevens konden niet worden opgeslagen.');
+            throw new AVBK_Company_Exception('De betaalgegevens konden niet worden opgeslagen.');
         }
     }
 

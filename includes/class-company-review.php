@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Persist a VAT decision together with the exact workbook and its private audit history. */
 class AVBK_Company_Review {
@@ -7,44 +8,44 @@ class AVBK_Company_Review {
         $company = AVBK_Companies::company($company_id, 'import');
         $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
         if (!$previous || empty($previous['workbook_data']) || !hash_equals($previous['workbook_hash'], $expected_hash)) {
-            throw new \RuntimeException('Het resultaat is gewijzigd of ontbreekt. Ververs de pagina voordat je controleert.');
+            throw new AVBK_Company_Exception('Het resultaat is gewijzigd of ontbreekt. Ververs de pagina voordat je controleert.');
         }
         $bank = AVBK_Companies::transactions($company_id, $year, $quarter);
         $cards = AVBK_Company_Cards::transactions($company_id, $year, $quarter);
         if ($previous['transactions_hash'] !== AVBK_Company_Report::fingerprint($bank) || ($previous['cards_hash'] ?? '') !== AVBK_Company_Report::fingerprint($cards)) {
-            throw new \RuntimeException('Er zijn nieuwe bank- of kaartgegevens. Werk eerst de kwartaalwerkmap bij.');
+            throw new AVBK_Company_Exception('Er zijn nieuwe bank- of kaartgegevens. Werk eerst de kwartaalwerkmap bij.');
         }
         if (!in_array($code, ['', '0', '9', '21', 'x'], true) || !in_array($state, ['checked', 'pending'], true) || ($state === 'checked' && $code === '')) {
-            throw new \RuntimeException('Kies een BTW-tarief of vast BTW-bedrag voordat je de regel bevestigt.');
+            throw new AVBK_Company_Exception('Kies een BTW-tarief of vast BTW-bedrag voordat je de regel bevestigt.');
         }
         if (mb_strlen($note) > 500) {
-            throw new \RuntimeException('Gebruik maximaal 500 tekens voor de factuurverwijzing of notitie.');
+            throw new AVBK_Company_Exception('Gebruik maximaal 500 tekens voor de factuurverwijzing of notitie.');
         }
         $bytes = base64_decode($previous['workbook_data'], true);
         if ($bytes === false || strlen($bytes) > 3 * 1024 * 1024 || !hash_equals($expected_hash, hash('sha256', $bytes))) {
-            throw new \RuntimeException('De opgeslagen werkmap kon niet worden gecontroleerd.');
+            throw new AVBK_Company_Exception('De opgeslagen werkmap kon niet worden gecontroleerd.');
         }
         $source = wp_tempnam('avbk-review-source.xlsx');
         $output = wp_tempnam('avbk-review-output.xlsx');
         try {
             if (!$source || !$output || file_put_contents($source, $bytes) !== strlen($bytes)) {
-                throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
+                throw new AVBK_Company_Exception('Kan geen tijdelijke werkmap maken.');
             }
             // Re-read row identities from the verified workbook, never accept a client row number or amount.
             $current = AVBK_Company_Report::build($source, $company, $bank, $year, $quarter, $previous['filename'], $cards);
             $matches = array_values(array_filter($current['rows'], fn($row) => $key !== '' && ($row['review_key'] ?? '') === $key));
             if (count($matches) !== 1) {
-                throw new \RuntimeException('Deze regel kan niet afzonderlijk worden gecontroleerd. Controleer de administratie, periode en eventuele detailregels.');
+                throw new AVBK_Company_Exception('Deze regel kan niet afzonderlijk worden gecontroleerd. Controleer de administratie, periode en eventuele detailregels.');
             }
             $row = $matches[0]; $gross = $row['gross_cents'];
             $vat = null;
             if ($code === 'x') {
                 if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $fixed_vat)) {
-                    throw new \RuntimeException('Vul een positief BTW-bedrag in met maximaal twee decimalen.');
+                    throw new AVBK_Company_Exception('Vul een positief BTW-bedrag in met maximaal twee decimalen.');
                 }
                 $vat = (int) round((float) str_replace(',', '.', $fixed_vat) * 100);
                 if ($vat > abs($gross)) {
-                    throw new \RuntimeException('Het BTW-bedrag mag niet groter zijn dan het bedrag inclusief BTW.');
+                    throw new AVBK_Company_Exception('Het BTW-bedrag mag niet groter zijn dan het bedrag inclusief BTW.');
                 }
                 $vat *= $gross < 0 ? -1 : 1;
             } elseif ($code !== '') {
@@ -59,7 +60,7 @@ class AVBK_Company_Review {
             AVBK_Company_Workbook::update($source, $output, $company, $bank, $year, $quarter, $cards, $reviews);
             $report = AVBK_Company_Report::build($output, $company, $bank, $year, $quarter, $previous['filename'], $cards);
             if (empty($report['workbook_data'])) {
-                throw new \RuntimeException('De werkmap is te groot om de controle op te slaan.');
+                throw new AVBK_Company_Exception('De werkmap is te groot om de controle op te slaan.');
             }
             $report['reviews'] = $reviews;
             $report['review_log'] = $previous['review_log'] ?? [];

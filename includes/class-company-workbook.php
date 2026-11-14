@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 require_once __DIR__ . '/class-xlsx-archive.php';
 
 /** Merge a bank quarter into a copy of an existing VAT workbook. */
@@ -12,7 +13,7 @@ class AVBK_Company_Workbook {
         $previous = libxml_use_internal_errors(true);
         try {
             if (stripos($text, '<!DOCTYPE') !== false || !$doc->loadXML($text, LIBXML_NONET)) {
-                throw new \RuntimeException('Ongeldige werkmap-XML.');
+                throw new AVBK_Company_Exception('Ongeldige werkmap-XML.');
             }
         } finally {
             libxml_clear_errors();
@@ -73,7 +74,7 @@ class AVBK_Company_Workbook {
             preg_match('/^([A-Z]+)(\d+)$/', $anchor, $a);
             preg_match('/^([A-Z]+)(\d+)$/', $cell->getAttribute('r'), $b);
             if (!$a || !$b) {
-                throw new \RuntimeException('Ongeldige gedeelde formule.');
+                throw new AVBK_Company_Exception('Ongeldige gedeelde formule.');
             }
             $col = function (string $letters): int {
                 $value = 0;
@@ -145,10 +146,10 @@ class AVBK_Company_Workbook {
     /** Source and destination must differ. Only the selected sheet and calculation metadata change. */
     public static function update(string $source, string $output, object $company, array $transactions, int $year, int $quarter, array $card_transactions = [], ?array $reviews = null): array {
         if ($source === $output || (realpath($output) && realpath($source) === realpath($output))) {
-            throw new \RuntimeException('Gebruik een aparte uitvoerwerkmap.');
+            throw new AVBK_Company_Exception('Gebruik een aparte uitvoerwerkmap.');
         }
         if (!$transactions) {
-            throw new \RuntimeException('Importeer eerst banktransacties voor dit kwartaal.');
+            throw new AVBK_Company_Exception('Importeer eerst banktransacties voor dit kwartaal.');
         }
         [$start, $end] = AVBK_Companies::period($year, $quarter);
         if ($reviews === null) {
@@ -178,23 +179,23 @@ class AVBK_Company_Workbook {
                 }
             }
             if ($rid === '' || !preg_match('#^xl/worksheets/[^/]+\.xml$#D', $path)) {
-                throw new \RuntimeException('Het juiste kwartaalwerkblad ontbreekt in de werkmap.');
+                throw new AVBK_Company_Exception('Het juiste kwartaalwerkblad ontbreekt in de werkmap.');
             }
             $doc = self::xml((string) $zip->getFromName($path));
             $values = AVBK_Xlsx_Reader::read_named_rows($source, $name);
             if (!in_array($values[1][0] ?? '', ['Date', 'Datum'], true) || !in_array($values[1][8] ?? '', ['BTW %', 'Btw %'], true)) {
-                throw new \RuntimeException('Gebruik de bestaande BTW-werkmap met de bankkolommen A:P en BTW % in kolom I.');
+                throw new AVBK_Company_Exception('Gebruik de bestaande BTW-werkmap met de bankkolommen A:P en BTW % in kolom I.');
             }
             // These carry independent cell references; reject instead of silently corrupting them.
             foreach (['tableParts', 'mergeCells', 'conditionalFormatting', 'dataValidations', 'hyperlinks', 'drawing', 'legacyDrawing'] as $tag) {
                 if ($doc->getElementsByTagNameNS(self::NS, $tag)->length) {
-                    throw new \RuntimeException('Dit werkblad bevat tabellen, samengevoegde cellen of celregels die eerst verwerkt moeten worden.');
+                    throw new AVBK_Company_Exception('Dit werkblad bevat tabellen, samengevoegde cellen of celregels die eerst verwerkt moeten worden.');
                 }
             }
             self::expand_shared($doc);
             $data = $doc->getElementsByTagNameNS(self::NS, 'sheetData')->item(0);
             if (!$data) {
-                throw new \RuntimeException('Werkbladgegevens ontbreken.');
+                throw new AVBK_Company_Exception('Werkbladgegevens ontbreken.');
             }
             $header = null; $styles = []; $groups = []; $key = null; $existing_years = []; $manual_details = false;
             foreach ($data->childNodes as $row) {
@@ -207,7 +208,7 @@ class AVBK_Company_Workbook {
                 if (!$styles) {
                     foreach ($row->getElementsByTagNameNS(self::NS, 'c') as $c) {
                         if ($c->hasAttribute('s')) {
-                            $styles[preg_replace('/[0-9]+$/', '', $c->getAttribute('r'))] = $c->getAttribute('s');
+                            $styles[preg_replace('/\d+$/', '', $c->getAttribute('r'))] = $c->getAttribute('s');
                         }
                     }
                 }
@@ -215,44 +216,44 @@ class AVBK_Company_Workbook {
                     $date = AVBK_Bank_Import_Layout::parse_date($card_match[1], 'Y-m-d');
                     if (!$date || $date < $start || $date >= $end) { $key = null; continue; }
                     if (empty($company->card_account) || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) {
-                        throw new \RuntimeException('Het werkblad bevat creditcardregels van een ander account.');
+                        throw new AVBK_Company_Exception('Het werkblad bevat creditcardregels van een ander account.');
                     }
                     if ((float) ($v[7] ?? 0) != 0) {
-                        throw new \RuntimeException('Een creditcarddetailregel telt mee in het banktotaal. Maak kolom H van die detailregel leeg om dubbeltelling te voorkomen.');
+                        throw new AVBK_Company_Exception('Een creditcarddetailregel telt mee in het banktotaal. Maak kolom H van die detailregel leeg om dubbeltelling te voorkomen.');
                     }
                     $key = 'card:' . $card_match[2];
                     if (isset($groups[$key])) {
-                        throw new \RuntimeException('Het werkblad bevat dubbele creditcardregels.');
+                        throw new AVBK_Company_Exception('Het werkblad bevat dubbele creditcardregels.');
                     }
                     $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-'), 'values' => $v];
                 } elseif (preg_match('/^\d{8}$/D', (string) ($v[0] ?? ''))) {
                     $date = AVBK_Bank_Import_Layout::parse_date($v[0], 'Ymd');
                     if (!$date) {
-                        throw new \RuntimeException('Ongeldige datum in het bestaande kwartaalwerkblad.');
+                        throw new AVBK_Company_Exception('Ongeldige datum in het bestaande kwartaalwerkblad.');
                     }
                     $existing_years[substr($date, 0, 4)] = true;
                     if (substr($date, 0, 4) === (string) $year && ($date < $start || $date >= $end)) {
-                        throw new \RuntimeException('Het bestaande werkblad bevat transacties uit een ander kwartaal.');
+                        throw new AVBK_Company_Exception('Het bestaande werkblad bevat transacties uit een ander kwartaal.');
                     }
                     if ($date < $start || $date >= $end) { $key = null; continue; }
                     if (AVBK_Companies::normalize_iban($v[2] ?? '') !== $company->iban) {
-                        throw new \RuntimeException('Het bestaande werkblad bevat een andere bankrekening.');
+                        throw new AVBK_Company_Exception('Het bestaande werkblad bevat een andere bankrekening.');
                     }
                     if ($card_transactions && AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '') && ((float) ($v[9] ?? 0) != 0 || (float) ($v[10] ?? 0) != 0)) {
-                        throw new \RuntimeException('Het werkblad kent al BTW of kosten toe aan een creditcardafrekening. Controleer die regel voordat je losse kaarttransacties toevoegt.');
+                        throw new AVBK_Company_Exception('Het werkblad kent al BTW of kosten toe aan een creditcardafrekening. Controleer die regel voordat je losse kaarttransacties toevoegt.');
                     }
                     $key = self::value_key($v);
                     if ($card_transactions && !isset($bank_keys[$key])) {
-                        throw new \RuntimeException('Het werkblad bevat extra handmatige transacties. Controleer deze voordat je creditcardaankopen toevoegt, om dubbeltelling te voorkomen.');
+                        throw new AVBK_Company_Exception('Het werkblad bevat extra handmatige transacties. Controleer deze voordat je creditcardaankopen toevoegt, om dubbeltelling te voorkomen.');
                     }
                     if (isset($groups[$key])) {
-                        throw new \RuntimeException('Het werkblad bevat identieke bankregels; controleer deze eerst handmatig.');
+                        throw new AVBK_Company_Exception('Het werkblad bevat identieke bankregels; controleer deze eerst handmatig.');
                     }
                     $groups[$key] = ['date' => $date, 'rows' => [$row->cloneNode(true)], 'pending' => str_starts_with($v[15] ?? '', 'BTW-'), 'settlement' => AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '')];
                 } elseif ($key !== null && array_filter($v, fn($value) => (string) $value !== '')) {
                     $is_total = false;
                     foreach ($row->getElementsByTagNameNS(self::NS, 'f') as $f) {
-                        if (preg_match('/^SUM\([HJK]2:[HJK][0-9]+\)$/iD', $f->textContent)) {
+                        if (preg_match('/^SUM\([HJK]2:[HJK]\d+\)$/iD', $f->textContent)) {
                             $is_total = true;
                         }
                     }
@@ -264,15 +265,15 @@ class AVBK_Company_Workbook {
                 }
             }
             if (isset($existing_years[(string) $year]) && count($existing_years) > 1) {
-                throw new \RuntimeException('Het kwartaalwerkblad bevat meerdere jaren. Controleer dit eerst.');
+                throw new AVBK_Company_Exception('Het kwartaalwerkblad bevat meerdere jaren. Controleer dit eerst.');
             }
             if ($card_transactions && $manual_details) {
-                throw new \RuntimeException('Het werkblad bevat handmatig ingevoerde aankoopdetails. Controleer die eerst om dubbele creditcardkosten te voorkomen.');
+                throw new AVBK_Company_Exception('Het werkblad bevat handmatig ingevoerde aankoopdetails. Controleer die eerst om dubbele creditcardkosten te voorkomen.');
             }
             $preserved = count($groups); $added = 0; $suggested = 0;
             foreach ($transactions as $tx) {
                 if ((int) $tx->company_id !== (int) $company->id || $tx->transaction_date < $start || $tx->transaction_date >= $end) {
-                    throw new \RuntimeException('Transactie hoort niet bij dit bedrijf en kwartaal.');
+                    throw new AVBK_Company_Exception('Transactie hoort niet bij dit bedrijf en kwartaal.');
                 }
                 $raw = json_decode($tx->raw_data, true) ?: [];
                 $v = [str_replace('-', '', $tx->transaction_date), $tx->counterparty_name, $company->iban, $tx->counterparty_iban,
@@ -322,7 +323,7 @@ class AVBK_Company_Workbook {
             foreach ($card_transactions as $card) {
                 if ((int) $card->company_id !== (int) $company->id || $card->transaction_date < $start || $card->transaction_date >= $end
                     || empty($company->card_account) || $card->card_account !== $company->card_account) {
-                    throw new \RuntimeException('Creditcardtransactie hoort niet bij dit bedrijf en kwartaal.');
+                    throw new AVBK_Company_Exception('Creditcardtransactie hoort niet bij dit bedrijf en kwartaal.');
                 }
                 if ($card->entry_type === 'settlement') {
                     continue;
@@ -394,12 +395,12 @@ class AVBK_Company_Workbook {
             foreach ($reviews as $review_key => $review) {
                 $tx = $review_transactions[$review_key] ?? null;
                 if (!$tx || (int) $tx->company_id !== (int) $company->id || (int) round((float) $tx->amount * 100) !== abs($review['gross_cents']) || $tx->direction !== $review['direction']) {
-                    throw new \RuntimeException('Een opgeslagen BTW-controle past niet meer bij de transactie.');
+                    throw new AVBK_Company_Exception('Een opgeslagen BTW-controle past niet meer bij de transactie.');
                 }
                 $card = str_starts_with($review_key, 'card:');
                 $key = $card ? $review_key : self::value_key([0 => str_replace('-', '', $tx->transaction_date), 1 => $tx->counterparty_name, 3 => $tx->counterparty_iban, 5 => $tx->direction === 'out' ? 'Debit' : 'Credit', 6 => $tx->amount, 13 => $tx->description]);
                 if (!isset($groups[$key]) || count($groups[$key]['rows']) !== 1 || (!$card && AVBK_Vat_Patterns::is_settlement($tx->counterparty_name, $tx->description))) {
-                    throw new \RuntimeException('Deze BTW-controle heeft detailregels of hoort bij een afrekening. Controleer de werkmap.');
+                    throw new AVBK_Company_Exception('Deze BTW-controle heeft detailregels of hoort bij een afrekening. Controleer de werkmap.');
                 }
                 $row = $groups[$key]['rows'][0]; $n = (int) $row->getAttribute('r');
                 $code = $review['code']; $vat = $review['vat_cents']; $net = $review['net_cents'];
@@ -456,7 +457,7 @@ class AVBK_Company_Workbook {
             }
         } finally { $zip->close(); }
         if (!copy($source, $output)) {
-            throw new \RuntimeException('Kan geen werkmapkopie maken.');
+            throw new AVBK_Company_Exception('Kan geen werkmapkopie maken.');
         }
         $out = new AVBK_Xlsx_Archive($output);
         try {

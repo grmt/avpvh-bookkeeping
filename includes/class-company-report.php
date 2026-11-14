@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** A private, company-scoped view of the last exported quarterly worksheet. */
 class AVBK_Company_Report {
@@ -30,7 +31,7 @@ class AVBK_Company_Report {
         $sheet = AVBK_Company_Workbook::sheet_name($company, $year, $quarter);
         $values = AVBK_Xlsx_Reader::read_named_rows($path, $sheet);
         if (!in_array($values[1][0] ?? '', ['Date', 'Datum'], true) || !in_array($values[1][8] ?? '', ['BTW %', 'Btw %'], true)) {
-            throw new \RuntimeException('Het BTW-werkblad heeft geen herkenbare bank- en BTW-kolommen.');
+            throw new AVBK_Company_Exception('Het BTW-werkblad heeft geen herkenbare bank- en BTW-kolommen.');
         }
         $totals = ['gross_cents' => 0, 'purchase_gross_cents' => 0, 'card_gross_cents' => 0, 'known_vat_cents' => 0, 'known_net_cents' => 0,
             'confirmed_vat_cents' => 0, 'confirmed_net_cents' => 0, 'pending_rows' => 0, 'unknown_rows' => 0];
@@ -57,7 +58,7 @@ class AVBK_Company_Report {
                 $date = AVBK_Bank_Import_Layout::parse_date($card_match[1], 'Y-m-d');
                 if ($raw_date !== '' || !$date || $date < $start || $date >= $end || empty($company->card_account)
                     || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) {
-                    throw new \RuntimeException('Het resultaat bevat creditcardregels van een andere administratie of periode.');
+                    throw new AVBK_Company_Exception('Het resultaat bevat creditcardregels van een andere administratie of periode.');
                 }
                 $direction = in_array(mb_strtolower($v[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
                 $card_keys[$card_match[2]] = true;
@@ -65,7 +66,7 @@ class AVBK_Company_Report {
             } elseif ($bank) {
                 $date = AVBK_Bank_Import_Layout::parse_date($raw_date, 'Ymd');
                 if (!$date || $date < $start || $date >= $end || AVBK_Companies::normalize_iban($v[2] ?? '') !== $company->iban) {
-                    throw new \RuntimeException('Het resultaat bevat een bankregel van een andere administratie of periode.');
+                    throw new AVBK_Company_Exception('Het resultaat bevat een bankregel van een andere administratie of periode.');
                 }
                 $direction = in_array(mb_strtolower($v[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
                 $bank_key = self::bank_key($date, $v[6] ?? 0, $direction, $v[3] ?? '', $v[1] ?? '', $v[13] ?? '');
@@ -134,17 +135,17 @@ class AVBK_Company_Report {
         }
         unset($row);
         if (!$bank_rows) {
-            throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
+            throw new AVBK_Company_Exception('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
         }
         foreach ($transactions as $tx) {
             if ((int) $tx->company_id !== (int) $company->id || !isset($bank_keys[self::bank_key($tx->transaction_date, $tx->amount,
                 $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)])) {
-                throw new \RuntimeException('Het werkblad bevat niet alle geïmporteerde banktransacties. Werk de werkmap opnieuw bij.');
+                throw new AVBK_Company_Exception('Het werkblad bevat niet alle geïmporteerde banktransacties. Werk de werkmap opnieuw bij.');
             }
         }
         foreach ($card_transactions as $tx) {
             if ((int) $tx->company_id !== (int) $company->id || ($tx->entry_type !== 'settlement' && !isset($card_keys[$tx->dedupe_hash]))) {
-                throw new \RuntimeException('Het werkblad bevat niet alle geïmporteerde creditcardaankopen. Werk de werkmap opnieuw bij.');
+                throw new AVBK_Company_Exception('Het werkblad bevat niet alle geïmporteerde creditcardaankopen. Werk de werkmap opnieuw bij.');
             }
         }
         return ['version' => 1, 'company_id' => (int) $company->id, 'year' => $year, 'quarter' => $quarter,
@@ -161,7 +162,7 @@ class AVBK_Company_Report {
         $key = self::key($company_id, (int) $report['year'], (int) $report['quarter']);
         if ($expect_absent) {
             if (!add_option($key, $report, '', false)) {
-                throw new \RuntimeException('Er is intussen een nieuw resultaat opgeslagen. Ververs de pagina en probeer opnieuw.');
+                throw new AVBK_Company_Exception('Er is intussen een nieuw resultaat opgeslagen. Ververs de pagina en probeer opnieuw.');
             }
             return;
         }
@@ -172,13 +173,13 @@ class AVBK_Company_Report {
             }
             $changed = $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s", maybe_serialize($report), $key, maybe_serialize($expected)));
             if ($changed !== 1) {
-                throw new \RuntimeException('Het resultaat is intussen gewijzigd. Ververs de pagina en controleer je wijziging opnieuw.');
+                throw new AVBK_Company_Exception('Het resultaat is intussen gewijzigd. Ververs de pagina en controleer je wijziging opnieuw.');
             }
             wp_cache_delete($key, 'options');
             return;
         }
         if (!update_option($key, $report, false) && get_option($key) !== $report) {
-            throw new \RuntimeException('Het werkbladresultaat kon niet voor het portaal worden opgeslagen. Probeer opnieuw.');
+            throw new AVBK_Company_Exception('Het werkbladresultaat kon niet voor het portaal worden opgeslagen. Probeer opnieuw.');
         }
     }
 

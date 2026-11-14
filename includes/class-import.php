@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /**
  * Ties AVBK_Xlsx_Reader + AVBK_Matcher + AVBK_DB together: reads an
@@ -24,7 +25,7 @@ class AVBK_Import {
             }
         }
         if ($parsed['rows'] && !$transactions) {
-            throw new \RuntimeException('Geen transactierijen herkend. Controleer het gekozen importprofiel, de kolomnamen en het datumformaat.');
+            throw new AVBK_Import_Exception('Geen transactierijen herkend. Controleer het gekozen importprofiel, de kolomnamen en het datumformaat.');
         }
         // Bank exports often list newest first. Allocate older payments
         // first so a later transfer cannot consume an earlier QR's charges.

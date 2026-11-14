@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Private host scheduler settings, payment reminders and delivery receipts. */
 class AVBK_Company_Payroll_Automation {
@@ -11,11 +12,11 @@ class AVBK_Company_Payroll_Automation {
     public static function configure(int $company_id, string $recipient, int $day = 27, int $hour = 9): void {
         AVBK_Companies::company($company_id, 'access');
         if (!is_email($recipient) || $day < 1 || $day > 28 || $hour < 0 || $hour > 23) {
-            throw new \RuntimeException('Ongeldige maandelijkse herinnering.');
+            throw new AVBK_Company_Exception('Ongeldige maandelijkse herinnering.');
         }
         $settings = ['enabled' => true, 'recipient' => $recipient, 'day' => $day, 'hour' => $hour, 'timezone' => 'Europe/Amsterdam'];
         if (!update_option('avbk_payroll_automation_' . $company_id, $settings, false) && self::settings($company_id) !== $settings) {
-            throw new \RuntimeException('Herinnering kon niet worden opgeslagen.');
+            throw new AVBK_Company_Exception('Herinnering kon niet worden opgeslagen.');
         }
     }
 
@@ -37,11 +38,11 @@ class AVBK_Company_Payroll_Automation {
     public static function reminder(int $company_id, string $date): array {
         $company = AVBK_Companies::company($company_id, 'access');
         if (!AVBK_Bank_Import_Layout::parse_date($date, 'Y-m-d')) {
-            throw new \RuntimeException('Ongeldige herinneringsdatum.');
+            throw new AVBK_Company_Exception('Ongeldige herinneringsdatum.');
         }
         $settings = self::settings($company_id);
         if (empty($settings['enabled']) || !AVBK_Company_Payroll::enabled($company_id)) {
-            throw new \RuntimeException('Automatische salarisverwerking is uitgeschakeld.');
+            throw new AVBK_Company_Exception('Automatische salarisverwerking is uitgeschakeld.');
         }
         $year = (int) substr($date, 0, 4); $end = (new \DateTimeImmutable($date))->modify('last day of this month')->format('Y-m-d');
         $all = AVBK_Company_Payroll::payments($company_id, $year);
@@ -90,7 +91,7 @@ class AVBK_Company_Payroll_Automation {
 
     public static function send(int $company_id): string {
         if (!defined('WP_CLI') || !WP_CLI) {
-            throw new \RuntimeException('Herinneringen worden door de hostscheduler verstuurd.');
+            throw new AVBK_Company_Exception('Herinneringen worden door de hostscheduler verstuurd.');
         }
         AVBK_Companies::company($company_id, 'access');
         $settings = self::settings($company_id); $now = new \DateTimeImmutable('now', new \DateTimeZone($settings['timezone'] ?? 'Europe/Amsterdam'));
@@ -115,17 +116,17 @@ class AVBK_Company_Payroll_Automation {
                 }
                 $png = AVBK_QR::png(AVBK_Company_Payroll::payload($item['payment']));
                 $file = wp_tempnam('avbk-payroll-qr.png'); if (!$png || !$file) {
-                    throw new \RuntimeException('Kan geen QR voor e-mail maken.');
+                    throw new AVBK_Company_Exception('Kan geen QR voor e-mail maken.');
                 }
                 $files[] = $file;
                 if (file_put_contents($file, $png) !== strlen($png)) {
-                    throw new \RuntimeException('Kan de QR-bijlage niet opslaan.');
+                    throw new AVBK_Company_Exception('Kan de QR-bijlage niet opslaan.');
                 }
                 $images['avbk-payroll-' . $i] = $file;
             }
             add_action('phpmailer_init', $embed);
             if (!wp_mail($reminder['recipient'], 'Salaris en loonheffingen · ' . $reminder['company'] . ' · ' . $now->format('Y-m'), self::html($reminder), ['Content-Type: text/html; charset=UTF-8'])) {
-                throw new \RuntimeException('De betaalherinnering kon niet worden verzonden.');
+                throw new AVBK_Company_Exception('De betaalherinnering kon niet worden verzonden.');
             }
             update_option($key, ['state' => 'sent', 'at' => $now->format(DATE_ATOM), 'recipient' => $reminder['recipient'], 'qr_count' => count($images)], false);
             return 'sent';

@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Explainable VAT suggestions from the same company's earlier worksheet entries. */
 class AVBK_Vat_Patterns {
@@ -38,14 +39,14 @@ class AVBK_Vat_Patterns {
             $direction = (string) ($entry['direction'] ?? 'out');
             $period = trim((string) ($entry['period_start'] ?? ''));
             if ($merchant === '' || mb_strlen($merchant) > 255 || !in_array($code, ['0', '9', '21'], true) || !$date || $source === '' || mb_strlen($source) > 1000 || !in_array($direction, ['out', 'in'], true)) {
-                throw new \RuntimeException('Vul een leverancier, historisch BTW-percentage, datum en controleerbare bron in.');
+                throw new AVBK_Company_Exception('Vul een leverancier, historisch BTW-percentage, datum en controleerbare bron in.');
             }
             $record = ['merchant' => $merchant, 'code' => $code, 'date' => $date, 'source' => $source, 'direction' => $direction];
             $identity = hash('sha256', wp_json_encode($record));
             if ($period !== '') {
                 $period_date = AVBK_Bank_Import_Layout::parse_date($period, 'Y-m-d');
                 if (!$period_date || AVBK_Companies::period((int) substr($period, 0, 4), (int) ceil((int) substr($period, 5, 2) / 3))[0] !== $period) {
-                    throw new \RuntimeException('Ongeldige periode voor de opgegeven BTW-indeling.');
+                    throw new AVBK_Company_Exception('Ongeldige periode voor de opgegeven BTW-indeling.');
                 }
                 $record['period_start'] = $period;
                 $identity = 'period:' . hash('sha256', wp_json_encode([$merchant, $direction, $period]));
@@ -53,7 +54,7 @@ class AVBK_Vat_Patterns {
             $stored[$identity] = $record + ['recorded_by' => get_current_user_id()];
         }
         if (!update_option($key, $stored, false) && get_option($key) !== $stored) {
-            throw new \RuntimeException('De historische BTW-patronen konden niet worden opgeslagen.');
+            throw new AVBK_Company_Exception('De historische BTW-patronen konden niet worden opgeslagen.');
         }
     }
 
