@@ -73,22 +73,22 @@ class AVBK_Company_Documents {
      * @return array{0: ?string, 1: ?string, 2: ?float}
      */
     private static function parse_financials(array $financials): array {
-        $invoice_date = self::optional_date((string) ($financials['invoice_date'] ?? ''), 'Vul een geldige factuurdatum in.');
-        $due_date     = self::optional_date((string) ($financials['due_date'] ?? ''), 'Vul een geldige vervaldatum in.');
+        $invoice_date = self::optional_date((string) ($financials['invoice_date'] ?? ''), false);
+        $due_date     = self::optional_date((string) ($financials['due_date'] ?? ''), true);
         if ($invoice_date !== null && $due_date !== null && $due_date < $invoice_date) {
             throw new AVBK_Company_Exception('De vervaldatum mag niet vóór de factuurdatum liggen.');
         }
         return [$invoice_date, $due_date, self::optional_amount((string) ($financials['amount_total'] ?? ''))];
     }
 
-    /** A YYYY-MM-DD date that exists, or null when left empty. */
-    private static function optional_date(string $value, string $error): ?string {
+    /** A YYYY-MM-DD date that exists, or null when left empty; $due picks the error message. */
+    private static function optional_date(string $value, bool $due): ?string {
         $value = trim($value);
         if ($value === '') {
             return null;
         }
         if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
-            throw new AVBK_Company_Exception($error);
+            throw new AVBK_Company_Exception($due ? 'Vul een geldige vervaldatum in.' : 'Vul een geldige factuurdatum in.');
         }
         return $value;
     }
