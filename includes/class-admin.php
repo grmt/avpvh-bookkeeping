@@ -2485,7 +2485,9 @@ class AVBK_Admin implements AVBK_Component {
     }
 
     public function handle_update_dispute(): void {
-        if (!$this->can_manage()) wp_die('Geen toegang.', 'Fout', ['response' => 403]);
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 'Fout', ['response' => 403]);
+        }
         $id = absint(wp_unslash($_POST['id'] ?? 0));
         check_admin_referer('avbk_update_dispute_' . $id);
         $action = sanitize_key(wp_unslash($_POST['dispute_action'] ?? ''));
@@ -2539,7 +2541,9 @@ class AVBK_Admin implements AVBK_Component {
 
     public function handle_save_student_year(): void {
         check_admin_referer('avbk_save_student_year');
-        if (!$this->can_manage()) wp_die('Geen toegang.', 403);
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $year = (int) ($_POST['year'] ?? 0);
         if ($member_id && $year >= 1900 && $year <= 2200) {
@@ -2551,10 +2555,14 @@ class AVBK_Admin implements AVBK_Component {
 
     public function handle_delete_student_year(): void {
         check_admin_referer('avbk_delete_student_year');
-        if (!$this->can_manage()) wp_die('Geen toegang.', 403);
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
         $member_id = (int) ($_POST['member_id'] ?? 0);
         $year = (int) ($_POST['year'] ?? 0);
-        if ($member_id && $year) AVBK_DB::delete_member_student_year($member_id, $year);
+        if ($member_id && $year) {
+            AVBK_DB::delete_member_student_year($member_id, $year);
+        }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'student_year_deleted' => '1'], admin_url('admin.php')));
         exit;
     }
@@ -3074,7 +3082,9 @@ class AVBK_Admin implements AVBK_Component {
             foreach ($_POST['tshirt_types'] as $t) {
                 $id = sanitize_key($t['id'] ?? '');
                 $name = sanitize_text_field(wp_unslash($t['name'] ?? ''));
-                if ($name === '') continue;
+                if ($name === '') {
+                    continue;
+                }
                 $p = isset($t['price']) && $t['price'] !== '' ? (float) $t['price'] : AVBK_Tshirt_Order::DEFAULT_PRICE;
                 $sanitized_types[] = [
                     'id'    => $id ?: sanitize_key($name),
@@ -3091,7 +3101,9 @@ class AVBK_Admin implements AVBK_Component {
             foreach ($_POST['tshirt_designs'] as $d) {
                 $id = sanitize_key($d['id'] ?? '');
                 $name = sanitize_text_field(wp_unslash($d['name'] ?? ''));
-                if ($name === '') continue;
+                if ($name === '') {
+                    continue;
+                }
                 $p = isset($d['price']) && $d['price'] !== '' ? (float) $d['price'] : null;
                 $img_input = trim(sanitize_text_field(wp_unslash($d['image'] ?? '')));
                 $img_clean = preg_match('#^https?://#i', $img_input) ? esc_url_raw($img_input) : ltrim($img_input, '/');

@@ -20,8 +20,12 @@ class AVBK_Disputes {
             return new WP_Error('invalid_action', 'Ongeldige actie. Herlaad de pagina en probeer opnieuw.');
         }
         $dispute = AVBK_DB::get_dispute($id);
-        if (!$dispute) return new WP_Error('not_found', 'Dit bezwaar bestaat niet meer.');
-        if (AVBK_DB::has_dispute_request($request_key)) return 'duplicate';
+        if (!$dispute) {
+            return new WP_Error('not_found', 'Dit bezwaar bestaat niet meer.');
+        }
+        if (AVBK_DB::has_dispute_request($request_key)) {
+            return 'duplicate';
+        }
 
         $message = trim($message);
         if (in_array($action, ['reply', 'note'], true) && $message === '') {
@@ -30,7 +34,9 @@ class AVBK_Disputes {
         $actor_id = get_current_user_id();
         if ($action === 'resolve' || $action === 'reopen') {
             $status = $action === 'resolve' ? 'resolved' : 'open';
-            if ($dispute->status === $status) return 'unchanged';
+            if ($dispute->status === $status) {
+                return 'unchanged';
+            }
             return AVBK_DB::change_dispute_status($id, $status, $actor_id, $request_key, $message)
                 ? ($action === 'resolve' ? 'resolved' : 'reopened')
                 : new WP_Error('save_failed', 'De actie is niet opgeslagen. Probeer opnieuw.');
@@ -43,7 +49,9 @@ class AVBK_Disputes {
 
         $recipient = self::recipient($dispute);
         $email = $recipient ? (string) ($recipient->email ?? '') : '';
-        if (!is_email($email)) return new WP_Error('missing_email', 'Er is geen geldig e-mailadres voor de ontvanger. Het antwoord is niet verstuurd.');
+        if (!is_email($email)) {
+            return new WP_Error('missing_email', 'Er is geen geldig e-mailadres voor de ontvanger. Het antwoord is niet verstuurd.');
+        }
 
         // Reserve and retain the answer BEFORE sending. The unique request key
         // prevents a double click or replay from sending the same form twice.
@@ -54,7 +62,9 @@ class AVBK_Disputes {
         }
 
         $from = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
-        if (!is_email($from)) $from = 'penningmeester@avphilipsvanhorne.nl';
+        if (!is_email($from)) {
+            $from = 'penningmeester@avphilipsvanhorne.nl';
+        }
         $signature = sanitize_text_field(get_option('avbk_penningmeester_name', 'de penningmeester'));
         $body = $message . "\n\nGroet,\n" . $signature . "\n\n---\nJe oorspronkelijke bericht:\n" . $dispute->message;
         $force_from = static fn($current) => $from;

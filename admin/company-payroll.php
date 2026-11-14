@@ -8,7 +8,9 @@ defined('ABSPATH') || exit;
  */
 function avbk_render_company_payroll(array $view): void {
     ['company' => $company, 'company_id' => $company_id, 'form_start' => $form_start, 'year' => $year] = $view;
-if (!AVBK_Company_Payroll::enabled($company_id)) return;
+if (!AVBK_Company_Payroll::enabled($company_id)) {
+    return;
+}
 $payroll_documents = AVBK_Company_Payroll::documents($company_id, $year);
 ?>
 <section id="avbk-company-payroll" class="avbk-company-card">

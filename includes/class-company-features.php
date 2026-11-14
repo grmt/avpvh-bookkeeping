@@ -18,8 +18,12 @@ class AVBK_Company_Features {
 
     public static function save(int $company_id, array $features): void {
         AVBK_Companies::company($company_id, 'access');
-        if (count($features) !== 4 || array_diff(array_keys($features), ['creditcard', 'payroll', 'loans', 'ledger']) || count(array_filter($features, 'is_bool')) !== 4) throw new \RuntimeException('Ongeldige bedrijfsinstellingen.');
+        if (count($features) !== 4 || array_diff(array_keys($features), ['creditcard', 'payroll', 'loans', 'ledger']) || count(array_filter($features, 'is_bool')) !== 4) {
+            throw new \RuntimeException('Ongeldige bedrijfsinstellingen.');
+        }
         $key = 'avbk_company_features_' . $company_id;
-        if (!update_option($key, $features, false) && get_option($key) !== $features) throw new \RuntimeException('De bedrijfsinstellingen konden niet worden opgeslagen.');
+        if (!update_option($key, $features, false) && get_option($key) !== $features) {
+            throw new \RuntimeException('De bedrijfsinstellingen konden niet worden opgeslagen.');
+        }
     }
 }

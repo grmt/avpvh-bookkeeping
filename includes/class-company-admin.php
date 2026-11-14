@@ -12,11 +12,15 @@ class AVBK_Company_Admin implements AVBK_Component {
         add_shortcode('avbk_company_payroll', [$this, 'payroll_shortcode']);
         add_shortcode('avbk_company_ledger', [$this, 'ledger_shortcode']);
         add_action('admin_enqueue_scripts', function ($hook) {
-            if (str_contains($hook, 'avbk-companies')) $this->assets();
+            if (str_contains($hook, 'avbk-companies')) {
+                $this->assets();
+            }
         });
         add_action('wp_enqueue_scripts', function () {
             global $post;
-            if ($post && (has_shortcode($post->post_content, 'avbk_company_bookkeeping') || has_shortcode($post->post_content, 'avbk_company_payroll') || has_shortcode($post->post_content, 'avbk_company_ledger'))) $this->assets();
+            if ($post && (has_shortcode($post->post_content, 'avbk_company_bookkeeping') || has_shortcode($post->post_content, 'avbk_company_payroll') || has_shortcode($post->post_content, 'avbk_company_ledger'))) {
+                $this->assets();
+            }
         });
     }
 
@@ -27,23 +31,33 @@ class AVBK_Company_Admin implements AVBK_Component {
     }
 
     public function menus(): void {
-        if (!current_user_can('manage_options') && !AVBK_Companies::accessible()) return;
+        if (!current_user_can('manage_options') && !AVBK_Companies::accessible()) {
+            return;
+        }
         add_menu_page('Bedrijfsboekhouding', 'Bedrijfsboekhouding', 'read', 'avbk-companies', [$this, 'render'], 'dashicons-building', 32);
         add_submenu_page('avbk-companies', 'Salaris', 'Salaris', 'read', 'avbk-companies-payroll', [$this, 'render_payroll']);
         add_submenu_page('avbk-companies', 'Grootboek', 'Grootboek', 'read', 'avbk-companies-ledger', [$this, 'render_ledger']);
     }
 
     public function payroll_shortcode(): string {
-        if (!is_user_logged_in()) return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor de salarisadministratie</a>.</p>';
+        if (!is_user_logged_in()) {
+            return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor de salarisadministratie</a>.</p>';
+        }
         ob_start(); $this->render_payroll(); return ob_get_clean();
     }
 
     public function render_payroll(): void {
-        if (!is_user_logged_in()) return;
+        if (!is_user_logged_in()) {
+            return;
+        }
         $companies = array_values(array_filter(AVBK_Companies::accessible(), fn($item) => AVBK_Company_Payroll::enabled((int) $item->id)));
         $company_id = (int) ($_GET['company_id'] ?? ($companies[0]->id ?? 0));
         $company = null;
-        foreach ($companies as $item) if ((int) $item->id === $company_id) $company = $item;
+        foreach ($companies as $item) {
+            if ((int) $item->id === $company_id) {
+                $company = $item;
+            }
+        }
         if (!$company) { echo '<p>Geen salarisadministratie beschikbaar voor deze administratie.</p>'; return; }
         $year = (int) ($_GET['book_year'] ?? wp_date('Y')); $quarter = 1;
         try { AVBK_Companies::period($year, 1); }
@@ -57,16 +71,24 @@ class AVBK_Company_Admin implements AVBK_Component {
     }
 
     public function ledger_shortcode(): string {
-        if (!is_user_logged_in()) return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor het grootboek</a>.</p>';
+        if (!is_user_logged_in()) {
+            return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor het grootboek</a>.</p>';
+        }
         ob_start(); $this->render_ledger(); return ob_get_clean();
     }
 
     public function render_ledger(): void {
-        if (!is_user_logged_in()) return;
+        if (!is_user_logged_in()) {
+            return;
+        }
         $companies = array_values(array_filter(AVBK_Companies::accessible(), fn($item) => AVBK_Company_Features::enabled((int) $item->id, 'ledger')));
         $company_id = (int) ($_GET['company_id'] ?? ($companies[0]->id ?? 0));
         $company = null;
-        foreach ($companies as $item) if ((int) $item->id === $company_id) $company = $item;
+        foreach ($companies as $item) {
+            if ((int) $item->id === $company_id) {
+                $company = $item;
+            }
+        }
         if (!$company) { echo '<p>Geen grootboek beschikbaar voor deze administratie.</p>'; return; }
         $return_to = is_admin() ? admin_url('admin.php?page=avbk-companies-ledger') : get_permalink();
         $form_start = $this->form_renderer($company_id, (int) wp_date('Y'), 1, $return_to);
@@ -79,16 +101,24 @@ class AVBK_Company_Admin implements AVBK_Component {
     }
 
     public function shortcode(): string {
-        if (!is_user_logged_in()) return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor de bedrijfsboekhouding</a>.</p>';
+        if (!is_user_logged_in()) {
+            return '<p><a href="' . esc_url(wp_login_url(get_permalink())) . '">Log in voor de bedrijfsboekhouding</a>.</p>';
+        }
         ob_start(); $this->render(); return ob_get_clean();
     }
 
     public function render(): void {
-        if (!is_user_logged_in()) return;
+        if (!is_user_logged_in()) {
+            return;
+        }
         $companies = AVBK_Companies::accessible();
         $company_id = isset($_GET['company_id']) ? (int) $_GET['company_id'] : (int) ($companies[0]->id ?? 0);
         $company = null;
-        foreach ($companies as $candidate) if ((int) $candidate->id === $company_id) $company = $candidate;
+        foreach ($companies as $candidate) {
+            if ((int) $candidate->id === $company_id) {
+                $company = $candidate;
+            }
+        }
         if ($company_id && !$company) { echo '<p>Geen toegang tot deze administratie.</p>'; return; }
         $year = (int) ($_GET['book_year'] ?? wp_date('Y'));
         $quarter = (int) ($_GET['quarter'] ?? max(1, (int) ceil((int) wp_date('n') / 3) - 1));
@@ -110,7 +140,7 @@ class AVBK_Company_Admin implements AVBK_Component {
     private function form_renderer(int $company_id, int $year, int $quarter, string $return_to): \Closure {
         return function (string $operation, bool $upload = false, string $class = '') use ($company_id, $year, $quarter, $return_to) {
             ?>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="<?php echo esc_attr($class); ?>" <?php if ($upload) echo 'enctype="multipart/form-data"'; ?>>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="<?php echo esc_attr($class); ?>" <?php if ($upload) { echo 'enctype="multipart/form-data"';} ?>>
                 <?php wp_nonce_field('avbk_company'); ?>
                 <input type="hidden" name="action" value="avbk_company">
                 <input type="hidden" name="operation" value="<?php echo esc_attr($operation); ?>">
@@ -143,26 +173,37 @@ class AVBK_Company_Admin implements AVBK_Component {
     /** Normalize PHP's single or multiple upload shape before reading any files. */
     public static function statement_uploads(array $input): array {
         $files = [];
-        if (!isset($input['name'])) throw new \RuntimeException('Kies één of meer creditcardbestanden.');
-        if (!is_array($input['name'])) $files[] = $input;
-        else {
+        if (!isset($input['name'])) {
+            throw new \RuntimeException('Kies één of meer creditcardbestanden.');
+        }
+        if (!is_array($input['name'])) {
+            $files[] = $input;
+        } else {
             foreach (array_keys($input['name']) as $index) {
                 $file = [];
                 foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
-                    if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) throw new \RuntimeException('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
+                    if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) {
+                        throw new \RuntimeException('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
+                    }
                     $file[$key] = $input[$key][$index];
                 }
                 $files[] = $file;
             }
         }
-        if (!$files || count($files) > 20) throw new \RuntimeException('Kies maximaal 20 bestanden per upload.');
+        if (!$files || count($files) > 20) {
+            throw new \RuntimeException('Kies maximaal 20 bestanden per upload.');
+        }
         $total = 0;
         foreach ($files as $file) {
             if (!is_string($file['name'] ?? null) || !is_string($file['tmp_name'] ?? null) || !is_int($file['size'] ?? null)
-                || $file['size'] < 0 || !is_int($file['error'] ?? null)) throw new \RuntimeException('Ongeldige bestandsupload.');
+                || $file['size'] < 0 || !is_int($file['error'] ?? null)) {
+                throw new \RuntimeException('Ongeldige bestandsupload.');
+            }
             $total += $file['size'];
         }
-        if ($total > 20 * 1024 * 1024) throw new \RuntimeException('Kies samen maximaal 20 MB per upload.');
+        if ($total > 20 * 1024 * 1024) {
+            throw new \RuntimeException('Kies samen maximaal 20 MB per upload.');
+        }
         return $files;
     }
 
@@ -171,7 +212,9 @@ class AVBK_Company_Admin implements AVBK_Component {
             throw new \RuntimeException('Kies een bestand van maximaal 20 MB.');
         }
         $name = sanitize_file_name(wp_unslash($file['name']));
-        if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), $extensions, true)) throw new \RuntimeException('Ongeldig bestandstype.');
+        if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), $extensions, true)) {
+            throw new \RuntimeException('Ongeldig bestandstype.');
+        }
         return [avbk_uploaded_file_path($file['tmp_name']), $name];
     }
 
@@ -180,7 +223,9 @@ class AVBK_Company_Admin implements AVBK_Component {
         try {
             $doc = AVBK_Company_Documents::document((int) ($_GET['company_id'] ?? 0), (int) ($_GET['document_id'] ?? 0));
             $bytes = $doc->document_data ? base64_decode($doc->document_data, true) : false;
-            if ($bytes === false) throw new \RuntimeException('Deze factuur is een verwijzing zonder geüpload bestand.');
+            if ($bytes === false) {
+                throw new \RuntimeException('Deze factuur is een verwijzing zonder geüpload bestand.');
+            }
         } catch (\RuntimeException $e) { wp_die(esc_html($e->getMessage()), '', ['response' => 403]); }
         nocache_headers();
         header('Content-Type: ' . $doc->mime_type);
@@ -196,11 +241,17 @@ class AVBK_Company_Admin implements AVBK_Component {
             $company_id = (int) ($_GET['company_id'] ?? 0); $year = (int) ($_GET['book_year'] ?? 0); $quarter = (int) ($_GET['quarter'] ?? 0);
             AVBK_Companies::company($company_id, 'export');
             $report = AVBK_Company_Report::get($company_id, $year, $quarter);
-            if (!$report || empty($report['workbook_data'])) throw new \RuntimeException('Werk de BTW-werkmap opnieuw bij om een download te maken.');
+            if (!$report || empty($report['workbook_data'])) {
+                throw new \RuntimeException('Werk de BTW-werkmap opnieuw bij om een download te maken.');
+            }
             if ($report['transactions_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Companies::transactions($company_id, $year, $quarter))
-                || $report['cards_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Company_Cards::transactions($company_id, $year, $quarter))) throw new \RuntimeException('De bank- of creditcardgegevens zijn gewijzigd. Werk de werkmap eerst opnieuw bij.');
+                || $report['cards_hash'] !== AVBK_Company_Report::fingerprint(AVBK_Company_Cards::transactions($company_id, $year, $quarter))) {
+                throw new \RuntimeException('De bank- of creditcardgegevens zijn gewijzigd. Werk de werkmap eerst opnieuw bij.');
+            }
             $bytes = base64_decode($report['workbook_data'], true);
-            if ($bytes === false || strlen($bytes) > 3 * 1024 * 1024 || hash('sha256', $bytes) !== $report['workbook_hash']) throw new \RuntimeException('De opgeslagen werkmap kon niet worden gecontroleerd.');
+            if ($bytes === false || strlen($bytes) > 3 * 1024 * 1024 || hash('sha256', $bytes) !== $report['workbook_hash']) {
+                throw new \RuntimeException('De opgeslagen werkmap kon niet worden gecontroleerd.');
+            }
         } catch (\RuntimeException $e) { wp_die(esc_html($e->getMessage()), '', ['response' => 403]); }
         nocache_headers();
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -212,7 +263,9 @@ class AVBK_Company_Admin implements AVBK_Component {
 
     public function handle(): void {
         check_admin_referer('avbk_company');
-        if (!is_user_logged_in()) wp_die('Geen toegang.', 403);
+        if (!is_user_logged_in()) {
+            wp_die('Geen toegang.', 403);
+        }
         $company_id = (int) ($_POST['company_id'] ?? 0);
         $year = (int) ($_POST['book_year'] ?? 0); $quarter = (int) ($_POST['quarter'] ?? 0);
         $operation = sanitize_key(wp_unslash($_POST['operation'] ?? ''));
@@ -224,13 +277,17 @@ class AVBK_Company_Admin implements AVBK_Component {
             } elseif ($operation === 'access') {
                 AVBK_Companies::company($company_id, 'access');
                 $user = get_user_by('email', sanitize_email(wp_unslash($_POST['email'] ?? '')));
-                if (!$user) throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
+                if (!$user) {
+                    throw new \RuntimeException('Geen WordPress-account met dit e-mailadres. Laat de sitebeheerder eerst een account aanmaken.');
+                }
                 AVBK_Companies::set_access($company_id, (int) $user->ID, sanitize_key(wp_unslash($_POST['role'] ?? '')));
                 $message = 'Bedrijfstoegang bijgewerkt.';
             } elseif ($operation === 'payroll_automation') {
                 AVBK_Companies::company($company_id, 'access');
                 $settings = AVBK_Company_Payroll_Automation::settings($company_id);
-                if (!$settings) throw new \RuntimeException('De maandelijkse verwerking is nog niet ingesteld.');
+                if (!$settings) {
+                    throw new \RuntimeException('De maandelijkse verwerking is nog niet ingesteld.');
+                }
                 $settings['enabled'] = ($_POST['automation_enabled'] ?? '') === '1';
                 update_option('avbk_payroll_automation_' . $company_id, $settings, false);
                 $message = $settings['enabled'] ? 'Maandelijkse salarisverwerking geactiveerd.' : 'Maandelijkse salarisverwerking gepauzeerd.';
@@ -242,14 +299,22 @@ class AVBK_Company_Admin implements AVBK_Component {
                 $message = 'Instelling loonadministratie opgeslagen.';
             } elseif ($operation === 'payroll_upload') {
                 AVBK_Companies::company($company_id, 'import');
-                if (!AVBK_Company_Payroll::enabled($company_id)) throw new \RuntimeException('Loonadministratie is niet ingeschakeld voor dit bedrijf.');
+                if (!AVBK_Company_Payroll::enabled($company_id)) {
+                    throw new \RuntimeException('Loonadministratie is niet ingeschakeld voor dit bedrijf.');
+                }
                 $kind = sanitize_key(wp_unslash($_POST['payroll_kind'] ?? ''));
-                if (!isset(AVBK_Company_Payroll::KINDS[$kind])) throw new \RuntimeException('Kies een geldige documentsoort.');
+                if (!isset(AVBK_Company_Payroll::KINDS[$kind])) {
+                    throw new \RuntimeException('Kies een geldige documentsoort.');
+                }
                 $period = sanitize_text_field(wp_unslash($_POST['payroll_period'] ?? ''));
                 AVBK_Company_Payroll::period($period);
-                if (substr($period, 0, 4) !== (string) $year) throw new \RuntimeException('Kies een maand uit het geselecteerde boekjaar.');
+                if (substr($period, 0, 4) !== (string) $year) {
+                    throw new \RuntimeException('Kies een maand uit het geselecteerde boekjaar.');
+                }
                 $reference = sanitize_text_field(wp_unslash($_POST['payroll_reference'] ?? ''));
-                if (mb_strlen($reference) > 1500) throw new \RuntimeException('Gebruik maximaal 1500 tekens voor de toelichting.');
+                if (mb_strlen($reference) > 1500) {
+                    throw new \RuntimeException('Gebruik maximaal 1500 tekens voor de toelichting.');
+                }
                 $files = self::statement_uploads($_FILES['payroll_documents'] ?? []);
                 $messages = []; $processed = 0; $failed = 0;
                 foreach ($files as $file) {
@@ -271,7 +336,9 @@ class AVBK_Company_Admin implements AVBK_Component {
                 $message = 'Creditcardaccount gekoppeld aan deze administratie.';
             } elseif ($operation === 'card_import') {
                 AVBK_Companies::company($company_id, 'import');
-                if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
+                if (!AVBK_Company_Features::enabled($company_id, 'creditcard')) {
+                    throw new \RuntimeException('Creditcard is uitgeschakeld voor deze administratie.');
+                }
                 $files = self::statement_uploads($_FILES['card_statement'] ?? []);
                 $messages = []; $processed = 0; $failed = 0;
                 foreach ($files as $file) {
@@ -335,7 +402,9 @@ class AVBK_Company_Admin implements AVBK_Component {
                 foreach ($account_ids as $i => $account_id) {
                     $debit = sanitize_text_field(wp_unslash($debits[$i] ?? ''));
                     $credit = sanitize_text_field(wp_unslash($credits[$i] ?? ''));
-                    if ((string) $account_id === '' && $debit === '' && $credit === '') continue;
+                    if ((string) $account_id === '' && $debit === '' && $credit === '') {
+                        continue;
+                    }
                     $lines[] = ['account_id' => (int) $account_id, 'debit' => $debit, 'credit' => $credit, 'note' => sanitize_text_field(wp_unslash($notes[$i] ?? ''))];
                 }
                 AVBK_Company_Ledger::add_entry($company_id,
@@ -352,7 +421,9 @@ class AVBK_Company_Admin implements AVBK_Component {
                 [$path, $filename] = $this->uploaded('bank_export', ['csv', 'xlsx']);
                 $result = AVBK_Companies::import($company_id, $path, $filename, $year, $quarter);
                 $message = sprintf('%d transacties toegevoegd; %d al aanwezig. ', $result['added'], $result['duplicates']);
-                if ($result['outside_period']) $message .= sprintf('%d transacties buiten het gekozen kwartaal overgeslagen. ', $result['outside_period']);
+                if ($result['outside_period']) {
+                    $message .= sprintf('%d transacties buiten het gekozen kwartaal overgeslagen. ', $result['outside_period']);
+                }
                 $message .= 'Werk nu het kwartaalwerkblad bij en controleer de BTW per factuur.';
             } elseif ($operation === 'review') {
                 $report = AVBK_Company_Review::save($company_id, $year, $quarter,
@@ -372,7 +443,9 @@ class AVBK_Company_Admin implements AVBK_Component {
                 $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
                 [$path] = $this->uploaded('workbook', ['xlsx']);
                 $output = wp_tempnam('avbk-company-workbook.xlsx');
-                if (!$output) throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
+                if (!$output) {
+                    throw new \RuntimeException('Kan geen tijdelijke werkmap maken.');
+                }
                 $transactions = AVBK_Companies::transactions($company_id, $year, $quarter);
                 $cards = AVBK_Company_Cards::transactions($company_id, $year, $quarter);
                 AVBK_Company_Workbook::update($path, $output, $company, $transactions, $year, $quarter, $cards, $previous['reviews'] ?? []);
@@ -386,18 +459,28 @@ class AVBK_Company_Admin implements AVBK_Component {
                 header('X-Content-Type-Options: nosniff');
                 readfile($output); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile -- stream a private generated download
                 wp_delete_file($output); exit;
-            } else throw new \RuntimeException('Onbekende actie.');
+            } else {
+                throw new \RuntimeException('Onbekende actie.');
+            }
             set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => $notice_error, 'message' => $message], 120);
         } catch (\Throwable $e) {
-            if ($output) wp_delete_file($output);
+            if ($output) {
+                wp_delete_file($output);
+            }
             $message = $e instanceof \RuntimeException ? $e->getMessage() : 'De bewerking is mislukt. Controleer het bestand en probeer opnieuw.';
-            if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') avbk_send_json_error(['message' => $message], 400);
-            if ($operation === 'review' && ($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') avbk_send_json_error(['message' => $message], 400);
+            if ($operation === 'export' && ($_SERVER['HTTP_X_AVBK_DOWNLOAD'] ?? '') === '1') {
+                avbk_send_json_error(['message' => $message], 400);
+            }
+            if ($operation === 'review' && ($_SERVER['HTTP_X_AVBK_REVIEW'] ?? '') === '1') {
+                avbk_send_json_error(['message' => $message], 400);
+            }
             set_transient('avbk_company_notice_' . get_current_user_id(), ['error' => true, 'message' => $message], 120);
         }
         $return_to = wp_validate_redirect(esc_url_raw(wp_unslash($_POST['return_to'] ?? '')), admin_url('admin.php?page=avbk-companies'));
         $args = ['company_id' => $company_id];
-        if ($year >= 2000 && $year <= 2100 && $quarter >= 1 && $quarter <= 4) $args += ['book_year' => $year, 'quarter' => $quarter];
+        if ($year >= 2000 && $year <= 2100 && $quarter >= 1 && $quarter <= 4) {
+            $args += ['book_year' => $year, 'quarter' => $quarter];
+        }
         $anchor = in_array($operation, ['review', 'invoice_link'], true) ? '#avbk-company-result' : (str_starts_with($operation, 'payroll_') ? '#avbk-company-payroll' : '');
         wp_safe_redirect(add_query_arg($args, $return_to) . $anchor); exit;
     }

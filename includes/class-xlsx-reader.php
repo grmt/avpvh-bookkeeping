@@ -25,11 +25,17 @@ class AVBK_Xlsx_Reader {
         $zip = new AVBK_Xlsx_Archive($path);
         try { $xml = $zip->getFromName('xl/workbook.xml'); }
         finally { $zip->close(); }
-        if ($xml === false) throw new \RuntimeException('De werkmapstructuur ontbreekt.');
+        if ($xml === false) {
+            throw new \RuntimeException('De werkmapstructuur ontbreekt.');
+        }
         $workbook = simplexml_load_string($xml);
-        if ($workbook === false) throw new \RuntimeException('Ongeldige werkmapstructuur.');
+        if ($workbook === false) {
+            throw new \RuntimeException('Ongeldige werkmapstructuur.');
+        }
         $names = [];
-        foreach ($workbook->sheets->sheet as $sheet) $names[] = (string) $sheet['name'];
+        foreach ($workbook->sheets->sheet as $sheet) {
+            $names[] = (string) $sheet['name'];
+        }
         return $names;
     }
 

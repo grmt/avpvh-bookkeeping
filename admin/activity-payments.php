@@ -11,7 +11,9 @@ $activities = AVPVH_DB::get_activities();
 $current_user_id = get_current_user_id();
 ['activity_id' => $activity_id, 'activity' => $activity, 'filter_year' => $filter_year, 'filter_type' => $filter_type, 'filtered_activities' => $filtered_activities]
     = avbk_activity_payments_selection($activities, $current_user_id);
-if ($activity) update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
+if ($activity) {
+    update_user_meta($current_user_id, 'avbk_last_activity_payments_id', $activity_id);
+}
 $is_camp = $activity && ($activity->type_name ?? '') === 'Kamp';
 $config = $activity_id ? AVBK_Sheet_Import::get_config($activity_id) : AVBK_Sheet_Import::DEFAULT_CONFIG;
 $import_result = get_transient(AVBK_Sheet_Import::result_transient_key($activity_id));

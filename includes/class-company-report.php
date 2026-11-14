@@ -36,10 +36,18 @@ class AVBK_Company_Report {
             'confirmed_vat_cents' => 0, 'confirmed_net_cents' => 0, 'pending_rows' => 0, 'unknown_rows' => 0];
         $rows = []; $date = null; $direction = ''; $bank_rows = 0; $bank_keys = []; $card_keys = [];
         $reviewable = []; $blocked = []; $seen = []; $active_bank = '';
-        foreach ($transactions as $tx) $reviewable['bank:' . self::bank_key($tx->transaction_date, $tx->amount, $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)] = $tx;
-        foreach ($card_transactions as $tx) if ($tx->entry_type !== 'settlement') $reviewable['card:' . $tx->dedupe_hash] = $tx;
+        foreach ($transactions as $tx) {
+            $reviewable['bank:' . self::bank_key($tx->transaction_date, $tx->amount, $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)] = $tx;
+        }
+        foreach ($card_transactions as $tx) {
+            if ($tx->entry_type !== 'settlement') {
+                $reviewable['card:' . $tx->dedupe_hash] = $tx;
+            }
+        }
         foreach ($values as $number => $v) {
-            if ($number === 1 || !array_filter($v, fn($value) => (string) $value !== '')) continue;
+            if ($number === 1 || !array_filter($v, fn($value) => (string) $value !== '')) {
+                continue;
+            }
             $raw_date = (string) ($v[0] ?? '');
             $card = preg_match('/\bCC:(\d{4}-\d{2}-\d{2}):([a-f0-9]{64})\b/', (string) ($v[15] ?? ''), $card_match);
             $bank = $raw_date !== '' && !$card;
@@ -48,7 +56,9 @@ class AVBK_Company_Report {
                 $active_bank = '';
                 $date = AVBK_Bank_Import_Layout::parse_date($card_match[1], 'Y-m-d');
                 if ($raw_date !== '' || !$date || $date < $start || $date >= $end || empty($company->card_account)
-                    || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) throw new \RuntimeException('Het resultaat bevat creditcardregels van een andere administratie of periode.');
+                    || AVBK_Company_Cards::account($v[2] ?? '') !== $company->card_account) {
+                    throw new \RuntimeException('Het resultaat bevat creditcardregels van een andere administratie of periode.');
+                }
                 $direction = in_array(mb_strtolower($v[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
                 $card_keys[$card_match[2]] = true;
                 $review_key = 'card:' . $card_match[2];
@@ -74,25 +84,39 @@ class AVBK_Company_Report {
             $settlement = $bank && AVBK_Vat_Patterns::is_settlement($v[1] ?? '', $v[13] ?? '');
             $pending = str_starts_with((string) ($v[15] ?? ''), 'BTW-');
             $financial = $bank || $gross !== null || $vat !== null || $net !== null;
-            if (!$bank && !$card && $active_bank !== '') $blocked[$active_bank] = true;
+            if (!$bank && !$card && $active_bank !== '') {
+                $blocked[$active_bank] = true;
+            }
             if ($review_key !== '') {
                 $seen[$review_key] = ($seen[$review_key] ?? 0) + 1;
                 $tx = $reviewable[$review_key] ?? null;
                 if (!$tx || (int) $tx->company_id !== (int) $company->id || $tx->direction !== $direction
-                    || ($direction === 'out' ? 1 : -1) * self::cents($tx->amount) !== $gross || $tx->transaction_date !== $date || $settlement) $blocked[$review_key] = true;
+                    || ($direction === 'out' ? 1 : -1) * self::cents($tx->amount) !== $gross || $tx->transaction_date !== $date || $settlement) {
+                    $blocked[$review_key] = true;
+                }
             }
             $unknown = $financial && !$settlement && ($vat === null || $net === null);
-            if (!$card) $totals['gross_cents'] += $gross ?? 0;
-            if (!$settlement) $totals['purchase_gross_cents'] += $gross ?? 0;
-            if ($card) $totals['card_gross_cents'] += $gross ?? 0;
+            if (!$card) {
+                $totals['gross_cents'] += $gross ?? 0;
+            }
+            if (!$settlement) {
+                $totals['purchase_gross_cents'] += $gross ?? 0;
+            }
+            if ($card) {
+                $totals['card_gross_cents'] += $gross ?? 0;
+            }
             $totals['known_vat_cents'] += $vat ?? 0;
             $totals['known_net_cents'] += $net ?? 0;
             if (!$pending) {
                 $totals['confirmed_vat_cents'] += $vat ?? 0;
                 $totals['confirmed_net_cents'] += $net ?? 0;
             }
-            if ($pending && !$settlement) $totals['pending_rows']++;
-            if ($unknown) $totals['unknown_rows']++;
+            if ($pending && !$settlement) {
+                $totals['pending_rows']++;
+            }
+            if ($unknown) {
+                $totals['unknown_rows']++;
+            }
             $rows[] = ['number' => (int) $number, 'date' => $date, 'detail' => !$bank,
                 'name' => (string) ($v[1] ?? ''), 'direction' => $direction, 'gross_cents' => $gross,
                 'code' => trim((string) ($v[8] ?? '')), 'vat_cents' => $vat, 'net_cents' => $net,
@@ -102,9 +126,16 @@ class AVBK_Company_Report {
                 'transaction_key' => $review_key, 'review_key' => $review_key,
                 'tx_id' => $bank && isset($tx) && $tx ? (int) $tx->id : null];
         }
-        foreach ($rows as &$row) if (isset($blocked[$row['review_key']]) || ($seen[$row['review_key']] ?? 0) !== 1) { $row['review_key'] = ''; $row['tx_id'] = null; }
+        foreach ($rows as &$row) {
+            if (isset($blocked[$row['review_key']]) || ($seen[$row['review_key']] ?? 0) !== 1) {
+                $row['review_key'] = '';
+                $row['tx_id'] = null;
+            }
+        }
         unset($row);
-        if (!$bank_rows) throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
+        if (!$bank_rows) {
+            throw new \RuntimeException('Het resultaat bevat geen bankregels uit het gekozen kwartaal.');
+        }
         foreach ($transactions as $tx) {
             if ((int) $tx->company_id !== (int) $company->id || !isset($bank_keys[self::bank_key($tx->transaction_date, $tx->amount,
                 $tx->direction, $tx->counterparty_iban, $tx->counterparty_name, $tx->description)])) {
@@ -129,14 +160,20 @@ class AVBK_Company_Report {
         AVBK_Companies::company($company_id, 'export');
         $key = self::key($company_id, (int) $report['year'], (int) $report['quarter']);
         if ($expect_absent) {
-            if (!add_option($key, $report, '', false)) throw new \RuntimeException('Er is intussen een nieuw resultaat opgeslagen. Ververs de pagina en probeer opnieuw.');
+            if (!add_option($key, $report, '', false)) {
+                throw new \RuntimeException('Er is intussen een nieuw resultaat opgeslagen. Ververs de pagina en probeer opnieuw.');
+            }
             return;
         }
         if ($expected !== null) {
             global $wpdb;
-            if ($report === $expected) return;
+            if ($report === $expected) {
+                return;
+            }
             $changed = $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s", maybe_serialize($report), $key, maybe_serialize($expected)));
-            if ($changed !== 1) throw new \RuntimeException('Het resultaat is intussen gewijzigd. Ververs de pagina en controleer je wijziging opnieuw.');
+            if ($changed !== 1) {
+                throw new \RuntimeException('Het resultaat is intussen gewijzigd. Ververs de pagina en controleer je wijziging opnieuw.');
+            }
             wp_cache_delete($key, 'options');
             return;
         }
@@ -149,7 +186,9 @@ class AVBK_Company_Report {
         AVBK_Companies::company($company_id);
         $report = get_option(self::key($company_id, $year, $quarter));
         if (!is_array($report) || ($report['version'] ?? null) !== 1 || ($report['company_id'] ?? null) !== $company_id
-            || ($report['year'] ?? null) !== $year || ($report['quarter'] ?? null) !== $quarter) return null;
+            || ($report['year'] ?? null) !== $year || ($report['quarter'] ?? null) !== $quarter) {
+            return null;
+        }
         return $report;
     }
 }

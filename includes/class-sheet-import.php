@@ -143,7 +143,9 @@ class AVBK_Sheet_Import {
             $header_cells = $sheet['header_cells'];
             $data_rows = [];
             foreach ($sheet['rows'] as $sheet_row) {
-                if ($last_data_row && (int) ($sheet_row['__row_number'] ?? 0) > $last_data_row) break;
+                if ($last_data_row && (int) ($sheet_row['__row_number'] ?? 0) > $last_data_row) {
+                    break;
+                }
                 $cells = $sheet_row['__raw_cells'] ?? [];
                 if (self::is_total_row($cells)) {
                     break;
@@ -165,7 +167,9 @@ class AVBK_Sheet_Import {
             $data_lines = array_values(array_filter(array_slice($lines, $header_index + 1), fn($line) => trim($line) !== ''));
             $data_rows = [];
             foreach ($data_lines as $line_index => $line) {
-                if ($last_data_row && ($header_row + 1 + $line_index) > $last_data_row) break;
+                if ($last_data_row && ($header_row + 1 + $line_index) > $last_data_row) {
+                    break;
+                }
                 $cells = str_getcsv($line, ',');
                 if (self::is_total_row($cells)) {
                     break;
@@ -428,7 +432,9 @@ class AVBK_Sheet_Import {
             }
         }
         foreach ($lines as $index => $line) {
-            if (!self::is_total_row(str_getcsv($line, ','))) continue;
+            if (!self::is_total_row(str_getcsv($line, ','))) {
+                continue;
+            }
             foreach ([$index - 1, $index, $index + 1] as $context_index) {
                 if (isset($lines[$context_index]) && trim($lines[$context_index]) !== '') {
                     $rows[] = ['row_number' => $context_index + 1, 'cells' => str_getcsv($lines[$context_index], ',')];
@@ -437,7 +443,9 @@ class AVBK_Sheet_Import {
             break;
         }
         $unique = [];
-        foreach ($rows as $row) $unique[(int) $row['row_number']] = $row;
+        foreach ($rows as $row) {
+            $unique[(int) $row['row_number']] = $row;
+        }
         ksort($unique, SORT_NUMERIC);
         return array_values($unique);
     }
@@ -445,7 +453,9 @@ class AVBK_Sheet_Import {
     private static function is_total_row(array $cells): bool {
         foreach ($cells as $value) {
             $text = strtolower(remove_accents(trim((string) $value)));
-            if ($text === 'totaal' || $text === 'total' || str_starts_with($text, 'totaal ') || str_starts_with($text, 'total ')) return true;
+            if ($text === 'totaal' || $text === 'total' || str_starts_with($text, 'totaal ') || str_starts_with($text, 'total ')) {
+                return true;
+            }
         }
         return false;
     }
