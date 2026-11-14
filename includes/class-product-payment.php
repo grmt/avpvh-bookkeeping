@@ -181,6 +181,34 @@ class AVBK_Product_Payment implements AVBK_Component {
         <?php return ob_get_clean();
     }
 
+    /**
+     * The uploaded payment request: its URL, and whether it is an image or a PDF.
+     *
+     * @return array{0: string, 1: bool, 2: bool}
+     */
+    private static function uploaded_request(array $saved): array {
+        if (!$saved['attachment_id']) {
+            return ['', false, false];
+        }
+        $file_url = wp_get_attachment_url($saved['attachment_id']);
+        $mime = get_post_mime_type($saved['attachment_id']);
+        $image = $file_url && in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true);
+        $pdf = $file_url && $mime === 'application/pdf';
+        return [$file_url, $image, $pdf];
+    }
+
+    /** The uploaded QR image, or else a QR code made from the payment link. */
+    private static function render_request_qr($file_url, bool $image, ?string $qr): void {
+?><?php if ($image) : ?>
+                <div class="avbk-book-qr-render" style="max-width:256px"><img src="<?php echo esc_url($file_url); ?>" alt="QR-code voor het betaalverzoek" style="width:256px;max-width:100%;height:auto" loading="lazy"></div>
+                <p>Scan de QR-code om het betaalverzoek te openen.</p>
+            <?php elseif ($qr) : ?>
+                <div class="avbk-book-qr-render" style="max-width:256px"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered QR SVG ?></div>
+                <p>Scan de QR-code om het betaalverzoek te openen.</p>
+            <?php endif; ?>
+<?php
+    }
+
     /** An uploaded image takes precedence; a link can also generate its own QR. */
     public static function render(string $product, ?float $amount = null, int $order_id = 0): string {
         if ($amount === null) {
@@ -192,10 +220,7 @@ class AVBK_Product_Payment implements AVBK_Component {
             }
         }
         $saved = self::get($product);
-        $file_url = $saved['attachment_id'] ? wp_get_attachment_url($saved['attachment_id']) : '';
-        $mime = $saved['attachment_id'] ? get_post_mime_type($saved['attachment_id']) : '';
-        $image = $file_url && in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true);
-        $pdf = $file_url && $mime === 'application/pdf';
+        [$file_url, $image, $pdf] = self::uploaded_request($saved);
         if ($saved['url'] === '' && !$image && !$pdf) {
             return '';
         }
@@ -212,13 +237,7 @@ class AVBK_Product_Payment implements AVBK_Component {
             <?php if ($saved['url'] !== '') : ?>
                 <p><a class="button button-primary" href="<?php echo esc_url($saved['url']); ?>" target="_blank" rel="noopener noreferrer">Open het betaalverzoek</a></p>
             <?php endif; ?>
-            <?php if ($image) : ?>
-                <div class="avbk-book-qr-render" style="max-width:256px"><img src="<?php echo esc_url($file_url); ?>" alt="QR-code voor het betaalverzoek" style="width:256px;max-width:100%;height:auto" loading="lazy"></div>
-                <p>Scan de QR-code om het betaalverzoek te openen.</p>
-            <?php elseif ($qr) : ?>
-                <div class="avbk-book-qr-render" style="max-width:256px"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered QR SVG ?></div>
-                <p>Scan de QR-code om het betaalverzoek te openen.</p>
-            <?php endif; ?>
+            <?php self::render_request_qr($file_url, $image, $qr); ?>
             <?php if ($pdf) : ?><p><a href="<?php echo esc_url($file_url); ?>" target="_blank" rel="noopener noreferrer">Bekijk het betaalverzoek (PDF)</a></p><?php endif; ?>
         </div>
         <?php return ob_get_clean();
