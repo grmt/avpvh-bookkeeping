@@ -81,6 +81,8 @@ function avbk_render_member_balance_detail(object $member, array $settings): voi
                 <a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members')); ?>">&larr; Terug naar ledenoverzicht</a>
                 &nbsp;|&nbsp;
                 <a href="<?php echo esc_url(AVBK_DB::member_edit_url($detail_member_id)); ?>" target="_blank">Bewerk lid (o.a. scholier/student, geboortedatum)</a>
+                &nbsp;|&nbsp;
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-audit-log', 'member_id' => $detail_member_id], admin_url('admin.php'))); ?>">Logboek van dit lid</a>
             </p>
             <?php require_once AVBK_PLUGIN_DIR . 'admin/member-household-credit.php'; avbk_render_member_household_credit($detail_member_id, $household_members); ?>
 

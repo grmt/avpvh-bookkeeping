@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Bookkeeping
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page.
- * Version:     1.34.3
+ * Version:     1.35.0
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -56,6 +56,7 @@ register_activation_hook(__FILE__, function () {
         return;
     }
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-audit.php';
     AVBK_DB::install();
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-generation.php';
     AVBK_Fee_Generation::schedule_cron();
@@ -63,6 +64,7 @@ register_activation_hook(__FILE__, function () {
 
 register_deactivation_hook(__FILE__, function () {
     wp_clear_scheduled_hook('avbk_generate_contribution_fees');
+    wp_clear_scheduled_hook('avbk_audit_prune');
 });
 
 add_action('plugins_loaded', function () {
@@ -97,6 +99,7 @@ add_action('plugins_loaded', function () {
     }
 
     require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-audit.php';
     AVBK_DB::maybe_upgrade();
 
     // Lets avpvh-members' "Activiteit verwijderen" (PR #67) know what in
@@ -144,6 +147,7 @@ add_action('plugins_loaded', function () {
         AVBK_Google_Photos_Picker::class,
         AVBK_Frontend_Admin_Menu::class,
         AVBK_Admin::class,
+        AVBK_Audit::class,
     ];
     foreach ($components as $component) {
         (new $component())->register();

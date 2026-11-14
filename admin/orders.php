@@ -858,6 +858,7 @@ function avbk_render_order_actions($order, $full_name, $email_suggestion, string
                                         style="color: #b32d2e; width: 100%;">
                                     &#128465; Verwijderen
                                 </button>
+                                <a class="button button-small" style="width: 100%; text-align: center;" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-audit-log', 'object_type' => 'order', 'object_id' => (int) $order->id], admin_url('admin.php'))); ?>">Logboek</a>
 <?php
 }
 
