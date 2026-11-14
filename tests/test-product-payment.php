@@ -46,6 +46,8 @@ function add_shortcode(...$args) {}
 function shortcode_atts($default, $attributes) { return array_merge($default, $attributes); }
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_-]/', '', strtolower($key)); }
 function wp_unslash($value) { return $value; }
+function sanitize_text_field($value) { return trim((string) $value); }
+function sanitize_file_name($name) { return preg_replace('/[^A-Za-z0-9._-]/', '', (string) $name); }
 function wp_die($message, $title, $args) { throw new Response($message, $args['response']); }
 function check_admin_referer($action) {
     if (($_POST['_wpnonce'] ?? '') !== hash('sha256', $action)) { throw new Response('invalid nonce', 403); }
