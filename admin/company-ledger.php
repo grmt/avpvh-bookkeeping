@@ -99,7 +99,7 @@ function avbk_render_company_ledger_entry_form($accounts, $company_id, $form_sta
                     <tbody><?php for ($i = 0; $i < 6; $i++) : ?><tr>
                         <td><label class="screen-reader-text" for="avbk-ledger-line-<?php echo (int) $i; ?>-account">Rekening, regel <?php echo (int) $i + 1; ?></label><select name="line_account_id[]" id="avbk-ledger-line-<?php echo (int) $i; ?>-account">
                             <option value="">—</option>
-                            <?php foreach ($accounts as $account) : if (!$account->is_active) continue; ?>
+                            <?php foreach ($accounts as $account) : if (!$account->is_active) { continue;} ?>
                                 <option value="<?php echo esc_attr($account->id); ?>"><?php echo esc_html($account->code . ' ' . $account->name); ?></option>
                             <?php endforeach; ?>
                         </select></td>
@@ -131,7 +131,7 @@ function avbk_render_company_ledger_entries($entries, $company_id, $money, $form
 function avbk_render_company_ledger_entry($entry, $entry_lines, $money, $company_id, $form_start): void {
 ?><div class="avbk-company-scroll"><table class="widefat striped">
                 <caption>
-                    Boeking #<?php echo esc_html($entry->entry_number); ?> · <?php echo esc_html($entry->entry_date); ?> · <?php echo esc_html($entry->description); ?><?php if ($entry->reference !== '') echo ' · ' . esc_html($entry->reference); ?>
+                    Boeking #<?php echo esc_html($entry->entry_number); ?> · <?php echo esc_html($entry->entry_date); ?> · <?php echo esc_html($entry->description); ?><?php if ($entry->reference !== '') { echo ' · ' . esc_html($entry->reference);} ?>
                     <?php if ($entry->voided_at) : ?><span class="avbk-company-overdue"> · teruggedraaid <?php echo esc_html($entry->voided_at); ?>: <?php echo esc_html($entry->void_reason); ?></span><?php endif; ?>
                 </caption>
                 <thead><tr><th scope="col">Rekening</th><th scope="col">Debet</th><th scope="col">Credit</th><th scope="col">Toelichting</th></tr></thead>

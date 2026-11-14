@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 require_once __DIR__ . '/class-xlsx-archive.php';
 
 /**
@@ -25,11 +26,17 @@ class AVBK_Xlsx_Reader {
         $zip = new AVBK_Xlsx_Archive($path);
         try { $xml = $zip->getFromName('xl/workbook.xml'); }
         finally { $zip->close(); }
-        if ($xml === false) throw new \RuntimeException('De werkmapstructuur ontbreekt.');
+        if ($xml === false) {
+            throw new AVBK_Import_Exception('De werkmapstructuur ontbreekt.');
+        }
         $workbook = simplexml_load_string($xml);
-        if ($workbook === false) throw new \RuntimeException('Ongeldige werkmapstructuur.');
+        if ($workbook === false) {
+            throw new AVBK_Import_Exception('Ongeldige werkmapstructuur.');
+        }
         $names = [];
-        foreach ($workbook->sheets->sheet as $sheet) $names[] = (string) $sheet['name'];
+        foreach ($workbook->sheets->sheet as $sheet) {
+            $names[] = (string) $sheet['name'];
+        }
         return $names;
     }
 
@@ -49,11 +56,11 @@ class AVBK_Xlsx_Reader {
             $zip->close();
         }
         if ($sheet_xml === false || $sheet_xml === null) {
-            throw new \RuntimeException('Het werkbladbestand ontbreekt in het xlsx-bestand.');
+            throw new AVBK_Import_Exception('Het werkbladbestand ontbreekt in het xlsx-bestand.');
         }
         $sheet = simplexml_load_string($sheet_xml);
         if ($sheet === false) {
-            throw new \RuntimeException('Kan het werkblad niet lezen (ongeldige XML).');
+            throw new AVBK_Import_Exception('Kan het werkblad niet lezen (ongeldige XML).');
         }
         $rows = [];
         foreach ($sheet->sheetData->row as $row) {
@@ -86,12 +93,12 @@ class AVBK_Xlsx_Reader {
         $zip->close();
 
         if ($sheet_xml === false || $sheet_xml === null) {
-            throw new \RuntimeException('Geen werkblad gevonden in het xlsx-bestand.');
+            throw new AVBK_Import_Exception('Geen werkblad gevonden in het xlsx-bestand.');
         }
 
         $sheet = simplexml_load_string($sheet_xml);
         if ($sheet === false) {
-            throw new \RuntimeException('Kan het werkblad niet lezen (ongeldige XML).');
+            throw new AVBK_Import_Exception('Kan het werkblad niet lezen (ongeldige XML).');
         }
 
         $sheet_rows = [];
@@ -125,7 +132,7 @@ class AVBK_Xlsx_Reader {
             $header_row_number = max(1, $header_row_number);
             $header_index = array_search($header_row_number, array_column($sheet_rows, 'row_number'), true);
             if ($header_index === false) {
-                throw new \RuntimeException("Kopregel {$header_row_number} is niet gevonden in het xlsx-bestand."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
+                throw new AVBK_Import_Exception("Kopregel {$header_row_number} is niet gevonden in het xlsx-bestand."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
             }
             $header_entry = $sheet_rows[$header_index];
             // Title/instruction rows before the configured headings are not
@@ -216,12 +223,12 @@ class AVBK_Xlsx_Reader {
         $workbook_xml = $zip->getFromName('xl/workbook.xml');
         $relationships_xml = $zip->getFromName('xl/_rels/workbook.xml.rels');
         if ($workbook_xml === false || $relationships_xml === false) {
-            throw new \RuntimeException('De werkmapstructuur ontbreekt in het xlsx-bestand.');
+            throw new AVBK_Import_Exception('De werkmapstructuur ontbreekt in het xlsx-bestand.');
         }
         $workbook = simplexml_load_string($workbook_xml);
         $relationships = simplexml_load_string($relationships_xml);
         if ($workbook === false || $relationships === false) {
-            throw new \RuntimeException('Kan de werkmapstructuur niet lezen.');
+            throw new AVBK_Import_Exception('Kan de werkmapstructuur niet lezen.');
         }
 
         $relationship_id = '';
@@ -234,7 +241,7 @@ class AVBK_Xlsx_Reader {
             break;
         }
         if ($relationship_id === '') {
-            throw new \RuntimeException('Werkblad "' . $wanted_name . '" is niet gevonden.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
+            throw new AVBK_Import_Exception('Werkblad "' . $wanted_name . '" is niet gevonden.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
         }
 
         foreach ($relationships->Relationship as $relationship) {
@@ -244,11 +251,11 @@ class AVBK_Xlsx_Reader {
             $target = str_replace('\\', '/', (string) $relationship['Target']);
             $path = str_starts_with($target, '/') ? ltrim($target, '/') : 'xl/' . ltrim($target, '/');
             if (str_contains($path, '..') || !str_starts_with($path, 'xl/worksheets/')) {
-                throw new \RuntimeException('Ongeldig werkbladpad in het xlsx-bestand.');
+                throw new AVBK_Import_Exception('Ongeldig werkbladpad in het xlsx-bestand.');
             }
             return $path;
         }
-        throw new \RuntimeException('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
+        throw new AVBK_Import_Exception('Het bestand van werkblad "' . $wanted_name . '" ontbreekt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
     }
 
     private static function read_shared_strings(AVBK_Xlsx_Archive $zip): array {

@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Company administrations have their own records and company-scoped access. */
 class AVBK_Companies {
@@ -136,7 +137,7 @@ class AVBK_Companies {
         $booking_column = $wpdb->get_row("SHOW COLUMNS FROM {$wpdb->prefix}avb_company_card_transactions LIKE 'booking_date'");
         if (!$booking_column || $booking_column->Null !== 'YES') {
             if ($wpdb->query("ALTER TABLE {$wpdb->prefix}avb_company_card_transactions MODIFY booking_date DATE NULL DEFAULT NULL") === false) {
-                throw new \RuntimeException('De creditcarddatabase kon niet worden bijgewerkt voor ontbrekende boekingsdatums.');
+                throw new AVBK_Company_Exception('De creditcarddatabase kon niet worden bijgewerkt voor ontbrekende boekingsdatums.');
             }
         }
         update_option('avbk_company_schema', '7', false);
@@ -147,7 +148,9 @@ class AVBK_Companies {
     }
 
     public static function valid_iban(string $iban): bool {
-        if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/D', $iban)) return false;
+        if (!preg_match('/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/D', $iban)) {
+            return false;
+        }
         $remainder = 0;
         foreach (str_split(substr($iban, 4) . substr($iban, 0, 4)) as $char) {
             foreach (str_split(ctype_alpha($char) ? (string) (ord($char) - 55) : $char) as $digit) {
@@ -163,8 +166,12 @@ class AVBK_Companies {
 
     public static function can(int $company_id, string $permission): bool {
         global $wpdb;
-        if ($company_id < 1 || get_current_user_id() < 1 || !in_array($permission, ['view', 'import', 'export', 'access'], true)) return false;
-        if (current_user_can('manage_options')) return true;
+        if ($company_id < 1 || get_current_user_id() < 1 || !in_array($permission, ['view', 'import', 'export', 'access'], true)) {
+            return false;
+        }
+        if (current_user_can('manage_options')) {
+            return true;
+        }
         $role = $wpdb->get_var($wpdb->prepare(
             "SELECT role FROM {$wpdb->prefix}avb_company_users WHERE company_id = %d AND user_id = %d",
             $company_id, get_current_user_id()
@@ -174,15 +181,21 @@ class AVBK_Companies {
 
     public static function company(int $id, string $permission = 'view'): object {
         global $wpdb;
-        if (!self::can($id, $permission)) throw new \RuntimeException('Geen toegang tot deze administratie.');
+        if (!self::can($id, $permission)) {
+            throw new AVBK_Company_Exception('Geen toegang tot deze administratie.');
+        }
         $company = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_companies WHERE id = %d", $id));
-        if (!$company) throw new \RuntimeException('Administratie niet gevonden.');
+        if (!$company) {
+            throw new AVBK_Company_Exception('Administratie niet gevonden.');
+        }
         return $company;
     }
 
     public static function accessible(): array {
         global $wpdb;
-        if (get_current_user_id() < 1) return [];
+        if (get_current_user_id() < 1) {
+            return [];
+        }
         if (current_user_can('manage_options')) {
             return $wpdb->get_results("SELECT * FROM {$wpdb->prefix}avb_companies ORDER BY name");
         }
@@ -194,14 +207,16 @@ class AVBK_Companies {
 
     public static function create(string $name, string $iban, string $prefix): int {
         global $wpdb;
-        if (!current_user_can('manage_options')) throw new \RuntimeException('Alleen de sitebeheerder kan administraties toevoegen.');
+        if (!current_user_can('manage_options')) {
+            throw new AVBK_Company_Exception('Alleen de sitebeheerder kan administraties toevoegen.');
+        }
         $iban = self::normalize_iban($iban);
         $name = trim($name); $prefix = trim($prefix);
         if ($name === '' || mb_strlen($name) > 190 || !self::valid_iban($iban) || $prefix === '' || mb_strlen($prefix) > 25 || preg_match('/[\\\\\/?*\[\]:\x00-\x1f]/u', $prefix) || str_contains($prefix, "'")) {
-            throw new \RuntimeException('Vul een bedrijfsnaam, geldig IBAN en werkbladprefix van maximaal 25 tekens in.');
+            throw new AVBK_Company_Exception('Vul een bedrijfsnaam, geldig IBAN en werkbladprefix van maximaal 25 tekens in.');
         }
         if (!$wpdb->insert($wpdb->prefix . 'avb_companies', ['name' => $name, 'iban' => $iban, 'sheet_prefix' => $prefix, 'created_by' => get_current_user_id()])) {
-            throw new \RuntimeException('Administratie niet opgeslagen. IBAN en werkbladprefix moeten uniek zijn.');
+            throw new AVBK_Company_Exception('Administratie niet opgeslagen. IBAN en werkbladprefix moeten uniek zijn.');
         }
         return (int) $wpdb->insert_id;
     }
@@ -210,13 +225,17 @@ class AVBK_Companies {
     public static function set_access(int $company_id, int $user_id, string $role): void {
         global $wpdb;
         self::company($company_id, 'access');
-        if (!get_userdata($user_id) || !isset(self::ROLES[$role]) && $role !== 'remove') throw new \RuntimeException('Ongeldige gebruiker of rol.');
+        if (!get_userdata($user_id) || !isset(self::ROLES[$role]) && $role !== 'remove') {
+            throw new AVBK_Company_Exception('Ongeldige gebruiker of rol.');
+        }
         if ($role === 'remove') {
             $result = $wpdb->delete($wpdb->prefix . 'avb_company_users', ['company_id' => $company_id, 'user_id' => $user_id]);
         } else {
             $result = $wpdb->replace($wpdb->prefix . 'avb_company_users', ['company_id' => $company_id, 'user_id' => $user_id, 'role' => $role]);
         }
-        if ($result === false) throw new \RuntimeException('Toegang niet opgeslagen.');
+        if ($result === false) {
+            throw new AVBK_Company_Exception('Toegang niet opgeslagen.');
+        }
     }
 
     public static function members(int $company_id): array {
@@ -226,7 +245,9 @@ class AVBK_Companies {
     }
 
     public static function period(int $year, int $quarter): array {
-        if ($year < 2000 || $year > 2100 || $quarter < 1 || $quarter > 4) throw new \RuntimeException('Ongeldig boekjaar of kwartaal.');
+        if ($year < 2000 || $year > 2100 || $quarter < 1 || $quarter > 4) {
+            throw new AVBK_Company_Exception('Ongeldig boekjaar of kwartaal.');
+        }
         $start = sprintf('%04d-%02d-01', $year, ($quarter - 1) * 3 + 1);
         return [$start, (new \DateTimeImmutable($start))->modify('+3 months')->format('Y-m-d')];
     }
@@ -253,14 +274,16 @@ class AVBK_Companies {
             $raw_amount = AVBK_Bank_Import_Layout::value($row, $layout, 'amount');
             $direction = mb_strtolower(AVBK_Bank_Import_Layout::value($row, $layout, 'direction'));
             if ($own_iban !== $company->iban || !$date || !preg_match('/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D', $raw_amount) || !in_array($direction, ['bij', 'af', 'credit', 'debit'], true)) {
-                throw new \RuntimeException("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie horen en geldige transactiegegevens bevatten."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
+                throw new AVBK_Company_Exception("Rij {$line}: controleer rekening, datum, bedrag en af/bij. Alle rijen moeten bij deze administratie horen en geldige transactiegegevens bevatten."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
             }
             $tx = AVBK_Matcher::parse_row($row, $layout);
             if (!$tx || $tx['amount'] <= 0 || $tx['amount'] >= 1000000000000) {
-                throw new \RuntimeException("Rij {$line}: ongeldig bedrag."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
+                throw new AVBK_Company_Exception("Rij {$line}: ongeldig bedrag."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with an integer row number; escaped with esc_html() by admin/companies.php when displayed
             }
             // Longer exports are accepted, but even excluded rows must pass validation.
-            if ($date < $start || $date >= $end) continue;
+            if ($date < $start || $date >= $end) {
+                continue;
+            }
             $hash = hash('sha256', wp_json_encode([$date, number_format($tx['amount'], 2, '.', ''), $tx['direction'], $tx['counterparty_iban'], $tx['counterparty_name'], $tx['description']]));
             $raw = array_filter($row, fn($key) => !str_starts_with((string) $key, '__'), ARRAY_FILTER_USE_KEY);
             $result[] = [
@@ -270,8 +293,12 @@ class AVBK_Companies {
                 'raw_data' => wp_json_encode($raw), 'dedupe_hash' => $hash,
             ];
         }
-        if (!$parsed['rows']) throw new \RuntimeException('Geen transacties gevonden. Upload een ING-bankexport met kopregel.');
-        if (!$result) throw new \RuntimeException('Geen transacties gevonden voor het gekozen kwartaal. Controleer de gekozen periode en het bankexportbestand.');
+        if (!$parsed['rows']) {
+            throw new AVBK_Company_Exception('Geen transacties gevonden. Upload een ING-bankexport met kopregel.');
+        }
+        if (!$result) {
+            throw new AVBK_Company_Exception('Geen transacties gevonden voor het gekozen kwartaal. Controleer de gekozen periode en het bankexportbestand.');
+        }
         return $result;
     }
 
@@ -279,21 +306,29 @@ class AVBK_Companies {
         global $wpdb;
         $company = self::company($company_id, 'import');
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-        if (!in_array($ext, ['csv', 'xlsx'], true)) throw new \RuntimeException('Kies een csv- of xlsx-bankexport.');
+        if (!in_array($ext, ['csv', 'xlsx'], true)) {
+            throw new AVBK_Company_Exception('Kies een csv- of xlsx-bankexport.');
+        }
         $parsed = $ext === 'csv' ? AVBK_Csv_Reader::read($path) : AVBK_Xlsx_Reader::read($path);
         $rows = self::prepare_import($company, $parsed, $year, $quarter);
         $added = 0; $duplicates = 0;
-        if ($wpdb->query('START TRANSACTION') === false) throw new \RuntimeException('Kan import niet starten.');
+        if ($wpdb->query('START TRANSACTION') === false) {
+            throw new AVBK_Company_Exception('Kan import niet starten.');
+        }
         try {
             foreach ($rows as $row) {
                 // A unique company/hash index also protects concurrent overlapping uploads.
                 $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_transactions WHERE company_id = %d AND dedupe_hash = %s", $company_id, $row['dedupe_hash']));
                 if ($existing) { $duplicates++; continue; }
                 $ok = $wpdb->insert($wpdb->prefix . 'avb_company_transactions', $row + ['company_id' => $company_id, 'source_filename' => sanitize_file_name($filename), 'imported_by' => get_current_user_id()]);
-                if (!$ok) throw new \RuntimeException('Import niet opgeslagen. Probeer het opnieuw; er zijn geen gedeeltelijke wijzigingen bewaard.');
+                if (!$ok) {
+                    throw new AVBK_Company_Exception('Import niet opgeslagen. Probeer het opnieuw; er zijn geen gedeeltelijke wijzigingen bewaard.');
+                }
                 $added++;
             }
-            if ($wpdb->query('COMMIT') === false) throw new \RuntimeException('Import niet opgeslagen.');
+            if ($wpdb->query('COMMIT') === false) {
+                throw new AVBK_Company_Exception('Import niet opgeslagen.');
+            }
         } catch (\Throwable $e) {
             $wpdb->query('ROLLBACK');
             throw $e;

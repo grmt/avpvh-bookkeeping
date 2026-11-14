@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Explainable VAT suggestions from the same company's earlier worksheet entries. */
 class AVBK_Vat_Patterns {
@@ -14,7 +15,11 @@ class AVBK_Vat_Patterns {
             'chatgpt' => '/^(?:openai\s+)?chatgpt\s+(?:subscr|subscription)\b/u',
             'claude' => '/^(?:anthropic\s+)?claude(?:\s+ai)?\s+(?:sub|subscription)\b/u',
         ];
-        foreach ($services as $service => $pattern) if (preg_match($pattern, $name)) return $service;
+        foreach ($services as $service => $pattern) {
+            if (preg_match($pattern, $name)) {
+                return $service;
+            }
+        }
         return $name;
     }
 
@@ -23,7 +28,9 @@ class AVBK_Vat_Patterns {
         AVBK_Companies::company($company_id, 'access');
         $key = 'avbk_company_card_vat_history_' . $company_id;
         $stored = get_option($key, []);
-        if (!is_array($stored)) $stored = [];
+        if (!is_array($stored)) {
+            $stored = [];
+        }
         foreach ($entries as $entry) {
             $merchant = self::card_merchant(trim((string) ($entry['merchant'] ?? '')));
             $code = (string) ($entry['code'] ?? '');
@@ -32,19 +39,23 @@ class AVBK_Vat_Patterns {
             $direction = (string) ($entry['direction'] ?? 'out');
             $period = trim((string) ($entry['period_start'] ?? ''));
             if ($merchant === '' || mb_strlen($merchant) > 255 || !in_array($code, ['0', '9', '21'], true) || !$date || $source === '' || mb_strlen($source) > 1000 || !in_array($direction, ['out', 'in'], true)) {
-                throw new \RuntimeException('Vul een leverancier, historisch BTW-percentage, datum en controleerbare bron in.');
+                throw new AVBK_Company_Exception('Vul een leverancier, historisch BTW-percentage, datum en controleerbare bron in.');
             }
             $record = ['merchant' => $merchant, 'code' => $code, 'date' => $date, 'source' => $source, 'direction' => $direction];
             $identity = hash('sha256', wp_json_encode($record));
             if ($period !== '') {
                 $period_date = AVBK_Bank_Import_Layout::parse_date($period, 'Y-m-d');
-                if (!$period_date || AVBK_Companies::period((int) substr($period, 0, 4), (int) ceil((int) substr($period, 5, 2) / 3))[0] !== $period) throw new \RuntimeException('Ongeldige periode voor de opgegeven BTW-indeling.');
+                if (!$period_date || AVBK_Companies::period((int) substr($period, 0, 4), (int) ceil((int) substr($period, 5, 2) / 3))[0] !== $period) {
+                    throw new AVBK_Company_Exception('Ongeldige periode voor de opgegeven BTW-indeling.');
+                }
                 $record['period_start'] = $period;
                 $identity = 'period:' . hash('sha256', wp_json_encode([$merchant, $direction, $period]));
             }
             $stored[$identity] = $record + ['recorded_by' => get_current_user_id()];
         }
-        if (!update_option($key, $stored, false) && get_option($key) !== $stored) throw new \RuntimeException('De historische BTW-patronen konden niet worden opgeslagen.');
+        if (!update_option($key, $stored, false) && get_option($key) !== $stored) {
+            throw new AVBK_Company_Exception('De historische BTW-patronen konden niet worden opgeslagen.');
+        }
     }
 
     public static function record_card_classifications(int $company_id, int $year, int $quarter, array $entries): void {
@@ -65,14 +76,20 @@ class AVBK_Vat_Patterns {
         [$cutoff] = AVBK_Companies::period($year, $quarter);
         $patterns = [];
         foreach (AVBK_Xlsx_Reader::sheet_names($path) as $sheet) {
-            if (!preg_match('/^' . preg_quote($company->sheet_prefix, '/') . ' Q[1-4]\s*$/iuD', $sheet)) continue;
+            if (!preg_match('/^' . preg_quote($company->sheet_prefix, '/') . ' Q[1-4]\s*$/iuD', $sheet)) {
+                continue;
+            }
             foreach (AVBK_Xlsx_Reader::read_named_rows($path, $sheet) as $number => $row) {
                 $card = preg_match('/\bCC:(\d{4}-\d{2}-\d{2}):[a-f0-9]{64}\b/', (string) ($row[15] ?? ''), $card_match);
                 $date = AVBK_Bank_Import_Layout::parse_date($card ? $card_match[1] : (string) ($row[0] ?? ''), 'auto');
                 $own_account = $card ? (!empty($company->card_account) && AVBK_Company_Cards::account($row[2] ?? '') === $company->card_account) : AVBK_Companies::normalize_iban($row[2] ?? '') === $company->iban;
-                if (!$date || $date >= $cutoff || !$own_account) continue;
+                if (!$date || $date >= $cutoff || !$own_account) {
+                    continue;
+                }
                 $code = trim((string) ($row[8] ?? ''));
-                if (!in_array($code, ['0', '9', '21', 'x'], true) || str_starts_with($row[15] ?? '', 'BTW-')) continue;
+                if (!in_array($code, ['0', '9', '21', 'x'], true) || str_starts_with($row[15] ?? '', 'BTW-')) {
+                    continue;
+                }
                 $direction = in_array(mb_strtolower($row[5] ?? ''), ['debit', 'af'], true) ? 'out' : 'in';
                 $key = $card ? 'card:' . $direction . ':' . self::card_merchant($row[1] ?? '') : self::supplier($row[3] ?? '', $row[1] ?? '', $direction);
                 $patterns[$key][] = ['code' => $code, 'vat' => is_numeric($row[9] ?? null) ? abs((float) $row[9]) : null, 'source' => trim($sheet) . '!I' . $number, 'date' => $date];
@@ -82,8 +99,12 @@ class AVBK_Vat_Patterns {
             $recorded = get_option('avbk_company_card_vat_history_' . (int) $company->id, []);
             foreach (is_array($recorded) ? $recorded : [] as $entry) {
                 if (!empty($entry['period_start'])) {
-                    if ($entry['period_start'] !== $cutoff) continue;
-                } elseif (($entry['date'] ?? '') >= $cutoff) continue;
+                    if ($entry['period_start'] !== $cutoff) {
+                        continue;
+                    }
+                } elseif (($entry['date'] ?? '') >= $cutoff) {
+                    continue;
+                }
                 $key = 'card:' . $entry['direction'] . ':' . $entry['merchant'];
                 $patterns[$key][] = ['code' => $entry['code'], 'vat' => null, 'source' => $entry['source'], 'date' => $entry['date'], 'explicit' => !empty($entry['period_start'])];
             }
@@ -104,19 +125,27 @@ class AVBK_Vat_Patterns {
         $entries = $history['card:' . $transaction->direction . ':' . self::card_merchant($transaction->counterparty_name)] ?? [];
         $entries = array_merge($entries, $history[self::supplier('', $transaction->counterparty_name, $transaction->direction)] ?? []);
         $explicit = array_values(array_filter($entries, fn($entry) => !empty($entry['explicit'])));
-        if ($explicit) $entries = $explicit;
+        if ($explicit) {
+            $entries = $explicit;
+        }
         return self::resolve($entries);
     }
 
     private static function resolve(array $entries): array {
-        if (!$entries) return ['status' => 'unknown', 'code' => null, 'source' => 'Geen eerder BTW-patroon gevonden.'];
+        if (!$entries) {
+            return ['status' => 'unknown', 'code' => null, 'source' => 'Geen eerder BTW-patroon gevonden.'];
+        }
         $codes = array_values(array_unique(array_column($entries, 'code')));
-        if (count($codes) !== 1) return ['status' => 'conflict', 'code' => null, 'source' => 'Eerdere boekingen hebben verschillende BTW-behandelingen.'];
+        if (count($codes) !== 1) {
+            return ['status' => 'conflict', 'code' => null, 'source' => 'Eerdere boekingen hebben verschillende BTW-behandelingen.'];
+        }
         usort($entries, fn($a, $b) => strcmp($b['date'], $a['date']));
         $code = $codes[0]; $fixed = null;
         if ($code === 'x') {
             $amounts = array_unique(array_map(fn($e) => $e['vat'] === null ? '' : number_format($e['vat'], 2, '.', ''), $entries));
-            if (count($amounts) !== 1 || $amounts[0] === '') return ['status' => 'conflict', 'code' => null, 'source' => 'Het eerdere vaste BTW-bedrag is niet consistent.'];
+            if (count($amounts) !== 1 || $amounts[0] === '') {
+                return ['status' => 'conflict', 'code' => null, 'source' => 'Het eerdere vaste BTW-bedrag is niet consistent.'];
+            }
             $fixed = (float) $amounts[0];
         }
         return ['status' => !empty($entries[0]['explicit']) ? 'instructed' : 'suggested', 'code' => $code, 'fixed_vat' => $fixed, 'source' => $entries[0]['source'], 'observations' => count($entries)];

@@ -94,7 +94,7 @@ function avbk_render_company_report_row(array $result_row, array $row_context): 
     ['company_id' => $company_id, 'form_start' => $form_start, 'linked_invoices' => $linked_invoices, 'money' => $money, 'report' => $report, 'report_stale' => $report_stale, 'unlinked_invoices' => $unlinked_invoices] = $row_context;
 ?><tr id="avbk-company-row-<?php echo esc_attr(($result_row['review_key'] ?? '') ?: 'number-' . $result_row['number']); ?>">
                     <td><?php echo esc_html($result_row['number']); ?></td><td><?php echo esc_html($result_row['source'] ?? 'Bank'); ?></td><td><?php echo esc_html($result_row['date']); ?></td>
-                    <td><?php if ($result_row['detail']) echo '↳ '; ?><?php echo esc_html($result_row['name']); ?></td>
+                    <td><?php if ($result_row['detail']) { echo '↳ ';} ?><?php echo esc_html($result_row['name']); ?></td>
                     <td><?php echo $result_row['direction'] === 'out' ? 'Af' : 'Bij'; ?></td>
                     <td class="avbk-company-amount"><?php echo esc_html($money($result_row['gross_cents'])); ?></td>
                     <td><?php echo esc_html($result_row['code'] === '' ? '—' : ($result_row['code'] === 'x' ? 'Vast bedrag' : $result_row['code'] . '%')); ?></td>
@@ -111,7 +111,7 @@ function avbk_render_company_report_row(array $result_row, array $row_context): 
 /** The invoices linked to the transaction of a result row. */
 function avbk_render_company_linked_invoices($result_row, $linked_invoices, $company_id): void {
     if (!empty($result_row['tx_id']) && !empty($linked_invoices[$result_row['tx_id']])) : ?>
-                            <small>Factuur: <?php foreach ($linked_invoices[$result_row['tx_id']] as $i => $invoice_doc) : ?><?php if ($i) echo ', '; ?><?php if ($invoice_doc->filename !== '') : ?><a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $invoice_doc->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($invoice_doc->filename); ?></a><?php else : echo esc_html($invoice_doc->source_reference); endif; ?><?php endforeach; ?></small>
+                            <small>Factuur: <?php foreach ($linked_invoices[$result_row['tx_id']] as $i => $invoice_doc) : ?><?php if ($i) { echo ', ';} ?><?php if ($invoice_doc->filename !== '') : ?><a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $invoice_doc->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($invoice_doc->filename); ?></a><?php else : echo esc_html($invoice_doc->source_reference); endif; ?><?php endforeach; ?></small>
                         <?php endif; ?>
 <?php
 }

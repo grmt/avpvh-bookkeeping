@@ -14,7 +14,9 @@ class AVBK_Frontend_Admin_Menu implements AVBK_Component {
     }
 
     private function menu_tree(): array {
-        if (!is_user_logged_in()) return [];
+        if (!is_user_logged_in()) {
+            return [];
+        }
 
         $is_admin = current_user_can('manage_options');
         $is_treasurer = $is_admin || AVPVH_Roles::current_user_has_role('penningmeester');
@@ -126,11 +128,17 @@ class AVBK_Frontend_Admin_Menu implements AVBK_Component {
     }
 
     public function inject_block_navigation(string $content, array $block): string {
-        if (is_admin() || $this->block_menu_injected) return $content;
+        if (is_admin() || $this->block_menu_injected) {
+            return $content;
+        }
         $tree = $this->menu_tree();
-        if (!$tree) return $content;
+        if (!$tree) {
+            return $content;
+        }
         $position = strrpos($content, '</ul>');
-        if ($position === false) return $content;
+        if ($position === false) {
+            return $content;
+        }
         $this->block_menu_injected = true;
         return substr($content, 0, $position) . $this->block_items($tree, true) . substr($content, $position);
     }

@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** User-consented Google Photos selections, bound to the current WordPress session. */
 class AVBK_Google_Photos_Picker implements AVBK_Component {
@@ -41,7 +42,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
     private static function session(): array {
         $session = get_transient(self::key());
         if (!is_array($session)) {
-            throw new RuntimeException('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+            throw AVBK_Photo_Exception::selection_expired();
         }
         return $session;
     }
@@ -52,13 +53,13 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
             || wp_remote_retrieve_response_code($response) >= 300) {
             foreach ($json['error']['details'] ?? [] as $detail) {
                 if (($detail['reason'] ?? '') === 'SERVICE_DISABLED') {
-                    throw new RuntimeException('Google Photos is nog niet geactiveerd op deze website. Gebruik voorlopig ‘Foto’s van je toestel’.');
+                    throw new AVBK_Photo_Exception('Google Photos is nog niet geactiveerd op deze website. Gebruik voorlopig ‘Foto’s van je toestel’.');
                 }
             }
-            throw new RuntimeException('Google Photos is niet bereikbaar of de toestemming is verlopen. Probeer opnieuw.');
+            throw new AVBK_Photo_Exception('Google Photos is niet bereikbaar of de toestemming is verlopen. Probeer opnieuw.');
         }
         if (!is_array($json)) {
-            throw new RuntimeException('Google Photos gaf geen geldige reactie. Probeer opnieuw.');
+            throw new AVBK_Photo_Exception('Google Photos gaf geen geldige reactie. Probeer opnieuw.');
         }
         return $json;
     }
@@ -75,7 +76,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
         $picker = self::api($session, 'sessions', 'POST', ['pickingConfig' => ['maxItemCount' => '100']]);
         $url = (string) ($picker['pickerUri'] ?? '');
         if (empty($picker['id']) || !self::trusted_url($url, self::PICKER_HOST)) {
-            throw new RuntimeException('Google Photos kon geen selectie openen. Probeer opnieuw.');
+            throw new AVBK_Photo_Exception('Google Photos kon geen selectie openen. Probeer opnieuw.');
         }
         $session['id'] = (string) $picker['id'];
         $session['url'] = rtrim($url, '/') . '/autoclose';
@@ -137,7 +138,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
             AVBK_Photo_Upload::own_share();
             $current = self::session();
             if (($current['state_key'] ?? '') !== $state_key || $request->get_param('error') || !$request->get_param('code')) {
-                throw new RuntimeException('De toestemming voor Google Photos is geannuleerd. Kies opnieuw als je foto’s wilt delen.');
+                throw new AVBK_Photo_Exception('De toestemming voor Google Photos is geannuleerd. Kies opnieuw als je foto’s wilt delen.');
             }
             $token = self::json_response(wp_remote_post('https://oauth2.googleapis.com/token', [
                 'timeout' => 30, 'redirection' => 0,
@@ -148,7 +149,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                     'grant_type' => 'authorization_code', 'code_verifier' => $owner['verifier']],
             ]));
             if (empty($token['access_token']) || !in_array(self::SCOPE, explode(' ', $token['scope'] ?? ''), true)) {
-                throw new RuntimeException('Geef Google toestemming om de geselecteerde foto’s te delen.');
+                throw new AVBK_Photo_Exception('Geef Google toestemming om de geselecteerde foto’s te delen.');
             }
             $session = self::create_session(['token' => $token['access_token'], 'expires' => time() + min(self::TTL, (int) ($token['expires_in'] ?? self::TTL))]);
             // Host checked against Google's picker domain above. No bearer token in this URL.
@@ -167,10 +168,10 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
         try {
             $session = self::session();
             if (!empty($session['error'])) {
-                throw new RuntimeException($session['error']);
+                throw new AVBK_Photo_Exception($session['error']);
             }
             if (time() >= $session['expires']) {
-                throw new RuntimeException('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+                throw AVBK_Photo_Exception::selection_expired();
             }
             if (!empty($session['pending'])) {
                 wp_send_json_success(['ready' => false, 'interval' => 5, 'timeout' => max(0, $session['expires'] - time())]);
@@ -191,7 +192,7 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                 $items = []; $skipped = 0; $page = ''; $pages = 0;
                 do {
                     if (++$pages > 10) {
-                        throw new RuntimeException('De selectie kon niet worden opgehaald. Kies maximaal 100 foto’s opnieuw.');
+                        throw new AVBK_Photo_Exception('De selectie kon niet worden opgehaald. Kies maximaal 100 foto’s opnieuw.');
                     }
                     $response = self::api($session, 'mediaItems?' . http_build_query(['sessionId' => $session['id'], 'pageSize' => 100, 'pageToken' => $page]));
                     foreach ($response['mediaItems'] ?? [] as $item) {
@@ -199,13 +200,13 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                             $skipped++; continue;
                         }
                         if (empty($item['id']) || !self::trusted_url((string) ($item['mediaFile']['baseUrl'] ?? ''), self::MEDIA_HOST)) {
-                            throw new RuntimeException('Google Photos gaf geen geldige foto terug. Kies opnieuw.');
+                            throw new AVBK_Photo_Exception('Google Photos gaf geen geldige foto terug. Kies opnieuw.');
                         }
                         $items[] = $item;
                     }
                     $page = (string) ($response['nextPageToken'] ?? '');
                     if (count($items) + $skipped > 100 || ($page !== '' && count($items) + $skipped >= 100)) {
-                        throw new RuntimeException('Kies maximaal 100 foto’s per keer.');
+                        throw new AVBK_Photo_Exception('Kies maximaal 100 foto’s per keer.');
                     }
                 } while ($page !== '');
                 $session['items'] = $items;
@@ -233,22 +234,22 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
         try {
             $session = self::session();
             if (time() >= $session['expires']) {
-                throw new RuntimeException('Deze selectie is verlopen. Kies opnieuw uit Google Photos.');
+                throw AVBK_Photo_Exception::selection_expired();
             }
             $index = filter_var(wp_unslash($_POST['index'] ?? ''), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
             $item = $index !== false ? ($session['items'][$index] ?? null) : null;
             if (!$item) {
-                throw new RuntimeException('Kies eerst foto’s in Google Photos.');
+                throw new AVBK_Photo_Exception('Kies eerst foto’s in Google Photos.');
             }
             $name = sanitize_file_name($item['mediaFile']['filename'] ?? 'foto');
             if (empty($session['copied'][$index])) {
                 $url = $item['mediaFile']['baseUrl'] . '=d';
                 if (!self::trusted_url($url, self::MEDIA_HOST)) {
-                    throw new RuntimeException('Deze foto kan niet worden opgehaald. Kies opnieuw.');
+                    throw new AVBK_Photo_Exception('Deze foto kan niet worden opgehaald. Kies opnieuw.');
                 }
                 $path = wp_tempnam('avbk-photo');
                 if (!$path) {
-                    throw new RuntimeException('Er is tijdelijk geen ruimte om de foto op te slaan.');
+                    throw new AVBK_Photo_Exception('Er is tijdelijk geen ruimte om de foto op te slaan.');
                 }
                 $response = wp_safe_remote_get($url, [
                     'headers' => ['Authorization' => 'Bearer ' . $session['token']],
@@ -256,12 +257,12 @@ class AVBK_Google_Photos_Picker implements AVBK_Component {
                     'limit_response_size' => AVBK_Photo_Upload::MAX_BYTES + 1,
                 ]);
                 if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
-                    throw new RuntimeException('Het ophalen van deze foto is niet gelukt. Probeer opnieuw.');
+                    throw new AVBK_Photo_Exception('Het ophalen van deze foto is niet gelukt. Probeer opnieuw.');
                 }
                 // Google may deliver a JPEG for an original HEIC; use the actual format.
                 $mime = wp_get_image_mime($path);
                 if (!isset(AVBK_Photo_Upload::TYPES[$mime])) {
-                    throw new RuntimeException('Dit bestand is geen ondersteunde foto.');
+                    throw new AVBK_Photo_Exception('Dit bestand is geen ondersteunde foto.');
                 }
                 if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), AVBK_Photo_Upload::TYPES[$mime], true)) {
                     $name = pathinfo($name, PATHINFO_FILENAME) . '.' . AVBK_Photo_Upload::TYPES[$mime][0];

@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 class AVBK_DB {
 
@@ -1051,7 +1052,9 @@ class AVBK_DB {
                     WHERE d.status = 'resolved' AND d.resolved_at IS NOT NULL
                     AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_dispute_events e
                         WHERE e.dispute_id = d.id AND e.event_type = 'resolved')");
-                if ($backfilled !== false) update_option('avbk_db_version', '1.40');
+                if ($backfilled !== false) {
+                    update_option('avbk_db_version', '1.40');
+                }
             }
         }
         if (version_compare($version, '1.41', '<')) {
@@ -2667,7 +2670,9 @@ class AVBK_DB {
         $filenames = $wpdb->get_col("SELECT filename FROM {$wpdb->prefix}avb_import_batches") ?: [];
         foreach ($filenames as $filename) {
             $period = self::import_filename_period((string) $filename);
-            if (!$period) continue;
+            if (!$period) {
+                continue;
+            }
             [$from, $until] = $period;
             for ($year = (int) substr($from, 0, 4); $year <= (int) substr($until, 0, 4); $year++) {
                 if (!isset($ranges[$year])) {
@@ -2689,13 +2694,17 @@ class AVBK_DB {
     /** Two date tokens at the end of an ING export filename define its requested range. */
     private static function import_filename_period(string $filename): ?array {
         preg_match_all('/(?<!\d)(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})(?!\d)/', $filename, $matches);
-        if (count($matches[1] ?? []) < 2) return null;
+        if (count($matches[1] ?? []) < 2) {
+            return null;
+        }
         $tokens = array_slice($matches[1], -2);
         $dates = [];
         foreach ($tokens as $token) {
             $format = preg_match('/^\d{4}-/', $token) ? '!Y-m-d' : '!d-m-Y';
             $date = \DateTimeImmutable::createFromFormat($format, $token, wp_timezone());
-            if (!$date) return null;
+            if (!$date) {
+                return null;
+            }
             $dates[] = $date->format('Y-m-d');
         }
         sort($dates, SORT_STRING);
@@ -2791,7 +2800,9 @@ class AVBK_DB {
     /** Change the status and append its audit entry atomically. */
     public static function change_dispute_status(int $id, string $status, int $actor_id, string $request_key, string $message = ''): bool {
         global $wpdb;
-        if (!in_array($status, ['open', 'resolved'], true) || $wpdb->query('START TRANSACTION') === false) return false;
+        if (!in_array($status, ['open', 'resolved'], true) || $wpdb->query('START TRANSACTION') === false) {
+            return false;
+        }
         $dispute = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE id = %d FOR UPDATE", $id
         ));
@@ -3276,7 +3287,7 @@ class AVBK_DB {
         return $marked;
     }
 
-    /** @throws \RuntimeException if the row doesn't actually get written — this used to be silently swallowed (row_count still ticked up in the calling import loop, but no row ever existed; see incident 2026-10-07, a QR-paid congresbijdrage that vanished with zero error). */
+    /** @throws AVBK_Import_Exception if the row doesn't actually get written — this used to be silently swallowed (row_count still ticked up in the calling import loop, but no row ever existed; see incident 2026-10-07, a QR-paid congresbijdrage that vanished with zero error). */
     public static function insert_transaction(array $row): int {
         global $wpdb;
         $inserted = $wpdb->insert("{$wpdb->prefix}avb_transactions", [
@@ -3296,7 +3307,7 @@ class AVBK_DB {
             'source_row'           => $row['source_row'] ?? null,
         ]);
         if ($inserted === false) {
-            throw new \RuntimeException(
+            throw new AVBK_Import_Exception(
                 // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception message not rendered to browser
                 'Kon transactie niet opslaan (regel ' . ($row['source_row'] ?? '?') . '): ' . $wpdb->last_error
             );

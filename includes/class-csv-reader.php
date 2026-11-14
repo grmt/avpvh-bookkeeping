@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /**
  * ING's own CSV export ("Alle transacties" as .csv instead of .xlsx) —
@@ -16,7 +17,7 @@ class AVBK_Csv_Reader {
     public static function read(string $path, string $delimiter_setting = 'auto'): array {
         $contents = file_get_contents($path);
         if ($contents === false) {
-            throw new \RuntimeException('Kan het csv-bestand niet openen.');
+            throw new AVBK_Import_Exception('Kan het csv-bestand niet openen.');
         }
 
         // ING's CSV export is typically Windows-1252, not UTF-8 — without

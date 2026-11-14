@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** Photo uploads go directly to the signed-in user's confirmed Drive share. */
 class AVBK_Photo_Upload implements AVBK_Component {
@@ -59,7 +60,7 @@ class AVBK_Photo_Upload implements AVBK_Component {
         $share = $user_id ? AVBK_DB::get_photo_share_by_user_id($user_id) : null;
         if (!$share || $share->status !== 'confirmed' || empty($share->drive_folder_id)
             || str_starts_with($share->drive_folder_id, 'share-')) {
-            throw new RuntimeException('Log in met het account van je geactiveerde persoonlijke uploadmap.');
+            throw new AVBK_Photo_Exception('Log in met het account van je geactiveerde persoonlijke uploadmap.');
         }
         return $share;
     }
@@ -82,7 +83,7 @@ class AVBK_Photo_Upload implements AVBK_Component {
     public static function validate(string $path, string $name, int $limit = self::MAX_BYTES): array {
         $size = is_file($path) ? filesize($path) : 0;
         if (!$size || $size > $limit) {
-            throw new RuntimeException('Deze foto is leeg of groter dan de toegestane bestandsgrootte.');
+            throw new AVBK_Photo_Exception('Deze foto is leeg of groter dan de toegestane bestandsgrootte.');
         }
         $mime = wp_get_image_mime($path);
         if ($mime === 'image/x-ms-bmp') {
@@ -91,7 +92,7 @@ class AVBK_Photo_Upload implements AVBK_Component {
         $name = sanitize_file_name($name);
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         if (!isset(self::TYPES[$mime]) || !in_array($extension, self::TYPES[$mime], true)) {
-            throw new RuntimeException('Kies een foto in JPG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF of BMP.');
+            throw new AVBK_Photo_Exception('Kies een foto in JPG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF of BMP.');
         }
         return ['name' => $name, 'mime' => $mime];
     }
@@ -100,14 +101,14 @@ class AVBK_Photo_Upload implements AVBK_Component {
         $share = self::own_share();
         $photo = self::validate($path, $name, $limit);
         if (!class_exists('\\Avpvh\\Frontend\\Share_Drive') || !\Avpvh\Frontend\Share_Drive::has_account()) {
-            throw new RuntimeException('De uploadmap is tijdelijk niet bereikbaar. Probeer later opnieuw.');
+            throw new AVBK_Photo_Exception('De uploadmap is tijdelijk niet bereikbaar. Probeer later opnieuw.');
         }
         try {
             $drive = \Avpvh\Frontend\Share_Drive::drive();
             $folder = $drive->files->get($share->drive_folder_id, ['fields' => 'mimeType,parents,trashed', 'supportsAllDrives' => true]);
             if ($folder->getTrashed() || $folder->getMimeType() !== 'application/vnd.google-apps.folder'
                 || !in_array(AVBK_Photo_Share::ROOT_FOLDER_ID, (array) $folder->getParents(), true)) {
-                throw new RuntimeException('Invalid upload folder');
+                throw new AVBK_Photo_Exception('Invalid upload folder');
             }
             // Repeated Picker imports after a lost connection reuse the already copied file.
             if ($source_key !== '') {
@@ -129,7 +130,7 @@ class AVBK_Photo_Upload implements AVBK_Component {
             ]);
             return (string) $file->getId();
         } catch (Throwable $e) {
-            throw new RuntimeException('Het opslaan in je uploadmap is niet gelukt. Probeer opnieuw.');
+            throw new AVBK_Photo_Exception('Het opslaan in je uploadmap is niet gelukt. Probeer opnieuw.');
         }
     }
 

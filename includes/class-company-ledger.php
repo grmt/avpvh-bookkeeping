@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /** A manual, double-entry general ledger per company: a chart of accounts and balanced journal entries. */
 class AVBK_Company_Ledger {
@@ -29,15 +30,21 @@ class AVBK_Company_Ledger {
         global $wpdb;
         AVBK_Companies::company($company_id);
         $account = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_company_accounts WHERE company_id = %d AND id = %d", $company_id, $account_id));
-        if (!$account) throw new \RuntimeException('Grootboekrekening niet gevonden bij deze administratie.');
+        if (!$account) {
+            throw new AVBK_Company_Exception('Grootboekrekening niet gevonden bij deze administratie.');
+        }
         return $account;
     }
 
     /** Seed the starter chart once; refuses once any account already exists so it never silently duplicates a company's own numbering. */
     public static function seed_default_accounts(int $company_id): int {
         AVBK_Companies::company($company_id, 'import');
-        if (self::accounts($company_id)) throw new \RuntimeException('Dit bedrijf heeft al een rekeningschema.');
-        foreach (self::DEFAULT_ACCOUNTS as [$code, $name, $type]) self::add_account($company_id, $code, $name, $type);
+        if (self::accounts($company_id)) {
+            throw new AVBK_Company_Exception('Dit bedrijf heeft al een rekeningschema.');
+        }
+        foreach (self::DEFAULT_ACCOUNTS as [$code, $name, $type]) {
+            self::add_account($company_id, $code, $name, $type);
+        }
         return count(self::DEFAULT_ACCOUNTS);
     }
 
@@ -45,16 +52,24 @@ class AVBK_Company_Ledger {
         global $wpdb;
         AVBK_Companies::company($company_id, 'import');
         $code = trim($code); $name = trim($name);
-        if ($code === '' || !preg_match('/^[A-Za-z0-9.\-]{1,20}$/D', $code)) throw new \RuntimeException('Vul een geldige rekeningcode in (letters, cijfers, punt of streepje, maximaal 20 tekens).');
-        if ($name === '' || mb_strlen($name) > 190) throw new \RuntimeException('Vul een naam voor de grootboekrekening in.');
-        if (!isset(self::ACCOUNT_TYPES[$type])) throw new \RuntimeException('Kies een geldig rekeningtype.');
+        if ($code === '' || !preg_match('/^[A-Za-z0-9.\-]{1,20}$/D', $code)) {
+            throw new AVBK_Company_Exception('Vul een geldige rekeningcode in (letters, cijfers, punt of streepje, maximaal 20 tekens).');
+        }
+        if ($name === '' || mb_strlen($name) > 190) {
+            throw new AVBK_Company_Exception('Vul een naam voor de grootboekrekening in.');
+        }
+        if (!isset(self::ACCOUNT_TYPES[$type])) {
+            throw new AVBK_Company_Exception('Kies een geldig rekeningtype.');
+        }
         if ($wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_company_accounts WHERE company_id = %d AND code = %s", $company_id, $code))) {
-            throw new \RuntimeException('Deze rekeningcode bestaat al bij deze administratie.');
+            throw new AVBK_Company_Exception('Deze rekeningcode bestaat al bij deze administratie.');
         }
         if (!$wpdb->insert($wpdb->prefix . 'avb_company_accounts', [
             'company_id' => $company_id, 'code' => $code, 'name' => $name, 'account_type' => $type,
             'is_active' => 1, 'created_by' => get_current_user_id(),
-        ])) throw new \RuntimeException('De grootboekrekening is niet opgeslagen.');
+        ])) {
+            throw new AVBK_Company_Exception('De grootboekrekening is niet opgeslagen.');
+        }
         return (int) $wpdb->insert_id;
     }
 
@@ -64,14 +79,18 @@ class AVBK_Company_Ledger {
         AVBK_Companies::company($company_id, 'import');
         self::account($company_id, $account_id);
         if ($wpdb->update($wpdb->prefix . 'avb_company_accounts', ['is_active' => 0], ['id' => $account_id, 'company_id' => $company_id]) === false) {
-            throw new \RuntimeException('De grootboekrekening kon niet worden gedeactiveerd.');
+            throw new AVBK_Company_Exception('De grootboekrekening kon niet worden gedeactiveerd.');
         }
     }
 
     private static function parse_amount(string $value): int {
         $value = trim($value);
-        if ($value === '') return 0;
-        if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $value)) throw new \RuntimeException('Vul per boekingsregel een positief bedrag in met maximaal twee decimalen.');
+        if ($value === '') {
+            return 0;
+        }
+        if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $value)) {
+            throw new AVBK_Company_Exception('Vul per boekingsregel een positief bedrag in met maximaal twee decimalen.');
+        }
         return (int) round((float) str_replace(',', '.', $value) * 100);
     }
 
@@ -81,42 +100,60 @@ class AVBK_Company_Ledger {
         AVBK_Companies::company($company_id, 'import');
         $entry_date = trim($entry_date); $description = trim($description); $reference = trim($reference);
         if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $entry_date, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
-            throw new \RuntimeException('Vul een geldige boekingsdatum in.');
+            throw new AVBK_Company_Exception('Vul een geldige boekingsdatum in.');
         }
-        if ($description === '' || mb_strlen($description) > 500) throw new \RuntimeException('Vul een omschrijving van maximaal 500 tekens in.');
-        if (mb_strlen($reference) > 255) throw new \RuntimeException('De referentie mag maximaal 255 tekens bevatten.');
-        if (count($lines) < 2) throw new \RuntimeException('Een boeking heeft minstens twee regels.');
+        if ($description === '' || mb_strlen($description) > 500) {
+            throw new AVBK_Company_Exception('Vul een omschrijving van maximaal 500 tekens in.');
+        }
+        if (mb_strlen($reference) > 255) {
+            throw new AVBK_Company_Exception('De referentie mag maximaal 255 tekens bevatten.');
+        }
+        if (count($lines) < 2) {
+            throw new AVBK_Company_Exception('Een boeking heeft minstens twee regels.');
+        }
         $accounts = array_column(self::accounts($company_id), null, 'id');
         $prepared = []; $total_debit = 0; $total_credit = 0;
         foreach ($lines as $line) {
             $account_id = (int) ($line['account_id'] ?? 0);
-            if (!isset($accounts[$account_id])) throw new \RuntimeException('Kies een geldige grootboekrekening voor elke regel.');
-            if (!$accounts[$account_id]->is_active) throw new \RuntimeException('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with the account's own name; escaped with esc_html() by admin/company-ledger.php when displayed
-            $debit = self::parse_amount((string) ($line['debit'] ?? ''));
+            if (!isset($accounts[$account_id])) {
+                throw new AVBK_Company_Exception('Kies een geldige grootboekrekening voor elke regel.');
+            }
+            if (!$accounts[$account_id]->is_active) { throw new AVBK_Company_Exception('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with the account's own name; escaped with esc_html() by admin/company-ledger.php when displayed
+            }            $debit = self::parse_amount((string) ($line['debit'] ?? ''));
             $credit = self::parse_amount((string) ($line['credit'] ?? ''));
-            if (($debit > 0) === ($credit > 0)) throw new \RuntimeException('Vul per regel óf een debetbedrag óf een creditbedrag in, niet beide en niet geen van beide.');
+            if (($debit > 0) === ($credit > 0)) {
+                throw new AVBK_Company_Exception('Vul per regel óf een debetbedrag óf een creditbedrag in, niet beide en niet geen van beide.');
+            }
             $note = trim((string) ($line['note'] ?? ''));
-            if (mb_strlen($note) > 255) throw new \RuntimeException('De toelichting per regel mag maximaal 255 tekens bevatten.');
+            if (mb_strlen($note) > 255) {
+                throw new AVBK_Company_Exception('De toelichting per regel mag maximaal 255 tekens bevatten.');
+            }
             $total_debit += $debit; $total_credit += $credit;
             $prepared[] = ['account_id' => $account_id, 'debit_cents' => $debit, 'credit_cents' => $credit, 'line_note' => $note];
         }
         if ($total_debit !== $total_credit) {
-            throw new \RuntimeException('Debet en credit moeten gelijk zijn; het verschil is € ' . number_format(abs($total_debit - $total_credit) / 100, 2, ',', '.') . '.');
+            throw new AVBK_Company_Exception('Debet en credit moeten gelijk zijn; het verschil is € ' . number_format(abs($total_debit - $total_credit) / 100, 2, ',', '.') . '.');
         }
-        if ($wpdb->query('START TRANSACTION') === false) throw new \RuntimeException('Kan de boeking niet starten.');
+        if ($wpdb->query('START TRANSACTION') === false) {
+            throw new AVBK_Company_Exception('Kan de boeking niet starten.');
+        }
         try {
             $next_number = (int) $wpdb->get_var($wpdb->prepare("SELECT COALESCE(MAX(entry_number), 0) + 1 FROM {$wpdb->prefix}avb_company_journal_entries WHERE company_id = %d", $company_id));
             if (!$wpdb->insert($wpdb->prefix . 'avb_company_journal_entries', [
                 'company_id' => $company_id, 'entry_number' => $next_number, 'entry_date' => $entry_date,
                 'description' => $description, 'reference' => $reference, 'created_by' => get_current_user_id(),
-            ])) throw new \RuntimeException('De boeking is niet opgeslagen.');
+            ])) {
+                throw new AVBK_Company_Exception('De boeking is niet opgeslagen.');
+            }
             $entry_id = (int) $wpdb->insert_id;
             foreach ($prepared as $line) {
                 if (!$wpdb->insert($wpdb->prefix . 'avb_company_journal_lines', $line + ['entry_id' => $entry_id])) {
-                    throw new \RuntimeException('De boekingsregels zijn niet opgeslagen.');
+                    throw new AVBK_Company_Exception('De boekingsregels zijn niet opgeslagen.');
                 }
             }
-            if ($wpdb->query('COMMIT') === false) throw new \RuntimeException('De boeking is niet opgeslagen.');
+            if ($wpdb->query('COMMIT') === false) {
+                throw new AVBK_Company_Exception('De boeking is niet opgeslagen.');
+            }
             return $entry_id;
         } catch (\Throwable $e) {
             $wpdb->query('ROLLBACK');
@@ -134,7 +171,9 @@ class AVBK_Company_Ledger {
         global $wpdb;
         AVBK_Companies::company($company_id);
         $entry = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_company_journal_entries WHERE company_id = %d AND id = %d", $company_id, $entry_id));
-        if (!$entry) throw new \RuntimeException('Boeking niet gevonden bij deze administratie.');
+        if (!$entry) {
+            throw new AVBK_Company_Exception('Boeking niet gevonden bij deze administratie.');
+        }
         return $entry;
     }
 
@@ -155,11 +194,17 @@ class AVBK_Company_Ledger {
         global $wpdb;
         AVBK_Companies::company($company_id, 'import');
         $entry = self::entry($company_id, $entry_id);
-        if ($entry->voided_at !== null) throw new \RuntimeException('Deze boeking is al teruggedraaid.');
+        if ($entry->voided_at !== null) {
+            throw new AVBK_Company_Exception('Deze boeking is al teruggedraaid.');
+        }
         $reason = trim($reason);
-        if ($reason === '' || mb_strlen($reason) > 500) throw new \RuntimeException('Vul een reden voor het terugdraaien in (maximaal 500 tekens).');
+        if ($reason === '' || mb_strlen($reason) > 500) {
+            throw new AVBK_Company_Exception('Vul een reden voor het terugdraaien in (maximaal 500 tekens).');
+        }
         if ($wpdb->update($wpdb->prefix . 'avb_company_journal_entries', [
             'voided_by' => get_current_user_id(), 'voided_at' => current_time('mysql'), 'void_reason' => $reason,
-        ], ['id' => $entry_id, 'company_id' => $company_id]) === false) throw new \RuntimeException('De boeking kon niet worden teruggedraaid.');
+        ], ['id' => $entry_id, 'company_id' => $company_id]) === false) {
+            throw new AVBK_Company_Exception('De boeking kon niet worden teruggedraaid.');
+        }
     }
 }

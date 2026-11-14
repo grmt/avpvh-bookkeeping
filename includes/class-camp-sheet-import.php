@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-exceptions.php';
 
 /**
  * Fixed-layout importer for the club's camp overview workbook.
@@ -124,7 +125,7 @@ class AVBK_Camp_Sheet_Import {
                 ['%d']
             );
             if ($date_update === false) {
-                throw new \RuntimeException('De kampdatums konden niet worden opgeslagen.');
+                throw new AVBK_Import_Exception('De kampdatums konden niet worden opgeslagen.');
             }
 
             foreach ($to_save as $participant) {
@@ -140,7 +141,7 @@ class AVBK_Camp_Sheet_Import {
                     ]
                 );
                 if (!$participation_id) {
-                    throw new \RuntimeException('Een kampdeelname kon niet worden opgeslagen.');
+                    throw new AVBK_Import_Exception('Een kampdeelname kon niet worden opgeslagen.');
                 }
                 AVPVH_DB::save_participation_days($participation_id, $participant['days']);
                 $matched[] = [
@@ -243,7 +244,7 @@ class AVBK_Camp_Sheet_Import {
             if ($month_label !== '') {
                 $month = self::MONTHS[$month_label] ?? null;
                 if ($month === null) {
-                    throw new \RuntimeException('Onbekende maand in het kampoverzicht: ' . $month_label . '.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
+                    throw new AVBK_Import_Exception('Onbekende maand in het kampoverzicht: ' . $month_label . '.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
                 }
                 if ($previous_month !== null && $month < $previous_month) {
                     $year++;
@@ -256,12 +257,12 @@ class AVBK_Camp_Sheet_Import {
             }
             $day = filter_var($day_text, FILTER_VALIDATE_INT);
             if ($day === false || !checkdate($month, $day, $year)) {
-                throw new \RuntimeException('Ongeldige dag in rij 5 van het kampoverzicht.');
+                throw new AVBK_Import_Exception('Ongeldige dag in rij 5 van het kampoverzicht.');
             }
             $columns[$column] = sprintf('%04d-%02d-%02d', $year, $month, $day);
         }
         if (!$columns) {
-            throw new \RuntimeException('Geen kampdatums gevonden in rijen 3 en 5, kolommen E-T.');
+            throw new AVBK_Import_Exception('Geen kampdatums gevonden in rijen 3 en 5, kolommen E-T.');
         }
         return $columns;
     }

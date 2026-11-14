@@ -9,7 +9,9 @@ defined('ABSPATH') || exit;
 function avbk_render_company_cards(array $view): void {
     ['card_transactions' => $card_transactions, 'company' => $company, 'company_id' => $company_id, 'form_start' => $form_start] = $view;
 $creditcard_enabled = AVBK_Company_Features::enabled($company_id, 'creditcard');
-if (!$creditcard_enabled && !$card_transactions) return;
+if (!$creditcard_enabled && !$card_transactions) {
+    return;
+}
 ?>
 <section id="avbk-company-cards" class="avbk-company-card">
     <h3>2. Creditcardafschriften</h3>

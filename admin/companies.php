@@ -137,10 +137,10 @@ function avbk_render_company_document($document, $company_id, $tracked, $overdue
                         <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $document->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($document->filename); ?></a>
                     <?php endif; ?>
                     <?php echo esc_html($document->source_reference); ?>
-                    <?php if ($document->transaction_id) echo esc_html(' (transactie #' . $document->transaction_id . ')'); ?>
-                    <?php if ($document->invoice_date) echo esc_html(' · Factuurdatum ' . $document->invoice_date); ?>
-                    <?php if ($document->due_date) echo esc_html(' · Vervalt ' . $document->due_date); ?>
-                    <?php if ($document->amount_total !== null) echo esc_html(' · € ' . number_format((float) $document->amount_total, 2, ',', '.')); ?>
+                    <?php if ($document->transaction_id) { echo esc_html(' (transactie #' . $document->transaction_id . ')');} ?>
+                    <?php if ($document->invoice_date) { echo esc_html(' · Factuurdatum ' . $document->invoice_date);} ?>
+                    <?php if ($document->due_date) { echo esc_html(' · Vervalt ' . $document->due_date);} ?>
+                    <?php if ($document->amount_total !== null) { echo esc_html(' · € ' . number_format((float) $document->amount_total, 2, ',', '.'));} ?>
                     <?php avbk_render_company_document_status($tracked, $document, $overdue, $company_id, $form_start); ?>
 <?php
 }
