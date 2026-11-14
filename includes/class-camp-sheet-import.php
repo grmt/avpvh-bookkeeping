@@ -90,29 +90,7 @@ class AVBK_Camp_Sheet_Import {
         }
 
         $matched = [];
-        $unmatched = [];
-        $to_save = [];
-        $seen_members = [];
-        foreach ($parsed['participants'] as $participant) {
-            if (AVBK_Sheet_Import::is_source_identity_ignored($activity_id, $participant['name'])) {
-                continue;
-            }
-            $member = AVBK_Sheet_Import::match_source_person($activity_id, $participant['name']);
-            if (!$member) {
-                $unmatched[] = self::unmatched_entry($participant, $activity_id);
-                continue;
-            }
-            $member_id = (int) $member->id;
-            if (isset($seen_members[$member_id])) {
-                $duplicate = self::unmatched_entry($participant, $activity_id);
-                $duplicate['notes'] = trim($duplicate['notes'] . "\nDubbele regel in het kampbestand.");
-                $unmatched[] = $duplicate;
-                continue;
-            }
-            $seen_members[$member_id] = true;
-            $participant['member'] = $member;
-            $to_save[] = $participant;
-        }
+        [$to_save, $unmatched] = self::sort_participants($activity_id, $parsed['participants']);
 
         global $wpdb;
         $wpdb->query('START TRANSACTION');
@@ -166,6 +144,40 @@ class AVBK_Camp_Sheet_Import {
                 'end_date' => $parsed['end_date'],
             ],
         ];
+    }
+
+    /**
+     * Participants matched to a member (to save, each with ->member) and
+     * the rest as unmatched entries: no member found, or a second line for
+     * the same member. Ignored source names are left out.
+     *
+     * @return array{0: array, 1: array}
+     */
+    private static function sort_participants(int $activity_id, array $participants): array {
+        $to_save = [];
+        $unmatched = [];
+        $seen_members = [];
+        foreach ($participants as $participant) {
+            if (AVBK_Sheet_Import::is_source_identity_ignored($activity_id, $participant['name'])) {
+                continue;
+            }
+            $member = AVBK_Sheet_Import::match_source_person($activity_id, $participant['name']);
+            if (!$member) {
+                $unmatched[] = self::unmatched_entry($participant, $activity_id);
+                continue;
+            }
+            $member_id = (int) $member->id;
+            if (isset($seen_members[$member_id])) {
+                $duplicate = self::unmatched_entry($participant, $activity_id);
+                $duplicate['notes'] = trim($duplicate['notes'] . "\nDubbele regel in het kampbestand.");
+                $unmatched[] = $duplicate;
+                continue;
+            }
+            $seen_members[$member_id] = true;
+            $participant['member'] = $member;
+            $to_save[] = $participant;
+        }
+        return [$to_save, $unmatched];
     }
 
     /** Parse the special grid without writing data; public for fixture tests. */
@@ -242,10 +254,7 @@ class AVBK_Camp_Sheet_Import {
         for ($column = self::FIRST_DAY_COLUMN; $column <= self::LAST_DAY_COLUMN; $column++) {
             $month_label = strtolower(self::cell($rows, self::MONTH_ROW, $column));
             if ($month_label !== '') {
-                $month = self::MONTHS[$month_label] ?? null;
-                if ($month === null) {
-                    throw new AVBK_Import_Exception('Onbekende maand in het kampoverzicht: ' . $month_label . '.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
-                }
+                $month = self::month_number($month_label);
                 if ($previous_month !== null && $month < $previous_month) {
                     $year++;
                 }
@@ -265,6 +274,15 @@ class AVBK_Camp_Sheet_Import {
             throw new AVBK_Import_Exception('Geen kampdatums gevonden in rijen 3 en 5, kolommen E-T.');
         }
         return $columns;
+    }
+
+    /** The month number for a (lowercase) Dutch month label in row 3. */
+    private static function month_number(string $month_label): int {
+        $month = self::MONTHS[$month_label] ?? null;
+        if ($month === null) {
+            throw new AVBK_Import_Exception('Onbekende maand in het kampoverzicht: ' . $month_label . '.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message, escaped with esc_html() where it's displayed (admin/import.php, admin/activity-payments.php); escaping here would double-escape
+        }
+        return $month;
     }
 
     private static function cell(array $rows, int $row, int $column): string {

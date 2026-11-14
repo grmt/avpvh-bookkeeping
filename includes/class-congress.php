@@ -92,6 +92,23 @@ class AVBK_Congress implements AVBK_Component {
         return ob_get_clean();
     }
 
+    /** The amount, QR code and reference on the confirmation page, or why there is none. */
+    private function render_confirmation_payment(object $reg, ?object $fee_item, float $remaining, ?string $qr): void {
+?><?php if ($fee_item) : ?>
+                <p><?php echo esc_html($fee_item->description); ?>: &euro; <?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></p>
+                <?php if ($qr) : ?>
+                    <div class="avbk-congress-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
+                    <p class="avbk-congress-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
+                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::fee_reference_code((int) $reg->member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description); ?></code></p>
+                <?php elseif ($remaining > 0.005) : ?>
+                    <p>Er kon geen QR-code worden gegenereerd. Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) om te betalen.</p>
+                <?php endif; ?>
+            <?php else : ?>
+                <p>Er is nog geen bedrag geregistreerd voor je aanmelding. Neem contact op met de penningmeester als je vragen hebt over de betaling.</p>
+            <?php endif; ?>
+<?php
+    }
+
     private function render_confirmation(string $token): string {
         $reg = AVBK_DB::get_congress_registration_by_token($token);
         if (!$reg) {
@@ -118,18 +135,7 @@ class AVBK_Congress implements AVBK_Component {
                 <p class="avbk-congress-notice avbk-congress-error">We konden geen bevestigingsmail versturen &mdash; bewaar deze pagina of link om je QR-code later terug te vinden.</p>
             <?php endif; ?>
 
-            <?php if ($fee_item) : ?>
-                <p><?php echo esc_html($fee_item->description); ?>: &euro; <?php echo esc_html(number_format($remaining, 2, ',', '.')); ?></p>
-                <?php if ($qr) : ?>
-                    <div class="avbk-congress-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
-                    <p class="avbk-congress-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
-                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::fee_reference_code((int) $reg->member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description); ?></code></p>
-                <?php elseif ($remaining > 0.005) : ?>
-                    <p>Er kon geen QR-code worden gegenereerd. Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) om te betalen.</p>
-                <?php endif; ?>
-            <?php else : ?>
-                <p>Er is nog geen bedrag geregistreerd voor je aanmelding. Neem contact op met de penningmeester als je vragen hebt over de betaling.</p>
-            <?php endif; ?>
+            <?php $this->render_confirmation_payment($reg, $fee_item, $remaining, $qr); ?>
 
             <?php if ($providers) : ?>
                 <h3>Account</h3>
@@ -143,6 +149,22 @@ class AVBK_Congress implements AVBK_Component {
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    /** The member's fee item for the current congress at its rate; 0 when there is no congress, rate or amount. */
+    private function congress_fee_item(int $member_id): int {
+        $activity = $this->get_current_congress_activity();
+        $member = AVPVH_DB::get_member($member_id);
+        if (!$activity || !$member) {
+            return 0;
+        }
+        $reference_date = $activity->start_date ?: current_time('Y-m-d');
+        $computed = AVBK_Fee_Generation::compute_activity_rate($member, $activity, 1, $reference_date);
+        if (!$computed || $computed['amount'] <= 0) {
+            return 0;
+        }
+        $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
+        return AVBK_DB::upsert_event_fee_item($member_id, $activity->name . $label, $computed['amount'], (int) $activity->id);
     }
 
     public function handle_register(): void {
@@ -171,21 +193,7 @@ class AVBK_Congress implements AVBK_Component {
         $match = AVBK_DB::find_or_create_member_for_registration($first_name, $suffix, $last_name, $email, $phone);
         $member_id = $match['member_id'];
 
-        $fee_item_id = 0;
-        if ($member_id) {
-            $activity = $this->get_current_congress_activity();
-            $member = AVPVH_DB::get_member($member_id);
-            if ($activity && $member) {
-                $reference_date = $activity->start_date ?: current_time('Y-m-d');
-                $computed = AVBK_Fee_Generation::compute_activity_rate($member, $activity, 1, $reference_date);
-                if ($computed && $computed['amount'] > 0) {
-                    $label = $computed['rate']->label !== '' ? " ({$computed['rate']->label})" : '';
-                    $fee_item_id = AVBK_DB::upsert_event_fee_item(
-                        $member_id, $activity->name . $label, $computed['amount'], (int) $activity->id
-                    );
-                }
-            }
-        }
+        $fee_item_id = $member_id ? $this->congress_fee_item((int) $member_id) : 0;
 
         $registration = AVBK_DB::create_congress_registration([
             'member_id'   => $member_id,

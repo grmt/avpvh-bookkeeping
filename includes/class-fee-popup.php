@@ -56,6 +56,15 @@ class AVBK_Fee_Popup implements AVBK_Component {
         return $member ?: null;
     }
 
+    /** An open item's description, with the warning when its amount is estimated. */
+    private function render_item_description(object $item): void {
+?><?php echo esc_html($item->description); ?>
+                                <?php if (!empty($item->is_estimated)) : ?>
+                                    <br><small style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></small>
+                                <?php endif; ?>
+<?php
+    }
+
     public function maybe_render_popup(): void {
         $member = $this->should_show();
         if (!$member) {
@@ -90,10 +99,7 @@ class AVBK_Fee_Popup implements AVBK_Component {
                         } ?>
                         <li>
                             <span>
-                                <?php echo esc_html($item->description); ?>
-                                <?php if (!empty($item->is_estimated)) : ?>
-                                    <br><small style="color:#b32d2e;font-weight:600">&#9888; <?php echo esc_html($item->estimate_reason ?: 'Geschat bedrag.'); ?></small>
-                                <?php endif; ?>
+                                <?php $this->render_item_description($item); ?>
                             </span>
                             <span>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></span>
                         </li>

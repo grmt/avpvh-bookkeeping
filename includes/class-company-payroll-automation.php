@@ -52,21 +52,33 @@ class AVBK_Company_Payroll_Automation {
         $items = []; $holds = [];
         foreach ($all as $period => $payments) {
             foreach ($payments as $payment) {
-                if ($payment['state'] === 'review') {
-                    if ($period <= substr($date, 0, 7)) {
-                        $holds[] = ['period' => $period, 'payment' => $payment];
-                    }
-                    continue;
-                }
-                $due = $payment['due_date'] ?? ($period . '-01');
-                if ($due > $end) {
-                    continue;
-                }
-                $match = self::paid($company_id, $payment);
-                $items[] = ['period' => $period, 'payment' => $payment, 'paid_on' => $match->transaction_date ?? null];
+                self::sort_payment($company_id, (string) $period, $payment, [$date, $end], $items, $holds);
             }
         }
         return ['company' => $company->name, 'company_iban' => $company->iban, 'date' => $date, 'recipient' => $settings['recipient'], 'items' => $items, 'holds' => $holds];
+    }
+
+    /**
+     * One payroll payment into the reminder: under review (held, up to this
+     * month), due by the end of the month (an item, with its payment date
+     * if paid), or later (left out).
+     *
+     * @param array{0: string, 1: string} $dates the reminder date and the last day of its month
+     */
+    private static function sort_payment(int $company_id, string $period, array $payment, array $dates, array &$items, array &$holds): void {
+        [$date, $end] = $dates;
+        if ($payment['state'] === 'review') {
+            if ($period <= substr($date, 0, 7)) {
+                $holds[] = ['period' => $period, 'payment' => $payment];
+            }
+            return;
+        }
+        $due = $payment['due_date'] ?? ($period . '-01');
+        if ($due > $end) {
+            return;
+        }
+        $match = self::paid($company_id, $payment);
+        $items[] = ['period' => $period, 'payment' => $payment, 'paid_on' => $match->transaction_date ?? null];
     }
 
     public static function html(array $reminder): string {
@@ -87,6 +99,31 @@ class AVBK_Company_Payroll_Automation {
         }
         $html .= '<p>Controleer in je bank of een betaling al is uitgevoerd of ingepland. Scannen en bevestigen gebeurt in je bank; deze herinnering voert geen betalingen uit.</p><p><a href="' . esc_url(home_url('/salaris/')) . '">Salarisadministratie openen</a></p>';
         return $html;
+    }
+
+    /**
+     * A QR image file per unpaid item, keyed by its content id in the mail.
+     * Every file created is added to $files, also when a later one fails,
+     * so the caller can always remove them.
+     */
+    private static function qr_images(array $items, array &$files): array {
+        $images = [];
+        foreach ($items as $i => $item) {
+            if ($item['paid_on']) {
+                continue;
+            }
+            $png = AVBK_QR::png(AVBK_Company_Payroll::payload($item['payment']));
+            $file = wp_tempnam('avbk-payroll-qr.png');
+            if (!$png || !$file) {
+                throw new AVBK_Company_Exception('Kan geen QR voor e-mail maken.');
+            }
+            $files[] = $file;
+            if (file_put_contents($file, $png) !== strlen($png)) {
+                throw new AVBK_Company_Exception('Kan de QR-bijlage niet opslaan.');
+            }
+            $images['avbk-payroll-' . $i] = $file;
+        }
+        return $images;
     }
 
     public static function send(int $company_id): string {
@@ -110,20 +147,7 @@ class AVBK_Company_Payroll_Automation {
             }
         };
         try {
-            foreach ($reminder['items'] as $i => $item) {
-                if ($item['paid_on']) {
-                    continue;
-                }
-                $png = AVBK_QR::png(AVBK_Company_Payroll::payload($item['payment']));
-                $file = wp_tempnam('avbk-payroll-qr.png'); if (!$png || !$file) {
-                    throw new AVBK_Company_Exception('Kan geen QR voor e-mail maken.');
-                }
-                $files[] = $file;
-                if (file_put_contents($file, $png) !== strlen($png)) {
-                    throw new AVBK_Company_Exception('Kan de QR-bijlage niet opslaan.');
-                }
-                $images['avbk-payroll-' . $i] = $file;
-            }
+            $images = self::qr_images($reminder['items'], $files);
             add_action('phpmailer_init', $embed);
             if (!wp_mail($reminder['recipient'], 'Salaris en loonheffingen · ' . $reminder['company'] . ' · ' . $now->format('Y-m'), self::html($reminder), ['Content-Type: text/html; charset=UTF-8'])) {
                 throw new AVBK_Company_Exception('De betaalherinnering kon niet worden verzonden.');
