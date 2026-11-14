@@ -106,16 +106,41 @@ class AVBK_Product_Payment implements AVBK_Component {
         return $file;
     }
 
+    /**
+     * The QR upload as save() expects it, with tmp_name only when it is a
+     * file PHP received in this request (avbk_uploaded_file_path()).
+     */
+    private static function posted_upload(): array {
+        $upload = $_FILES['qr_upload'] ?? []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Missing -- each field is validated below; the caller checked the nonce.
+        if (!is_array($upload) || (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [];
+        }
+        $file = [
+            'name'     => sanitize_file_name((string) ($upload['name'] ?? '')),
+            'error'    => (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE),
+            'size'     => (int) ($upload['size'] ?? 0),
+            'tmp_name' => '',
+        ];
+        if ($file['error'] === UPLOAD_ERR_OK) {
+            try {
+                $file['tmp_name'] = avbk_uploaded_file_path((string) ($upload['tmp_name'] ?? ''));
+            } catch (AVBK_Upload_Exception $e) {
+                $file['error'] = UPLOAD_ERR_NO_TMP_DIR;
+            }
+        }
+        return $file;
+    }
+
     public function handle_save(): void {
         if (!self::can_manage()) {
             wp_die('Geen toegang.', '', ['response' => 403]);
         }
-        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        if (sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
             wp_die('Gebruik het instellingenformulier.', '', ['response' => 405]);
         }
         $product = sanitize_key(wp_unslash($_POST['product'] ?? ''));
         check_admin_referer('avbk_save_product_payment_' . $product);
-        $result = self::save($product, wp_unslash($_POST['payment_url'] ?? ''), $_FILES['qr_upload'] ?? [], !empty($_POST['remove_upload']));
+        $result = self::save($product, esc_url_raw(wp_unslash($_POST['payment_url'] ?? '')), self::posted_upload(), !empty($_POST['remove_upload']));
         if (is_wp_error($result)) {
             set_transient('avbk_product_payment_error_' . get_current_user_id(), $result->get_error_message(), 10 * MINUTE_IN_SECONDS);
         }

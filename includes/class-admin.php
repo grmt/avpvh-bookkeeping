@@ -281,18 +281,20 @@ class AVBK_Admin implements AVBK_Component {
             wp_die('Geen toegang.', 403);
         }
 
-        if (empty($_FILES['bank_export']['tmp_name']) || !is_uploaded_file($_FILES['bank_export']['tmp_name'])) {
+        $upload = $_FILES['bank_export'] ?? []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- name is sanitized and tmp_name checked by avbk_uploaded_file_path() below.
+        $tmp_name = is_array($upload) ? (string) ($upload['tmp_name'] ?? '') : '';
+        if ($tmp_name === '' || !is_uploaded_file($tmp_name)) {
             wp_safe_redirect(add_query_arg(['page' => 'avbk-import', 'import_error' => '1'], admin_url('admin.php')));
             exit;
         }
 
         try {
-            $filename = sanitize_file_name(wp_unslash($_FILES['bank_export']['name']));
+            $filename = sanitize_file_name(wp_unslash((string) ($upload['name'] ?? '')));
             // Deliberately never moved into wp-content/uploads — a bank
             // export contains IBANs and personal transaction data, and
             // AVBK_Import::process_file() only needs to read it once from
             // PHP's own private upload tmp path.
-            $result = AVBK_Import::process_file(avbk_uploaded_file_path($_FILES['bank_export']['tmp_name']), $filename, get_current_user_id());
+            $result = AVBK_Import::process_file(avbk_uploaded_file_path($tmp_name), $filename, get_current_user_id());
         } catch (\Throwable $e) {
             wp_safe_redirect(add_query_arg([
                 'page' => 'avbk-import', 'import_error' => '1', 'import_error_message' => rawurlencode($e->getMessage()),
@@ -326,11 +328,13 @@ class AVBK_Admin implements AVBK_Component {
      * needs every row to be actually usable.
      */
     private function parse_raw_transaction_rows(): array {
+        // phpcs:disable WordPress.Security.NonceVerification.Missing -- only called from handlers that ran check_admin_referer() first.
         $member_ids = array_map('intval', (array) ($_POST['member_id'] ?? []));
         $activities = array_map('sanitize_text_field', wp_unslash((array) ($_POST['activity'] ?? [])));
         $descriptions = array_map('sanitize_text_field', wp_unslash((array) ($_POST['description'] ?? [])));
         $amounts_raw = array_map('sanitize_text_field', wp_unslash((array) ($_POST['amount'] ?? [])));
-        $donation_emails = (array) ($_POST['donation_email'] ?? []);
+        $donation_emails = array_map('absint', wp_unslash((array) ($_POST['donation_email'] ?? [])));
+        // phpcs:enable WordPress.Security.NonceVerification.Missing
 
         $rows = [];
         foreach ($member_ids as $i => $member_id) {
@@ -1897,7 +1901,7 @@ class AVBK_Admin implements AVBK_Component {
                     <?php else : ?>
                         <p id="avbk-qr">De QR-code kon niet worden gegenereerd.</p>
                     <?php endif; ?>
-                    <button type="button" id="avbk-clear-qr" class="button button-small">QR-code verwijderen</button>
+                    <button type="button" id="avbk-clear-request-qr" class="button button-small">QR-code verwijderen</button>
                 </div>
             </div>
             <form class="avbk-preview-edit" method="get" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -1934,7 +1938,7 @@ class AVBK_Admin implements AVBK_Component {
                 // generated one. Ctrl+V/long-press paste of an image lands
                 // here via the browser's clipboard API; the generated QR
                 // is simply discarded, nothing server-side to undo.
-                document.getElementById('avbk-clear-qr').addEventListener('click', function () {
+                document.getElementById('avbk-clear-request-qr').addEventListener('click', function () {
                     var el = document.getElementById('avbk-qr');
                     el.textContent = 'Plak hier een QR-code (Ctrl+V)';
                     el.setAttribute('contenteditable', 'true');
