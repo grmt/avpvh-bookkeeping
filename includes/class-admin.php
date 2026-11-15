@@ -704,12 +704,10 @@ class AVBK_Admin implements AVBK_Component {
             || !AVPVH_DB::get_activity($activity_id) || !AVPVH_DB::get_activity($source_activity_id)) {
             return 'invalid';
         }
-        if (AVBK_DB::get_activity_rates($activity_id)) {
-            return 'target_has_rates';
-        }
+        $existing = AVBK_DB::get_activity_rates($activity_id);
         $source_rates = AVBK_DB::get_activity_rates($source_activity_id);
-        if (!$source_rates) {
-            return 'source_empty';
+        if ($existing || !$source_rates) {
+            return $existing ? 'target_has_rates' : 'source_empty';
         }
         $optional_int = static fn($value) => $value === null ? null : (int) $value;
         foreach ($source_rates as $source_rate) {
@@ -2580,23 +2578,20 @@ class AVBK_Admin implements AVBK_Component {
     /** The book texts and price on the settings form; only fields the form sent are saved. */
     private static function save_book_settings(): void {
         // phpcs:disable WordPress.Security.NonceVerification.Missing -- only called from handle_save_settings() after check_admin_referer().
-        if (isset($_POST['book_title'])) {
-            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
+        $texts = [
+            'book_title'               => ['sanitize_text_field', AVBK_Book_Order::DEFAULT_TITLE],
+            'book_price_note'          => ['sanitize_text_field', AVBK_Book_Order::DEFAULT_PRICE_NOTE],
+            'book_flaptekst'           => ['wp_kses_post', AVBK_Book_Order::DEFAULT_FLAPTEKST],
+            'book_distribution_notice' => ['sanitize_textarea_field', AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE],
+            'book_presentation_notice' => ['sanitize_textarea_field', AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE],
+        ];
+        foreach ($texts as $field => [$sanitize, $default]) {
+            if (isset($_POST[$field])) {
+                update_option('avbk_' . $field, $sanitize(wp_unslash($_POST[$field])) ?: $default); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized by the callable from the table above.
+            }
         }
         if (isset($_POST['book_price'])) {
             update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
-        }
-        if (isset($_POST['book_price_note'])) {
-            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
-        }
-        if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
-        }
-        if (isset($_POST['book_distribution_notice'])) {
-            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
-        }
-        if (isset($_POST['book_presentation_notice'])) {
-            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
         }
         // phpcs:enable WordPress.Security.NonceVerification.Missing
     }
@@ -3134,24 +3129,7 @@ class AVBK_Admin implements AVBK_Component {
         }
 
         // Book options
-        if (isset($_POST['book_title'])) {
-            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
-        }
-        if (isset($_POST['book_price'])) {
-            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
-        }
-        if (isset($_POST['book_price_note'])) {
-            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
-        }
-        if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
-        }
-        if (isset($_POST['book_distribution_notice'])) {
-            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
-        }
-        if (isset($_POST['book_presentation_notice'])) {
-            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
-        }
+        self::save_book_settings();
 
         wp_safe_redirect(add_query_arg('settings_saved', '1', $redirect));
         exit;
