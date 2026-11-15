@@ -2578,16 +2578,17 @@ class AVBK_Admin implements AVBK_Component {
     /** The book texts and price on the settings form; only fields the form sent are saved. */
     private static function save_book_settings(): void {
         // phpcs:disable WordPress.Security.NonceVerification.Missing -- only called from handle_save_settings() after check_admin_referer().
+        // Field => [sanitizer, AVBK_Book_Order default constant]; the default is only read when the field was sent.
         $texts = [
-            'book_title'               => ['sanitize_text_field', AVBK_Book_Order::DEFAULT_TITLE],
-            'book_price_note'          => ['sanitize_text_field', AVBK_Book_Order::DEFAULT_PRICE_NOTE],
-            'book_flaptekst'           => ['wp_kses_post', AVBK_Book_Order::DEFAULT_FLAPTEKST],
-            'book_distribution_notice' => ['sanitize_textarea_field', AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE],
-            'book_presentation_notice' => ['sanitize_textarea_field', AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE],
+            'book_title'               => ['sanitize_text_field', 'DEFAULT_TITLE'],
+            'book_price_note'          => ['sanitize_text_field', 'DEFAULT_PRICE_NOTE'],
+            'book_flaptekst'           => ['wp_kses_post', 'DEFAULT_FLAPTEKST'],
+            'book_distribution_notice' => ['sanitize_textarea_field', 'DEFAULT_DISTRIBUTION_NOTICE'],
+            'book_presentation_notice' => ['sanitize_textarea_field', 'DEFAULT_PRESENTATION_NOTICE'],
         ];
         foreach ($texts as $field => [$sanitize, $default]) {
             if (isset($_POST[$field])) {
-                update_option('avbk_' . $field, $sanitize(wp_unslash($_POST[$field])) ?: $default); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized by the callable from the table above.
+                update_option('avbk_' . $field, $sanitize(wp_unslash($_POST[$field])) ?: constant('AVBK_Book_Order::' . $default)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized by the callable from the table above.
             }
         }
         if (isset($_POST['book_price'])) {
