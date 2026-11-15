@@ -164,13 +164,13 @@ function avbk_render_company_inbox_row($document, $company_id, $form_start): voi
                                     </form>
                                 </td>
                                 <td><?php echo esc_html(AVBK_Company_Invoice_Inbox::quarter_label($document->invoice_date) ?: '—'); ?></td>
-                                <td><?php avbk_render_company_inbox_link($document, $company_id, $form_start); ?></td>
+                                <td><?php avbk_render_company_inbox_link($document, $form_start); ?></td>
                             </tr>
 <?php
 }
 
 /** The suggested payment preselected among the other candidates, or why there is none. */
-function avbk_render_company_inbox_link($document, $company_id, $form_start): void {
+function avbk_render_company_inbox_link($document, $form_start): void {
     if (!$document->candidates) {
         echo esc_html($document->invoice_date && $document->amount_total !== null
             ? 'Geen uitgaande betaling met dit bedrag in die periode. Controleer bedrag en datum, of koppel later in het kwartaaloverzicht.'
@@ -179,7 +179,8 @@ function avbk_render_company_inbox_link($document, $company_id, $form_start): vo
     }
     $form_start('invoice_inbox_link', false, 'avbk-company-inline-form'); ?>
                                         <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
-                                        <select name="transaction_id">
+                                        <label class="screen-reader-text" for="avbk-inbox-transaction-<?php echo esc_attr($document->id); ?>">Betaling voor deze factuur</label>
+                                        <select name="transaction_id" id="avbk-inbox-transaction-<?php echo esc_attr($document->id); ?>">
                                             <?php foreach ($document->candidates as $tx) : ?>
                                                 <option value="<?php echo esc_attr($tx->id); ?>" <?php selected((int) $document->suggested_transaction_id, (int) $tx->id); ?>><?php echo esc_html(((int) $document->suggested_transaction_id === (int) $tx->id ? 'Voorstel: ' : '') . $tx->transaction_date . ' · ' . $tx->counterparty_name . ' · € ' . number_format((float) $tx->amount, 2, ',', '.')); ?></option>
                                             <?php endforeach; ?>

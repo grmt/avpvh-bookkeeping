@@ -206,24 +206,10 @@ class AVBK_Company_Admin implements AVBK_Component {
 
     /** Normalize PHP's single or multiple upload shape before reading any files. */
     public static function statement_uploads(array $input, int $max_files = 20, int $max_bytes = 20 * 1024 * 1024): array {
-        $files = [];
         if (!isset($input['name'])) {
             throw new AVBK_Company_Exception('Kies één of meer creditcardbestanden.');
         }
-        if (!is_array($input['name'])) {
-            $files[] = $input;
-        } else {
-            foreach (array_keys($input['name']) as $index) {
-                $file = [];
-                foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
-                    if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) {
-                        throw new AVBK_Company_Exception('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
-                    }
-                    $file[$key] = $input[$key][$index];
-                }
-                $files[] = $file;
-            }
-        }
+        $files = is_array($input['name']) ? self::upload_list($input) : [$input];
         if (!$files || count($files) > $max_files) {
             throw new AVBK_Company_Exception(esc_html(sprintf('Kies maximaal %d bestanden per upload.', $max_files)));
         }
@@ -237,6 +223,22 @@ class AVBK_Company_Admin implements AVBK_Component {
         }
         if ($total > $max_bytes) {
             throw new AVBK_Company_Exception(esc_html(sprintf('Kies samen maximaal %d MB per upload.', (int) ($max_bytes / 1024 / 1024))));
+        }
+        return $files;
+    }
+
+    /** PHP's name[]/tmp_name[]/... arrays of a multiple upload as one array per file. */
+    private static function upload_list(array $input): array {
+        $files = [];
+        foreach (array_keys($input['name']) as $index) {
+            $file = [];
+            foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
+                if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) {
+                    throw new AVBK_Company_Exception('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
+                }
+                $file[$key] = $input[$key][$index];
+            }
+            $files[] = $file;
         }
         return $files;
     }

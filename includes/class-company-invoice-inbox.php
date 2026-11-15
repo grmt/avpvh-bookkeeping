@@ -95,24 +95,21 @@ class AVBK_Company_Invoice_Inbox {
 
     /** The OCR text of a stored document, or null when there is no file or OCR is not possible. */
     private static function document_text(object $document): ?string {
-        if (!class_exists('AVBK_OCR') || empty($document->document_data)) {
-            return null;
-        }
-        $bytes = base64_decode((string) $document->document_data, true);
+        $bytes = class_exists('AVBK_OCR') && !empty($document->document_data) ? base64_decode((string) $document->document_data, true) : false;
         $extension = strtolower(pathinfo((string) $document->filename, PATHINFO_EXTENSION)) ?: 'pdf';
         $file = $bytes === false ? false : wp_tempnam('avbk-invoice.' . $extension);
         if (!$file) {
             return null;
         }
+        $text = null;
         try {
-            if (file_put_contents($file, $bytes) !== strlen($bytes)) {
-                return null;
+            if (file_put_contents($file, $bytes) === strlen($bytes)) {
+                $text = AVBK_OCR::extract_text($file);
             }
-            $text = AVBK_OCR::extract_text($file);
-            return is_string($text) && trim($text) !== '' ? $text : null;
         } finally {
             wp_delete_file($file);
         }
+        return is_string($text) && trim($text) !== '' ? $text : null;
     }
 
     /**
