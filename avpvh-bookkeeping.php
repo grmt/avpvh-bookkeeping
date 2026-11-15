@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Bookkeeping
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page.
- * Version:     1.35.2
+ * Version:     1.36.0
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -77,6 +77,8 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-workbook.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-vat-patterns.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-documents.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-ocr.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-company-invoice-inbox.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-payroll.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-payroll-automation.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-report.php';
@@ -85,7 +87,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-card-groups.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-ledger.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-company-admin.php';
-    if (get_option('avbk_company_schema') !== '7') {
+    if (get_option('avbk_company_schema') !== '8') {
         AVBK_Companies::install();
     }
     // The company portal also runs without avpvh-members.

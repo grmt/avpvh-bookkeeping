@@ -21,6 +21,12 @@ class AVBK_OCR {
     const PROCESSOR_ID = '86330dffb1e6f725';
     const TOKEN_TRANSIENT = 'avbk_gcp_access_token';
 
+    /** Whether a service account is configured, so OCR can be tried at all. */
+    public static function available(): bool {
+        $key = json_decode((string) get_option('avbk_gcp_service_account_json', ''), true);
+        return is_array($key) && !empty($key['private_key']) && !empty($key['client_email']);
+    }
+
     /** Bearer token for the Google API, cached in a transient (tokens are valid ~1h). */
     private static function get_access_token(): ?string {
         $cached = get_transient(self::TOKEN_TRANSIENT);
