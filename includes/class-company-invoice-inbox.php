@@ -17,6 +17,9 @@ class AVBK_Company_Invoice_Inbox {
     public const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
     public const CRON_HOOK = 'avbk_company_invoice_ocr';
     private const PER_RUN = 10;
+    /** Seconds one cron run may spend on OCR before it hands the rest to the next run. */
+    private const RUN_BUDGET = 120;
+    private const OCR_TIMEOUT = 90;
     /** A payment can come shortly before the invoice date (prepaid) up to months after it. */
     private const DAYS_BEFORE = 14;
     private const DAYS_AFTER = 120;
@@ -61,10 +64,16 @@ class AVBK_Company_Invoice_Inbox {
             "SELECT * FROM {$wpdb->prefix}avb_company_documents WHERE ocr_status = 'pending' ORDER BY id LIMIT %d",
             self::PER_RUN
         )) ?: [];
+        $start = time();
+        $done = 0;
         foreach ($documents as $document) {
             self::process_document($document);
+            $done++;
+            if (time() - $start > self::RUN_BUDGET) {
+                break;
+            }
         }
-        if (count($documents) === self::PER_RUN) {
+        if ($done < count($documents) || count($documents) === self::PER_RUN) {
             wp_schedule_single_event(time() + 30, self::CRON_HOOK);
         }
     }
@@ -104,7 +113,7 @@ class AVBK_Company_Invoice_Inbox {
         $text = null;
         try {
             if (file_put_contents($file, $bytes) === strlen($bytes)) {
-                $text = AVBK_OCR::extract_text($file);
+                $text = AVBK_OCR::extract_text($file, self::OCR_TIMEOUT);
             }
         } finally {
             wp_delete_file($file);
@@ -119,13 +128,19 @@ class AVBK_Company_Invoice_Inbox {
      * @return array{date: ?string, amount: ?float, supplier: ?string}
      */
     public static function read_invoice(string $text): array {
-        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $text) ?: []), static fn($line) => $line !== ''));
+        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n|' . self::LABEL_BREAK . '/iu', $text) ?: []), static fn($line) => $line !== ''));
         return [
             'date'     => self::invoice_date($lines),
             'amount'   => self::invoice_total($lines),
             'supplier' => self::supplier($lines),
         ];
     }
+
+    /**
+     * Docling joins the lines of a text block into one, so a new line
+     * starts before each label the readers below look for.
+     */
+    private const LABEL_BREAK = '(?=\b(?:factuurdatum|factuurnummer|vervaldatum|datum|invoice\s*(?:date|number|no)|due\s*date|subtota(?:a)?l|totaal|total|te\s*betalen|amount\s*due)\b)';
 
     /** The date on a "factuurdatum"/"datum"/"invoice date" line (or the line after it), else the first date anywhere. */
     private static function invoice_date(array $lines): ?string {

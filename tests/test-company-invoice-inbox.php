@@ -48,6 +48,10 @@ $no_total = "Iets Zonder Totaal\n12-02-2025\nRegel 1 10,00\nRegel 2 20,00";
 $read = AVBK_Company_Invoice_Inbox::read_invoice($no_total);
 check($read['amount'] === null && $read['date'] === '2025-02-12', 'no total line means no amount guess, but the date is still found');
 
+$docling = "Voorbeeld Leverancier B.V. Factuurdatum: 14-03-2025 Vervaldatum: 13-04-2025 Totaal excl. BTW 100,00 BTW 21% 21,00 Totaal incl. BTW 121,00";
+$read = AVBK_Company_Invoice_Inbox::read_invoice($docling);
+check($read['supplier'] === 'Voorbeeld Leverancier B.V.' && $read['date'] === '2025-03-14' && $read['amount'] === 121.0, 'docling text with the lines of a block joined into one');
+
 check(AVBK_Company_Invoice_Inbox::first_date('31-02-2025 en 2025-06-30') === '2025-06-30', 'an impossible date is skipped');
 check(AVBK_Company_Invoice_Inbox::first_date('versie 1.2.3') === null, 'version numbers are not dates');
 check(AVBK_Company_Invoice_Inbox::amounts('Totaal 1.234,56 en 12,00 en 99.95') === [1234.56, 12.0, 99.95], 'European and dot-decimal amounts on one line');
