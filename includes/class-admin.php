@@ -693,6 +693,38 @@ class AVBK_Admin implements AVBK_Component {
         exit;
     }
 
+    /**
+     * Copies every rate of the source activity to an activity that has
+     * none yet.
+     *
+     * @return string the outcome for the notice: invalid, target_has_rates, source_empty or copied
+     */
+    private static function copy_activity_rates(int $activity_id, int $source_activity_id): string {
+        if (!$activity_id || !$source_activity_id || $activity_id === $source_activity_id
+            || !AVPVH_DB::get_activity($activity_id) || !AVPVH_DB::get_activity($source_activity_id)) {
+            return 'invalid';
+        }
+        $existing = AVBK_DB::get_activity_rates($activity_id);
+        $source_rates = AVBK_DB::get_activity_rates($source_activity_id);
+        if ($existing || !$source_rates) {
+            return $existing ? 'target_has_rates' : 'source_empty';
+        }
+        $optional_int = static fn($value) => $value === null ? null : (int) $value;
+        foreach ($source_rates as $source_rate) {
+            AVBK_DB::save_activity_rate(
+                0,
+                $activity_id,
+                $optional_int($source_rate->min_age),
+                $optional_int($source_rate->max_age),
+                (string) $source_rate->label,
+                (float) $source_rate->rate,
+                !empty($source_rate->for_students),
+                $optional_int($source_rate->flag_id)
+            );
+        }
+        return 'copied';
+    }
+
     public function handle_copy_activity_rates(): void {
         check_admin_referer('avbk_copy_activity_rates');
         if (!$this->can_manage()) {
@@ -700,31 +732,7 @@ class AVBK_Admin implements AVBK_Component {
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
         $source_activity_id = (int) ($_POST['source_activity_id'] ?? 0);
-        $result = 'invalid';
-        if ($activity_id && $source_activity_id && $activity_id !== $source_activity_id
-            && AVPVH_DB::get_activity($activity_id) && AVPVH_DB::get_activity($source_activity_id)) {
-            $existing = AVBK_DB::get_activity_rates($activity_id);
-            $source_rates = AVBK_DB::get_activity_rates($source_activity_id);
-            if ($existing) {
-                $result = 'target_has_rates';
-            } elseif (!$source_rates) {
-                $result = 'source_empty';
-            } else {
-                foreach ($source_rates as $source_rate) {
-                    AVBK_DB::save_activity_rate(
-                        0,
-                        $activity_id,
-                        $source_rate->min_age === null ? null : (int) $source_rate->min_age,
-                        $source_rate->max_age === null ? null : (int) $source_rate->max_age,
-                        (string) $source_rate->label,
-                        (float) $source_rate->rate,
-                        !empty($source_rate->for_students),
-                        $source_rate->flag_id === null ? null : (int) $source_rate->flag_id
-                    );
-                }
-                $result = 'copied';
-            }
-        }
+        $result = self::copy_activity_rates($activity_id, $source_activity_id);
         wp_safe_redirect(add_query_arg([
             'page' => 'avbk-rates',
             'activity_id' => $activity_id,
@@ -2567,6 +2575,28 @@ class AVBK_Admin implements AVBK_Component {
         exit;
     }
 
+    /** The book texts and price on the settings form; only fields the form sent are saved. */
+    private static function save_book_settings(): void {
+        // phpcs:disable WordPress.Security.NonceVerification.Missing -- only called from handle_save_settings() after check_admin_referer().
+        // Field => [sanitizer, AVBK_Book_Order default constant]; the default is only read when the field was sent.
+        $texts = [
+            'book_title'               => ['sanitize_text_field', 'DEFAULT_TITLE'],
+            'book_price_note'          => ['sanitize_text_field', 'DEFAULT_PRICE_NOTE'],
+            'book_flaptekst'           => ['wp_kses_post', 'DEFAULT_FLAPTEKST'],
+            'book_distribution_notice' => ['sanitize_textarea_field', 'DEFAULT_DISTRIBUTION_NOTICE'],
+            'book_presentation_notice' => ['sanitize_textarea_field', 'DEFAULT_PRESENTATION_NOTICE'],
+        ];
+        foreach ($texts as $field => [$sanitize, $default]) {
+            if (isset($_POST[$field])) {
+                update_option('avbk_' . $field, $sanitize(wp_unslash($_POST[$field])) ?: constant('AVBK_Book_Order::' . $default)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized by the callable from the table above.
+            }
+        }
+        if (isset($_POST['book_price'])) {
+            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
+        }
+        // phpcs:enable WordPress.Security.NonceVerification.Missing
+    }
+
     public function handle_save_settings(): void {
         check_admin_referer('avbk_save_settings');
         if (!$this->can_manage()) {
@@ -2582,24 +2612,7 @@ class AVBK_Admin implements AVBK_Component {
         update_option('avbk_payment_email_login_text', sanitize_textarea_field(wp_unslash($_POST['payment_email_login_text'] ?? '')) ?: self::DEFAULT_PAYMENT_EMAIL_LOGIN_TEXT);
         update_option('avbk_qr_caption_text', sanitize_textarea_field(wp_unslash($_POST['qr_caption_text'] ?? '')) ?: self::DEFAULT_QR_CAPTION_TEXT);
         update_option('avbk_generic_payment_link_text', sanitize_textarea_field(wp_unslash($_POST['generic_payment_link_text'] ?? '')) ?: self::DEFAULT_GENERIC_PAYMENT_LINK_TEXT);
-        if (isset($_POST['book_title'])) {
-            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
-        }
-        if (isset($_POST['book_price'])) {
-            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
-        }
-        if (isset($_POST['book_price_note'])) {
-            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
-        }
-        if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
-        }
-        if (isset($_POST['book_distribution_notice'])) {
-            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
-        }
-        if (isset($_POST['book_presentation_notice'])) {
-            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
-        }
+        self::save_book_settings();
         wp_safe_redirect(add_query_arg(['page' => 'avbk-rates', 'settings_saved' => '1'], admin_url('admin.php')));
         exit;
     }
@@ -2898,31 +2911,33 @@ class AVBK_Admin implements AVBK_Component {
         exit;
     }
 
+    /** The order list filters from the export link; empty and "all" mean no filter. */
+    private static function order_export_filters(string $order_type): array {
+        // phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only export filters; the export checks can_manage().
+        $filters = [
+            'status'              => sanitize_key(wp_unslash($_GET['status'] ?? '')),
+            'distribution_status' => sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all')),
+            'payment_status'      => sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all')),
+            'search'              => sanitize_text_field(wp_unslash($_GET['s'] ?? '')),
+        ];
+        // phpcs:enable WordPress.Security.NonceVerification.Recommended
+        return ['order_type' => $order_type] + array_filter($filters, static fn($value) => $value !== '' && $value !== 'all');
+    }
+
+    /** Kwijtgescholden, Betaald or Open, for the order exports. */
+    private static function order_payment_label(object $order): string {
+        if ($order->fee_status === 'waived') {
+            return 'Kwijtgescholden';
+        }
+        return (float) $order->fee_paid >= (float) $order->total_amount - 0.005 ? 'Betaald' : 'Open';
+    }
+
     public function handle_export_tshirt_orders(): void {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
 
-        $filter_args = ['order_type' => 'tshirt'];
-        $status_filter = sanitize_key(wp_unslash($_GET['status'] ?? ''));
-        $dist_filter   = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
-        $pay_filter    = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
-        $search        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
-
-        if ($status_filter !== '' && $status_filter !== 'all') {
-            $filter_args['status'] = $status_filter;
-        }
-        if ($dist_filter !== '' && $dist_filter !== 'all') {
-            $filter_args['distribution_status'] = $dist_filter;
-        }
-        if ($pay_filter !== '' && $pay_filter !== 'all') {
-            $filter_args['payment_status'] = $pay_filter;
-        }
-        if ($search !== '') {
-            $filter_args['search'] = $search;
-        }
-
-        $orders = AVBK_DB::get_orders($filter_args);
+        $orders = AVBK_DB::get_orders(self::order_export_filters('tshirt'));
 
         $filename = 'tshirt-bestellingen-' . gmdate('Ymd-His') . '.csv';
         header('Content-Type: text/csv; charset=utf-8');
@@ -2958,20 +2973,13 @@ class AVBK_Admin implements AVBK_Component {
         ], ';');
 
         foreach ($orders as $order) {
-            $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
-            $pay_status_label = $order->fee_status === 'waived' ? 'Kwijtgescholden' : ($is_paid ? 'Betaald' : 'Open');
+            $pay_status_label = self::order_payment_label($order);
             $dist_label = match ($order->distribution_status) {
                 'collected'   => 'Opgehaald',
                 'distributed' => 'Uitgereikt',
                 default       => 'In afwachting',
             };
-
-            $items_summary = [];
-            if (!empty($order->items)) {
-                foreach ($order->items as $it) {
-                    $items_summary[] = "{$it->quantity}x {$it->title} ({$it->variant})";
-                }
-            }
+            $items_summary = array_map(static fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", (array) ($order->items ?? []));
 
             fputcsv($out, self::sanitize_csv_row([
                 $order->id,
@@ -3122,24 +3130,7 @@ class AVBK_Admin implements AVBK_Component {
         }
 
         // Book options
-        if (isset($_POST['book_title'])) {
-            update_option('avbk_book_title', sanitize_text_field(wp_unslash($_POST['book_title'] ?? '')) ?: AVBK_Book_Order::DEFAULT_TITLE);
-        }
-        if (isset($_POST['book_price'])) {
-            update_option('avbk_book_price', (float) ($_POST['book_price'] ?? AVBK_Book_Order::DEFAULT_PRICE));
-        }
-        if (isset($_POST['book_price_note'])) {
-            update_option('avbk_book_price_note', sanitize_text_field(wp_unslash($_POST['book_price_note'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRICE_NOTE);
-        }
-        if (isset($_POST['book_flaptekst'])) {
-            update_option('avbk_book_flaptekst', wp_kses_post(wp_unslash($_POST['book_flaptekst'] ?? '')) ?: AVBK_Book_Order::DEFAULT_FLAPTEKST);
-        }
-        if (isset($_POST['book_distribution_notice'])) {
-            update_option('avbk_book_distribution_notice', sanitize_textarea_field(wp_unslash($_POST['book_distribution_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_DISTRIBUTION_NOTICE);
-        }
-        if (isset($_POST['book_presentation_notice'])) {
-            update_option('avbk_book_presentation_notice', sanitize_textarea_field(wp_unslash($_POST['book_presentation_notice'] ?? '')) ?: AVBK_Book_Order::DEFAULT_PRESENTATION_NOTICE);
-        }
+        self::save_book_settings();
 
         wp_safe_redirect(add_query_arg('settings_saved', '1', $redirect));
         exit;

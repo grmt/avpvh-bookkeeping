@@ -343,15 +343,9 @@ class AVBK_Photo_Share implements AVBK_Component {
         ];
     }
 
-    /**
-     * Renders the [avpvh_bk_photo_share] shortcode.
-     */
-    public function render_shortcode($atts = []): string {
-        wp_enqueue_style('avbk-photo-share');
-
+    /** The notices after a redirect back to this page: mail sent, link expired, or what went wrong. */
+    private static function status_notices(): string {
         $out = '';
-
-        // Status notices from redirects
         if (!empty($_GET['photo_share_sent'])) {
             $sent_email = !empty($_GET['sent_email']) ? esc_html(urldecode($_GET['sent_email'])) : '';
             $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-success">'
@@ -385,6 +379,30 @@ class AVBK_Photo_Share implements AVBK_Component {
                     . '</div>';
             }
         }
+        return $out;
+    }
+
+    /** A logged-in visitor: their share link and uploader, a pending request, or the request form. */
+    private function render_for_user(int $user_id): string {
+        $share = self::get_user_share($user_id);
+        if ($share !== null) {
+            return $this->render_share_link($share['url']) . AVBK_Photo_Upload::render();
+        }
+        // Check if there is a pending request for this user
+        $pending_db = AVBK_DB::get_photo_share_by_user_id($user_id);
+        if ($pending_db && $pending_db->status === 'pending_confirmation' && time() <= strtotime($pending_db->expires_at)) {
+            return $this->render_user_pending_request_card($pending_db);
+        }
+        return $this->render_user_request_card();
+    }
+
+    /**
+     * Renders the [avpvh_bk_photo_share] shortcode.
+     */
+    public function render_shortcode($atts = []): string {
+        wp_enqueue_style('avbk-photo-share');
+
+        $out = self::status_notices();
 
         // A confirmation link is view-only. Logged-in visitors use their own share.
         if (!is_user_logged_in() && !empty($_GET['photo_share_confirmed']) && !empty($_GET['share_token'])) {
@@ -396,24 +414,7 @@ class AVBK_Photo_Share implements AVBK_Component {
 
         // Check if user is logged in
         if (is_user_logged_in()) {
-            $user_id = get_current_user_id();
-            $share   = self::get_user_share($user_id);
-
-            if ($share !== null) {
-                return $out . $this->render_share_link($share['url']) . AVBK_Photo_Upload::render();
-            }
-
-            // Check if there is a pending request for this user
-            $pending_db = AVBK_DB::get_photo_share_by_user_id($user_id);
-            if ($pending_db && $pending_db->status === 'pending_confirmation') {
-                $now = time();
-                $exp = strtotime($pending_db->expires_at);
-                if ($now <= $exp) {
-                    return $out . $this->render_user_pending_request_card($pending_db);
-                }
-            }
-
-            return $out . $this->render_user_request_card();
+            return $out . $this->render_for_user(get_current_user_id());
         }
 
         // Guest visitor
