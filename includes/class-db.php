@@ -2586,35 +2586,29 @@ class AVBK_DB {
                 return $n . ' nacht' . ($n === 1 ? '' : 'en');
             }
         }
-        if (($item->category ?? '') === 'book') {
-            global $wpdb;
+        $category = $item->category ?? '';
+        $quantity = in_array($category, ['book', 'tshirt'], true) ? self::ordered_quantity($item, $category === 'book') : 0;
+        if (!$quantity) {
+            return '';
+        }
+        $units = $category === 'book' ? ['exemplaar', 'exemplaren'] : ['shirt', 'shirts'];
+        return $quantity . ' ' . ($quantity === 1 ? $units[0] : $units[1]);
+    }
+
+    /** How many items the order behind a fee item holds; for a book also the older book-order table. */
+    private static function ordered_quantity(object $item, bool $is_book): int {
+        global $wpdb;
+        $quantity = $wpdb->get_var($wpdb->prepare(
+            "SELECT SUM(i.quantity) FROM {$wpdb->prefix}avb_orders o JOIN {$wpdb->prefix}avb_order_items i ON i.order_id = o.id WHERE o.fee_item_id = %d",
+            (int) $item->id
+        ));
+        if (!$quantity && $is_book) {
             $quantity = $wpdb->get_var($wpdb->prepare(
-                "SELECT SUM(i.quantity) FROM {$wpdb->prefix}avb_orders o JOIN {$wpdb->prefix}avb_order_items i ON i.order_id = o.id WHERE o.fee_item_id = %d",
+                "SELECT quantity FROM {$wpdb->prefix}avb_book_orders WHERE fee_item_id = %d LIMIT 1",
                 (int) $item->id
             ));
-            if (!$quantity) {
-                $quantity = $wpdb->get_var($wpdb->prepare(
-                    "SELECT quantity FROM {$wpdb->prefix}avb_book_orders WHERE fee_item_id = %d LIMIT 1",
-                    (int) $item->id
-                ));
-            }
-            if ($quantity) {
-                $q = (int) $quantity;
-                return $q . ' ' . ($q === 1 ? 'exemplaar' : 'exemplaren');
-            }
         }
-        if (($item->category ?? '') === 'tshirt') {
-            global $wpdb;
-            $quantity = $wpdb->get_var($wpdb->prepare(
-                "SELECT SUM(i.quantity) FROM {$wpdb->prefix}avb_orders o JOIN {$wpdb->prefix}avb_order_items i ON i.order_id = o.id WHERE o.fee_item_id = %d",
-                (int) $item->id
-            ));
-            if ($quantity) {
-                $q = (int) $quantity;
-                return $q . ' ' . ($q === 1 ? 'shirt' : 'shirts');
-            }
-        }
-        return '';
+        return (int) $quantity;
     }
 
     // -------------------------------------------------------------------
@@ -5135,17 +5129,7 @@ class AVBK_DB {
         $variants = array_filter(array_map('trim', explode(',', $configured_sizes_str)));
 
         // Preload active configured designs if tshirt
-        $designs = [];
-        if ($order_type === 'tshirt') {
-            $configured_designs = get_option('avbk_tshirt_designs', []);
-            if (is_array($configured_designs)) {
-                foreach ($configured_designs as $d) {
-                    if (!empty($d['name']) && !in_array($d['name'], $designs, true) && !empty($d['active'])) {
-                        $designs[] = $d['name'];
-                    }
-                }
-            }
-        }
+        $designs = $order_type === 'tshirt' ? self::active_tshirt_designs() : [];
 
         $matrix = [];
         $totals_by_design = [];
@@ -5185,6 +5169,18 @@ class AVBK_DB {
             'grand_total'       => $grand_total,
             'total_revenue'     => $total_revenue,
         ];
+    }
+
+    /** The names of the active configured T-shirt designs, each once, in configured order. */
+    private static function active_tshirt_designs(): array {
+        $designs = [];
+        $configured_designs = get_option('avbk_tshirt_designs', []);
+        foreach (is_array($configured_designs) ? $configured_designs : [] as $d) {
+            if (!empty($d['name']) && !in_array($d['name'], $designs, true) && !empty($d['active'])) {
+                $designs[] = $d['name'];
+            }
+        }
+        return $designs;
     }
 
     public static function create_book_fee_item(int $member_id, int $quantity, float $amount, string $book_title = ''): int {

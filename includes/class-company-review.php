@@ -4,6 +4,37 @@ require_once __DIR__ . '/class-exceptions.php';
 
 /** Persist a VAT decision together with the exact workbook and its private audit history. */
 class AVBK_Company_Review {
+    /** The reviewer's choice: a known VAT code (none only while pending), a state and a short note. */
+    private static function check_decision(string $code, string $state, string $note): void {
+        if (!in_array($code, ['', '0', '9', '21', 'x'], true) || !in_array($state, ['checked', 'pending'], true) || ($state === 'checked' && $code === '')) {
+            throw new AVBK_Company_Exception('Kies een BTW-tarief of vast BTW-bedrag voordat je de regel bevestigt.');
+        }
+        if (mb_strlen($note) > 500) {
+            throw new AVBK_Company_Exception('Gebruik maximaal 500 tekens voor de factuurverwijzing of notitie.');
+        }
+    }
+
+    /**
+     * The VAT in cents for a line of $gross cents: a fixed amount ("x",
+     * with the sign of the line), the share at a rate, or null without a code.
+     */
+    private static function vat_cents(string $code, string $fixed_vat, ?int $gross): ?int {
+        if ($code === '') {
+            return null;
+        }
+        if ($code !== 'x') {
+            return $gross - (int) round($gross * 100 / (100 + (int) $code));
+        }
+        if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $fixed_vat)) {
+            throw new AVBK_Company_Exception('Vul een positief BTW-bedrag in met maximaal twee decimalen.');
+        }
+        $vat = (int) round((float) str_replace(',', '.', $fixed_vat) * 100);
+        if ($vat > abs($gross)) {
+            throw new AVBK_Company_Exception('Het BTW-bedrag mag niet groter zijn dan het bedrag inclusief BTW.');
+        }
+        return $gross < 0 ? -$vat : $vat;
+    }
+
     public static function save(int $company_id, int $year, int $quarter, string $expected_hash, string $key, string $code, string $fixed_vat, string $state, string $note): array {
         $company = AVBK_Companies::company($company_id, 'import');
         $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
@@ -15,12 +46,7 @@ class AVBK_Company_Review {
         if ($previous['transactions_hash'] !== AVBK_Company_Report::fingerprint($bank) || ($previous['cards_hash'] ?? '') !== AVBK_Company_Report::fingerprint($cards)) {
             throw new AVBK_Company_Exception('Er zijn nieuwe bank- of kaartgegevens. Werk eerst de kwartaalwerkmap bij.');
         }
-        if (!in_array($code, ['', '0', '9', '21', 'x'], true) || !in_array($state, ['checked', 'pending'], true) || ($state === 'checked' && $code === '')) {
-            throw new AVBK_Company_Exception('Kies een BTW-tarief of vast BTW-bedrag voordat je de regel bevestigt.');
-        }
-        if (mb_strlen($note) > 500) {
-            throw new AVBK_Company_Exception('Gebruik maximaal 500 tekens voor de factuurverwijzing of notitie.');
-        }
+        self::check_decision($code, $state, $note);
         $bytes = base64_decode($previous['workbook_data'], true);
         if ($bytes === false || strlen($bytes) > 3 * 1024 * 1024 || !hash_equals($expected_hash, hash('sha256', $bytes))) {
             throw new AVBK_Company_Exception('De opgeslagen werkmap kon niet worden gecontroleerd.');
@@ -38,19 +64,7 @@ class AVBK_Company_Review {
                 throw new AVBK_Company_Exception('Deze regel kan niet afzonderlijk worden gecontroleerd. Controleer de administratie, periode en eventuele detailregels.');
             }
             $row = $matches[0]; $gross = $row['gross_cents'];
-            $vat = null;
-            if ($code === 'x') {
-                if (!preg_match('/^\d{1,12}(?:[.,]\d{1,2})?$/D', $fixed_vat)) {
-                    throw new AVBK_Company_Exception('Vul een positief BTW-bedrag in met maximaal twee decimalen.');
-                }
-                $vat = (int) round((float) str_replace(',', '.', $fixed_vat) * 100);
-                if ($vat > abs($gross)) {
-                    throw new AVBK_Company_Exception('Het BTW-bedrag mag niet groter zijn dan het bedrag inclusief BTW.');
-                }
-                $vat *= $gross < 0 ? -1 : 1;
-            } elseif ($code !== '') {
-                $vat = $gross - (int) round($gross * 100 / (100 + (int) $code));
-            }
+            $vat = self::vat_cents($code, $fixed_vat, $gross);
             $decision = ['code' => $code, 'vat_cents' => $vat, 'net_cents' => $vat === null ? null : $gross - $vat,
                 'gross_cents' => $gross, 'direction' => $row['direction'], 'state' => $state, 'note' => $note,
                 'by' => get_current_user_id(), 'at' => gmdate('Y-m-d H:i:s') . ' UTC'];

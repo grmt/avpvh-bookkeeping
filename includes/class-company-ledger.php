@@ -94,6 +94,30 @@ class AVBK_Company_Ledger {
         return (int) round((float) str_replace(',', '.', $value) * 100);
     }
 
+    /**
+     * One journal line, checked: an active account, either a debit or a
+     * credit amount (in cents), and a short note.
+     */
+    private static function prepare_line(array $accounts, array $line): array {
+        $account_id = (int) ($line['account_id'] ?? 0);
+        if (!isset($accounts[$account_id])) {
+            throw new AVBK_Company_Exception('Kies een geldige grootboekrekening voor elke regel.');
+        }
+        if (!$accounts[$account_id]->is_active) {
+            throw new AVBK_Company_Exception('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with the account's own name; escaped with esc_html() by admin/company-ledger.php when displayed
+        }
+        $debit = self::parse_amount((string) ($line['debit'] ?? ''));
+        $credit = self::parse_amount((string) ($line['credit'] ?? ''));
+        if (($debit > 0) === ($credit > 0)) {
+            throw new AVBK_Company_Exception('Vul per regel óf een debetbedrag óf een creditbedrag in, niet beide en niet geen van beide.');
+        }
+        $note = trim((string) ($line['note'] ?? ''));
+        if (mb_strlen($note) > 255) {
+            throw new AVBK_Company_Exception('De toelichting per regel mag maximaal 255 tekens bevatten.');
+        }
+        return ['account_id' => $account_id, 'debit_cents' => $debit, 'credit_cents' => $credit, 'line_note' => $note];
+    }
+
     /** @param array<int, array{account_id:int, debit:string, credit:string, note?:string}> $lines */
     public static function add_entry(int $company_id, string $entry_date, string $description, string $reference, array $lines): int {
         global $wpdb;
@@ -112,25 +136,9 @@ class AVBK_Company_Ledger {
             throw new AVBK_Company_Exception('Een boeking heeft minstens twee regels.');
         }
         $accounts = array_column(self::accounts($company_id), null, 'id');
-        $prepared = []; $total_debit = 0; $total_credit = 0;
-        foreach ($lines as $line) {
-            $account_id = (int) ($line['account_id'] ?? 0);
-            if (!isset($accounts[$account_id])) {
-                throw new AVBK_Company_Exception('Kies een geldige grootboekrekening voor elke regel.');
-            }
-            if (!$accounts[$account_id]->is_active) { throw new AVBK_Company_Exception('Rekening "' . $accounts[$account_id]->name . '" is niet actief en kan niet worden gebruikt.'); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text exception with the account's own name; escaped with esc_html() by admin/company-ledger.php when displayed
-            }            $debit = self::parse_amount((string) ($line['debit'] ?? ''));
-            $credit = self::parse_amount((string) ($line['credit'] ?? ''));
-            if (($debit > 0) === ($credit > 0)) {
-                throw new AVBK_Company_Exception('Vul per regel óf een debetbedrag óf een creditbedrag in, niet beide en niet geen van beide.');
-            }
-            $note = trim((string) ($line['note'] ?? ''));
-            if (mb_strlen($note) > 255) {
-                throw new AVBK_Company_Exception('De toelichting per regel mag maximaal 255 tekens bevatten.');
-            }
-            $total_debit += $debit; $total_credit += $credit;
-            $prepared[] = ['account_id' => $account_id, 'debit_cents' => $debit, 'credit_cents' => $credit, 'line_note' => $note];
-        }
+        $prepared = array_values(array_map(static fn($line) => self::prepare_line($accounts, (array) $line), $lines));
+        $total_debit = array_sum(array_column($prepared, 'debit_cents'));
+        $total_credit = array_sum(array_column($prepared, 'credit_cents'));
         if ($total_debit !== $total_credit) {
             throw new AVBK_Company_Exception('Debet en credit moeten gelijk zijn; het verschil is € ' . number_format(abs($total_debit - $total_credit) / 100, 2, ',', '.') . '.');
         }

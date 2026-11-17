@@ -33,6 +33,53 @@ class AVBK_Company_Cards {
         return $wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_company_card_transactions WHERE company_id = %d AND transaction_date >= %s AND transaction_date < %s ORDER BY transaction_date DESC, id DESC", $company_id, $start, $end));
     }
 
+    /**
+     * One export row, checked and parsed; 'base' identifies the purchase
+     * itself, so identical purchases can be told apart by occurrence.
+     */
+    private static function parse_row(array $row, bool $statement): array {
+        $line = (int) ($row['__row_number'] ?? 0);
+        $account = self::account((string) ($row['Accountnummer'] ?? ''));
+        $date = AVBK_Bank_Import_Layout::parse_date((string) ($row['Transactiedatum'] ?? ''), 'auto');
+        $booking = AVBK_Bank_Import_Layout::parse_date((string) ($row['Boekingsdatum'] ?? ''), 'auto');
+        $unknown_booking = $statement && trim((string) ($row['Boekingsdatum'] ?? '')) === '';
+        $eur = trim((string) ($row['Bedrag in EUR'] ?? '')); $original = trim((string) ($row['Bedrag'] ?? ''));
+        $currency = strtoupper(trim((string) ($row['Valuta'] ?? '')));
+        $card = preg_replace('/[^0-9]/', '', (string) ($row['Kaartnummer'] ?? ''));
+        $description = trim((string) ($row['Omschrijving'] ?? ''));
+        $number = '/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D';
+        if (!preg_match('/^[A-Z0-9]{6,34}$/D', $account) || !$date || (!$booking && !$unknown_booking) || !preg_match($number, $eur) || !preg_match($number, $original)
+            || !preg_match('/^[A-Z]{3}$/D', $currency) || strlen($card) < 4 || $description === '') {
+            throw new AVBK_Company_Exception("Rij {$line}: ongeldige creditcardtransactie. Controleer account, kaartnummer, datums en bedragen."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- integer row diagnostic escaped by the portal template
+        }
+        $amount = AVBK_Bank_Import_Layout::parse_amount($eur, 'auto');
+        $original_amount = AVBK_Bank_Import_Layout::parse_amount($original, 'auto');
+        if ($amount == 0 || abs($amount) >= 1000000000000 || abs($original_amount) >= 1000000000000) {
+            throw new AVBK_Company_Exception('De creditcardexport bevat een ongeldig bedrag.');
+        }
+        $identity = mb_strtolower(preg_replace('/\s+/', ' ', trim($description)));
+        $base = hash('sha256', wp_json_encode([$account, substr($card, -4), $date, number_format($amount, 2, '.', ''), $currency, number_format($original_amount, 2, '.', ''), $identity]));
+        return compact('account', 'date', 'booking', 'currency', 'card', 'description', 'amount', 'original_amount', 'base');
+    }
+
+    /** The stored card transaction for a parsed row; the raw export row is kept without the cardholder name and with a masked card number. */
+    private static function transaction_row(array $card_row, array $row, string $dedupe_hash): array {
+        ['account' => $account, 'date' => $date, 'booking' => $booking, 'currency' => $currency, 'card' => $card,
+            'description' => $description, 'amount' => $amount, 'original_amount' => $original_amount] = $card_row;
+        $entry_type = $amount < 0 ? 'purchase' : 'refund';
+        if ($amount > 0 && preg_match('/\b(?:betaling|payment|incasso|overboeking|settlement)\b/iu', $description)) {
+            $entry_type = 'settlement';
+        }
+        $raw = array_filter($row, fn($key) => !str_starts_with((string) $key, '__'), ARRAY_FILTER_USE_KEY);
+        unset($raw['Naam op kaart']);
+        $raw['Kaartnummer'] = '**** ' . substr($card, -4);
+        return ['card_account' => $account, 'card_last4' => substr($card, -4), 'transaction_date' => $date,
+            'booking_date' => $booking, 'amount' => number_format(abs($amount), 2, '.', ''), 'direction' => $amount < 0 ? 'out' : 'in',
+            'entry_type' => $entry_type,
+            'currency' => $currency, 'original_amount' => number_format($original_amount, 2, '.', ''), 'description' => $description,
+            'raw_data' => wp_json_encode($raw), 'dedupe_hash' => $dedupe_hash];
+    }
+
     public static function prepare(object $company, array $parsed, int $year, int $quarter, bool $statement = false): array {
         if (empty($company->card_account)) {
             throw new AVBK_Company_Exception('Laat de directeur eerst het creditcardaccount aan deze administratie koppelen.');
@@ -44,39 +91,12 @@ class AVBK_Company_Cards {
         [$start, $end] = AVBK_Companies::period($year, $quarter);
         $result = []; $outside_account = 0; $outside_period = 0; $occurrences = [];
         foreach ($parsed['rows'] as $row) {
-            $line = (int) ($row['__row_number'] ?? 0);
-            $account = self::account((string) ($row['Accountnummer'] ?? ''));
-            $date = AVBK_Bank_Import_Layout::parse_date((string) ($row['Transactiedatum'] ?? ''), 'auto');
-            $booking = AVBK_Bank_Import_Layout::parse_date((string) ($row['Boekingsdatum'] ?? ''), 'auto');
-            $unknown_booking = $statement && trim((string) ($row['Boekingsdatum'] ?? '')) === '';
-            $eur = trim((string) ($row['Bedrag in EUR'] ?? '')); $original = trim((string) ($row['Bedrag'] ?? ''));
-            $currency = strtoupper(trim((string) ($row['Valuta'] ?? '')));
-            $card = preg_replace('/[^0-9]/', '', (string) ($row['Kaartnummer'] ?? ''));
-            $description = trim((string) ($row['Omschrijving'] ?? ''));
-            $number = '/^[+-]?(?:\d+(?:\.\d{1,2})?|(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2})$/D';
-            if (!preg_match('/^[A-Z0-9]{6,34}$/D', $account) || !$date || (!$booking && !$unknown_booking) || !preg_match($number, $eur) || !preg_match($number, $original)
-                || !preg_match('/^[A-Z]{3}$/D', $currency) || strlen($card) < 4 || $description === '') {
-                throw new AVBK_Company_Exception("Rij {$line}: ongeldige creditcardtransactie. Controleer account, kaartnummer, datums en bedragen."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- integer row diagnostic escaped by the portal template
-            }
-            $amount = AVBK_Bank_Import_Layout::parse_amount($eur, 'auto');
-            $original_amount = AVBK_Bank_Import_Layout::parse_amount($original, 'auto');
-            if ($amount == 0 || abs($amount) >= 1000000000000 || abs($original_amount) >= 1000000000000) {
-                throw new AVBK_Company_Exception('De creditcardexport bevat een ongeldig bedrag.');
-            }
-            $identity = mb_strtolower(preg_replace('/\s+/', ' ', trim($description)));
-            $base = hash('sha256', wp_json_encode([$account, substr($card, -4), $date, number_format($amount, 2, '.', ''), $currency, number_format($original_amount, 2, '.', ''), $identity]));
+            $card_row = self::parse_row($row, $statement);
+            $base = $card_row['base'];
             $occurrence = $occurrences[$base] ?? 0; $occurrences[$base] = $occurrence + 1;
-            if ($account !== $company->card_account) { $outside_account++; continue; }
-            if ($date < $start || $date >= $end) { $outside_period++; continue; }
-            $settlement = $amount > 0 && preg_match('/\b(?:betaling|payment|incasso|overboeking|settlement)\b/iu', $description);
-            $raw = array_filter($row, fn($key) => !str_starts_with((string) $key, '__'), ARRAY_FILTER_USE_KEY);
-            unset($raw['Naam op kaart']);
-            $raw['Kaartnummer'] = '**** ' . substr($card, -4);
-            $result[] = ['card_account' => $account, 'card_last4' => substr($card, -4), 'transaction_date' => $date,
-                'booking_date' => $booking, 'amount' => number_format(abs($amount), 2, '.', ''), 'direction' => $amount < 0 ? 'out' : 'in',
-                'entry_type' => $settlement ? 'settlement' : ($amount < 0 ? 'purchase' : 'refund'),
-                'currency' => $currency, 'original_amount' => number_format($original_amount, 2, '.', ''), 'description' => $description,
-                'raw_data' => wp_json_encode($raw), 'dedupe_hash' => hash('sha256', $base . ':' . $occurrence)];
+            if ($card_row['account'] !== $company->card_account) { $outside_account++; continue; }
+            if ($card_row['date'] < $start || $card_row['date'] >= $end) { $outside_period++; continue; }
+            $result[] = self::transaction_row($card_row, $row, hash('sha256', $base . ':' . $occurrence));
         }
         if (!$result) {
             throw new AVBK_Company_Exception('Geen creditcardtransacties voor het gekoppelde account en gekozen kwartaal. Controleer account en periode.');
