@@ -9,6 +9,7 @@ class AVBK_Company_Admin implements AVBK_Component {
         add_action('admin_post_avbk_company', [$this, 'handle']);
         add_action('admin_post_avbk_company_document', [$this, 'download_document']);
         add_action('admin_post_avbk_company_workbook', [$this, 'download_workbook']);
+        add_action(AVBK_Company_Invoice_Inbox::CRON_HOOK, [AVBK_Company_Invoice_Inbox::class, 'process']);
         add_shortcode('avbk_company_bookkeeping', [$this, 'shortcode']);
         add_shortcode('avbk_company_payroll', [$this, 'payroll_shortcode']);
         add_shortcode('avbk_company_ledger', [$this, 'ledger_shortcode']);
@@ -171,28 +172,46 @@ class AVBK_Company_Admin implements AVBK_Component {
         return $this->validate_upload($_FILES[$field] ?? [], $extensions);
     }
 
+    /**
+     * Many invoices at once, each stored as an unlinked invoice and queued
+     * for OCR. Every file is handled on its own: one bad file doesn't stop
+     * the rest.
+     *
+     * @return array{0: string, 1: bool} the message and whether something failed
+     */
+    private function upload_invoice_batch(int $company_id): array {
+        AVBK_Companies::company($company_id, 'import');
+        $limits = AVBK_Company_Invoice_Inbox::limits();
+        $files = self::statement_uploads($_FILES['invoices'] ?? [], $limits['files'], $limits['bytes']); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Missing -- each file is validated by statement_uploads() and validate_upload(); handle() checked the nonce.
+        $messages = []; $processed = 0; $failed = 0;
+        $reference = 'Bulkupload ' . wp_date('Y-m-d') . ' · nog te koppelen';
+        foreach ($files as $file) {
+            $filename = sanitize_file_name($file['name']);
+            try {
+                [$path, $filename] = $this->validate_upload($file, ['pdf', 'jpg', 'jpeg', 'png', 'webp']);
+                $document_id = AVBK_Company_Documents::add($company_id, 0, $reference, $path, $filename, true);
+                AVBK_Company_Invoice_Inbox::queue($company_id, $document_id);
+                $processed++;
+            } catch (\Throwable $e) {
+                $failed++;
+                $messages[] = $filename . ': ' . ($e instanceof \RuntimeException ? $e->getMessage() : 'Dit bestand kon niet worden opgeslagen.');
+            }
+        }
+        $summary = sprintf('%d facturen opgeslagen; %d mislukt. Ze worden op de achtergrond gelezen; vernieuw de pagina over een paar minuten voor de koppelsuggesties.', $processed, $failed);
+        if (count($files) >= (int) ini_get('max_file_uploads')) {
+            $messages[] = sprintf('Let op: de server neemt maximaal %d bestanden per keer aan. Had je er meer gekozen, upload de rest dan opnieuw.', (int) ini_get('max_file_uploads'));
+        }
+        return [$messages ? $summary . "\n" . implode("\n", $messages) : $summary, $failed > 0];
+    }
+
     /** Normalize PHP's single or multiple upload shape before reading any files. */
-    public static function statement_uploads(array $input): array {
-        $files = [];
+    public static function statement_uploads(array $input, int $max_files = 20, int $max_bytes = 20 * 1024 * 1024): array {
         if (!isset($input['name'])) {
             throw new AVBK_Company_Exception('Kies één of meer creditcardbestanden.');
         }
-        if (!is_array($input['name'])) {
-            $files[] = $input;
-        } else {
-            foreach (array_keys($input['name']) as $index) {
-                $file = [];
-                foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
-                    if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) {
-                        throw new AVBK_Company_Exception('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
-                    }
-                    $file[$key] = $input[$key][$index];
-                }
-                $files[] = $file;
-            }
-        }
-        if (!$files || count($files) > 20) {
-            throw new AVBK_Company_Exception('Kies maximaal 20 bestanden per upload.');
+        $files = is_array($input['name']) ? self::upload_list($input) : [$input];
+        if (!$files || count($files) > $max_files) {
+            throw new AVBK_Company_Exception(esc_html(sprintf('Kies maximaal %d bestanden per upload.', $max_files)));
         }
         $total = 0;
         foreach ($files as $file) {
@@ -202,8 +221,24 @@ class AVBK_Company_Admin implements AVBK_Component {
             }
             $total += $file['size'];
         }
-        if ($total > 20 * 1024 * 1024) {
-            throw new AVBK_Company_Exception('Kies samen maximaal 20 MB per upload.');
+        if ($total > $max_bytes) {
+            throw new AVBK_Company_Exception(esc_html(sprintf('Kies samen maximaal %d MB per upload.', (int) ($max_bytes / 1024 / 1024))));
+        }
+        return $files;
+    }
+
+    /** PHP's name[]/tmp_name[]/... arrays of a multiple upload as one array per file. */
+    private static function upload_list(array $input): array {
+        $files = [];
+        foreach (array_keys($input['name']) as $index) {
+            $file = [];
+            foreach (['name', 'tmp_name', 'error', 'size'] as $key) {
+                if (!isset($input[$key]) || !is_array($input[$key]) || !array_key_exists($index, $input[$key])) {
+                    throw new AVBK_Company_Exception('De bestandsupload is onvolledig. Kies de bestanden opnieuw.');
+                }
+                $file[$key] = $input[$key][$index];
+            }
+            $files[] = $file;
         }
         return $files;
     }
@@ -382,6 +417,18 @@ class AVBK_Company_Admin implements AVBK_Component {
             } elseif ($operation === 'invoice_link') {
                 AVBK_Company_Documents::link($company_id, (int) ($_POST['document_id'] ?? 0), (int) ($_POST['transaction_id'] ?? 0));
                 $message = 'Factuur gekoppeld aan de banktransactie.';
+            } elseif ($operation === 'invoice_batch') {
+                [$message, $notice_error] = $this->upload_invoice_batch($company_id);
+            } elseif ($operation === 'invoice_inbox_link') {
+                AVBK_Company_Invoice_Inbox::link($company_id, (int) ($_POST['document_id'] ?? 0), (int) ($_POST['transaction_id'] ?? 0));
+                $message = 'Factuur gekoppeld aan de banktransactie.';
+            } elseif ($operation === 'invoice_inbox_details') {
+                AVBK_Company_Invoice_Inbox::update_details($company_id, (int) ($_POST['document_id'] ?? 0), sanitize_text_field(wp_unslash($_POST['invoice_date'] ?? '')),
+                    sanitize_text_field(wp_unslash($_POST['amount_total'] ?? '')), sanitize_text_field(wp_unslash($_POST['supplier'] ?? '')));
+                $message = 'Factuurgegevens opgeslagen; de koppelsuggestie is opnieuw gezocht.';
+            } elseif ($operation === 'invoice_inbox_retry') {
+                AVBK_Company_Invoice_Inbox::retry($company_id, (int) ($_POST['document_id'] ?? 0));
+                $message = 'De factuur wordt opnieuw gelezen.';
             } elseif ($operation === 'ledger_seed_accounts') {
                 $added = AVBK_Company_Ledger::seed_default_accounts($company_id);
                 $message = sprintf('%d standaardrekeningen toegevoegd.', $added);

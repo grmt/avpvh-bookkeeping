@@ -21,6 +21,49 @@ class AVBK_OCR {
     const PROCESSOR_ID = '86330dffb1e6f725';
     const TOKEN_TRANSIENT = 'avbk_gcp_access_token';
 
+    /** Whether a docling service or a Google service account is configured, so OCR can be tried at all. */
+    public static function available(): bool {
+        if (self::docling_url() !== null) {
+            return true;
+        }
+        $key = json_decode((string) get_option('avbk_gcp_service_account_json', ''), true);
+        return is_array($key) && !empty($key['private_key']) && !empty($key['client_email']);
+    }
+
+    /**
+     * Base URL of a self-hosted docling-serve, from the avbk_docling_url
+     * option (e.g. http://hetzner-ocr-docling-serve-1:5001), or null. When
+     * set, documents stay on the own server instead of going to Google.
+     */
+    public static function docling_url(): ?string {
+        $url = trim((string) get_option('avbk_docling_url', ''));
+        return preg_match('#^https?://[^\s/]+#i', $url) ? rtrim($url, '/') : null;
+    }
+
+    /** Text of a PDF or image via docling-serve's /v1/convert/file, or null on any failure. */
+    private static function docling_text(string $base_url, string $file_path, int $timeout): ?string {
+        $boundary = 'avbk' . bin2hex(random_bytes(12));
+        $fields = [['to_formats', 'text'], ['ocr_lang', 'nl'], ['ocr_lang', 'en']];
+        $body = '';
+        foreach ($fields as [$name, $value]) {
+            $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n";
+        }
+        $mime = mime_content_type($file_path) ?: 'application/octet-stream';
+        $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"" . basename($file_path) . "\"\r\nContent-Type: $mime\r\n\r\n"
+            . file_get_contents($file_path) . "\r\n--$boundary--\r\n";
+        $response = wp_remote_post($base_url . '/v1/convert/file', [
+            'headers' => ['Content-Type' => 'multipart/form-data; boundary=' . $boundary],
+            'body'    => $body,
+            'timeout' => $timeout,
+        ]);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return null;
+        }
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        $text = $data['document']['text_content'] ?? null;
+        return is_string($text) ? $text : null;
+    }
+
     /** Bearer token for the Google API, cached in a transient (tokens are valid ~1h). */
     private static function get_access_token(): ?string {
         $cached = get_transient(self::TOKEN_TRANSIENT);
@@ -75,10 +118,22 @@ class AVBK_OCR {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
-    /** Raw OCR text for an image file on disk, or null on any failure (network, auth, quota — always non-fatal, caller falls back to manual entry). */
-    public static function extract_text(string $file_path): ?string {
+    /**
+     * Raw OCR text for an image or PDF on disk, or null on any failure
+     * (network, auth, quota — always non-fatal, caller falls back to
+     * manual entry). Docling when configured, else Google. $timeout is
+     * for docling, which runs on CPU and can take a while on a scan.
+     */
+    public static function extract_text(string $file_path, int $timeout = 30): ?string {
+        if (!file_exists($file_path)) {
+            return null;
+        }
+        $docling = self::docling_url();
+        if ($docling !== null) {
+            return self::docling_text($docling, $file_path, $timeout);
+        }
         $token = self::get_access_token();
-        if (!$token || !file_exists($file_path)) {
+        if (!$token) {
             return null;
         }
 

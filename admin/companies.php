@@ -48,6 +48,7 @@ function avbk_render_company_invoices($company_id, $form_start, $transactions): 
             <h3>Facturen en bonnetjes</h3>
             <p>Upload de factuur of geef de vindplaats op, bijvoorbeeld een OneDrive-link of bestandspad. Verwijzingen worden bewaard; bestanden worden niet automatisch opgehaald. Een factuur vastleggen bevestigt nog geen BTW-bedrag.</p>
             <?php avbk_render_company_invoice_form($company_id, $form_start, $transactions); ?>
+            <?php avbk_render_company_invoice_batch($company_id, $form_start); ?>
             <?php avbk_render_company_open_invoices($company_id, $form_start); ?>
             <ul><?php foreach (AVBK_Company_Documents::listing($company_id) as $document) :
                 $tracked = $document->due_date !== null || $document->amount_total !== null;
@@ -108,6 +109,84 @@ function avbk_render_company_invoice_form($company_id, $form_start, $transaction
                     <button type="submit" class="button">Factuur toevoegen</button>
                 </form>
             <?php endif; ?>
+<?php
+}
+
+/** Many invoices at once, and the list of uploaded invoices still to link. */
+function avbk_render_company_invoice_batch($company_id, $form_start): void {
+    if (!AVBK_Companies::can($company_id, 'import')) {
+        return;
+    }
+    $inbox = AVBK_Company_Invoice_Inbox::inbox((int) $company_id);
+    $limits = AVBK_Company_Invoice_Inbox::limits(); ?>
+            <h4>Veel facturen tegelijk</h4>
+            <?php $form_start('invoice_batch', true); ?>
+                <label>Facturen (PDF, JPG, PNG of WebP; maximaal <?php echo (int) $limits['files']; ?> bestanden en <?php echo (int) ($limits['bytes'] / 1024 / 1024); ?> MB per keer, elk bestand maximaal 3 MB)
+                    <input type="file" name="invoices[]" multiple accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+                <button type="submit" class="button">Facturen uploaden</button>
+            </form>
+            <p class="description">Elke factuur wordt op de achtergrond gelezen: factuurdatum, totaalbedrag en leverancier. Daarna zoeken we de uitgaande betaling met hetzelfde bedrag, van 14 dagen vóór tot 120 dagen na de factuurdatum. Je bevestigt elke koppeling zelf.</p>
+            <?php if ($inbox) : ?>
+                <h4>Te koppelen facturen (<?php echo count($inbox); ?>)</h4>
+                <div class="avbk-company-scroll"><table class="widefat striped avbk-company-inbox">
+                    <thead><tr><th>Factuur</th><th>Gegevens</th><th>Kwartaal</th><th>Koppelen aan betaling</th></tr></thead>
+                    <tbody>
+                        <?php foreach ($inbox as $document) : ?>
+                            <?php avbk_render_company_inbox_row($document, $company_id, $form_start); ?>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table></div>
+            <?php endif; ?>
+<?php
+}
+
+/** One uploaded invoice: file and reading status, editable details, quarter, and the payment to link. */
+function avbk_render_company_inbox_row($document, $company_id, $form_start): void {
+    $status_labels = ['pending' => 'Wordt gelezen…', 'done' => 'Gelezen', 'failed' => 'Lezen mislukt', 'unavailable' => 'Automatisch lezen niet beschikbaar', '' => 'Niet gelezen'];
+?><tr>
+                                <td>
+                                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'avbk_company_document', 'company_id' => $company_id, 'document_id' => $document->id], admin_url('admin-post.php')), 'avbk_company_document')); ?>"><?php echo esc_html($document->filename ?: ('#' . $document->id)); ?></a>
+                                    <br><small><?php echo esc_html($status_labels[$document->ocr_status] ?? $document->ocr_status); ?></small>
+                                    <?php if (in_array($document->ocr_status, ['failed', 'unavailable', ''], true)) : ?>
+                                        <?php $form_start('invoice_inbox_retry', false, 'avbk-company-inline-form'); ?>
+                                            <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
+                                            <button type="submit" class="button-link">Opnieuw lezen</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php $form_start('invoice_inbox_details', false, 'avbk-company-inline-form'); ?>
+                                        <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
+                                        <label>Leverancier <input name="supplier" maxlength="190" value="<?php echo esc_attr($document->supplier); ?>"></label>
+                                        <label>Factuurdatum <input type="date" name="invoice_date" value="<?php echo esc_attr((string) $document->invoice_date); ?>"></label>
+                                        <label>Totaal <input name="amount_total" inputmode="decimal" placeholder="0,00" value="<?php echo $document->amount_total !== null ? esc_attr(number_format((float) $document->amount_total, 2, ',', '')) : ''; ?>"></label>
+                                        <button type="submit" class="button-link">Opslaan en opnieuw zoeken</button>
+                                    </form>
+                                </td>
+                                <td><?php echo esc_html(AVBK_Company_Invoice_Inbox::quarter_label($document->invoice_date) ?: '—'); ?></td>
+                                <td><?php avbk_render_company_inbox_link($document, $form_start); ?></td>
+                            </tr>
+<?php
+}
+
+/** The suggested payment preselected among the other candidates, or why there is none. */
+function avbk_render_company_inbox_link($document, $form_start): void {
+    if (!$document->candidates) {
+        echo esc_html($document->invoice_date && $document->amount_total !== null
+            ? 'Geen uitgaande betaling met dit bedrag in die periode. Controleer bedrag en datum, of koppel later in het kwartaaloverzicht.'
+            : 'Vul factuurdatum en totaal in om een betaling te zoeken.');
+        return;
+    }
+    $form_start('invoice_inbox_link', false, 'avbk-company-inline-form'); ?>
+                                        <input type="hidden" name="document_id" value="<?php echo esc_attr($document->id); ?>">
+                                        <label class="screen-reader-text" for="avbk-inbox-transaction-<?php echo esc_attr($document->id); ?>">Betaling voor deze factuur</label>
+                                        <select name="transaction_id" id="avbk-inbox-transaction-<?php echo esc_attr($document->id); ?>">
+                                            <?php foreach ($document->candidates as $tx) : ?>
+                                                <option value="<?php echo esc_attr($tx->id); ?>" <?php selected((int) $document->suggested_transaction_id, (int) $tx->id); ?>><?php echo esc_html(((int) $document->suggested_transaction_id === (int) $tx->id ? 'Voorstel: ' : '') . $tx->transaction_date . ' · ' . $tx->counterparty_name . ' · € ' . number_format((float) $tx->amount, 2, ',', '.')); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <button type="submit" class="button"><?php echo $document->suggested_transaction_id ? 'Koppel' : 'Koppel gekozen betaling'; ?></button>
+                                    </form>
 <?php
 }
 
