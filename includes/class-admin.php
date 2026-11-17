@@ -271,6 +271,7 @@ class AVBK_Admin implements AVBK_Component {
     public function render_transactions(): void { require_once AVBK_PLUGIN_DIR . 'admin/transactions.php'; avbk_render_transactions(); }
     public function render_members(): void { require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php'; avbk_render_members_balance(); }
     public function render_rates(): void { require_once AVBK_PLUGIN_DIR . 'admin/rates.php'; avbk_render_rates(); }
+    public function render_iban_bank_codes(): void { require_once AVBK_PLUGIN_DIR . 'admin/iban-bank-codes.php'; avbk_render_iban_bank_codes(); }
     public function render_orders(): void { require_once AVBK_PLUGIN_DIR . 'admin/orders.php'; avbk_render_orders(); }
     public function render_flyers(): void { require_once AVBK_PLUGIN_DIR . 'admin/flyers.php'; avbk_render_flyers(); }
     public function render_audit_log(): void { require_once AVBK_PLUGIN_DIR . 'admin/audit-log.php'; avbk_render_audit_log(); }
