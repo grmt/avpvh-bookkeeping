@@ -3487,6 +3487,35 @@ class AVBK_DB {
     }
 
     /**
+     * Undoes a "dubbele betaling" mark: an incoming duplicate goes back to the
+     * review queue, as 'suggested' when it still has member suggestions. A
+     * duplicate never has allocations, so nothing else changes.
+     *
+     * @return string|null Why it can't be undone, or null when it was.
+     */
+    public static function unmark_transaction_duplicate(int $id): ?string {
+        global $wpdb;
+        $transaction = $id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_transactions WHERE id = %d", $id)) : null;
+        if (!$transaction) {
+            return 'no_transaction';
+        }
+        if ($transaction->direction !== 'in' || $transaction->status !== 'duplicate') {
+            return 'not_duplicate';
+        }
+        $status = trim((string) $transaction->suggested_member_ids) !== '' ? 'suggested' : 'unmatched';
+        $updated = $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['status' => $status, 'duplicate_of' => null],
+            ['id' => $id, 'status' => 'duplicate']
+        );
+        if (!$updated) {
+            return 'not_saved';
+        }
+        self::audit('transaction.unduplicated', 'transaction', $id, ['status' => ['duplicate', $status], 'duplicate_of' => (int) $transaction->duplicate_of]);
+        return null;
+    }
+
+    /**
      * @return object[] Every 'matched' transaction not yet second-approved,
      * oldest first — includes ones confirmed before this feature existed
      * (confirmed_by NULL) and today's newly-matched ones alike, since the

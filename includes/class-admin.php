@@ -19,6 +19,7 @@ class AVBK_Admin implements AVBK_Component {
         add_action('admin_post_avbk_clear_transaction_draft', [$this, 'handle_clear_transaction_draft']);
         add_action('admin_post_avbk_ignore_transaction',   [$this, 'handle_ignore_transaction']);
         add_action('admin_post_avbk_mark_transaction_duplicate', [$this, 'handle_mark_transaction_duplicate']);
+        add_action('admin_post_avbk_unmark_transaction_duplicate', [$this, 'handle_unmark_transaction_duplicate']);
         add_action('admin_post_avbk_restore_ignored_transaction', [$this, 'handle_restore_ignored_transaction']);
         add_action('admin_post_avbk_set_transaction_activity', [$this, 'handle_set_transaction_activity']);
         add_action('admin_post_avbk_save_activity_rate',   [$this, 'handle_save_activity_rate']);
@@ -536,10 +537,30 @@ class AVBK_Admin implements AVBK_Component {
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
         $duplicate_of = (int) ($_POST['duplicate_of'] ?? 0);
         $marked = AVBK_DB::mark_transaction_duplicate($transaction_id, $duplicate_of);
+        if (!$marked) {
+            avbk_log_failure('mark duplicate', 'rejected', ['transaction' => $transaction_id, 'duplicate_of' => $duplicate_of]);
+        }
         wp_safe_redirect(add_query_arg([
             'page' => 'avbk-review',
             'duplicate_marked' => $marked ? '1' : '0',
         ], admin_url('admin.php')) . ($marked ? '' : '#tx-' . $transaction_id));
+        exit;
+    }
+
+    /** Undoes a "dubbele betaling" mark; the payment goes back to Te controleren. */
+    public function handle_unmark_transaction_duplicate(): void {
+        check_admin_referer('avbk_unmark_transaction_duplicate');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
+        $rejection = AVBK_DB::unmark_transaction_duplicate($transaction_id);
+        if ($rejection !== null) {
+            avbk_log_failure('unmark duplicate', $rejection, ['transaction' => $transaction_id]);
+            wp_safe_redirect(add_query_arg(['page' => 'avbk-transactions', 'duplicate_unmarked' => '0', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . $transaction_id);
+            exit;
+        }
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-review', 'duplicate_unmarked' => '1'], admin_url('admin.php')) . '#tx-' . $transaction_id);
         exit;
     }
 

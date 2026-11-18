@@ -584,6 +584,8 @@ function avbk_render_review_queue_status_notices(): void {
         <div class="notice notice-success"><p>Transactie genegeerd.</p></div>
     <?php elseif (isset($_GET['duplicate_marked'])) : ?>
         <div class="notice <?php echo $_GET['duplicate_marked'] === '1' ? 'notice-success' : 'notice-error'; ?>"><p><?php echo $_GET['duplicate_marked'] === '1' ? 'Transactie als dubbele betaling gemarkeerd.' : 'Transactie kon niet als dubbele betaling worden gemarkeerd.'; ?></p></div>
+    <?php elseif (isset($_GET['duplicate_unmarked'])) : ?>
+        <div class="notice notice-success"><p>Markering als dubbele betaling ongedaan gemaakt; de transactie staat weer hieronder.</p></div>
     <?php elseif (isset($_GET['restored'])) : ?>
         <div class="notice notice-success"><p>Genegeerde transactie is teruggezet voor controle.</p></div>
     <?php elseif (isset($_GET['recomputed'])) : ?>

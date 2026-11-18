@@ -227,6 +227,7 @@ class AVBK_Audit implements AVBK_Component {
             'transactions.reverted_year' => 'Betalingen van een jaar terug naar controle',
             'transaction.ignored'    => 'Transactie genegeerd',
             'transaction.duplicate'  => 'Transactie als dubbel gemarkeerd',
+            'transaction.unduplicated' => 'Markering dubbele betaling ongedaan gemaakt',
             'credit.donated'         => 'Tegoed geschonken',
         ];
         if (isset($labels[$action])) {

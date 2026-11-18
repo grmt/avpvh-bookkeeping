@@ -71,10 +71,12 @@ $context = compact('activities', 'activity_names', 'status_label', 'ignore_reaso
 <?php
 }
 
-/** Result notice of tagging an activity. */
+/** Result notice of tagging an activity or undoing a duplicate mark. */
 function avbk_render_transactions_tagged_notice(): void {
     if (isset($_GET['activity_tagged'])) : ?>
         <div class="notice <?php echo $_GET['activity_tagged'] === '1' ? 'notice-success' : 'notice-error'; ?> is-dismissible"><p><?php echo $_GET['activity_tagged'] === '1' ? 'Activiteit opgeslagen.' : 'Activiteit niet gewijzigd: deze transactie heeft al een toewijzingsregel.'; ?></p></div>
+    <?php elseif (isset($_GET['duplicate_unmarked'])) : ?>
+        <div class="notice notice-error is-dismissible"><p>Markering als dubbele betaling niet ongedaan gemaakt: deze transactie is geen inkomende dubbele betaling (meer).</p></div>
     <?php endif; ?>
 <?php
 }
@@ -309,6 +311,14 @@ function avbk_render_transaction_status($tx, $display_status): void {
     if (!empty($tx->duplicate_of)) :
                         $duplicate_url = add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . (int) $tx->duplicate_of;
                     ?>Dubbele betaling van <a href="<?php echo esc_url($duplicate_url); ?>">#<?php echo esc_html($tx->duplicate_of); ?></a><?php
+                    if ($tx->direction === 'in') : ?>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:.35rem">
+                            <?php wp_nonce_field('avbk_unmark_transaction_duplicate'); ?>
+                            <input type="hidden" name="action" value="avbk_unmark_transaction_duplicate">
+                            <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                            <button type="submit" class="button button-small" title="Terug naar Te controleren, bijv. als het echt ontvangen geld is dat is teruggestort">Geen dubbele betaling</button>
+                        </form>
+                    <?php endif;
                     else :
                         echo esc_html($display_status);
                     endif;
