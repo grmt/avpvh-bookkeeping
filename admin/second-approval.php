@@ -77,7 +77,7 @@ function avbk_render_second_approval_card($tx, $current_user_id, $show_all_years
                     <tr><th>Omschrijving</th><td><?php echo AVBK_Matcher::format_description_html(AVBK_Matcher::strip_name_field($tx->description)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_description_html() esc_html()'s the raw text first, then only wraps already-safe hardcoded labels in <strong>. ?></td></tr>
                     <tr><th>Bevestigd door</th><td><?php echo $confirmer ? esc_html($confirmer->display_name) : '&mdash; (automatisch bij import, of van vóór deze functie)'; ?></td></tr>
                     <?php if ($tx->direction === 'out') : ?>
-                    <tr><th>Terugbetaling van</th><td>
+                    <tr><th>Verantwoording</th><td>
                         <?php avbk_render_second_approval_refunds($tx); ?>
                     </td></tr>
                     <?php else : ?>
@@ -106,11 +106,20 @@ function avbk_render_second_approval_import($tx): void {
 /** The fee items an outgoing transaction refunds, with what was paid for each. */
 function avbk_render_second_approval_refunds($tx): void {
     $refunds = AVBK_DB::get_refunds_for_transaction((int) $tx->id);
-    if (!$refunds) {
+    $expense = AVBK_DB::get_expense_for_transaction((int) $tx->id);
+    if ($expense) {
+        echo esc_html(AVBK_Expenses::summary($expense));
+        if ($expense->document_path !== '') {
+            echo ' (<a href="' . esc_url(AVBK_Expenses::document_url($expense)) . '" target="_blank" rel="noopener">document</a>)';
+        }
+        echo '<br>';
+    }
+    if (!$refunds && !$expense) {
         echo '&mdash;';
         return;
     }
     foreach ($refunds as $refund) {
+        echo 'Terugbetaling: ';
         $member = AVPVH_DB::get_member((int) $refund->member_id);
         $fee_item = AVBK_DB::get_fee_item((int) $refund->fee_item_id);
         echo esc_html(
@@ -159,7 +168,7 @@ function avbk_render_second_approval_actions($is_own, $tx, $show_all_years): voi
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
                 <?php if ($show_all_years) : ?><input type="hidden" name="show_all_years" value="1"><?php endif; ?>
                 <?php if ($tx->direction === 'out') : ?>
-                    <?php submit_button('Terugbetaling ontkoppelen', 'secondary', 'submit', false, ['onclick' => "return confirm('Deze terugbetaling ontkoppelen? De transactie wordt weer genegeerd.');"]); ?>
+                    <?php submit_button('Verantwoording ongedaan maken', 'secondary', 'submit', false, ['onclick' => "return confirm('Deze verantwoording ongedaan maken? De betaling komt weer bij Uitgaven te staan.');"]); ?>
                 <?php else : ?>
                     <?php submit_button('Terugzetten voor correctie', 'secondary', 'submit', false, ['onclick' => "return confirm('Toewijzing ongedaan maken en terugzetten naar \\'Te controleren\\'?');"]); ?>
                 <?php endif; ?>

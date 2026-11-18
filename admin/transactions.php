@@ -25,6 +25,7 @@ $status_label = [
 $ignore_reason_label = [
     'import_outgoing' => 'automatisch bij import (uitgaand)',
     'manual_review'   => 'handmatig na controle',
+    'returned'        => 'teruggestort',
 ];
 $context = compact('activities', 'activity_names', 'status_label', 'ignore_reason_label', 'show_all_years', 'closed_through_year');
 ?>
@@ -214,7 +215,7 @@ function avbk_transaction_activity_label(object $tx, array $summary, array $acti
 function avbk_transaction_display_status(object $tx, array $status_label, array $ignore_reason_label): string {
     $display_status = !empty($tx->duplicate_of) ? 'Duplicaat' : ($status_label[$tx->status] ?? $tx->status);
     if ($tx->direction === 'out' && $tx->status === 'matched') {
-        $display_status = 'Terugbetaling';
+        $display_status = 'Verantwoord';
     }
     if ($tx->status === 'ignored' && isset($ignore_reason_label[$tx->ignore_reason])) {
         $display_status .= ' — ' . $ignore_reason_label[$tx->ignore_reason];
@@ -272,9 +273,8 @@ function avbk_render_transaction_activity($allocations, $display_parts, $tag_lab
 }
 
 /**
- * An outgoing transaction: the fee items it refunds, or a link to the member
- * page to link it as a refund (to the member whose account received it, when
- * that account is known).
+ * An outgoing transaction: the fee items it refunds or its explanation as an
+ * expense, or a link to Uitgaven to explain it.
  */
 function avbk_render_transaction_refunds(object $tx): void {
     $refunds = AVBK_DB::get_refunds_for_transaction((int) $tx->id);
@@ -286,19 +286,22 @@ function avbk_render_transaction_refunds(object $tx): void {
                         <div>Terugbetaling: <a href="<?php echo esc_url($url); ?>"><?php echo esc_html(($member ? avpvh_format_name($member, 'list') : 'onbekend lid') . ($fee_item ? ' — ' . $fee_item->description : '')); ?></a> (&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?>)</div>
         <?php
     }
-    if ($refunds || $tx->status !== 'ignored' || !empty($tx->duplicate_of)) {
-        if (!$refunds) {
-            echo '&mdash;';
-        }
-        return;
-    }
-    $member_id = $tx->counterparty_iban !== '' ? AVBK_DB::find_member_id_by_iban((string) $tx->counterparty_iban) : null;
-    $url = $member_id
-        ? add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))
-        : add_query_arg(['page' => 'avbk-members'], admin_url('admin.php'));
-    ?>
-                        <a href="<?php echo esc_url($url); ?>" title="<?php echo esc_attr($member_id ? 'Open het lid en kies bij de bijdrage Terugbetalen' : 'Rekening onbekend: open het lid en kies bij de bijdrage Terugbetalen'); ?>">Koppel als terugbetaling</a>
-<?php
+    $expense = AVBK_DB::get_expense_for_transaction((int) $tx->id);
+    if ($expense) : ?>
+                        <div><?php echo esc_html(AVBK_Expenses::summary($expense)); ?><?php if ($expense->document_path !== '') : ?> (<a href="<?php echo esc_url(AVBK_Expenses::document_url($expense)); ?>" target="_blank" rel="noopener">document</a>)<?php endif; ?></div>
+    <?php elseif (!$refunds && $tx->status === 'ignored' && empty($tx->duplicate_of)) : ?>
+                        <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-expenses'], admin_url('admin.php')) . '#tx-' . (int) $tx->id); ?>">Verantwoorden</a>
+    <?php elseif (!$refunds) : ?>
+                        &mdash;
+    <?php endif;
+}
+
+/** For a payment sent back: the outgoing transaction that returned it. */
+function avbk_render_transaction_returned_by(object $tx): void {
+    $return = $tx->direction === 'in' && $tx->ignore_reason === 'returned' ? AVBK_DB::get_return_of_payment((int) $tx->id) : null;
+    if ($return) : ?>
+                        <br>teruggestort via <a href="#tx-<?php echo esc_attr($return->transaction_id); ?>">#<?php echo esc_html($return->transaction_id); ?></a>
+    <?php endif;
 }
 
 /** The status of a transaction, with a restore form for an ignored payment. */
@@ -308,8 +311,9 @@ function avbk_render_transaction_status($tx, $display_status): void {
                     ?>Dubbele betaling van <a href="<?php echo esc_url($duplicate_url); ?>">#<?php echo esc_html($tx->duplicate_of); ?></a><?php
                     else :
                         echo esc_html($display_status);
-                    endif; ?>
-                    <?php if ($tx->direction === 'in' && $tx->status === 'ignored' && empty($tx->duplicate_of)) : ?>
+                    endif;
+                    avbk_render_transaction_returned_by($tx); ?>
+                    <?php if ($tx->direction === 'in' && $tx->status === 'ignored' && empty($tx->duplicate_of) && $tx->ignore_reason !== 'returned') : ?>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:.35rem">
                             <?php wp_nonce_field('avbk_restore_ignored_transaction'); ?>
                             <input type="hidden" name="action" value="avbk_restore_ignored_transaction">

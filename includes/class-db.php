@@ -1253,6 +1253,9 @@ class AVBK_DB {
         if (version_compare($version, '1.49', '<') && self::install_refund_schema()) {
             update_option('avbk_db_version', '1.49');
         }
+        if (version_compare($version, '1.50', '<') && self::install_expense_schema()) {
+            update_option('avbk_db_version', '1.50');
+        }
     }
 
     /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
@@ -1260,6 +1263,36 @@ class AVBK_DB {
         global $wpdb;
         $name = $wpdb->prefix . $table;
         return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($name))) === $name;
+    }
+
+    /** Explanations of outgoing transactions, see AVBK_Expenses. */
+    private static function install_expense_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_expenses (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            transaction_id INT UNSIGNED NOT NULL,
+            kind VARCHAR(20) NOT NULL,
+            category VARCHAR(60) NOT NULL DEFAULT '',
+            supplier VARCHAR(190) NOT NULL DEFAULT '',
+            activity_id INT UNSIGNED NULL,
+            related_transaction_id INT UNSIGNED NULL,
+            related_previous VARCHAR(60) NOT NULL DEFAULT '',
+            reimbursement_id INT UNSIGNED NULL,
+            reimbursement_marked_paid TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            note VARCHAR(500) NOT NULL DEFAULT '',
+            document_path VARCHAR(255) NOT NULL DEFAULT '',
+            document_name VARCHAR(255) NOT NULL DEFAULT '',
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY transaction_id (transaction_id),
+            KEY kind (kind),
+            KEY activity_id (activity_id),
+            KEY related_transaction_id (related_transaction_id),
+            KEY reimbursement_id (reimbursement_id)
+        ) {$wpdb->get_charset_collate()};");
+        return self::table_exists('avb_expenses');
     }
 
     /** Refunds: money paid towards a fee item and paid back, see AVBK_Refunds. */
@@ -3815,6 +3848,184 @@ class AVBK_DB {
         )) ?: [];
     }
 
+    // -------------------------------------------------------------------
+    // Expenses: explanations of outgoing transactions (see AVBK_Expenses)
+    // -------------------------------------------------------------------
+
+    /**
+     * Saves an explanation and its side effects: the transaction becomes
+     * matched (Tweede controle), a returned incoming payment is ignored as
+     * 'returned', a pending reimbursement is marked paid.
+     *
+     * @param array<string, mixed> $data Columns of avb_expenses.
+     */
+    public static function insert_expense(array $data): int {
+        global $wpdb;
+        $user_id = get_current_user_id() ?: null;
+        $related_id = (int) ($data['related_transaction_id'] ?? 0);
+        $related = $related_id ? self::get_transaction($related_id) : null;
+        $reimbursement_id = (int) ($data['reimbursement_id'] ?? 0);
+        $reimbursement = $reimbursement_id ? self::get_reimbursement($reimbursement_id) : null;
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_expenses", $data + [
+            'related_previous'          => $related ? $related->status . ':' . $related->ignore_reason : '',
+            'reimbursement_marked_paid' => $reimbursement && $reimbursement->status === 'pending' ? 1 : 0,
+            'created_by'                => $user_id,
+            'created_at'                => current_time('mysql'),
+        ]);
+        if (!$inserted) {
+            return 0;
+        }
+        $expense_id = (int) $wpdb->insert_id;
+        $transaction_id = (int) $data['transaction_id'];
+        $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['status' => 'matched', 'ignore_reason' => '', 'confirmed_by' => $user_id, 'second_approved_by' => null, 'second_approved_at' => null],
+            ['id' => $transaction_id]
+        );
+        if ($related) {
+            $wpdb->update("{$wpdb->prefix}avb_transactions", ['status' => 'ignored', 'ignore_reason' => 'returned'], ['id' => $related_id]);
+        }
+        if ($reimbursement && $reimbursement->status === 'pending') {
+            self::mark_reimbursement_paid($reimbursement_id, (int) $user_id);
+        }
+        self::audit('expense.added', 'transaction', $transaction_id, ['expense_id' => $expense_id, 'kind' => (string) $data['kind'], 'related_transaction_id' => $related_id ?: null, 'reimbursement_id' => $reimbursement_id ?: null]);
+        return $expense_id;
+    }
+
+    /**
+     * Removes an explanation and undoes its side effects. Returns the stored
+     * document name ('' when none) for the caller to delete, or null when the
+     * expense doesn't exist.
+     */
+    public static function delete_expense(int $expense_id): ?string {
+        global $wpdb;
+        $expense = self::get_expense($expense_id);
+        if (!$expense || !$wpdb->delete("{$wpdb->prefix}avb_expenses", ['id' => $expense_id])) {
+            return null;
+        }
+        $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['status' => 'ignored', 'ignore_reason' => 'import_outgoing', 'confirmed_by' => null, 'second_approved_by' => null, 'second_approved_at' => null],
+            ['id' => (int) $expense->transaction_id]
+        );
+        if ($expense->related_transaction_id && str_contains($expense->related_previous, ':')) {
+            [$status, $reason] = explode(':', $expense->related_previous, 2);
+            $wpdb->update("{$wpdb->prefix}avb_transactions", ['status' => $status, 'ignore_reason' => $reason], ['id' => (int) $expense->related_transaction_id]);
+        }
+        if ($expense->reimbursement_id && $expense->reimbursement_marked_paid) {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'pending', 'paid_at' => null, 'paid_by' => null], ['id' => (int) $expense->reimbursement_id]);
+        }
+        self::audit('expense.removed', 'transaction', (int) $expense->transaction_id, ['expense_id' => $expense_id, 'kind' => (string) $expense->kind]);
+        return (string) $expense->document_path;
+    }
+
+    public static function get_expense(int $id): ?object {
+        global $wpdb;
+        return $id ? ($wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_expenses WHERE id = %d", $id)) ?: null) : null;
+    }
+
+    public static function get_expense_for_transaction(int $transaction_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_expenses WHERE transaction_id = %d", $transaction_id)) ?: null;
+    }
+
+    /** Whether an incoming payment is already explained as sent back. */
+    public static function is_returned_payment(int $transaction_id): bool {
+        global $wpdb;
+        return (bool) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}avb_expenses WHERE related_transaction_id = %d", $transaction_id));
+    }
+
+    /** The outgoing transaction that sent this incoming payment back, if any. */
+    public static function get_return_of_payment(int $transaction_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_expenses WHERE related_transaction_id = %d", $transaction_id)) ?: null;
+    }
+
+    /** SQL condition for outgoing transactions without explanation or refund. */
+    private static function unexplained_outgoing_where(): string {
+        global $wpdb;
+        return "t.direction = 'out' AND t.duplicate_of IS NULL AND t.status = 'ignored'
+                AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_expenses e WHERE e.transaction_id = t.id)
+                AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_refunds r WHERE r.transaction_id = t.id)";
+    }
+
+    /** @return object[] Outgoing transactions waiting for an explanation, oldest first. */
+    public static function get_unexplained_outgoing(int $min_year = 0): array {
+        global $wpdb;
+        // The condition is a fixed string; only $min_year is a value, bound by prepare().
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $where = self::unexplained_outgoing_where();
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT t.* FROM {$wpdb->prefix}avb_transactions t
+             WHERE $where AND YEAR(t.transaction_date) >= %d
+             ORDER BY t.transaction_date ASC, t.id ASC",
+            $min_year
+        )) ?: [];
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    public static function count_unexplained_outgoing(int $min_year = 0): int {
+        global $wpdb;
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $where = self::unexplained_outgoing_where();
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_transactions t WHERE $where AND YEAR(t.transaction_date) >= %d",
+            $min_year
+        ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    /** @return object[] Explained outgoing transactions of a year, newest first, with the transaction's fields. */
+    public static function get_expenses_for_year(int $year): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT e.*, t.transaction_date, t.amount, t.counterparty_name, t.description, t.second_approved_by
+             FROM {$wpdb->prefix}avb_expenses e
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = e.transaction_id
+             WHERE YEAR(t.transaction_date) = %d
+             ORDER BY t.transaction_date DESC, t.id DESC",
+            $year
+        )) ?: [];
+    }
+
+    /** @return string[] Categories used before, most used first. */
+    public static function get_expense_categories(): array {
+        global $wpdb;
+        return $wpdb->get_col(
+            "SELECT category FROM {$wpdb->prefix}avb_expenses WHERE category != '' GROUP BY category ORDER BY COUNT(*) DESC, category ASC LIMIT 50"
+        ) ?: [];
+    }
+
+    /** @return object[] Incoming payments from the same account, before the outgoing one, not allocated and not sent back yet. */
+    public static function get_returned_payment_candidates(object $outgoing): array {
+        global $wpdb;
+        if (trim((string) $outgoing->counterparty_iban) === '') {
+            return [];
+        }
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT t.id, t.transaction_date, t.amount, t.status, t.ignore_reason, t.description
+             FROM {$wpdb->prefix}avb_transactions t
+             WHERE t.direction = 'in' AND t.duplicate_of IS NULL
+               AND t.status IN ('ignored', 'unmatched', 'suggested')
+               AND t.counterparty_iban = %s AND t.transaction_date <= %s
+               AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_expenses e WHERE e.related_transaction_id = t.id)
+             ORDER BY t.transaction_date DESC LIMIT 20",
+            $outgoing->counterparty_iban,
+            $outgoing->transaction_date
+        )) ?: [];
+    }
+
+    /** @return object[] Pending reimbursements and paid ones not linked to a transfer yet. */
+    public static function get_reimbursement_candidates(): array {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT r.* FROM {$wpdb->prefix}avb_reimbursements r
+             WHERE r.status IN ('pending', 'paid')
+               AND NOT EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_expenses e WHERE e.reimbursement_id = r.id)
+             ORDER BY r.created_at DESC LIMIT 100"
+        ) ?: [];
+    }
+
     /**
      * Number of assigned incoming bank payments per year. Duplicate import
      * copies are deliberately excluded: they are bookkeeping safeguards,
@@ -3884,9 +4095,14 @@ class AVBK_DB {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
         if ($transaction && $transaction->direction === 'out') {
-            // An outgoing transaction is only ever linked as a refund; there
-            // is no review queue for it to go back to.
+            // An outgoing transaction is linked as a refund or explained as
+            // an expense; there is no review queue for it to go back to.
             self::delete_refunds_for_transaction($transaction_id);
+            $expense = self::get_expense_for_transaction($transaction_id);
+            $document = $expense ? self::delete_expense((int) $expense->id) : null;
+            if ($document !== null && $document !== '' && class_exists('AVBK_Reimbursements')) {
+                wp_delete_file(AVBK_Reimbursements::receipts_dir() . '/' . basename($document));
+            }
             return;
         }
         self::audit('transaction.reverted', 'transaction', $transaction_id, [
