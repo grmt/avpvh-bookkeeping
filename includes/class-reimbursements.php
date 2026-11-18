@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 /**
  * "Bonnetje declareren" — a member uploads a photo of a receipt, the
@@ -542,7 +543,7 @@ class AVBK_Reimbursements implements AVBK_Component {
             $descriptions,
             admin_url('admin.php?page=avbk-reimbursements')
         );
-        wp_mail($to, $subject, $body);
+        avbk_mail('treasurer_notice', (int) $member->id, $to, $subject, $body);
 
         wp_safe_redirect(add_query_arg('reimbursement_submitted', '1', $redirect_url) . '#declareren');
         exit;

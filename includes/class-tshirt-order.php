@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 /**
  * [avpvh_bk_tshirt_order] (and alias [avpvh_bk_tshirt]) — public and member ordering
@@ -1115,7 +1116,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = (bool) wp_mail($email, $subject, $body, $headers);
+        $sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $email, $subject, $body, $headers);
         remove_action('wp_mail_failed', $capture_error);
 
         AVBK_DB::mark_order_email_result((int) $order->id, $sent, $mail_error);
@@ -1210,7 +1211,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                 . '</body></html>';
 
             $headers = ['Content-Type: text/html; charset=UTF-8'];
-            wp_mail($email, $subject, $body, $headers);
+            avbk_mail('order_lookup', null, $email, $subject, $body, $headers);
             set_transient($transient_key, 1, 600);
         }
 

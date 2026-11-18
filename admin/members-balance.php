@@ -133,6 +133,33 @@ function avbk_render_member_balance_detail(object $member, array $settings): voi
             </div>
             </div>
             <?php avbk_render_member_balance_actions($shown_total, $available_credit, $detail_member_id); ?>
+            <?php avbk_render_member_recent_mails($detail_member_id); ?>
+<?php
+}
+
+/** The last mails sent to this member, with a link to all of them in Verzonden mails. */
+function avbk_render_member_recent_mails(int $member_id): void {
+    if (!method_exists('AVBK_DB', 'get_mail_log')) {
+        return;
+    }
+    $mails = AVBK_DB::get_mail_log(['member_id' => $member_id], 5);
+    $all_url = add_query_arg(['page' => 'avbk-mail-log', 'member_id' => $member_id], admin_url('admin.php'));
+    ?>
+            <h3>Mails</h3>
+            <?php if (!$mails) : ?>
+                <p class="description">Nog geen mails aan dit lid gelogd.</p>
+            <?php else : ?>
+                <ul>
+                    <?php foreach ($mails as $mail) : ?>
+                        <li>
+                            <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($mail->sent_at))); ?> &mdash;
+                            <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-mail-log', 'mail' => (int) $mail->id], admin_url('admin.php'))); ?>"><?php echo esc_html($mail->subject); ?></a>
+                            <?php echo $mail->status === 'failed' ? '<span style="color:#b32d2e">(mislukt)</span>' : ''; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+                <p><a href="<?php echo esc_url($all_url); ?>">Alle mails aan dit lid</a></p>
+            <?php endif; ?>
 <?php
 }
 

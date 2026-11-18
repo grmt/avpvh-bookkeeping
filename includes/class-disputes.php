@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 class AVBK_Disputes {
 
@@ -72,7 +73,7 @@ class AVBK_Disputes {
         add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         add_filter('wp_mail_from_name', $force_name, PHP_INT_MAX);
         try {
-            $sent = wp_mail($email, '[AV-PvH] Antwoord op je bericht (#' . $id . ')', $body, [
+            $sent = avbk_mail('dispute_reply', $recipient ? (int) $recipient->id : null, $email, '[AV-PvH] Antwoord op je bericht (#' . $id . ')', $body, [
                 'From: AV-PvH Penningmeester <' . $from . '>',
                 'Reply-To: ' . $from,
                 'Content-Type: text/plain; charset=UTF-8',

@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 class AVBK_Admin implements AVBK_Component {
 
@@ -219,6 +220,7 @@ class AVBK_Admin implements AVBK_Component {
         $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
         add_submenu_page('avbk-overview', 'QR-flyers', 'QR-flyers', 'read', 'avbk-flyers', [$this, 'render_flyers']);
+        add_submenu_page('avbk-overview', 'Verzonden mails', 'Verzonden mails', 'read', 'avbk-mail-log', [$this, 'render_mail_log']);
         add_submenu_page('avbk-overview', 'Logboek', 'Logboek', 'read', 'avbk-audit-log', [$this, 'render_audit_log']);
     }
 
@@ -278,6 +280,7 @@ class AVBK_Admin implements AVBK_Component {
     public function render_review(): void { require_once AVBK_PLUGIN_DIR . 'admin/review-queue.php'; avbk_render_review_queue(); }
     public function render_second_approval(): void { require_once AVBK_PLUGIN_DIR . 'admin/second-approval.php'; avbk_render_second_approval(); }
     public function render_transactions(): void { require_once AVBK_PLUGIN_DIR . 'admin/transactions.php'; avbk_render_transactions(); }
+    public function render_mail_log(): void { require_once AVBK_PLUGIN_DIR . 'admin/mail-log.php'; avbk_render_mail_log(); }
     public function render_expenses(): void { require_once AVBK_PLUGIN_DIR . 'admin/expenses.php'; avbk_render_expenses(); }
     public function render_members(): void { require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php'; avbk_render_members_balance(); }
     public function render_rates(): void { require_once AVBK_PLUGIN_DIR . 'admin/rates.php'; avbk_render_rates(); }
@@ -395,7 +398,9 @@ class AVBK_Admin implements AVBK_Component {
                 $context_label,
                 $penningmeester_name
             );
-            $sent = wp_mail(
+            $sent = avbk_mail(
+                'donation',
+                (int) $member->id,
                 $member->email,
                 'Overbetaling als schenking verwerkt',
                 $body,
@@ -1520,7 +1525,7 @@ class AVBK_Admin implements AVBK_Component {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($member->email, $subject, $body, $headers);
+        $sent = avbk_mail('payment_request', (int) $member->id, $member->email, $subject, $body, $headers);
         remove_action('wp_mail_failed', $capture_error);
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
         remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
@@ -2209,7 +2214,7 @@ class AVBK_Admin implements AVBK_Component {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($member->email, $subject, $body, [
+        $sent = avbk_mail('payment_request', (int) $member->id, $member->email, $subject, $body, [
             'From: AV-PvH Penningmeester <' . $from_email . '>',
             'Reply-To: ' . $from_email,
             'Content-Type: text/html; charset=UTF-8',
@@ -2325,7 +2330,7 @@ class AVBK_Admin implements AVBK_Component {
             . '<p>Je overzicht staat op je ledenpagina: <a href="' . esc_url(home_url('/leden/beheer/#bijdrage')) . '">Bekijk je overzicht</a></p>'
             . '<p>Groet,<br>' . esc_html((string) get_option('avbk_penningmeester_name', 'de penningmeester')) . '</p>'
             . '</body></html>';
-        wp_mail($member->email, '[AV-PvH] Tegoed verrekend', $body, ['Content-Type: text/html; charset=UTF-8']);
+        avbk_mail('credit', (int) $member->id, $member->email, '[AV-PvH] Tegoed verrekend', $body, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /**
@@ -2355,7 +2360,7 @@ class AVBK_Admin implements AVBK_Component {
                 number_format($donated, 2, ',', '.'),
                 home_url('/leden/beheer/#bijdrage')
             );
-            wp_mail($member->email, $subject, $body);
+            avbk_mail('credit', (int) $member->id, $member->email, $subject, $body);
         }
         wp_safe_redirect(add_query_arg('credit_donated', '1', $return_url));
         exit;

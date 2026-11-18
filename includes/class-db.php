@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 require_once __DIR__ . '/class-exceptions.php';
 
 class AVBK_DB {
@@ -1256,6 +1257,9 @@ class AVBK_DB {
         if (version_compare($version, '1.50', '<') && self::install_expense_schema()) {
             update_option('avbk_db_version', '1.50');
         }
+        if (version_compare($version, '1.51', '<') && self::install_mail_log_schema()) {
+            update_option('avbk_db_version', '1.51');
+        }
     }
 
     /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
@@ -1263,6 +1267,30 @@ class AVBK_DB {
         global $wpdb;
         $name = $wpdb->prefix . $table;
         return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($name))) === $name;
+    }
+
+    /** The plugin's sent mails, see avbk_mail(). */
+    private static function install_mail_log_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_mail_log (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            sent_at DATETIME NOT NULL,
+            kind VARCHAR(30) NOT NULL,
+            member_id INT UNSIGNED NULL,
+            recipient VARCHAR(255) NOT NULL DEFAULT '',
+            subject VARCHAR(255) NOT NULL DEFAULT '',
+            body MEDIUMTEXT NULL,
+            is_html TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+            status VARCHAR(10) NOT NULL DEFAULT 'sent',
+            error VARCHAR(255) NOT NULL DEFAULT '',
+            sent_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY sent_at (sent_at),
+            KEY member_sent (member_id, sent_at),
+            KEY kind (kind)
+        ) {$wpdb->get_charset_collate()};");
+        return self::table_exists('avb_mail_log');
     }
 
     /** Explanations of outgoing transactions, see AVBK_Expenses. */
@@ -3886,6 +3914,96 @@ class AVBK_DB {
     }
 
     // -------------------------------------------------------------------
+    // Mail log (see avbk_mail())
+    // -------------------------------------------------------------------
+
+    /** @param array{kind: string, member_id: ?int, recipient: string, subject: string, body: string, is_html: bool, status: string, error: string} $mail */
+    public static function log_mail(array $mail): void {
+        global $wpdb;
+        $wpdb->insert("{$wpdb->prefix}avb_mail_log", [
+            'sent_at'   => current_time('mysql'),
+            'kind'      => substr($mail['kind'], 0, 30),
+            'member_id' => $mail['member_id'],
+            'recipient' => mb_substr($mail['recipient'], 0, 255),
+            'subject'   => mb_substr($mail['subject'], 0, 255),
+            'body'      => $mail['body'],
+            'is_html'   => $mail['is_html'] ? 1 : 0,
+            'status'    => $mail['status'],
+            'error'     => mb_substr($mail['error'], 0, 255),
+            'sent_by'   => get_current_user_id() ?: null,
+        ]);
+    }
+
+    /**
+     * WHERE clause and values for the mail log filters.
+     *
+     * @param array{kind?: string, member_id?: int, status?: string, search?: string, month?: string} $filters
+     * @return array{0: string, 1: array<int, int|string>}
+     */
+    private static function mail_log_where(array $filters): array {
+        global $wpdb;
+        $where = ['1=1'];
+        $values = [];
+        $conditions = [
+            'kind'      => 'kind = %s',
+            'member_id' => 'member_id = %d',
+            'status'    => 'status = %s',
+        ];
+        foreach ($conditions as $key => $sql) {
+            if (!empty($filters[$key])) {
+                $where[] = $sql;
+                $values[] = $filters[$key];
+            }
+        }
+        if (!empty($filters['search'])) {
+            $where[] = '(recipient LIKE %s OR subject LIKE %s)';
+            $like = '%' . $wpdb->esc_like($filters['search']) . '%';
+            array_push($values, $like, $like);
+        }
+        if (!empty($filters['month']) && preg_match('/^\d{4}-\d{2}$/', $filters['month'])) {
+            $where[] = "DATE_FORMAT(sent_at, '%%Y-%%m') = %s";
+            $values[] = $filters['month'];
+        }
+        return [implode(' AND ', $where), $values];
+    }
+
+    /**
+     * One page of the mail log, newest first, without bodies.
+     *
+     * @param array{kind?: string, member_id?: int, status?: string, search?: string, month?: string} $filters
+     * @return object[]
+     */
+    public static function get_mail_log(array $filters, int $limit = 50, int $offset = 0): array {
+        global $wpdb;
+        [$where, $values] = self::mail_log_where($filters);
+        $values[] = $limit;
+        $values[] = $offset;
+        // $where holds only the fixed fragments of mail_log_where(); every value is bound by prepare().
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT id, sent_at, kind, member_id, recipient, subject, status, error, sent_by
+             FROM {$wpdb->prefix}avb_mail_log WHERE $where
+             ORDER BY sent_at DESC, id DESC LIMIT %d OFFSET %d",
+            ...$values
+        )) ?: [];
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    /** @param array{kind?: string, member_id?: int, status?: string, search?: string, month?: string} $filters */
+    public static function count_mail_log(array $filters): int {
+        global $wpdb;
+        [$where, $values] = self::mail_log_where($filters);
+        $sql = "SELECT COUNT(*) FROM {$wpdb->prefix}avb_mail_log WHERE $where";
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- fixed fragments; values bound by prepare() when there are any.
+        return (int) $wpdb->get_var($values ? $wpdb->prepare($sql, ...$values) : $sql);
+    }
+
+    public static function get_logged_mail(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_mail_log WHERE id = %d", $id)) ?: null;
+    }
+
+    // -------------------------------------------------------------------
     // Expenses: explanations of outgoing transactions (see AVBK_Expenses)
     // -------------------------------------------------------------------
 
@@ -5179,7 +5297,7 @@ class AVBK_DB {
             add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
             add_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
             try {
-                wp_mail($order->email, $subject, $body, $headers);
+                avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $order->email, $subject, $body, $headers);
             } finally {
                 remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
                 remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
