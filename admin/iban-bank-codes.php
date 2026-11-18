@@ -1,6 +1,28 @@
 <?php
 defined('ABSPATH') || exit;
 
+/**
+ * The country shown on the IBAN-bankcodes page: the requested one when it is
+ * known, else the first format. Returns the country code, its format and its
+ * bank codes.
+ *
+ * @param array<int, object> $formats
+ * @return array{0: string, 1: ?object, 2: array<int, object>}
+ */
+function avbk_iban_page_selection(array $formats): array {
+    $requested = strtoupper(sanitize_text_field(wp_unslash($_GET['country'] ?? '')));
+    $selected_format = array_find($formats, fn($format) => $format->country_code === $requested)
+        ?? ($formats[0] ?? null);
+    if (!$selected_format) {
+        return ['', null, []];
+    }
+    return [
+        $selected_format->country_code,
+        $selected_format,
+        AVBK_DB::get_iban_bank_codes($selected_format->country_code),
+    ];
+}
+
 /** Renders the admin/iban-bank-codes.php page. */
 function avbk_render_iban_bank_codes(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
@@ -8,19 +30,7 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
 }
 
 $formats = AVBK_DB::get_iban_country_formats();
-$selected_country = strtoupper(sanitize_text_field(wp_unslash($_GET['country'] ?? '')));
-$known_country_codes = array_map(fn($format) => $format->country_code, $formats);
-if (!in_array($selected_country, $known_country_codes, true)) {
-    $selected_country = $formats ? $formats[0]->country_code : '';
-}
-$bank_codes = $selected_country ? AVBK_DB::get_iban_bank_codes($selected_country) : [];
-$selected_format = null;
-foreach ($formats as $format) {
-    if ($format->country_code === $selected_country) {
-        $selected_format = $format;
-        break;
-    }
-}
+[$selected_country, $selected_format, $bank_codes] = avbk_iban_page_selection($formats);
 ?>
 <div class="wrap">
     <h1>IBAN-bankcodes</h1>
