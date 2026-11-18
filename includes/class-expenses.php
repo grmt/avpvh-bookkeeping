@@ -132,7 +132,7 @@ class AVBK_Expenses implements AVBK_Component {
     public function handle_explain(): void {
         check_admin_referer('avbk_explain_expense');
         if (!$this->can_manage()) {
-            wp_die(self::NO_ACCESS, 403);
+            wp_die(esc_html(self::NO_ACCESS), 403);
         }
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
         $kind = sanitize_key(wp_unslash($_POST['kind'] ?? ''));
@@ -258,7 +258,7 @@ class AVBK_Expenses implements AVBK_Component {
     public function handle_remove(): void {
         check_admin_referer('avbk_remove_expense');
         if (!$this->can_manage()) {
-            wp_die(self::NO_ACCESS, 403);
+            wp_die(esc_html(self::NO_ACCESS), 403);
         }
         $expense_id = (int) ($_POST['expense_id'] ?? 0);
         $document = $expense_id ? AVBK_DB::delete_expense($expense_id) : null;
@@ -275,7 +275,7 @@ class AVBK_Expenses implements AVBK_Component {
 
     public function handle_view_document(): void {
         if (!$this->can_manage()) {
-            wp_die(self::NO_ACCESS, 'Fout', ['response' => 403]);
+            wp_die(esc_html(self::NO_ACCESS), 'Fout', ['response' => 403]);
         }
         $expense = AVBK_DB::get_expense((int) ($_GET['id'] ?? 0));
         $path = $expense && $expense->document_path !== '' ? AVBK_Reimbursements::receipts_dir() . '/' . basename($expense->document_path) : '';
