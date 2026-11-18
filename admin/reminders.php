@@ -1,6 +1,9 @@
 <?php
 defined('ABSPATH') || exit;
 
+/** Date and time as the reminders page shows them. */
+const AVBK_REMINDER_DATETIME = 'd-m-Y H:i';
+
 /** A link to the reminders page, with extra query arguments. */
 function avbk_reminders_url(array $args = []): string {
     return add_query_arg(['page' => 'avbk-reminders'] + $args, admin_url('admin.php'));
@@ -55,9 +58,9 @@ function avbk_render_reminder_notices(): void {
 
 /** Filters, the members with something open, the text and the buttons. */
 function avbk_render_reminder_selection(): void {
-    $filters = AVBK_Reminders::filters_from_request();
+    $filters = AVBK_Reminder_Rules::filters_from_request();
     $today = current_time('Y-m-d');
-    $rows = array_values(array_filter(AVBK_Reminders::candidates(), static fn($row) => AVBK_Reminders::matches($row, $filters, $today)));
+    $rows = array_values(array_filter(AVBK_Reminder_Rules::candidates(), static fn($row) => AVBK_Reminder_Rules::matches($row, $filters, $today)));
     avbk_render_reminder_notices();
     ?>
     <p class="description">Iedereen met een openstaand bedrag buiten afgesloten jaren. Aangevinkt zijn de leden die in de laatste <?php echo esc_html($filters['not_reminded_days']); ?> dagen geen betaalverzoek of herinnering kregen en geen waarschuwing hebben. Vink aan of uit wie een mail krijgt.</p>
@@ -83,13 +86,13 @@ function avbk_render_reminder_selection(): void {
             </tr></thead>
             <tbody>
                 <?php foreach ($rows as $row) {
-                    avbk_render_reminder_row($row, AVBK_Reminders::selected_by_default($row, $filters, $today));
+                    avbk_render_reminder_row($row, AVBK_Reminder_Rules::selected_by_default($row, $filters, $today));
                 } ?>
             </tbody>
         </table>
         <p>
             <label for="avbk-reminder-intro"><strong>Tekst na &ldquo;Dag [voornaam],&rdquo;</strong></label><br>
-            <textarea name="intro" id="avbk-reminder-intro" rows="5" class="large-text"><?php echo esc_textarea(AVBK_Reminders::intro()); ?></textarea>
+            <textarea name="intro" id="avbk-reminder-intro" rows="5" class="large-text"><?php echo esc_textarea(AVBK_Reminder_Rules::intro()); ?></textarea>
             <label><input type="checkbox" name="save_intro" value="1"> Bewaar als standaardtekst</label>
         </p>
         <p class="description">Daarna volgen, per lid, de openstaande posten, het bedrag, de betaalgegevens met omschrijving en de link naar de ledenpagina met QR-code.</p>
@@ -102,7 +105,7 @@ function avbk_render_reminder_selection(): void {
     <?php
 }
 
-/** @param array<string, mixed> $row From AVBK_Reminders::candidate(). */
+/** @param array<string, mixed> $row From AVBK_Reminder_Rules::candidate(). */
 function avbk_render_reminder_row(array $row, bool $selected): void {
     $member = $row['member'];
     $field = 'avbk-reminder-' . (int) $row['member_id'];
@@ -135,7 +138,7 @@ function avbk_render_reminder_round(int $round_id): void {
     $creator = $round->created_by ? get_userdata((int) $round->created_by) : null;
     ?>
     <p><a href="<?php echo esc_url($back); ?>">&larr; Eerdere rondes</a></p>
-    <h2>Ronde van <?php echo esc_html(wp_date('d-m-Y H:i', strtotime($round->created_at))); ?><?php echo $creator ? ' door ' . esc_html($creator->display_name) : ''; ?></h2>
+    <h2>Ronde van <?php echo esc_html(wp_date(AVBK_REMINDER_DATETIME, strtotime($round->created_at))); ?><?php echo $creator ? ' door ' . esc_html($creator->display_name) : ''; ?></h2>
     <div id="avbk-reminder-progress" data-round="<?php echo esc_attr($round_id); ?>" data-pending="<?php echo esc_attr($counts['pending']); ?>">
         <p>
             <progress max="<?php echo esc_attr($total); ?>" value="<?php echo esc_attr($total - $counts['pending'] - $counts['sending']); ?>" style="width:20em"></progress>
@@ -175,7 +178,7 @@ function avbk_render_reminder_round_members(int $round_id): void {
                     <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => (int) $reminder->member_id], admin_url('admin.php'))); ?>"><?php echo esc_html($member ? avpvh_format_name($member, 'list') : '#' . $reminder->member_id); ?></a></td>
                     <td>&euro; <?php echo esc_html(number_format((float) $reminder->amount, 2, ',', '.')); ?></td>
                     <td<?php echo $reminder->status === 'failed' ? ' style="color:#b32d2e"' : ''; ?>><?php echo esc_html(($labels[$reminder->status] ?? $reminder->status) . ($reminder->error !== '' ? ': ' . $reminder->error : '')); ?></td>
-                    <td><?php echo $reminder->sent_at ? esc_html(wp_date('d-m-Y H:i', strtotime($reminder->sent_at))) : '—'; ?></td>
+                    <td><?php echo $reminder->sent_at ? esc_html(wp_date(AVBK_REMINDER_DATETIME, strtotime($reminder->sent_at))) : '—'; ?></td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
@@ -196,7 +199,7 @@ function avbk_render_reminder_rounds(): void {
             <?php foreach ($rounds as $round) :
                 $creator = $round->created_by ? get_userdata((int) $round->created_by) : null; ?>
                 <tr>
-                    <td><a href="<?php echo esc_url(avbk_reminders_url(['round' => (int) $round->id])); ?>"><?php echo esc_html(wp_date('d-m-Y H:i', strtotime($round->created_at))); ?></a></td>
+                    <td><a href="<?php echo esc_url(avbk_reminders_url(['round' => (int) $round->id])); ?>"><?php echo esc_html(wp_date(AVBK_REMINDER_DATETIME, strtotime($round->created_at))); ?></a></td>
                     <td><?php echo esc_html($creator ? $creator->display_name : '—'); ?></td>
                     <td><?php echo esc_html($round->counts['sent']); ?></td>
                     <td><?php echo esc_html($round->counts['failed']); ?></td>
