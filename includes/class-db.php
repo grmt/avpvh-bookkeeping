@@ -2279,10 +2279,16 @@ class AVBK_DB {
      * credit first simply shrinks what the other co-owners still see
      * available; nothing here reserves a per-owner share up front.
      *
+     * Transactions in a closed year (avbk_closed_through_year) don't count:
+     * a closed year is settled, so its leftovers are neither shown nor
+     * spent. That's a deliberate choice for now; what happens to such a
+     * leftover is decided outside the bookkeeping.
+     *
      * Each row gets a `credit` property: the still-unallocated remainder.
      */
     public static function get_credit_transactions_for_member(int $member_id): array {
         global $wpdb;
+        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name, t.counterparty_iban,
                     COALESCE(SUM(a.amount), 0) AS allocated_total
@@ -2291,6 +2297,7 @@ class AVBK_DB {
              WHERE t.direction = 'in'
                AND t.status = 'matched'
                AND t.counterparty_iban != ''
+               AND YEAR(t.transaction_date) > %d
                AND EXISTS (
                    SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
                    WHERE k.iban = t.counterparty_iban AND k.member_id = %d AND k.confirmed = 1
@@ -2298,6 +2305,7 @@ class AVBK_DB {
              GROUP BY t.id
              HAVING allocated_total < t.amount
              ORDER BY t.transaction_date ASC, t.id ASC",
+            $closed_through_year,
             $member_id
         )) ?: [];
         foreach ($rows as $row) {
