@@ -206,6 +206,23 @@ function avbk_render_members_balance_notices(): void {
         <div class="notice notice-success"><p>Bijdrage kwijtgescholden.</p></div>
     <?php elseif (isset($_GET['amount_updated'])) : ?>
         <div class="notice notice-success"><p>Bedrag bijgewerkt.</p></div>
+    <?php elseif (isset($_GET['refund_added'])) : ?>
+        <div class="notice notice-success"><p>Terugbetaling gekoppeld. Ze staat nu bij Tweede controle.</p></div>
+    <?php elseif (isset($_GET['refund_removed'])) : ?>
+        <div class="notice notice-success"><p>Terugbetaling ontkoppeld.</p></div>
+    <?php elseif (isset($_GET['refund_failed'])) :
+        $refund_failures = [
+            'no_transaction'      => 'De transactie is niet gevonden.',
+            'no_fee_item'         => 'De bijdrage is niet gevonden.',
+            'not_outgoing'        => 'Alleen een uitgaande transactie kan als terugbetaling worden gekoppeld.',
+            'invalid_amount'      => 'Vul een bedrag van minimaal € 0,01 in.',
+            'exceeds_transaction' => 'Het bedrag is hoger dan wat er van deze transactie nog niet gekoppeld is.',
+            'exceeds_paid'        => 'Het bedrag is hoger dan wat er voor deze bijdrage betaald en nog niet terugbetaald is.',
+            'not_found'           => 'Deze terugbetaling bestaat niet meer.',
+        ];
+        $refund_failure = sanitize_key(wp_unslash($_GET['refund_failed']));
+        ?>
+        <div class="notice notice-error"><p><?php echo esc_html($refund_failures[$refund_failure] ?? 'De terugbetaling is niet opgeslagen.'); ?></p></div>
     <?php elseif (isset($_GET['payment_requested'])) : ?>
         <div class="notice notice-success"><p>Betaalverzoek verstuurd.</p></div>
     <?php elseif (isset($_GET['payment_request_failed'])) :
@@ -369,8 +386,10 @@ function avbk_render_member_credit_row($show_member_column, $member, $available_
 /** One fee item in the member's account. */
 function avbk_render_member_fee_row(object $item, bool $show_member_column, array $combined_members, object $member): void {
     $payments = AVBK_DB::get_payments_for_fee_item((int) $item->id);
+    $refunds = $payments ? AVBK_DB::get_refunds_for_fee_item((int) $item->id) : [];
+    $refunded = round(array_sum(array_map(static fn($r) => (float) $r->amount, $refunds)), 2);
     $item_owner = $combined_members[(int) $item->member_id] ?? $member;
-?><tr>
+?><tr id="fee-item-<?php echo esc_attr($item->id); ?>">
                         <td>
                             <?php avbk_render_member_fee_select($item); ?>
                         </td>
@@ -384,11 +403,13 @@ function avbk_render_member_fee_row(object $item, bool $show_member_column, arra
                         <td>&euro; <?php echo esc_html(number_format((float) $item->paid, 2, ',', '.')); ?></td>
                         <td>
                             <?php avbk_render_member_fee_payments($payments); ?>
+                            <?php avbk_render_member_fee_refunds($refunds, (int) $member->id); ?>
                         </td>
                         <td>&euro; <?php echo esc_html(number_format((float) $item->remaining, 2, ',', '.')); ?></td>
-                        <td><?php echo $item->status === 'waived' ? 'Kwijtgescholden' : ($item->remaining <= 0.005 ? 'Betaald' : 'Open'); ?></td>
+                        <td><?php echo esc_html(avbk_member_fee_status_label($item, $refunded)); ?></td>
                         <td>
                             <?php avbk_render_member_fee_waive($item); ?>
+                            <?php if ($payments) { avbk_render_member_fee_refund_form($item, $refunded, (int) $member->id); } ?>
                         </td>
                     </tr>
 <?php
@@ -468,6 +489,98 @@ function avbk_render_member_fee_payments($payments): void {
                                     (&euro; <?php echo esc_html(number_format((float) $payment->allocated_amount, 2, ',', '.')); ?>)
                                 </div>
                             <?php endforeach; endif; ?>
+<?php
+}
+
+/** Status of a fee item: open, paid, waived, or (partly) refunded. */
+function avbk_member_fee_status_label(object $item, float $refunded): string {
+    if ($refunded > 0.005) {
+        return $refunded >= (float) $item->paid - 0.005
+            ? 'Terugbetaald'
+            : 'Deels terugbetaald (€ ' . number_format($refunded, 2, ',', '.') . ')';
+    }
+    if ($item->status === 'waived') {
+        return 'Kwijtgescholden';
+    }
+    return $item->remaining <= 0.005 ? 'Betaald' : 'Open';
+}
+
+/** The refunds of a fee item, each with an unlink button. */
+function avbk_render_member_fee_refunds(array $refunds, int $page_member_id): void {
+    foreach ($refunds as $refund) :
+        $transaction_url = add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . (int) $refund->transaction_id;
+        ?>
+                                <div style="color:#8a2424">
+                                    terugbetaald
+                                    <a href="<?php echo esc_url($transaction_url); ?>">
+                                        <?php echo esc_html(wp_date('d-m-Y', strtotime($refund->transaction_date))); ?>
+                                        &mdash; transactie #<?php echo esc_html($refund->transaction_id); ?>
+                                    </a>
+                                    (&minus;&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?>)
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                                        <?php wp_nonce_field('avbk_remove_refund'); ?>
+                                        <input type="hidden" name="action" value="avbk_remove_refund">
+                                        <input type="hidden" name="refund_id" value="<?php echo esc_attr($refund->id); ?>">
+                                        <input type="hidden" name="member_id" value="<?php echo esc_attr($page_member_id); ?>">
+                                        <button type="submit" class="button-link" onclick="return confirm('Deze terugbetaling ontkoppelen?');">ontkoppelen</button>
+                                    </form>
+                                </div>
+    <?php endforeach;
+}
+
+/**
+ * "Terugbetalen": link an outgoing bank transaction to the paid part of a
+ * fee item. Only offered when bank payments were allocated to it; transfers
+ * back to the account that paid come first.
+ */
+function avbk_render_member_fee_refund_form(object $item, float $refunded, int $page_member_id): void {
+    $refundable = round((float) $item->paid - $refunded, 2);
+    if ($refundable < 0.01) {
+        return;
+    }
+    $member_ibans = array_map(static fn($k) => (string) $k->iban, AVBK_DB::get_known_ibans_for_member((int) $item->member_id));
+    $candidates = AVBK_Refunds::rank_candidates(
+        AVBK_DB::get_refund_candidate_transactions((int) $item->id),
+        AVBK_DB::get_payer_ibans_for_fee_item((int) $item->id),
+        $member_ibans,
+        $refundable
+    );
+    $wanted_tx = (int) ($_GET['refund_tx'] ?? 0);
+    $field_id = 'avbk-refund-' . (int) $item->id;
+    $match_notes = [2 => ' · zelfde rekening als de betaling', 1 => ' · rekening van het lid', 0 => ''];
+    // Coming from "Koppel als terugbetaling": open the form only where that
+    // transfer fits, i.e. went to the paying account or has the exact amount.
+    $fits = static fn($c) => (int) $c->id === $wanted_tx && ($c->match === 2 || abs($c->open - $refundable) < 0.005);
+    ?>
+                                <details<?php echo $wanted_tx && array_filter($candidates, $fits) ? ' open' : ''; ?>>
+                                    <summary>Terugbetalen</summary>
+                                    <?php if (!$candidates) : ?>
+                                        <p class="description">Geen uitgaande transactie gevonden vanaf de betaaldatum. Importeer eerst het bankafschrift met de terugbetaling.</p>
+                                    <?php else : ?>
+                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                            <?php wp_nonce_field('avbk_add_refund'); ?>
+                                            <input type="hidden" name="action" value="avbk_add_refund">
+                                            <input type="hidden" name="fee_item_id" value="<?php echo esc_attr($item->id); ?>">
+                                            <input type="hidden" name="member_id" value="<?php echo esc_attr($page_member_id); ?>">
+                                            <p>
+                                                <label for="<?php echo esc_attr($field_id); ?>-tx">Uitgaande transactie</label><br>
+                                                <select name="transaction_id" id="<?php echo esc_attr($field_id); ?>-tx" style="max-width:28em">
+                                                    <?php foreach ($candidates as $candidate) : ?>
+                                                        <option value="<?php echo esc_attr($candidate->id); ?>" <?php selected($wanted_tx, (int) $candidate->id); ?>>
+                                                            <?php echo esc_html(wp_date('d-m-Y', strtotime($candidate->transaction_date)) . ' — € ' . number_format((float) $candidate->open, 2, ',', '.') . ' — ' . $candidate->counterparty_name . $match_notes[$candidate->match]); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </p>
+                                            <p>
+                                                <label for="<?php echo esc_attr($field_id); ?>-amount">Bedrag terugbetaald</label><br>
+                                                &euro; <input type="text" name="amount" id="<?php echo esc_attr($field_id); ?>-amount" value="<?php echo esc_attr(number_format($refundable, 2, ',', '')); ?>" size="7" inputmode="decimal">
+                                                <span class="description">maximaal &euro; <?php echo esc_html(number_format($refundable, 2, ',', '.')); ?></span>
+                                            </p>
+                                            <button type="submit" class="button button-small">Koppel terugbetaling</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </details>
 <?php
 }
 

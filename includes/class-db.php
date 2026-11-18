@@ -1250,6 +1250,36 @@ class AVBK_DB {
         if (version_compare($version, '1.48', '<') && AVBK_Audit::install()) {
             update_option('avbk_db_version', '1.48');
         }
+        if (version_compare($version, '1.49', '<') && self::install_refund_schema()) {
+            update_option('avbk_db_version', '1.49');
+        }
+    }
+
+    /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
+    private static function table_exists(string $table): bool {
+        global $wpdb;
+        $name = $wpdb->prefix . $table;
+        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($name))) === $name;
+    }
+
+    /** Refunds: money paid towards a fee item and paid back, see AVBK_Refunds. */
+    private static function install_refund_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_refunds (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            transaction_id INT UNSIGNED NOT NULL,
+            fee_item_id INT UNSIGNED NOT NULL,
+            member_id INT UNSIGNED NOT NULL,
+            amount DECIMAL(8,2) NOT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY transaction_id (transaction_id),
+            KEY fee_item_id (fee_item_id),
+            KEY member_id (member_id)
+        ) {$wpdb->get_charset_collate()};");
+        return self::table_exists('avb_refunds');
     }
 
     /**
@@ -1268,8 +1298,7 @@ class AVBK_DB {
             PRIMARY KEY (id),
             KEY member_items (member_id, fee_item_ids(191))
         ) {$wpdb->get_charset_collate()};");
-        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_payment_references')))
-            === $wpdb->prefix . 'avb_payment_references';
+        return self::table_exists('avb_payment_references');
     }
 
     /** The id of the short reference for this member and exact selection, created on first use; 0 if it can't be stored. */
@@ -1316,8 +1345,7 @@ class AVBK_DB {
             UNIQUE KEY request_key (request_key),
             KEY dispute_history (dispute_id, id)
         ) {$wpdb->get_charset_collate()};");
-        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_dispute_events')))
-            === $wpdb->prefix . 'avb_dispute_events';
+        return self::table_exists('avb_dispute_events');
     }
 
     // -------------------------------------------------------------------
@@ -3645,6 +3673,148 @@ class AVBK_DB {
         $wpdb->delete("{$wpdb->prefix}avb_transaction_allocations", ['transaction_id' => $transaction_id]);
     }
 
+    // -------------------------------------------------------------------
+    // Refunds (see AVBK_Refunds)
+    // -------------------------------------------------------------------
+
+    /** Links a refund and marks the outgoing transaction matched, ready for Tweede controle again. */
+    public static function insert_refund(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
+        global $wpdb;
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_refunds", [
+            'transaction_id' => $transaction_id,
+            'fee_item_id'    => $fee_item_id,
+            'member_id'      => $member_id,
+            'amount'         => round($amount, 2),
+            'created_by'     => get_current_user_id() ?: null,
+            'created_at'     => current_time('mysql'),
+        ]);
+        if (!$inserted) {
+            return 0;
+        }
+        $refund_id = (int) $wpdb->insert_id;
+        $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['status' => 'matched', 'ignore_reason' => '', 'confirmed_by' => get_current_user_id() ?: null, 'second_approved_by' => null, 'second_approved_at' => null],
+            ['id' => $transaction_id]
+        );
+        self::audit('refund.added', 'transaction', $transaction_id, ['fee_item_id' => $fee_item_id, 'amount' => round($amount, 2), 'refund_id' => $refund_id], $member_id);
+        return $refund_id;
+    }
+
+    /** Unlinks one refund; a transaction left without refunds goes back to ignored, as on import. */
+    public static function delete_refund(int $refund_id): bool {
+        global $wpdb;
+        $refund = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_refunds WHERE id = %d", $refund_id));
+        if (!$refund || !$wpdb->delete("{$wpdb->prefix}avb_refunds", ['id' => $refund_id])) {
+            return false;
+        }
+        $transaction_id = (int) $refund->transaction_id;
+        if (self::get_refunded_for_transaction($transaction_id) < 0.005) {
+            $wpdb->update(
+                "{$wpdb->prefix}avb_transactions",
+                ['status' => 'ignored', 'ignore_reason' => 'import_outgoing', 'confirmed_by' => null, 'second_approved_by' => null, 'second_approved_at' => null],
+                ['id' => $transaction_id]
+            );
+        } else {
+            $wpdb->update(
+                "{$wpdb->prefix}avb_transactions",
+                ['second_approved_by' => null, 'second_approved_at' => null],
+                ['id' => $transaction_id]
+            );
+        }
+        self::audit('refund.removed', 'transaction', $transaction_id, ['fee_item_id' => (int) $refund->fee_item_id, 'amount' => (float) $refund->amount, 'refund_id' => $refund_id], (int) $refund->member_id);
+        return true;
+    }
+
+    /** Unlinks every refund of an outgoing transaction, e.g. when Tweede controle sends it back. */
+    public static function delete_refunds_for_transaction(int $transaction_id): void {
+        foreach (self::get_refunds_for_transaction($transaction_id) as $refund) {
+            self::delete_refund((int) $refund->id);
+        }
+    }
+
+    public static function get_refunded_for_transaction(int $transaction_id): float {
+        global $wpdb;
+        return (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_refunds WHERE transaction_id = %d",
+            $transaction_id
+        ));
+    }
+
+    public static function get_refunded_for_fee_item(int $fee_item_id): float {
+        global $wpdb;
+        return (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_refunds WHERE fee_item_id = %d",
+            $fee_item_id
+        ));
+    }
+
+    /** @return object[] Refunds of a fee item with their transaction date, oldest first. */
+    public static function get_refunds_for_fee_item(int $fee_item_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.*, t.transaction_date, t.counterparty_name
+             FROM {$wpdb->prefix}avb_refunds r
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = r.transaction_id
+             WHERE r.fee_item_id = %d
+             ORDER BY t.transaction_date ASC, r.id ASC",
+            $fee_item_id
+        )) ?: [];
+    }
+
+    /** @return object[] */
+    public static function get_refunds_for_transaction(int $transaction_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_refunds WHERE transaction_id = %d ORDER BY id ASC",
+            $transaction_id
+        )) ?: [];
+    }
+
+    /** @return string[] Accounts that paid towards a fee item. */
+    public static function get_payer_ibans_for_fee_item(int $fee_item_id): array {
+        global $wpdb;
+        return $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT t.counterparty_iban
+             FROM {$wpdb->prefix}avb_transaction_allocations a
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = a.transaction_id
+             WHERE a.fee_item_id = %d AND t.counterparty_iban != ''",
+            $fee_item_id
+        )) ?: [];
+    }
+
+    /**
+     * Outgoing transactions not (fully) linked as refund yet, from the first
+     * payment towards the fee item on — a refund can't predate the payment.
+     *
+     * @return object[] Each with ->refunded.
+     */
+    public static function get_refund_candidate_transactions(int $fee_item_id): array {
+        global $wpdb;
+        $first_payment = (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT MIN(t.transaction_date)
+             FROM {$wpdb->prefix}avb_transaction_allocations a
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = a.transaction_id
+             WHERE a.fee_item_id = %d",
+            $fee_item_id
+        ));
+        $since = $first_payment !== '' ? $first_payment : '1970-01-01';
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT t.id, t.transaction_date, t.amount, t.counterparty_name, t.counterparty_iban, t.description,
+                    COALESCE(SUM(r.amount), 0) AS refunded
+             FROM {$wpdb->prefix}avb_transactions t
+             LEFT JOIN {$wpdb->prefix}avb_refunds r ON r.transaction_id = t.id
+             WHERE t.direction = 'out' AND t.duplicate_of IS NULL
+               AND t.status IN ('ignored', 'matched')
+               AND t.transaction_date >= %s
+             GROUP BY t.id
+             HAVING refunded < t.amount
+             ORDER BY t.transaction_date DESC, t.id DESC
+             LIMIT 200",
+            $since
+        )) ?: [];
+    }
+
     /**
      * Number of assigned incoming bank payments per year. Duplicate import
      * copies are deliberately excluded: they are bookkeeping safeguards,
@@ -3713,6 +3883,12 @@ class AVBK_DB {
     public static function revert_transaction_to_review(int $transaction_id): void {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
+        if ($transaction && $transaction->direction === 'out') {
+            // An outgoing transaction is only ever linked as a refund; there
+            // is no review queue for it to go back to.
+            self::delete_refunds_for_transaction($transaction_id);
+            return;
+        }
         self::audit('transaction.reverted', 'transaction', $transaction_id, [
             'status'  => [$transaction->status ?? '', 'review'],
             'removed' => self::allocation_snapshot($transaction_id),

@@ -76,9 +76,15 @@ function avbk_render_second_approval_card($tx, $current_user_id, $show_all_years
                     <tr><th>Naam</th><td><?php echo esc_html($tx->counterparty_name); ?></td></tr>
                     <tr><th>Omschrijving</th><td><?php echo AVBK_Matcher::format_description_html(AVBK_Matcher::strip_name_field($tx->description)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_description_html() esc_html()'s the raw text first, then only wraps already-safe hardcoded labels in <strong>. ?></td></tr>
                     <tr><th>Bevestigd door</th><td><?php echo $confirmer ? esc_html($confirmer->display_name) : '&mdash; (automatisch bij import, of van vóór deze functie)'; ?></td></tr>
+                    <?php if ($tx->direction === 'out') : ?>
+                    <tr><th>Terugbetaling van</th><td>
+                        <?php avbk_render_second_approval_refunds($tx); ?>
+                    </td></tr>
+                    <?php else : ?>
                     <tr><th>Toegewezen aan</th><td>
                         <?php avbk_render_second_approval_allocations($allocations, $shortfall, $tx, $allocated); ?>
                     </td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
 
@@ -95,6 +101,26 @@ function avbk_render_second_approval_import($tx): void {
                             <?php if (!empty($tx->import_filename)) : ?><br><span class="description"><?php echo esc_html($tx->import_filename); ?></span><?php endif; ?>
                         <?php else : ?>&mdash;<?php endif; ?>
 <?php
+}
+
+/** The fee items an outgoing transaction refunds, with what was paid for each. */
+function avbk_render_second_approval_refunds($tx): void {
+    $refunds = AVBK_DB::get_refunds_for_transaction((int) $tx->id);
+    if (!$refunds) {
+        echo '&mdash;';
+        return;
+    }
+    foreach ($refunds as $refund) {
+        $member = AVPVH_DB::get_member((int) $refund->member_id);
+        $fee_item = AVBK_DB::get_fee_item((int) $refund->fee_item_id);
+        echo esc_html(
+            ($member ? avpvh_format_name($member, 'list') : 'onbekend lid')
+            . ($fee_item ? ' — ' . $fee_item->description : '')
+            . ': € ' . number_format((float) $refund->amount, 2, ',', '.')
+            . ' (betaald: € ' . number_format(AVBK_DB::get_fee_item_paid((int) $refund->fee_item_id), 2, ',', '.') . ')'
+        );
+        echo '<br>';
+    }
 }
 
 /** Allocations of a payment, with a warning when it is not fully allocated. */
@@ -132,7 +158,11 @@ function avbk_render_second_approval_actions($is_own, $tx, $show_all_years): voi
                 <input type="hidden" name="action" value="avbk_revert_transaction_to_review">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
                 <?php if ($show_all_years) : ?><input type="hidden" name="show_all_years" value="1"><?php endif; ?>
-                <?php submit_button('Terugzetten voor correctie', 'secondary', 'submit', false, ['onclick' => "return confirm('Toewijzing ongedaan maken en terugzetten naar \\'Te controleren\\'?');"]); ?>
+                <?php if ($tx->direction === 'out') : ?>
+                    <?php submit_button('Terugbetaling ontkoppelen', 'secondary', 'submit', false, ['onclick' => "return confirm('Deze terugbetaling ontkoppelen? De transactie wordt weer genegeerd.');"]); ?>
+                <?php else : ?>
+                    <?php submit_button('Terugzetten voor correctie', 'secondary', 'submit', false, ['onclick' => "return confirm('Toewijzing ongedaan maken en terugzetten naar \\'Te controleren\\'?');"]); ?>
+                <?php endif; ?>
             </form>
 <?php
 }

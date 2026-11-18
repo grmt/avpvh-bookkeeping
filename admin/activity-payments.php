@@ -763,7 +763,8 @@ function avbk_render_activity_participants_table($activity_id, $participants, $c
                 <tbody>
                 <?php $participants_paid_total = 0.0; $participants_due_total = 0.0; foreach ($participants as $p) :
                     $values = avbk_activity_participant_values($p, $activity_id, $config);
-                    $participants_paid_total += $values['paid'];
+                    // Net of refunds, the same value the cell sorts and filters on.
+                    $participants_paid_total += $values['paid'] - $values['refunded'];
                     $participants_due_total += $values['due'];
                     ?>
                     <?php avbk_render_activity_participant_row($p, $values, $activity_id); ?>
@@ -820,7 +821,7 @@ function avbk_render_activity_payments_script(): void {
  * @param array<string, mixed> $values From avbk_activity_participant_values().
  */
 function avbk_render_activity_participant_row(object $p, array $values, int $activity_id): void {
-    ['paid' => $paid, 'due' => $due, 'remaining' => $remaining, 'registration_meta' => $registration_meta, 'payments' => $payments, 'payment_request' => $payment_request, 'registration_sort' => $registration_sort, 'known_ibans' => $known_ibans, 'bank_names' => $bank_names, 'countries' => $countries] = $values;
+    ['paid' => $paid, 'refunded' => $refunded, 'due' => $due, 'remaining' => $remaining, 'registration_meta' => $registration_meta, 'payments' => $payments, 'payment_request' => $payment_request, 'registration_sort' => $registration_sort, 'known_ibans' => $known_ibans, 'bank_names' => $bank_names, 'countries' => $countries] = $values;
     ?>
                     <tr>
                         <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avpvh-member-detail', 'id' => $p->member_id], admin_url('admin.php'))); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($p, 'list')); ?></a></td>
@@ -834,8 +835,8 @@ function avbk_render_activity_participant_row(object $p, array $values, int $act
                         </td>
                         <td><?php echo esc_html($p->diet ?: '—'); ?></td>
                         <td><?php echo esc_html($p->notes ?: '—'); ?></td>
-                        <td data-sort-value="<?php echo esc_attr(number_format($paid, 2, '.', '')); ?>">
-                            <?php avbk_render_activity_participant_payments($paid, $payments); ?>
+                        <td data-sort-value="<?php echo esc_attr(number_format($paid - $refunded, 2, '.', '')); ?>">
+                            <?php avbk_render_activity_participant_payments($paid, $payments, $refunded, (int) $p->member_id); ?>
                         </td>
                         <td data-sort-value="<?php echo esc_attr(number_format($due, 2, '.', '')); ?>">
                             <?php echo esc_html('€ ' . number_format($due, 2, ',', '.')); ?>
@@ -862,11 +863,13 @@ function avbk_render_activity_participant_row(object $p, array $values, int $act
 function avbk_activity_participant_values(object $p, int $activity_id, array $config): array {
     $fee_item = AVBK_DB::get_fee_item_for_member_activity((int) $p->member_id, $activity_id);
     $paid = $fee_item ? AVBK_DB::get_fee_item_paid((int) $fee_item->id) : 0.0;
+    $refunded = $fee_item && $paid > 0.005 ? AVBK_DB::get_refunded_for_fee_item((int) $fee_item->id) : 0.0;
     $due = $fee_item ? (float) $fee_item->amount_due : (float) $config['price_per_person'];
     $registration_meta = AVBK_DB::get_sheet_participation_meta($activity_id, (int) $p->member_id);
     $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
     return [
         'paid' => $paid,
+        'refunded' => $refunded,
         'due' => $due,
         'remaining' => $fee_item ? round($due - $paid, 2) : 0.0,
         'registration_meta' => $registration_meta,
@@ -899,8 +902,8 @@ function avbk_render_activity_registration_date($registration_meta): void {
 <?php
 }
 
-/** The amount paid by a participant, with its transactions. */
-function avbk_render_activity_participant_payments($paid, $payments): void {
+/** The amount paid by a participant, with its transactions and what was refunded. */
+function avbk_render_activity_participant_payments($paid, $payments, float $refunded = 0.0, int $member_id = 0): void {
     echo esc_html('€ ' . number_format($paid, 2, ',', '.')); ?>
                             <?php foreach ($payments as $payment) :
                                 $transaction_url = add_query_arg(
@@ -913,6 +916,9 @@ function avbk_render_activity_participant_payments($paid, $payments): void {
                                     &mdash; transactie #<?php echo esc_html($payment->transaction_id); ?>
                                 </a>
                             <?php endforeach; ?>
+                            <?php if ($refunded > 0.005) : ?>
+                                <br><a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id], admin_url('admin.php'))); ?>" style="color:#8a2424">terugbetaald &minus;&euro; <?php echo esc_html(number_format($refunded, 2, ',', '.')); ?></a>
+                            <?php endif; ?>
 <?php
 }
 
