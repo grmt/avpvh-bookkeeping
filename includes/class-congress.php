@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 /**
  * [avpvh_bk_congress] — public (no login required) sign-up page for the
@@ -216,7 +217,7 @@ class AVBK_Congress implements AVBK_Component {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = wp_mail($email, $subject, $body);
+        $sent = avbk_mail('congress', $member_id ? (int) $member_id : null, $email, $subject, $body);
         remove_action('wp_mail_failed', $capture_error);
         AVBK_DB::mark_congress_email_result((int) $registration['id'], $sent, $mail_error);
 
