@@ -1255,6 +1255,13 @@ class AVBK_DB {
         }
     }
 
+    /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
+    private static function table_exists(string $table): bool {
+        global $wpdb;
+        $name = $wpdb->prefix . $table;
+        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($name))) === $name;
+    }
+
     /** Refunds: money paid towards a fee item and paid back, see AVBK_Refunds. */
     private static function install_refund_schema(): bool {
         global $wpdb;
@@ -1272,8 +1279,7 @@ class AVBK_DB {
             KEY fee_item_id (fee_item_id),
             KEY member_id (member_id)
         ) {$wpdb->get_charset_collate()};");
-        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_refunds')))
-            === $wpdb->prefix . 'avb_refunds';
+        return self::table_exists('avb_refunds');
     }
 
     /**
@@ -1292,8 +1298,7 @@ class AVBK_DB {
             PRIMARY KEY (id),
             KEY member_items (member_id, fee_item_ids(191))
         ) {$wpdb->get_charset_collate()};");
-        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_payment_references')))
-            === $wpdb->prefix . 'avb_payment_references';
+        return self::table_exists('avb_payment_references');
     }
 
     /** The id of the short reference for this member and exact selection, created on first use; 0 if it can't be stored. */
@@ -1340,8 +1345,7 @@ class AVBK_DB {
             UNIQUE KEY request_key (request_key),
             KEY dispute_history (dispute_id, id)
         ) {$wpdb->get_charset_collate()};");
-        return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix . 'avb_dispute_events')))
-            === $wpdb->prefix . 'avb_dispute_events';
+        return self::table_exists('avb_dispute_events');
     }
 
     // -------------------------------------------------------------------
@@ -3794,6 +3798,7 @@ class AVBK_DB {
              WHERE a.fee_item_id = %d",
             $fee_item_id
         ));
+        $since = $first_payment !== '' ? $first_payment : '1970-01-01';
         return $wpdb->get_results($wpdb->prepare(
             "SELECT t.id, t.transaction_date, t.amount, t.counterparty_name, t.counterparty_iban, t.description,
                     COALESCE(SUM(r.amount), 0) AS refunded
@@ -3806,7 +3811,7 @@ class AVBK_DB {
              HAVING refunded < t.amount
              ORDER BY t.transaction_date DESC, t.id DESC
              LIMIT 200",
-            $first_payment !== '' ? $first_payment : '1970-01-01'
+            $since
         )) ?: [];
     }
 

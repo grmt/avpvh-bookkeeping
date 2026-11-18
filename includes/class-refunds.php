@@ -24,25 +24,17 @@ class AVBK_Refunds {
      * @param float $item_refunded Already refunded for the fee item.
      */
     public static function rejection(?object $tx, ?object $fee_item, float $amount, float $tx_refunded, float $item_paid, float $item_refunded): ?string {
-        if (!$tx) {
-            return 'no_transaction';
-        }
-        if (!$fee_item) {
-            return 'no_fee_item';
-        }
-        if ($tx->direction !== 'out' || !empty($tx->duplicate_of) || !in_array($tx->status, ['ignored', 'matched'], true)) {
-            return 'not_outgoing';
-        }
-        if ($amount < 0.01) {
-            return 'invalid_amount';
-        }
-        if ($amount > round((float) $tx->amount - $tx_refunded, 2) + 0.005) {
-            return 'exceeds_transaction';
-        }
-        if ($amount > round($item_paid - $item_refunded, 2) + 0.005) {
-            return 'exceeds_paid';
-        }
-        return null;
+        // In order: the first that applies is the reason. The nullsafe reads
+        // are never reached for a missing transaction, which fails first.
+        $failed = array_filter([
+            'no_transaction'      => !$tx,
+            'no_fee_item'         => !$fee_item,
+            'not_outgoing'        => $tx?->direction !== 'out' || !empty($tx?->duplicate_of) || !in_array($tx?->status, ['ignored', 'matched'], true),
+            'invalid_amount'      => $amount < 0.01,
+            'exceeds_transaction' => $amount > round((float) ($tx?->amount ?? 0) - $tx_refunded, 2) + 0.005,
+            'exceeds_paid'        => $amount > round($item_paid - $item_refunded, 2) + 0.005,
+        ]);
+        return array_key_first($failed);
     }
 
     /**
@@ -68,12 +60,23 @@ class AVBK_Refunds {
             }
             $iban = $normalise((string) $tx->counterparty_iban);
             $tx->open = $open;
-            $tx->match = $iban !== '' && in_array($iban, $payer, true) ? 2 : ($iban !== '' && in_array($iban, $member, true) ? 1 : 0);
+            $tx->match = self::match_level($iban, $payer, $member);
             $candidates[] = $tx;
         }
         usort($candidates, static fn($a, $b) => [$b->match, abs($b->open - $refundable) < 0.005, $b->transaction_date, $b->id]
             <=> [$a->match, abs($a->open - $refundable) < 0.005, $a->transaction_date, $a->id]);
         return $candidates;
+    }
+
+    /** 2 when paid back to an account that paid, 1 to another account of the member, 0 otherwise. */
+    private static function match_level(string $iban, array $payer_ibans, array $member_ibans): int {
+        if ($iban === '') {
+            return 0;
+        }
+        if (in_array($iban, $payer_ibans, true)) {
+            return 2;
+        }
+        return in_array($iban, $member_ibans, true) ? 1 : 0;
     }
 
     /** Links a refund; returns the refund id, or an error code (see rejection()). */
