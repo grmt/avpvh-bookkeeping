@@ -196,6 +196,9 @@ class AVBK_Admin implements AVBK_Component {
         $pending_second_approval = AVBK_DB::count_pending_second_approval($min_year);
         $second_approval_label = 'Tweede controle' . ($pending_second_approval ? " <span class=\"awaiting-mod count-{$pending_second_approval}\"><span class=\"pending-count\">{$pending_second_approval}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Tweede controle', $second_approval_label, 'read', 'avbk-second-approval', [$this, 'render_second_approval']);
+        $unexplained_expenses = AVBK_DB::count_unexplained_outgoing($min_year);
+        $expenses_label = 'Uitgaven' . ($unexplained_expenses ? " <span class=\"awaiting-mod count-{$unexplained_expenses}\"><span class=\"pending-count\">{$unexplained_expenses}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Uitgaven', $expenses_label, 'read', 'avbk-expenses', [$this, 'render_expenses']);
         add_submenu_page('avbk-overview', 'Alle transacties', 'Alle transacties', 'read', 'avbk-transactions', [$this, 'render_transactions']);
         add_submenu_page('avbk-overview', 'Ledenoverzicht', 'Ledenoverzicht', 'read', 'avbk-members', [$this, 'render_members']);
         add_submenu_page('avbk-overview', 'Tarieven', 'Tarieven', 'read', 'avbk-rates', [$this, 'render_rates']);
@@ -248,6 +251,9 @@ class AVBK_Admin implements AVBK_Component {
             wp_enqueue_style('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.css', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.css'));
             wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         }
+        if (str_contains($hook, 'avbk-expenses')) {
+            wp_enqueue_script('avbk-expenses', AVBK_PLUGIN_URL . 'assets/expenses.js', [], avbk_asset_version('assets/expenses.js'), true);
+        }
         if (str_contains($hook, 'avbk-review')) {
             wp_enqueue_script('avbk-review-queue', AVBK_PLUGIN_URL . 'assets/review-queue.js', [], avbk_asset_version('assets/review-queue.js'), true);
         }
@@ -271,6 +277,7 @@ class AVBK_Admin implements AVBK_Component {
     public function render_review(): void { require_once AVBK_PLUGIN_DIR . 'admin/review-queue.php'; avbk_render_review_queue(); }
     public function render_second_approval(): void { require_once AVBK_PLUGIN_DIR . 'admin/second-approval.php'; avbk_render_second_approval(); }
     public function render_transactions(): void { require_once AVBK_PLUGIN_DIR . 'admin/transactions.php'; avbk_render_transactions(); }
+    public function render_expenses(): void { require_once AVBK_PLUGIN_DIR . 'admin/expenses.php'; avbk_render_expenses(); }
     public function render_members(): void { require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php'; avbk_render_members_balance(); }
     public function render_rates(): void { require_once AVBK_PLUGIN_DIR . 'admin/rates.php'; avbk_render_rates(); }
     public function render_iban_bank_codes(): void { require_once AVBK_PLUGIN_DIR . 'admin/iban-bank-codes.php'; avbk_render_iban_bank_codes(); }
@@ -539,7 +546,8 @@ class AVBK_Admin implements AVBK_Component {
         }
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
         $tx = $transaction_id ? AVBK_DB::get_transaction($transaction_id) : null;
-        if ($tx && $tx->direction === 'in' && $tx->status === 'ignored' && empty($tx->duplicate_of)) {
+        // A payment sent back stays ignored; remove its explanation under Uitgaven first.
+        if ($tx && $tx->direction === 'in' && $tx->status === 'ignored' && empty($tx->duplicate_of) && $tx->ignore_reason !== 'returned') {
             AVBK_DB::revert_transaction_to_review($transaction_id);
         }
         wp_safe_redirect(add_query_arg([
