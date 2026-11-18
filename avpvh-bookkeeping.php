@@ -26,6 +26,7 @@ require_once AVBK_PLUGIN_DIR . 'includes/interface-component.php';
 
 // Every error a user sees also goes to the server log (see the file's docblock).
 require_once AVBK_PLUGIN_DIR . 'includes/functions-errors.php';
+require_once AVBK_PLUGIN_DIR . 'includes/functions-mail.php';
 require_once AVBK_PLUGIN_DIR . 'includes/functions-uploads.php';
 avbk_register_error_logging();
 
