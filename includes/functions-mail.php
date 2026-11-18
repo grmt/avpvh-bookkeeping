@@ -48,26 +48,37 @@ function avbk_mail(string $kind, ?int $member_id, string|array $to, string $subj
             remove_action('wp_mail_failed', $capture);
         }
     }
-    if (method_exists('AVBK_DB', 'log_mail')) {
-        try {
-            AVBK_DB::log_mail([
-                'kind'      => $kind,
-                'member_id' => $member_id ?: null,
-                'recipient' => implode(', ', (array) $to),
-                'subject'   => $subject,
-                'body'      => $body,
-                'is_html'   => avbk_mail_is_html($headers, $body),
-                'status'    => $error === '' ? 'sent' : 'failed',
-                'error'     => $error,
-            ]);
-        } catch (\Throwable $e) {
-            // The mail itself is what matters; a log failure only goes to the server log.
-            if (function_exists('avbk_log_failure')) {
-                avbk_log_failure('mail log', 'insert_failed', ['kind' => $kind]);
-            }
+    avbk_log_sent_mail($kind, $member_id, $to, $subject, $body, $headers, $error);
+    return $sent;
+}
+
+/**
+ * Writes one row to the mail log. A log failure never stops the mail; it
+ * only goes to the server log.
+ *
+ * @param string|string[] $to
+ * @param string|string[] $headers
+ */
+function avbk_log_sent_mail(string $kind, ?int $member_id, string|array $to, string $subject, string $body, string|array $headers, string $error): void {
+    if (!method_exists('AVBK_DB', 'log_mail')) {
+        return;
+    }
+    try {
+        AVBK_DB::log_mail([
+            'kind'      => $kind,
+            'member_id' => $member_id ?: null,
+            'recipient' => implode(', ', (array) $to),
+            'subject'   => $subject,
+            'body'      => $body,
+            'is_html'   => avbk_mail_is_html($headers, $body),
+            'status'    => $error === '' ? 'sent' : 'failed',
+            'error'     => $error,
+        ]);
+    } catch (\Throwable $e) {
+        if (function_exists('avbk_log_failure')) {
+            avbk_log_failure('mail log', 'insert_failed', ['kind' => $kind]);
         }
     }
-    return $sent;
 }
 
 /** Whether a mail is HTML: a Content-Type header says so, or the body starts like a document. */

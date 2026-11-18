@@ -142,7 +142,7 @@ function avbk_render_logged_mail(int $id): void {
     <?php if (!$mail) : ?>
         <p>Deze mail staat niet (meer) in het logboek.</p>
     <?php else : ?>
-        <table class="form-table" role="presentation">
+        <table class="form-table">
             <tr><th scope="row">Verstuurd</th><td><?php echo esc_html(wp_date('d-m-Y H:i', strtotime($mail->sent_at))); ?></td></tr>
             <tr><th scope="row">Soort</th><td><?php echo esc_html(AVBK_MAIL_KINDS[$mail->kind] ?? $mail->kind); ?></td></tr>
             <tr><th scope="row">Aan</th><td><?php echo esc_html($mail->recipient); ?></td></tr>
