@@ -185,11 +185,14 @@ class AVBK_Reminders implements AVBK_Component {
         if (!$items) {
             return ['skipped', 'niets meer open'];
         }
+        return self::send_items($member, $items, $intro);
+    }
+
+    /** @return array{0: string, 1: string} 'sent' or 'failed', and the mailer's error. */
+    private static function send_items(object $member, array $items, string $intro): array {
         $result = AVBK_Admin::send_balance_request($member, $items, ['applied' => 0.0, 'sources' => [], 'left' => 0.0], AVBK_Admin::balance_request_url((int) $member->id, $items), AVBK_Reminder_Rules::subject($items), 'reminder', $intro);
-        if ($result['sent']) {
-            return ['sent', ''];
-        }
-        return ['failed', $result['error'] !== '' ? $result['error'] : 'niet verstuurd'];
+        $error = $result['error'] !== '' ? $result['error'] : 'niet verstuurd';
+        return $result['sent'] ? ['sent', ''] : ['failed', $error];
     }
 
     /** The browser's batch call while the progress page is open. */
