@@ -67,6 +67,7 @@ class AVBK_Admin implements AVBK_Component {
         add_action('admin_post_avbk_update_book_distribution',       [$this, 'handle_update_order_distribution']);
         add_action('admin_post_avbk_process_order_email',            [$this, 'handle_process_order_email']);
         add_action('admin_post_avbk_delete_order',                   [$this, 'handle_delete_order']);
+        add_action('admin_post_avbk_send_composed_mail',             [$this, 'handle_send_composed_mail']);
         add_action('admin_post_avbk_export_book_orders',             [$this, 'handle_export_book_orders']);
         add_action('admin_post_avbk_export_tshirt_orders',           [$this, 'handle_export_tshirt_orders']);
         add_action('admin_post_avbk_export_tshirt_matrix',           [$this, 'handle_export_tshirt_matrix']);
@@ -2155,13 +2156,17 @@ class AVBK_Admin implements AVBK_Component {
             $fail('invalid_email');
         }
 
+        if ($mode === 'mail') {
+            $this->compose_balance_request($member, $requested_ids, $items, !empty($_POST['apply_credit']), $return_url);
+            return;
+        }
+
         // The tegoed checkbox: settle the credit against the selection
-        // first, so the page, its QR code and the mail all ask only for
-        // what is still open. The "Tegoed verrekend" mail goes out on its
-        // own only when there is no payment request to mention it in.
+        // first, so the member page and its QR code ask only for what is
+        // still open, and tell the member in the "Tegoed verrekend" mail.
         $settlement = !empty($_POST['apply_credit']) ? self::settle_credit($member_id, $items) : self::NO_SETTLEMENT;
-        $open_items = array_values(array_filter($items, static fn($item) => $item->open_after > 0.005));
-        if (!$open_items || ($settlement['applied'] > 0.005 && $mode === 'show')) {
+        $open_items = self::balance_open_items($items);
+        if (!$open_items || $settlement['applied'] > 0.005) {
             self::mail_credit_applied($member, $items, $settlement);
         }
         if (!$open_items) {
@@ -2169,14 +2174,20 @@ class AVBK_Admin implements AVBK_Component {
             exit;
         }
 
-        // Any household member actually represented in the selection must
-        // be passed along too, or the frontend page (whose own "Betaal ook
-        // voor" independently derives $items from ?also[]) won't recognize
-        // their fee item ids and will silently drop them from the combined
-        // QR/overzicht.
-        $also_member_ids = array_values(array_diff(array_unique(array_map(static fn($item) => (int) $item->member_id, $open_items)), [$member_id]));
+        wp_safe_redirect(self::balance_request_url($member_id, $open_items));
+        exit;
+    }
 
-        $balance_url = add_query_arg(
+    /**
+     * The member-page link of a payment request: the open items, with any
+     * household member in the selection passed along too, or the frontend
+     * page (whose own "Betaal ook voor" independently derives its items
+     * from ?also[]) won't recognize their fee item ids and will silently
+     * drop them from the combined QR/overzicht.
+     */
+    private static function balance_request_url(int $member_id, array $open_items): string {
+        $also_member_ids = array_values(array_diff(array_unique(array_map(static fn($item) => (int) $item->member_id, $open_items)), [$member_id]));
+        return add_query_arg(
             array_filter([
                 'member_id' => $member_id,
                 'pay'       => wp_list_pluck($open_items, 'id'),
@@ -2184,13 +2195,149 @@ class AVBK_Admin implements AVBK_Component {
             ]),
             home_url('/leden/beheer/member-profile/')
         ) . '#bijdrage';
-        if ($mode === 'show') {
-            wp_safe_redirect($balance_url);
+    }
+
+    /** The items still open after a settlement. @return object[] */
+    private static function balance_open_items(array $items): array {
+        return array_values(array_filter($items, static fn($item) => $item->open_after > 0.005));
+    }
+
+    /**
+     * "Mail betaalverzoek voor selectie": the mail goes to Mail controleren
+     * first. With the tegoed checkbox the settlement is done for the
+     * preview only, inside a database transaction that is rolled back; it
+     * happens for real on "Verstuur". When the credit pays everything,
+     * there is no payment request to check: that settles right away, with
+     * the "Tegoed verrekend" mail, as before.
+     */
+    private function compose_balance_request(object $member, array $requested_ids, array $items, bool $use_credit, string $return_url): void {
+        global $wpdb;
+        $member_id = (int) $member->id;
+        $settlement = self::NO_SETTLEMENT;
+        if ($use_credit) {
+            $wpdb->query('START TRANSACTION');
+            $settlement = self::settle_credit($member_id, $items);
+            $wpdb->query('ROLLBACK');
+        }
+        $open_items = self::balance_open_items($items);
+        if (!$open_items) {
+            $items = self::balance_selection_items($requested_ids, self::balance_allowed_member_ids($member_id));
+            $settlement = self::settle_credit($member_id, $items);
+            self::mail_credit_applied($member, $items, $settlement);
+            wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
             exit;
         }
+        $key = AVBK_Mail_Compose::save_draft([
+            'kind'            => 'payment_request',
+            'to'              => (string) $member->email,
+            'subject'         => count($open_items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen',
+            'html'            => self::balance_request_mail_html($member, $items, $settlement, self::balance_request_url($member_id, $open_items)),
+            'return_url'      => $return_url,
+            'send_label'      => 'Verstuur betaalverzoek',
+            'intro'           => $settlement['applied'] > 0.005
+                ? 'Het tegoed van € ' . number_format($settlement['applied'], 2, ',', '.') . ' wordt pas verrekend als je de mail verstuurt.'
+                : '',
+            'member_id'       => $member_id,
+            'fee_item_ids'    => $requested_ids,
+            'apply_credit'    => $use_credit,
+            'expected_credit' => (float) $settlement['applied'],
+            'expected_open'   => round(array_sum(wp_list_pluck($open_items, 'open_after')), 2),
+        ]);
+        wp_safe_redirect(AVBK_Mail_Compose::url($key));
+        exit;
+    }
 
-        $subject = count($open_items) === 1 ? 'Openstaande betaling' : 'Openstaande betalingen';
-        $body = self::balance_request_mail_html($member, $items, $settlement, $balance_url);
+    /**
+     * "Verstuur" on Mail controleren: does what the draft is for, with the
+     * subject and body as edited there. Until the mail is sent, a refusal
+     * goes back to the page with nothing changed.
+     */
+    public function handle_send_composed_mail(): void {
+        check_admin_referer('avbk_send_composed_mail');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $key = sanitize_key(wp_unslash($_POST['draft'] ?? ''));
+        $draft = AVBK_Mail_Compose::load_draft($key);
+        if (!$draft) {
+            avbk_log_failure('send composed mail', 'draft_missing', []);
+            wp_safe_redirect(AVBK_Mail_Compose::url($key));
+            exit;
+        }
+        $back = static function (string $reason) use ($key, $draft): void {
+            avbk_log_failure('send composed mail', $reason, [
+                'kind'   => $draft['kind'],
+                'member' => $draft['member_id'] ?? '',
+                'order'  => $draft['order_id'] ?? '',
+            ]);
+            wp_safe_redirect(add_query_arg('send_failed', $reason, AVBK_Mail_Compose::url($key)));
+            exit;
+        };
+        $mail = AVBK_Mail_Compose::posted_mail($draft, $_POST);
+        if (!$mail) {
+            $back('empty_body');
+        }
+        if ($draft['kind'] === 'order_cancel') {
+            $this->send_order_cancellation($key, $draft, $mail, $back);
+        }
+        $this->send_composed_balance_request($key, $draft, $mail, $back);
+    }
+
+    /** Cancels the draft's order and sends the edited cancellation mail. */
+    private function send_order_cancellation(string $key, array $draft, array $mail, callable $back): void {
+        $order_id = (int) $draft['order_id'];
+        $result = AVBK_DB::delete_order($order_id, true, $mail);
+        if (empty($result['success'])) {
+            $back('no_order');
+        }
+        AVBK_Mail_Compose::delete_draft($key);
+        if ($result['mail_sent'] !== true) {
+            avbk_log_failure('order cancellation mail', 'mail_failed', ['order' => $order_id]);
+        }
+        wp_safe_redirect(add_query_arg([
+            'order_deleted' => $order_id,
+            'email_sent'    => $result['mail_sent'] === true ? '1' : 'failed',
+        ], $draft['return_url']));
+        exit;
+    }
+
+    /**
+     * Settles the credit for real, when the preview did, and sends the
+     * edited payment request. When the open items or the credit changed
+     * since the preview, nothing happens: the mail would be wrong.
+     */
+    private function send_composed_balance_request(string $key, array $draft, array $mail, callable $back): void {
+        global $wpdb;
+        $member_id = (int) $draft['member_id'];
+        $member = AVPVH_DB::get_member($member_id);
+        if (!$member || !is_email($member->email)) {
+            $back('invalid_email');
+        }
+        $items = self::balance_selection_items(array_map('intval', $draft['fee_item_ids']), self::balance_allowed_member_ids($member_id));
+        $wpdb->query('START TRANSACTION');
+        $settlement = $draft['apply_credit'] ? self::settle_credit($member_id, $items) : self::NO_SETTLEMENT;
+        $open = round(array_sum(wp_list_pluck(self::balance_open_items($items), 'open_after')), 2);
+        if (!$items || abs($settlement['applied'] - (float) $draft['expected_credit']) > 0.005 || abs($open - (float) $draft['expected_open']) > 0.005) {
+            $wpdb->query('ROLLBACK');
+            $back('changed');
+        }
+        $wpdb->query('COMMIT');
+        AVBK_Mail_Compose::delete_draft($key);
+        $mail_error = self::send_penningmeester_mail($member, $mail[0], $mail[1]);
+        if ($mail_error !== null) {
+            // The mailer's own error is only shown to the penningmeester who
+            // pressed the button, for a few minutes.
+            set_transient('avbk_payment_mail_error_' . get_current_user_id(), $mail_error, 5 * MINUTE_IN_SECONDS);
+            avbk_log_failure('payment request (Ledenoverzicht)', 'mailer_error', ['member' => $member_id, 'error' => $mail_error]);
+            wp_safe_redirect(add_query_arg('payment_request_failed', 'mail_failed', $draft['return_url']));
+            exit;
+        }
+        wp_safe_redirect(add_query_arg('payment_requested', '1', $draft['return_url']));
+        exit;
+    }
+
+    /** Sends a mail from the penningmeester to a member. @return string|null The mailer's error, null when sent. */
+    private static function send_penningmeester_mail(object $member, string $subject, string $body): ?string {
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
@@ -2223,16 +2370,7 @@ class AVBK_Admin implements AVBK_Component {
         remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
         remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
         remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
-
-        if (!$sent) {
-            // The mailer's own error is only shown to the penningmeester who
-            // pressed the button, for a few minutes.
-            set_transient('avbk_payment_mail_error_' . get_current_user_id(), $mail_error, 5 * MINUTE_IN_SECONDS);
-            avbk_log_failure('payment request (Ledenoverzicht)', 'mailer_error', ['member' => $member_id, 'error' => $mail_error]);
-            $fail('mail_failed');
-        }
-        wp_safe_redirect(add_query_arg('payment_requested', '1', $return_url));
-        exit;
+        return $sent ? null : $mail_error;
     }
 
     /**
@@ -2789,6 +2927,34 @@ class AVBK_Admin implements AVBK_Component {
         $this->handle_update_order_distribution();
     }
 
+    /**
+     * "Verwijderen" with the cancellation mail: the order stays until the
+     * mail is checked on Mail controleren and sent from there.
+     */
+    private function compose_order_cancellation(int $order_id, string $redirect): void {
+        $order = AVBK_DB::get_order($order_id);
+        if (!$order || !is_email((string) $order->email)) {
+            $reason = $order ? 'invalid_email' : 'no_order';
+            avbk_log_failure('order cancellation mail', $reason, ['order' => $order_id]);
+            wp_safe_redirect(add_query_arg('delete_error', urlencode($order ? 'Deze besteller heeft geen geldig e-mailadres; verwijder de bestelling zonder mail.' : 'Bestelling niet gevonden.'), $redirect));
+            exit;
+        }
+        [$subject, $html] = AVBK_DB::order_cancellation_mail($order);
+        $key = AVBK_Mail_Compose::save_draft([
+            'kind'       => 'order_cancel',
+            'to'         => (string) $order->email,
+            'subject'    => $subject,
+            'html'       => $html,
+            'return_url' => $redirect,
+            'send_label' => 'Annuleer bestelling en verstuur mail',
+            'intro'      => 'Bestelling #' . $order_id . ' wordt pas geannuleerd als je de mail verstuurt.',
+            'note'       => trim((string) ($order->notes ?? '')),
+            'order_id'   => $order_id,
+        ]);
+        wp_safe_redirect(AVBK_Mail_Compose::url($key));
+        exit;
+    }
+
     public function handle_delete_order(): void {
         check_admin_referer('avbk_delete_order');
         if (!$this->can_manage()) {
@@ -2798,7 +2964,10 @@ class AVBK_Admin implements AVBK_Component {
         $send_email = !empty($_POST['send_email']);
         $redirect   = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: admin_url('admin.php?page=avbk-orders');
 
-        $result = AVBK_DB::delete_order($order_id, $send_email);
+        if ($send_email) {
+            $this->compose_order_cancellation($order_id, $redirect);
+        }
+        $result = AVBK_DB::delete_order($order_id);
         if (!empty($result['success'])) {
             $redirect = add_query_arg([
                 'order_deleted' => $order_id,

@@ -5257,12 +5257,22 @@ class AVBK_DB {
         }
     }
 
-    public static function delete_order(int $id, bool $send_email = false): array {
+    /**
+     * Deletes an order with its line items and releases its fee item. With
+     * $send_email the customer gets the cancellation mail: $mail as
+     * [subject, html] when the penningmeester edited it first (see
+     * AVBK_Mail_Compose), otherwise order_cancellation_mail().
+     *
+     * @param array{0: string, 1: string}|null $mail
+     */
+    public static function delete_order(int $id, bool $send_email = false, ?array $mail = null): array {
         global $wpdb;
         $order = self::get_order($id);
         if (!$order) {
             return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
         }
+        // Before the fee item goes: the default mail says whether anything is left to pay.
+        $mail ??= $send_email ? self::order_cancellation_mail($order) : null;
 
         $fee_item_outcome = self::release_order_fee_item($order);
 
@@ -5274,37 +5284,59 @@ class AVBK_DB {
         self::audit_order_deleted($order, $fee_item_outcome, $send_email);
 
         // Optional notification email to the customer
-        if ($send_email && !empty($order->email) && is_email($order->email)) {
-            $is_tshirt = $order->order_type === 'tshirt';
-            $type_label = $is_tshirt ? 'Jubileumkleding' : 'Jubileumboek';
-            $item_description = $is_tshirt ? 'de jubileumkleding' : 'het jubileumboek';
-            $subject = "Bestelling geannuleerd — {$type_label}";
-            $first_name = trim($order->first_name) ?: 'besteller';
-            $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
-                . '<p>Beste ' . esc_html($first_name) . ',</p>'
-                . '<p>Hierbij bevestigen we dat je bestelling (#' . (int) $order->id . ') voor <strong>' . esc_html($item_description) . '</strong> is geannuleerd.</p>'
-                . '<p>Mocht je hier vragen over hebben, neem dan gerust contact op met de penningmeester via <a href="mailto:info@avphilipsvanhorne.nl" style="color: #2271b1; text-decoration: underline;">info@avphilipsvanhorne.nl</a>.</p>'
-                . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
-                . '<p style="font-size: 13px; color: #646970;">'
-                . 'Met vriendelijke groet,<br>'
-                . '<strong>Archeologische Vereniging Philips van Horne</strong>'
-                . '</p>'
-                . '</body></html>';
-
-            $headers = ['Content-Type: text/html; charset=UTF-8'];
+        $mail_sent = null;
+        if ($send_email && $mail && !empty($order->email) && is_email($order->email)) {
             $force_from = static fn() => 'info@avphilipsvanhorne.nl';
             $force_from_name = static fn() => 'AV Philips van Horne';
             add_filter('wp_mail_from', $force_from, PHP_INT_MAX);
             add_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
             try {
-                avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $order->email, $subject, $body, $headers);
+                $mail_sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $order->email, $mail[0], $mail[1], ['Content-Type: text/html; charset=UTF-8']);
             } finally {
                 remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
                 remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
             }
         }
 
-        return ['success' => true];
+        return ['success' => true, 'mail_sent' => $mail_sent];
+    }
+
+    /**
+     * The default cancellation mail of an order, as [subject, html]. When
+     * nothing was paid on it yet, it says so: no payment is expected.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function order_cancellation_mail(object $order): array {
+        $is_tshirt = $order->order_type === 'tshirt';
+        $type_label = $is_tshirt ? 'Jubileumkleding' : 'Jubileumboek';
+        $item_description = $is_tshirt ? 'de jubileumkleding' : 'het jubileumboek';
+        $first_name = trim((string) $order->first_name) ?: 'besteller';
+        $nothing_paid = self::order_paid_amount($order) <= 0.005;
+        $body = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1d2327; max-width: 600px; margin: 0 auto; padding: 20px;">'
+            . '<p>Beste ' . esc_html($first_name) . ',</p>'
+            . '<p>Hierbij bevestigen we dat je bestelling (#' . (int) $order->id . ') voor <strong>' . esc_html($item_description) . '</strong> is geannuleerd.'
+            . ($nothing_paid ? ' Je hoeft hiervoor dus niets te betalen.' : '') . '</p>'
+            . '<p>Mocht je hier vragen over hebben, neem dan gerust contact op met de penningmeester via <a href="mailto:info@avphilipsvanhorne.nl" style="color: #2271b1; text-decoration: underline;">info@avphilipsvanhorne.nl</a>.</p>'
+            . '<hr style="border: 0; border-top: 1px solid #dcdcde; margin: 30px 0 20px;">'
+            . '<p style="font-size: 13px; color: #646970;">'
+            . 'Met vriendelijke groet,<br>'
+            . '<strong>Archeologische Vereniging Philips van Horne</strong>'
+            . '</p>'
+            . '</body></html>';
+        return ["Bestelling geannuleerd — {$type_label}", $body];
+    }
+
+    /** What was paid towards an order's fee item; 0 without one. */
+    private static function order_paid_amount(object $order): float {
+        global $wpdb;
+        if (empty($order->fee_item_id)) {
+            return 0.0;
+        }
+        return (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_transaction_allocations WHERE fee_item_id = %d",
+            (int) $order->fee_item_id
+        ));
     }
 
     /**
@@ -5319,11 +5351,7 @@ class AVBK_DB {
             return '';
         }
         $fee_item_id = (int) $order->fee_item_id;
-        $allocated = (float) $wpdb->get_var($wpdb->prepare(
-            "SELECT COALESCE(SUM(amount), 0) FROM {$wpdb->prefix}avb_transaction_allocations WHERE fee_item_id = %d",
-            $fee_item_id
-        ));
-        if ($allocated <= 0.005) {
+        if (self::order_paid_amount($order) <= 0.005) {
             $wpdb->delete("{$wpdb->prefix}avb_fee_items", ['id' => $fee_item_id]);
             return 'verwijderd';
         }

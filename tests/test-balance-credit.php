@@ -9,6 +9,7 @@ function get_option($key, $default = false) { return $key === 'avbk_payment_emai
 function avpvh_format_name($m) { return $m->first_name; }
 function wp_date($format, $ts) { return gmdate('j-n-Y', $ts); }
 function home_url($path = '') { return 'https://example.test' . $path; }
+function add_query_arg(array $args, string $url) { return $url . '?' . http_build_query($args); }
 function is_email($e) { return str_contains((string) $e, '@'); }
 function wp_mail($to, $subject, $body, $headers = []) { $GLOBALS['mails'][] = [$to, $subject, $body, $headers]; return true; }
 class AVPVH_DB {
@@ -104,5 +105,13 @@ check(str_contains($body, 'De overboeking van €&nbsp;105,00 op 7-10-2026 betaa
 $items = call('balance_selection_items', [10, 11], $allowed);
 $html = call('balance_request_mail_html', (object) ['id' => 1, 'first_name' => 'Anna'], $items, ['applied' => 0.0, 'sources' => [], 'left' => 0.0], 'https://example.test/');
 check(!str_contains($html, 'tegoed') && str_contains($html, 'Totaal') && str_contains($html, 'PVH-1-F10-11<'), 'without credit: total and all items in the reference');
+
+// The member-page link of a request: the open items, and a housemate in the selection as also[].
+$items = call('balance_selection_items', [10, 11], $allowed);
+$items[0]->open_after = 0.0;
+check(wp_list_pluck(call('balance_open_items', $items), 'id') === [11], 'an item the credit paid in full is not open');
+$url = call('balance_request_url', 1, $items);
+check(str_contains($url, '/leden/beheer/member-profile/?') && str_contains($url, 'member_id=1') && str_contains($url, 'also%5B0%5D=2') && str_ends_with($url, '#bijdrage'), 'the link names the member and the housemate');
+check(!str_contains(call('balance_request_url', 1, [$items[0]]), 'also'), 'without a housemate there is no also[]');
 
 exit($failures ? 1 : 0);
