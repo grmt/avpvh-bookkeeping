@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 /**
  * Handles personal Google Drive photo upload shares for the 50-year anniversary.
@@ -235,7 +236,7 @@ class AVBK_Photo_Share implements AVBK_Component {
             'From: ' . wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES) . ' <info@avphilipsvanhorne.nl>',
         ];
 
-        $sent = wp_mail($share->email, $subject, $message, $headers);
+        $sent = avbk_mail('photo_share', isset($share->member_id) ? (int) $share->member_id : null, $share->email, $subject, $message, $headers);
         if ($sent) {
             global $wpdb;
             $wpdb->update(

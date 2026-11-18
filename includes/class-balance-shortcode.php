@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/functions-mail.php';
 
 /**
  * [avpvh_bk_balance] — full itemized fee history + running balance, meant
@@ -474,7 +475,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
             $message,
             admin_url('admin.php?page=avbk-members&member_id=' . $member_id)
         );
-        wp_mail($to, $subject, $body);
+        avbk_mail('treasurer_notice', $member_id, $to, $subject, $body);
 
         wp_safe_redirect(add_query_arg('dispute_sent', '1', $redirect_url));
         exit;
@@ -557,7 +558,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                     $applied_count,
                     admin_url('admin.php?page=avbk-members&member_id=' . $own_member->id)
                 );
-                wp_mail($to, $subject, $body);
+                avbk_mail('treasurer_notice', (int) $own_member->id, $to, $subject, $body);
             }
         }
 
