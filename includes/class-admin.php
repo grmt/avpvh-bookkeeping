@@ -26,6 +26,8 @@ class AVBK_Admin implements AVBK_Component {
         add_action('admin_post_avbk_waive_fee_item',       [$this, 'handle_waive_fee_item']);
         add_action('admin_post_avbk_donate_credit',        [$this, 'handle_donate_credit']);
         add_action('admin_post_avbk_update_fee_item_amount', [$this, 'handle_update_fee_item_amount']);
+        add_action('admin_post_avbk_add_refund', [$this, 'handle_add_refund']);
+        add_action('admin_post_avbk_remove_refund', [$this, 'handle_remove_refund']);
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
@@ -2530,6 +2532,49 @@ class AVBK_Admin implements AVBK_Component {
             AVBK_DB::waive_fee_item($id);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'waived' => '1'], admin_url('admin.php')));
+        exit;
+    }
+
+    /** Links an outgoing transaction as refund of (part of) a paid fee item. */
+    public function handle_add_refund(): void {
+        check_admin_referer('avbk_add_refund');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $fee_item_id = (int) ($_POST['fee_item_id'] ?? 0);
+        $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', sanitize_text_field(wp_unslash($_POST['amount'] ?? '')));
+        $result = AVBK_Refunds::add($transaction_id, $fee_item_id, $amount);
+        $notice = ['refund_added' => '1'];
+        if (is_string($result)) {
+            avbk_log_failure('refund link', $result, ['transaction' => $transaction_id, 'fee_item' => $fee_item_id, 'member' => $member_id]);
+            $notice = ['refund_failed' => $result];
+        }
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'avbk-members', 'member_id' => $member_id] + $notice,
+            admin_url('admin.php')
+        ) . '#fee-item-' . $fee_item_id);
+        exit;
+    }
+
+    /** Unlinks a refund; the outgoing transaction goes back to ignored when nothing else is linked to it. */
+    public function handle_remove_refund(): void {
+        check_admin_referer('avbk_remove_refund');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $refund_id = (int) ($_POST['refund_id'] ?? 0);
+        $notice = ['refund_removed' => '1'];
+        if (!$refund_id || !AVBK_Refunds::remove($refund_id)) {
+            avbk_log_failure('refund unlink', 'not_found', ['refund' => $refund_id, 'member' => $member_id]);
+            $notice = ['refund_failed' => 'not_found'];
+        }
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'avbk-members', 'member_id' => $member_id] + $notice,
+            admin_url('admin.php')
+        ));
         exit;
     }
 

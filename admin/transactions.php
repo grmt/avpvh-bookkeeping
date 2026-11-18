@@ -213,6 +213,9 @@ function avbk_transaction_activity_label(object $tx, array $summary, array $acti
  */
 function avbk_transaction_display_status(object $tx, array $status_label, array $ignore_reason_label): string {
     $display_status = !empty($tx->duplicate_of) ? 'Duplicaat' : ($status_label[$tx->status] ?? $tx->status);
+    if ($tx->direction === 'out' && $tx->status === 'matched') {
+        $display_status = 'Terugbetaling';
+    }
     if ($tx->status === 'ignored' && isset($ignore_reason_label[$tx->ignore_reason])) {
         $display_status .= ' — ' . $ignore_reason_label[$tx->ignore_reason];
     }
@@ -249,7 +252,7 @@ function avbk_render_transaction_activity($allocations, $display_parts, $tag_lab
     if ($allocations) : ?>
                         <?php echo $display_parts ? wp_kses_post(implode(', ', $display_parts)) : esc_html($tag_label); ?>
                     <?php elseif ($tx->direction !== 'in') : ?>
-                        &mdash;
+                        <?php avbk_render_transaction_refunds($tx); ?>
                     <?php else : ?>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:.25rem;align-items:center">
                             <?php wp_nonce_field('avbk_set_transaction_activity'); ?>
@@ -265,6 +268,36 @@ function avbk_render_transaction_activity($allocations, $display_parts, $tag_lab
                             <button type="submit" class="button button-small">Opslaan</button>
                         </form>
                     <?php endif; ?>
+<?php
+}
+
+/**
+ * An outgoing transaction: the fee items it refunds, or a link to the member
+ * page to link it as a refund (to the member whose account received it, when
+ * that account is known).
+ */
+function avbk_render_transaction_refunds(object $tx): void {
+    $refunds = AVBK_DB::get_refunds_for_transaction((int) $tx->id);
+    foreach ($refunds as $refund) {
+        $member = AVPVH_DB::get_member((int) $refund->member_id);
+        $fee_item = AVBK_DB::get_fee_item((int) $refund->fee_item_id);
+        $url = add_query_arg(['page' => 'avbk-members', 'member_id' => (int) $refund->member_id], admin_url('admin.php')) . '#fee-item-' . (int) $refund->fee_item_id;
+        ?>
+                        <div>Terugbetaling: <a href="<?php echo esc_url($url); ?>"><?php echo esc_html(($member ? avpvh_format_name($member, 'list') : 'onbekend lid') . ($fee_item ? ' — ' . $fee_item->description : '')); ?></a> (&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?>)</div>
+        <?php
+    }
+    if ($refunds || $tx->status !== 'ignored' || !empty($tx->duplicate_of)) {
+        if (!$refunds) {
+            echo '&mdash;';
+        }
+        return;
+    }
+    $member_id = $tx->counterparty_iban !== '' ? AVBK_DB::find_member_id_by_iban((string) $tx->counterparty_iban) : null;
+    $url = $member_id
+        ? add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))
+        : add_query_arg(['page' => 'avbk-members'], admin_url('admin.php'));
+    ?>
+                        <a href="<?php echo esc_url($url); ?>" title="<?php echo esc_attr($member_id ? 'Open het lid en kies bij de bijdrage Terugbetalen' : 'Rekening onbekend: open het lid en kies bij de bijdrage Terugbetalen'); ?>">Koppel als terugbetaling</a>
 <?php
 }
 
