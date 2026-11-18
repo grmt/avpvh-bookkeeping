@@ -37,22 +37,31 @@ class AVBK_Expenses implements AVBK_Component {
     /** Statuses of an incoming payment that can be sent back: not allocated to fee items. */
     public const RETURNABLE_STATUSES = ['ignored', 'unmatched', 'suggested'];
 
+    private const NO_ACCESS = 'Geen toegang.';
+
     /**
-     * Why an explanation can't be saved, or null when it can. $input holds
-     * supplier and note; the related objects are looked up by the caller.
+     * Why an explanation can't be saved, or null when it can. The caller
+     * looks up what $facts describes:
+     * - explained: the transaction already has an explanation;
+     * - supplier, note: the posted text;
+     * - document: a valid document was uploaded;
+     * - reimbursement, related: the chosen declaratie and incoming payment;
+     * - returned: that payment is already explained as sent back.
      *
-     * @param array{supplier?: string, note?: string} $input
+     * @param array{explained?: bool, supplier?: string, note?: string, document?: bool, reimbursement?: ?object, related?: ?object, returned?: bool} $facts
      */
-    public static function rejection(string $kind, ?object $tx, bool $already_explained, array $input, bool $has_document, ?object $reimbursement, ?object $related, bool $related_already_returned): ?string {
+    public static function rejection(string $kind, ?object $tx, array $facts): ?string {
         if (!$tx) {
             return 'no_transaction';
         }
-        if ($tx->direction !== 'out' || !empty($tx->duplicate_of) || $tx->status !== 'ignored' || $already_explained) {
+        if ($tx->direction !== 'out' || !empty($tx->duplicate_of) || $tx->status !== 'ignored' || !empty($facts['explained'])) {
             return 'not_outgoing';
         }
         $amount = (float) $tx->amount;
+        $reimbursement = $facts['reimbursement'] ?? null;
+        $related = $facts['related'] ?? null;
         return match ($kind) {
-            'invoice'          => self::first_failed(['no_supplier' => trim($input['supplier'] ?? '') === '', 'no_document' => !$has_document]),
+            'invoice'          => self::first_failed(['no_supplier' => trim($facts['supplier'] ?? '') === '', 'no_document' => empty($facts['document'])]),
             'reimbursement'    => self::first_failed([
                 'no_reimbursement' => !$reimbursement || $reimbursement->status === 'rejected',
                 'amount_mismatch'  => self::amount_differs($reimbursement, $amount),
@@ -60,10 +69,10 @@ class AVBK_Expenses implements AVBK_Component {
             'returned_payment' => self::first_failed([
                 'no_related'        => !$related || $related->direction !== 'in' || !empty($related->duplicate_of),
                 'related_allocated' => $related && !in_array($related->status, self::RETURNABLE_STATUSES, true),
-                'related_returned'  => $related_already_returned,
+                'related_returned'  => !empty($facts['returned']),
                 'amount_mismatch'   => self::amount_differs($related, $amount),
             ]),
-            'other'            => trim($input['note'] ?? '') === '' ? 'no_note' : null,
+            'other'            => trim($facts['note'] ?? '') === '' ? 'no_note' : null,
             default            => isset(self::KINDS[$kind]) ? null : 'unknown_kind',
         };
     }
@@ -123,7 +132,7 @@ class AVBK_Expenses implements AVBK_Component {
     public function handle_explain(): void {
         check_admin_referer('avbk_explain_expense');
         if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
+            wp_die(esc_html(self::NO_ACCESS), 403);
         }
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
         $kind = sanitize_key(wp_unslash($_POST['kind'] ?? ''));
@@ -170,16 +179,15 @@ class AVBK_Expenses implements AVBK_Component {
         }
         $related_id = $input['related_transaction_id'];
         $reimbursement_id = $input['reimbursement_id'];
-        $rejection = self::rejection(
-            $kind,
-            AVBK_DB::get_transaction($transaction_id),
-            AVBK_DB::get_expense_for_transaction($transaction_id) !== null,
-            $input,
-            isset($upload['tmp']),
-            $reimbursement_id ? AVBK_DB::get_reimbursement($reimbursement_id) : null,
-            $related_id ? AVBK_DB::get_transaction($related_id) : null,
-            $related_id && AVBK_DB::is_returned_payment($related_id)
-        );
+        $rejection = self::rejection($kind, AVBK_DB::get_transaction($transaction_id), [
+            'explained'     => AVBK_DB::get_expense_for_transaction($transaction_id) !== null,
+            'supplier'      => $input['supplier'],
+            'note'          => $input['note'],
+            'document'      => isset($upload['tmp']),
+            'reimbursement' => $reimbursement_id ? AVBK_DB::get_reimbursement($reimbursement_id) : null,
+            'related'       => $related_id ? AVBK_DB::get_transaction($related_id) : null,
+            'returned'      => $related_id && AVBK_DB::is_returned_payment($related_id),
+        ]);
         if ($rejection !== null) {
             return $rejection;
         }
@@ -209,20 +217,22 @@ class AVBK_Expenses implements AVBK_Component {
      */
     private function uploaded_document(): array {
         $file = $_FILES['document'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated below: uploaded-file check, size, extension and real bytes.
-        if (!is_array($file) || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-            return [];
+        $error = is_array($file) ? (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) : UPLOAD_ERR_NO_FILE;
+        $result = [];
+        if ($error !== UPLOAD_ERR_NO_FILE) {
+            $result = ['error' => 'document_invalid'];
+            try {
+                $tmp = $error === UPLOAD_ERR_OK ? avbk_uploaded_file_path((string) $file['tmp_name']) : '';
+                $name = sanitize_file_name((string) $file['name']);
+                $ext = $tmp !== '' ? AVBK_Reimbursements::validate_receipt_file($tmp, $name) : null;
+                if ($ext !== null) {
+                    $result = ['tmp' => $tmp, 'ext' => $ext, 'name' => $name];
+                }
+            } catch (AVBK_Upload_Exception $e) {
+                // Not this request's upload: stays document_invalid.
+            }
         }
-        if ((int) $file['error'] !== UPLOAD_ERR_OK) {
-            return ['error' => 'document_invalid'];
-        }
-        try {
-            $tmp = avbk_uploaded_file_path((string) $file['tmp_name']);
-        } catch (AVBK_Upload_Exception $e) {
-            return ['error' => 'document_invalid'];
-        }
-        $name = sanitize_file_name((string) $file['name']);
-        $ext = AVBK_Reimbursements::validate_receipt_file($tmp, $name);
-        return $ext === null ? ['error' => 'document_invalid'] : ['tmp' => $tmp, 'ext' => $ext, 'name' => $name];
+        return $result;
     }
 
     private function store_document(string $tmp, string $ext): string {
@@ -248,7 +258,7 @@ class AVBK_Expenses implements AVBK_Component {
     public function handle_remove(): void {
         check_admin_referer('avbk_remove_expense');
         if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
+            wp_die(esc_html(self::NO_ACCESS), 403);
         }
         $expense_id = (int) ($_POST['expense_id'] ?? 0);
         $document = $expense_id ? AVBK_DB::delete_expense($expense_id) : null;
@@ -265,7 +275,7 @@ class AVBK_Expenses implements AVBK_Component {
 
     public function handle_view_document(): void {
         if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 'Fout', ['response' => 403]);
+            wp_die(esc_html(self::NO_ACCESS), 'Fout', ['response' => 403]);
         }
         $expense = AVBK_DB::get_expense((int) ($_GET['id'] ?? 0));
         $path = $expense && $expense->document_path !== '' ? AVBK_Reimbursements::receipts_dir() . '/' . basename($expense->document_path) : '';

@@ -3921,7 +3921,10 @@ class AVBK_DB {
 
     public static function get_expense(int $id): ?object {
         global $wpdb;
-        return $id ? ($wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_expenses WHERE id = %d", $id)) ?: null) : null;
+        if (!$id) {
+            return null;
+        }
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_expenses WHERE id = %d", $id)) ?: null;
     }
 
     public static function get_expense_for_transaction(int $transaction_id): ?object {
@@ -4091,18 +4094,25 @@ class AVBK_DB {
      * amount_due - paid is always computed live from allocations, never
      * stored) — the item itself is never touched.
      */
+    /**
+     * An outgoing transaction is linked as a refund or explained as an
+     * expense; there is no review queue for it to go back to, so both are
+     * undone and it waits under Uitgaven again.
+     */
+    private static function unlink_outgoing_transaction(int $transaction_id): void {
+        self::delete_refunds_for_transaction($transaction_id);
+        $expense = self::get_expense_for_transaction($transaction_id);
+        $document = $expense ? (string) self::delete_expense((int) $expense->id) : '';
+        if ($document !== '' && class_exists('AVBK_Reimbursements')) {
+            wp_delete_file(AVBK_Reimbursements::receipts_dir() . '/' . basename($document));
+        }
+    }
+
     public static function revert_transaction_to_review(int $transaction_id): void {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
         if ($transaction && $transaction->direction === 'out') {
-            // An outgoing transaction is linked as a refund or explained as
-            // an expense; there is no review queue for it to go back to.
-            self::delete_refunds_for_transaction($transaction_id);
-            $expense = self::get_expense_for_transaction($transaction_id);
-            $document = $expense ? self::delete_expense((int) $expense->id) : null;
-            if ($document !== null && $document !== '' && class_exists('AVBK_Reimbursements')) {
-                wp_delete_file(AVBK_Reimbursements::receipts_dir() . '/' . basename($document));
-            }
+            self::unlink_outgoing_transaction($transaction_id);
             return;
         }
         self::audit('transaction.reverted', 'transaction', $transaction_id, [
