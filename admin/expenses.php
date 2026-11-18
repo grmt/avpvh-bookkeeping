@@ -234,12 +234,12 @@ function avbk_render_expenses_explained(): void {
             <?php foreach ($totals as $label => $total) : ?>
                 <tr><td><?php echo esc_html($label); ?></td><td style="text-align:right">&euro; <?php echo esc_html(number_format($total, 2, ',', '.')); ?></td></tr>
             <?php endforeach; ?>
-            <tr><th scope="row">Totaal</th><th style="text-align:right">&euro; <?php echo esc_html(number_format(array_sum($totals), 2, ',', '.')); ?></th></tr>
+            <tr><th scope="row">Totaal</th><td style="text-align:right;font-weight:600">&euro; <?php echo esc_html(number_format(array_sum($totals), 2, ',', '.')); ?></td></tr>
         </tbody>
     </table>
     <h2>Uitgaven <?php echo esc_html($year); ?></h2>
     <table class="widefat striped">
-        <thead><tr><th>Datum</th><th>Bedrag</th><th>Aan</th><th>Verantwoording</th><th>Document</th><th>Tweede controle</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Datum</th><th scope="col">Bedrag</th><th scope="col">Aan</th><th scope="col">Verantwoording</th><th scope="col">Document</th><th scope="col">Tweede controle</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
         <tbody>
             <?php foreach ($expenses as $expense) {
                 avbk_render_expense_row($expense);

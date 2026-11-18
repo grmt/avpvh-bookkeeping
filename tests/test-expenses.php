@@ -14,7 +14,7 @@ function check(bool $ok, string $label): void {
     $failures += $ok ? 0 : 1;
 }
 function reject(string $kind, ?object $tx, array $input = [], bool $doc = false, ?object $reimbursement = null, ?object $related = null, bool $explained = false, bool $returned = false): ?string {
-    return AVBK_Expenses::rejection($kind, $tx, $explained, $input, $doc, $reimbursement, $related, $returned);
+    return AVBK_Expenses::rejection($kind, $tx, $input + ['explained' => $explained, 'document' => $doc, 'reimbursement' => $reimbursement, 'related' => $related, 'returned' => $returned]);
 }
 
 $out = (object) ['id' => 1, 'direction' => 'out', 'amount' => 300.0, 'status' => 'ignored', 'duplicate_of' => null];
