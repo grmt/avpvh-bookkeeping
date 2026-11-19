@@ -80,6 +80,8 @@ function avbk_render_expenses_open(int $min_year, int $closed_through_year): voi
     <datalist id="avbk-expense-categories">
         <?php foreach ($context['categories'] as $category) : ?><option value="<?php echo esc_attr($category); ?>"></option><?php endforeach; ?>
     </datalist>
+    <?php // The activities once for the whole page; assets/expenses.js copies them into each form's select. ?>
+    <template id="avbk-expense-activities"><?php foreach ($context['activities'] as $activity) : ?><option value="<?php echo esc_attr($activity->id); ?>"><?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?></option><?php endforeach; ?></template>
     <?php foreach ($transactions as $tx) {
         avbk_render_expense_form($tx, $context);
     }
@@ -130,11 +132,8 @@ function avbk_render_expense_form(object $tx, array $context): void {
             </p>
             <p data-kinds="invoice reimbursement other">
                 <label for="<?php echo esc_attr($field); ?>-activity">Activiteit (optioneel)</label><br>
-                <select name="activity_id" id="<?php echo esc_attr($field); ?>-activity" style="max-width:28em">
+                <select name="activity_id" id="<?php echo esc_attr($field); ?>-activity" style="max-width:28em" data-options="avbk-expense-activities">
                     <option value="0">&mdash; geen &mdash;</option>
-                    <?php foreach ($context['activities'] as $activity) : ?>
-                        <option value="<?php echo esc_attr($activity->id); ?>"><?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?></option>
-                    <?php endforeach; ?>
                 </select>
             </p>
             <p data-kinds="invoice other">
