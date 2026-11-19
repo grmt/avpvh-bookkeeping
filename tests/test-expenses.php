@@ -37,7 +37,9 @@ check(reject('invoice', $out, ['supplier' => 'Drukkerij X']) === 'no_document', 
 check(reject('invoice', $out, ['supplier' => 'Drukkerij X'], true) === null, 'Invoice with supplier and document');
 
 // Reimbursement
-check(reject('reimbursement', $out) === 'no_reimbursement', 'Reimbursement needs a declaratie');
+check(reject('reimbursement', $out) === 'no_reimbursement', 'Reimbursement needs a declaratie or a receipt');
+check(reject('reimbursement', $out, [], true) === null, 'Declaratie paid outside the site: the receipt is enough');
+check(reject('reimbursement', $out, [], true, (object) ['amount' => 300.0, 'status' => 'rejected']) === 'no_reimbursement', 'A rejected declaratie is refused even with a receipt');
 check(reject('reimbursement', $out, [], false, (object) ['amount' => 300.0, 'status' => 'rejected']) === 'no_reimbursement', 'Rejected declaratie');
 check(reject('reimbursement', $out, [], false, (object) ['amount' => 299.0, 'status' => 'pending']) === 'amount_mismatch', 'Declaratie amount differs');
 check(reject('reimbursement', $out, [], false, (object) ['amount' => 300.0, 'status' => 'paid']) === null, 'Paid declaratie without transfer yet');

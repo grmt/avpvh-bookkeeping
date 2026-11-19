@@ -25,12 +25,12 @@ class AVBK_Expenses implements AVBK_Component {
     ];
 
     /** Suggestions for the category field; earlier used categories are added. */
-    public const DEFAULT_CATEGORIES = ['Zaalhuur', 'Catering', 'Drukwerk', 'Materiaal', 'Porto', 'Abonnementen', 'Verzekering', 'Website en software', 'Excursie', 'Overig'];
+    public const DEFAULT_CATEGORIES = ['Zaalhuur', 'Catering', 'Drukwerk', 'Materiaal', 'Porto', 'Abonnementen', 'Verzekering', 'Website en software', 'Excursie', 'Attenties', 'Overig'];
 
     /** Which kinds keep which optional field; the form shows the same (data-kinds). */
     public const FIELD_KINDS = [
         'supplier'    => ['invoice'],
-        'category'    => ['invoice', 'other', 'bank_costs', 'transfer'],
+        'category'    => ['invoice', 'reimbursement', 'other', 'bank_costs', 'transfer'],
         'activity_id' => ['invoice', 'reimbursement', 'other'],
     ];
 
@@ -62,10 +62,7 @@ class AVBK_Expenses implements AVBK_Component {
         $related = $facts['related'] ?? null;
         return match ($kind) {
             'invoice'          => self::first_failed(['no_supplier' => trim($facts['supplier'] ?? '') === '', 'no_document' => empty($facts['document'])]),
-            'reimbursement'    => self::first_failed([
-                'no_reimbursement' => !$reimbursement || $reimbursement->status === 'rejected',
-                'amount_mismatch'  => self::amount_differs($reimbursement, $amount),
-            ]),
+            'reimbursement'    => self::reimbursement_rejection($reimbursement, !empty($facts['document']), $amount),
             'returned_payment' => self::first_failed([
                 'no_related'        => !$related || $related->direction !== 'in' || !empty($related->duplicate_of),
                 'related_allocated' => $related && !in_array($related->status, self::RETURNABLE_STATUSES, true),
@@ -75,6 +72,21 @@ class AVBK_Expenses implements AVBK_Component {
             'other'            => trim($facts['note'] ?? '') === '' ? 'no_note' : null,
             default            => isset(self::KINDS[$kind]) ? null : 'unknown_kind',
         };
+    }
+
+    /**
+     * A declaratie submitted on the site must match the transfer. One paid
+     * outside the site (before declaraties went through the site, or by
+     * hand) has no declaratie to choose; then the receipt is required.
+     */
+    private static function reimbursement_rejection(?object $reimbursement, bool $document, float $amount): ?string {
+        if ($reimbursement === null) {
+            return $document ? null : 'no_reimbursement';
+        }
+        return self::first_failed([
+            'no_reimbursement' => $reimbursement->status === 'rejected',
+            'amount_mismatch'  => self::amount_differs($reimbursement, $amount),
+        ]);
     }
 
     /** @param array<string, bool> $checks In order; the first true one is the reason. */
@@ -310,6 +322,8 @@ class AVBK_Expenses implements AVBK_Component {
         }
         if (!empty($expense->reimbursement_id)) {
             $parts[] = 'declaratie #' . (int) $expense->reimbursement_id;
+        } elseif ($expense->kind === 'reimbursement') {
+            $parts[] = 'buiten de website ingediend';
         }
         if (trim((string) $expense->note) !== '') {
             $parts[] = (string) $expense->note;
