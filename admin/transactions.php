@@ -282,10 +282,10 @@ function avbk_render_transaction_refunds(object $tx): void {
     $refunds = AVBK_DB::get_refunds_for_transaction((int) $tx->id);
     foreach ($refunds as $refund) {
         $member = AVPVH_DB::get_member((int) $refund->member_id);
-        $fee_item = AVBK_DB::get_fee_item((int) $refund->fee_item_id);
-        $url = add_query_arg(['page' => 'avbk-members', 'member_id' => (int) $refund->member_id], admin_url('admin.php')) . '#fee-item-' . (int) $refund->fee_item_id;
+        $fee_item = $refund->fee_item_id ? AVBK_DB::get_fee_item((int) $refund->fee_item_id) : null;
+        $url = add_query_arg(['page' => 'avbk-members', 'member_id' => (int) $refund->member_id], admin_url('admin.php')) . ($fee_item ? '#fee-item-' . (int) $refund->fee_item_id : '#credit-refunds');
         ?>
-                        <div>Terugbetaling: <a href="<?php echo esc_url($url); ?>"><?php echo esc_html(($member ? avpvh_format_name($member, 'list') : 'onbekend lid') . ($fee_item ? ' — ' . $fee_item->description : '')); ?></a> (&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?>)</div>
+                        <div>Terugbetaling: <a href="<?php echo esc_url($url); ?>"><?php echo esc_html(($member ? avpvh_format_name($member, 'list') : 'onbekend lid') . ($fee_item ? ' — ' . $fee_item->description : ' — tegoed')); ?></a> (&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?>)</div>
         <?php
     }
     $expense = AVBK_DB::get_expense_for_transaction((int) $tx->id);

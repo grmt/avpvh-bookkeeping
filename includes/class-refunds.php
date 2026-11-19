@@ -11,6 +11,11 @@ defined('ABSPATH') || exit;
  * (which rewrites amount_due on open camp and contribution items) can't
  * undo it. The participation, registration or order itself stays.
  *
+ * Credit (a payment that was more than was owed) can be paid back the same
+ * way: a refund row without fee item, pointing at the incoming payment whose
+ * leftover went back (credit_transaction_id). That leftover is then no
+ * longer credit, see AVBK_DB::get_credit_transactions_for_member().
+ *
  * Linking a refund marks the outgoing transaction 'matched', which puts it
  * in Tweede controle like any other linked payment.
  */
@@ -29,12 +34,54 @@ class AVBK_Refunds {
         $failed = array_filter([
             'no_transaction'      => !$tx,
             'no_fee_item'         => !$fee_item,
-            'not_outgoing'        => $tx?->direction !== 'out' || !empty($tx?->duplicate_of) || !in_array($tx?->status, ['ignored', 'matched'], true),
+            'not_outgoing'        => !self::is_refundable_outgoing($tx),
             'invalid_amount'      => $amount < 0.01,
             'exceeds_transaction' => $amount > round((float) ($tx?->amount ?? 0) - $tx_refunded, 2) + 0.005,
             'exceeds_paid'        => $amount > round($item_paid - $item_refunded, 2) + 0.005,
         ]);
         return array_key_first($failed);
+    }
+
+    /**
+     * Why credit can't be paid back from this transaction, or null when it can.
+     *
+     * @param float $tx_refunded Already linked as refund from this transaction.
+     * @param float $credit      The member's available credit.
+     */
+    public static function credit_rejection(?object $tx, float $amount, float $tx_refunded, float $credit): ?string {
+        $failed = array_filter([
+            'no_transaction'      => !$tx,
+            'not_outgoing'        => !self::is_refundable_outgoing($tx),
+            'invalid_amount'      => $amount < 0.01,
+            'exceeds_transaction' => $amount > round((float) ($tx?->amount ?? 0) - $tx_refunded, 2) + 0.005,
+            'exceeds_credit'      => $amount > $credit + 0.005,
+        ]);
+        return array_key_first($failed);
+    }
+
+    /** An outgoing bank row that isn't a duplicate and isn't explained otherwise. */
+    private static function is_refundable_outgoing(?object $tx): bool {
+        return $tx?->direction === 'out' && empty($tx->duplicate_of) && in_array($tx->status, ['ignored', 'matched'], true);
+    }
+
+    /**
+     * How a credit refund is spread over the payments the credit came from:
+     * oldest first, as credit is spent (AVBK_DB::apply_credit_fifo()).
+     *
+     * @param object[] $credit_rows Each with ->id and ->credit, oldest first.
+     * @return array<int, float> Incoming transaction id => amount.
+     */
+    public static function spread_over_credit(array $credit_rows, float $amount): array {
+        $parts = [];
+        $left = round($amount, 2);
+        foreach ($credit_rows as $row) {
+            $take = round(min((float) $row->credit, $left), 2);
+            if ($take >= 0.01) {
+                $parts[(int) $row->id] = $take;
+                $left = round($left - $take, 2);
+            }
+        }
+        return $parts;
     }
 
     /**
@@ -99,8 +146,40 @@ class AVBK_Refunds {
         return $refund_id ?: 'not_saved';
     }
 
+    /**
+     * Links an outgoing transaction as paying back (part of) a member's
+     * credit; returns the number of refund rows, or an error code (see
+     * credit_rejection()).
+     */
+    public static function add_credit(int $transaction_id, int $member_id, float $amount): int|string {
+        $amount = round($amount, 2);
+        $tx = AVBK_DB::get_transaction($transaction_id);
+        $credit_rows = AVBK_DB::get_credit_transactions_for_member($member_id);
+        $credit = round(array_sum(array_map(static fn($row) => (float) $row->credit, $credit_rows)), 2);
+        $rejection = self::credit_rejection($tx, $amount, AVBK_DB::get_refunded_for_transaction($transaction_id), $credit);
+        if ($rejection !== null) {
+            return $rejection;
+        }
+        $linked = 0;
+        foreach (self::spread_over_credit($credit_rows, $amount) as $credit_transaction_id => $part) {
+            $linked += AVBK_DB::insert_refund($transaction_id, null, $member_id, $part, $credit_transaction_id) ? 1 : 0;
+        }
+        return $linked ?: 'not_saved';
+    }
+
     /** Unlinks one refund; the transaction goes back to ignored once it has none left. */
     public static function remove(int $refund_id): bool {
-        return AVBK_DB::delete_refund($refund_id);
+        $refund = AVBK_DB::get_refund($refund_id);
+        if (!$refund || empty($refund->credit_transaction_id)) {
+            return AVBK_DB::delete_refund($refund_id);
+        }
+        // One credit refund can be spread over several payments: unlink it whole.
+        $removed = true;
+        foreach (AVBK_DB::get_refunds_for_transaction((int) $refund->transaction_id) as $part) {
+            if (!empty($part->credit_transaction_id) && (int) $part->member_id === (int) $refund->member_id) {
+                $removed = AVBK_DB::delete_refund((int) $part->id) && $removed;
+            }
+        }
+        return $removed;
     }
 }

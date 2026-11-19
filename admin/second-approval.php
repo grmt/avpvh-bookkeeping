@@ -121,12 +121,15 @@ function avbk_render_second_approval_refunds($tx): void {
     foreach ($refunds as $refund) {
         echo 'Terugbetaling: ';
         $member = AVPVH_DB::get_member((int) $refund->member_id);
-        $fee_item = AVBK_DB::get_fee_item((int) $refund->fee_item_id);
+        $fee_item = $refund->fee_item_id ? AVBK_DB::get_fee_item((int) $refund->fee_item_id) : null;
+        $origin = $fee_item
+            ? ' (betaald: € ' . number_format(AVBK_DB::get_fee_item_paid((int) $refund->fee_item_id), 2, ',', '.') . ')'
+            : ' (uit tegoed van transactie #' . (int) $refund->credit_transaction_id . ')';
         echo esc_html(
             ($member ? avpvh_format_name($member, 'list') : 'onbekend lid')
-            . ($fee_item ? ' — ' . $fee_item->description : '')
+            . ($fee_item ? ' — ' . $fee_item->description : ' — tegoed')
             . ': € ' . number_format((float) $refund->amount, 2, ',', '.')
-            . ' (betaald: € ' . number_format(AVBK_DB::get_fee_item_paid((int) $refund->fee_item_id), 2, ',', '.') . ')'
+            . $origin
         );
         echo '<br>';
     }
