@@ -352,7 +352,7 @@ function avbk_render_member_balance_per_year($per_year, $current_book_year): voi
 function avbk_render_member_student_years($detail_member_id): void {
     $student_years = AVBK_DB::get_member_student_years($detail_member_id); ?>
             <?php if (isset($_GET['student_year_saved'])) : ?><div class="notice notice-success inline"><p>Studentstatus op 1 januari opgeslagen. Genereer de betreffende bijdrage opnieuw om het bedrag bij te werken.</p></div><?php endif; ?>
-            <details style="margin:1rem 0"<?php echo isset($_GET['student_year_saved']) ? AVBK_DETAILS_OPEN : ''; ?>>
+            <details style="margin:1rem 0"<?php echo esc_attr(isset($_GET['student_year_saved']) ? AVBK_DETAILS_OPEN : ''); ?>>
                 <summary><strong>Historische studentstatus op 1 januari</strong></summary>
                 <p class="description">Een vastgelegde jaarstatus gaat voor op het huidige studentvinkje en wordt gebruikt voor alle activiteiten in dat kalenderjaar.</p>
                 <?php if ($student_years) : ?>
@@ -440,7 +440,7 @@ function avbk_render_member_credit_refund_form(int $member_id, float $available_
     $match_notes = [2 => ' · zelfde rekening als het tegoed', 1 => ' · rekening van het lid', 0 => ''];
     $fits = static fn($c) => (int) $c->id === $wanted_tx && ($c->match === 2 || abs($c->open - $available_credit) < 0.005);
     ?>
-                            <details<?php echo $wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''; ?>>
+                            <details<?php echo esc_attr($wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''); ?>>
                                 <summary>Terugbetalen</summary>
                                 <?php if (!$candidates) : ?>
                                     <p class="description">Geen uitgaande transactie gevonden na de betaling met het tegoed. Importeer eerst het bankafschrift met de terugbetaling.</p>
@@ -688,7 +688,7 @@ function avbk_render_member_fee_refund_form(object $item, float $refunded, int $
     // transfer fits, i.e. went to the paying account or has the exact amount.
     $fits = static fn($c) => (int) $c->id === $wanted_tx && ($c->match === 2 || abs($c->open - $refundable) < 0.005);
     ?>
-                                <details<?php echo $wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''; ?>>
+                                <details<?php echo esc_attr($wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''); ?>>
                                     <summary>Terugbetalen</summary>
                                     <?php if (!$candidates) : ?>
                                         <p class="description">Geen uitgaande transactie gevonden vanaf de betaaldatum. Importeer eerst het bankafschrift met de terugbetaling.</p>
