@@ -35,7 +35,6 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
             wp_enqueue_style('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.css', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.css'));
             wp_enqueue_script('avbk-balance', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         });
-        add_action('admin_post_avbk_submit_dispute', [$this, 'handle_dispute']);
         add_action('admin_post_avbk_apply_balance_selection', [$this, 'handle_apply_balance_selection']);
     }
 
@@ -206,9 +205,6 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
         <div class="avbk-balance" id="bijdrage">
             <h2>Bijdrage &mdash; <?php echo esc_html(avpvh_format_name($target_member)); ?></h2>
 
-            <?php if (!empty($_GET['dispute_sent'])) : ?>
-                <p class="avbk-balance-notice">Je bericht is verstuurd naar de penningmeester.</p>
-            <?php endif; ?>
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
 
             <?php if (!empty($_GET['credit_applied'])) : ?>
@@ -407,19 +403,15 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                 <?php endif; ?>
             <?php endif; ?>
 
-            <details class="avbk-balance-dispute">
-                <summary>Klopt dit niet? Stuur een bericht naar de penningmeester</summary>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <?php wp_nonce_field('avbk_submit_dispute'); ?>
-                    <input type="hidden" name="action" value="avbk_submit_dispute">
-                    <input type="hidden" name="member_id" value="<?php echo esc_attr($target_id); ?>">
-                    <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
-                    <label class="screen-reader-text" for="avbk-balance-dispute-message">Wat klopt er niet?</label>
-                    <textarea name="message" id="avbk-balance-dispute-message" rows="4" class="avbk-balance-dispute-textarea" required placeholder="Bijv.: ik heb dit al betaald, of dit bedrag klopt volgens mij niet, ..."></textarea>
-                    <br>
-                    <button type="submit" class="button">Versturen</button>
-                </form>
-            </details>
+            <?php
+            require_once AVBK_PLUGIN_DIR . 'includes/messages-section.php';
+            avbk_render_member_messages(
+                $own_member,
+                $target_member,
+                array_values(array_filter($items, static fn($item) => (int) $item->member_id === $target_id)),
+                $requested_id ? add_query_arg('member_id', $target_id, get_permalink()) : (string) get_permalink()
+            );
+            ?>
 
             <p class="avbk-balance-declare-link"><a href="<?php echo esc_url(home_url('/leden/beheer/declareren/')); ?>">Bonnetje declareren &rarr;</a></p>
         </div>
@@ -427,13 +419,6 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
         return ob_get_clean();
     }
 
-    /**
-     * A member's "I don't understand/agree with this" message about their
-     * own balance — mailed to the penningmeester immediately (best-effort;
-     * a delivery failure doesn't block the dispute from still being
-     * recorded) and kept as a todo item in AVBK_DB::get_disputes() /
-     * admin/disputes.php, so it doesn't just disappear into an inbox.
-     */
     /**
      * Credit the penningmeester paid back (AVBK_Refunds::add_credit()) to
      * the members in this view, one entry per bank transfer, outside
@@ -481,55 +466,6 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         <td><span class="avbk-status-badge">Terugbetaald</span></td>
                     </tr>
         <?php endforeach;
-    }
-
-    public function handle_dispute(): void {
-        check_admin_referer('avbk_submit_dispute');
-        if (!is_user_logged_in()) {
-            wp_die('Je moet ingelogd zijn.', 'Fout', ['response' => 403]);
-        }
-
-        $member_id = (int) ($_POST['member_id'] ?? 0);
-        $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
-        $redirect_url = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: home_url('/');
-
-        $own_member = avpvh_get_member_by_wp_user(get_current_user_id());
-        if (!$own_member || !$message) {
-            wp_safe_redirect($redirect_url);
-            exit;
-        }
-        // Only allow disputing a balance the viewer was actually allowed to
-        // see in the first place — same rule render() itself uses.
-        $can_view_any = current_user_can('manage_options') || AVPVH_Roles::current_user_has_role('bestuur');
-        $allowed_ids = wp_list_pluck(AVPVH_DB::get_extended_household((int) $own_member->id), 'id');
-        if ($member_id !== (int) $own_member->id && !$can_view_any && !in_array($member_id, array_map('intval', $allowed_ids), true)) {
-            wp_die('Geen toegang.', 'Fout', ['response' => 403]);
-        }
-
-        $member = AVPVH_DB::get_member($member_id);
-        if (!$member) {
-            wp_safe_redirect($redirect_url);
-            exit;
-        }
-
-        if (!AVBK_DB::create_dispute($member_id, $message, (int) $own_member->id)) {
-            wp_die('Je bericht kon niet worden opgeslagen. Ga terug en probeer opnieuw.', 'Fout', ['response' => 500]);
-        }
-
-        $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
-        $submitted_by = avpvh_format_name($own_member);
-        $subject = sprintf('[AV-PvH] Bezwaar/vraag over saldo van %s', avpvh_format_name($member));
-        $body = sprintf(
-            "%s heeft een bericht gestuurd over het openstaande saldo van %s.\n\nBericht:\n%s\n\nOverzicht: %s",
-            $submitted_by,
-            avpvh_format_name($member),
-            $message,
-            admin_url('admin.php?page=avbk-members&member_id=' . $member_id)
-        );
-        avbk_mail('treasurer_notice', $member_id, $to, $subject, $body);
-
-        wp_safe_redirect(add_query_arg('dispute_sent', '1', $redirect_url));
-        exit;
     }
 
     /**

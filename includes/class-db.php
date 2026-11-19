@@ -1269,6 +1269,42 @@ class AVBK_DB {
         if (version_compare($version, '1.54', '<') && self::import_mail_history()) {
             update_option('avbk_db_version', '1.54');
         }
+        if (version_compare($version, '1.55', '<') && self::install_message_schema()) {
+            update_option('avbk_db_version', '1.55');
+        }
+    }
+
+    /**
+     * Berichten: a bezwaar becomes a conversation. A thread gets a subject,
+     * an optional fee item, who started it (member or penningmeester), whose
+     * turn it is (awaiting) and when the last message came; a member's own
+     * message is an event of type 'member_message'.
+     */
+    private static function install_message_schema(): bool {
+        global $wpdb;
+        $threads = "{$wpdb->prefix}avb_disputes";
+        $columns = [
+            'subject'         => "ADD COLUMN subject VARCHAR(190) NOT NULL DEFAULT '' AFTER submitted_by_member_id",
+            'fee_item_id'     => 'ADD COLUMN fee_item_id INT UNSIGNED NULL AFTER subject',
+            'started_by'      => "ADD COLUMN started_by VARCHAR(20) NOT NULL DEFAULT 'member' AFTER fee_item_id",
+            'awaiting'        => "ADD COLUMN awaiting VARCHAR(20) NOT NULL DEFAULT 'treasurer' AFTER status",
+            'last_message_at' => 'ADD COLUMN last_message_at DATETIME NULL AFTER awaiting',
+            'request_key'     => 'ADD COLUMN request_key CHAR(36) NULL, ADD UNIQUE KEY request_key (request_key)',
+        ];
+        foreach ($columns as $column => $alter) {
+            if (!$wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $threads LIKE %s", $column))) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
+                $wpdb->query("ALTER TABLE $threads $alter"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed DDL.
+            }
+        }
+        if (!$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_dispute_events LIKE 'author_member_id'")) {
+            $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_dispute_events ADD COLUMN author_member_id INT UNSIGNED NULL AFTER actor_id");
+        }
+        $wpdb->query("UPDATE $threads d SET
+            last_message_at = COALESCE((SELECT MAX(e.created_at) FROM {$wpdb->prefix}avb_dispute_events e WHERE e.dispute_id = d.id AND e.event_type IN ('reply', 'member_message')), d.created_at),
+            awaiting = IF(d.status = 'resolved', '', IF(EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_dispute_events e WHERE e.dispute_id = d.id AND e.event_type = 'reply'), 'member', 'treasurer'))
+            WHERE d.last_message_at IS NULL"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names only.
+        return (bool) $wpdb->get_var("SHOW COLUMNS FROM $threads LIKE 'request_key'") // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
+            && (bool) $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_dispute_events LIKE 'author_member_id'");
     }
 
     /**
@@ -2910,6 +2946,89 @@ class AVBK_DB {
         return $result === false ? 0 : (int) $wpdb->insert_id;
     }
 
+    /**
+     * Starts a conversation (see AVBK_Messages); 0 when not saved, or when
+     * the same form was already sent (request_key).
+     *
+     * @param array{member_id: int, submitted_by_member_id: ?int, subject: string, fee_item_id: ?int, started_by: string, message: string, request_key: string} $thread
+     */
+    public static function create_message_thread(array $thread): int {
+        global $wpdb;
+        $result = $wpdb->insert("{$wpdb->prefix}avb_disputes", [
+            'member_id'              => $thread['member_id'],
+            'submitted_by_member_id' => $thread['submitted_by_member_id'],
+            'subject'                => mb_substr($thread['subject'], 0, 190),
+            'fee_item_id'            => $thread['fee_item_id'],
+            'started_by'             => $thread['started_by'],
+            'message'                => $thread['message'],
+            'status'                 => 'open',
+            'awaiting'               => $thread['started_by'] === 'treasurer' ? 'member' : 'treasurer',
+            'last_message_at'        => current_time('mysql'),
+            'request_key'            => $thread['request_key'],
+        ]);
+        return $result === false ? 0 : (int) $wpdb->insert_id;
+    }
+
+    public static function get_thread_by_request(string $request_key): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_disputes WHERE request_key = %s", $request_key)) ?: null;
+    }
+
+    /**
+     * A member's message in a conversation: it reopens a closed one, and
+     * it is the penningmeester's turn again. 0 when not saved or a replay.
+     */
+    public static function add_member_message(int $thread_id, string $message, int $member_id, string $request_key): int {
+        global $wpdb;
+        $result = $wpdb->insert("{$wpdb->prefix}avb_dispute_events", [
+            'dispute_id'       => $thread_id,
+            'event_type'       => 'member_message',
+            'message'          => $message,
+            'actor_id'         => get_current_user_id(),
+            'author_member_id' => $member_id,
+            'request_key'      => $request_key,
+            'created_at'       => current_time('mysql'),
+        ]);
+        if ($result === false) {
+            return 0;
+        }
+        $event_id = (int) $wpdb->insert_id;
+        $wpdb->update("{$wpdb->prefix}avb_disputes", [
+            'status'          => 'open',
+            'awaiting'        => 'treasurer',
+            'last_message_at' => current_time('mysql'),
+            'resolved_at'     => null,
+            'resolved_by'     => null,
+        ], ['id' => $thread_id]);
+        return $event_id;
+    }
+
+    /** After the penningmeester wrote: the member's turn. */
+    public static function mark_thread_awaiting_member(int $thread_id): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_disputes", ['awaiting' => 'member', 'last_message_at' => current_time('mysql')], ['id' => $thread_id]);
+    }
+
+    /**
+     * Conversations about or started by these members, latest first.
+     *
+     * @param int[] $member_ids
+     * @return object[]
+     */
+    public static function get_member_threads(array $member_ids): array {
+        global $wpdb;
+        $member_ids = array_values(array_filter(array_map('intval', $member_ids)));
+        if (!$member_ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($member_ids), '%d'));
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $in is placeholders only.
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE member_id IN ($in) OR submitted_by_member_id IN ($in) ORDER BY COALESCE(last_message_at, created_at) DESC, id DESC",
+            ...array_merge($member_ids, $member_ids)
+        )) ?: [];
+    }
+
     public static function get_dispute(int $id): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_disputes WHERE id = %d", $id));
@@ -2952,15 +3071,16 @@ class AVBK_DB {
     public static function get_disputes(string $status = 'open'): array {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE status = %s ORDER BY created_at ASC",
+            "SELECT * FROM {$wpdb->prefix}avb_disputes WHERE status = %s ORDER BY COALESCE(last_message_at, created_at) DESC, id DESC",
             $status
         )) ?: [];
     }
 
+    /** Open conversations waiting for the penningmeester (the menu badge). */
     public static function count_open_disputes(): int {
         global $wpdb;
         return (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_disputes WHERE status = 'open'"
+            "SELECT COUNT(*) FROM {$wpdb->prefix}avb_disputes WHERE status = 'open' AND awaiting != 'member'"
         );
     }
 
@@ -2978,11 +3098,14 @@ class AVBK_DB {
             return false;
         }
         $event_id = self::add_dispute_event($id, $status === 'resolved' ? 'resolved' : 'reopened', $message, $actor_id, $request_key);
-        $updated = $event_id ? $wpdb->update("{$wpdb->prefix}avb_disputes", [
+        $resolved = $status === 'resolved';
+        $fields = [
             'status' => $status,
-            'resolved_at' => $status === 'resolved' ? current_time('mysql') : null,
-            'resolved_by' => $status === 'resolved' ? $actor_id : null,
-        ], ['id' => $id]) : false;
+            'awaiting' => $resolved ? '' : 'treasurer',
+            'resolved_at' => $resolved ? current_time('mysql') : null,
+            'resolved_by' => $resolved ? $actor_id : null,
+        ];
+        $updated = $event_id ? $wpdb->update("{$wpdb->prefix}avb_disputes", $fields, ['id' => $id]) : false;
         if ($updated === false || $wpdb->query('COMMIT') === false) {
             $wpdb->query('ROLLBACK');
             return false;
@@ -4111,10 +4234,10 @@ class AVBK_DB {
         return $history;
     }
 
-    /** @return int[] Members with an open bezwaar. */
+    /** @return int[] Members with an open conversation they started themselves (a question or objection), for Herinneringen. */
     public static function get_open_dispute_member_ids(): array {
         global $wpdb;
-        return array_map('intval', $wpdb->get_col("SELECT DISTINCT member_id FROM {$wpdb->prefix}avb_disputes WHERE status = 'open'") ?: []);
+        return array_map('intval', $wpdb->get_col("SELECT DISTINCT member_id FROM {$wpdb->prefix}avb_disputes WHERE status = 'open' AND started_by = 'member'") ?: []);
     }
 
     /**

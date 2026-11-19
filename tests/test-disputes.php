@@ -39,6 +39,7 @@ function wp_die(...$args): void { throw new RuntimeException('Access denied'); }
 function wp_safe_redirect($url): void { throw new RuntimeException('Redirect: ' . $url); }
 function add_query_arg($args, $url): string { return $url . '?' . http_build_query($args); }
 function admin_url($path): string { return 'https://example.test/wp-admin/' . $path; }
+function home_url($path = ''): string { return 'https://example.test' . $path; }
 function esc_html($value): string { return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); }
 function esc_attr($value): string { return esc_html($value); }
 function esc_textarea($value): string { return esc_html($value); }
@@ -110,6 +111,7 @@ class AVBK_Dispute_Test_DB {
 require_once AVBK_PLUGIN_DIR . '/includes/interface-component.php';
 require AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require AVBK_PLUGIN_DIR . 'includes/class-disputes.php';
+require AVBK_PLUGIN_DIR . 'includes/class-messages.php';
 require AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 function check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('FAILED: ' . $message);
@@ -185,7 +187,9 @@ require_once AVBK_PLUGIN_DIR . 'admin/disputes.php';
 avbk_render_disputes();
 $html = ob_get_clean();
 check(!str_contains($html, '<script>') && str_contains($html, '&lt;script&gt;'), 'member message is escaped in rendered page');
-check(str_contains($html, 'Antwoord versturen') && str_contains($html, 'Notitie opslaan') && str_contains($html, 'Actiehistorie (2)'), 'reply, private note and history appear together');
+check(str_contains($html, 'Antwoord versturen') && str_contains($html, 'Notitie opslaan') && substr_count($html, 'class="avbk-dispute-entry') === 3, 'reply, private note and the conversation appear together');
+check(strpos($html, 'Fictieve vraag') < strpos($html, 'Gecontroleerd in het overzicht') && strpos($html, 'Gecontroleerd') < strpos($html, 'Bedankt voor je bericht'), 'conversation in order: question, note, answer');
+check(str_contains($html, 'Wacht op het lid'), 'after an answer it is the member\'s turn');
 check(str_contains($html, 'submitter@example.test') && str_contains($html, 'Behandelaar'), 'recipient and action author visible');
 if ($render_mode) {
     ob_end_clean();

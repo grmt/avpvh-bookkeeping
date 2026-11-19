@@ -140,6 +140,7 @@ function avbk_render_member_balance_detail(object $member, array $settings): voi
             </div>
             </div>
             <?php avbk_render_member_balance_actions($shown_total, $available_credit, $detail_member_id); ?>
+            <?php require_once AVBK_PLUGIN_DIR . 'admin/member-messages.php'; avbk_render_admin_member_messages($member, array_values(array_filter($shown_items, static fn($item) => (int) $item->member_id === $detail_member_id))); ?>
             <?php avbk_render_member_recent_mails($detail_member_id); ?>
 <?php
 }

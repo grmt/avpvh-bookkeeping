@@ -66,6 +66,11 @@ function checked($checked, $current = true, bool $echo = true): string {
 }
 
 require AVBK_PLUGIN_DIR . 'includes/class-db.php';
+function sanitize_key($value): string { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $value)); }
+function wp_unslash($value) { return $value; }
+function is_email($value): bool { return (bool) filter_var($value, FILTER_VALIDATE_EMAIL); }
+function mysql2date(string $format, string $date): string { return date($format, strtotime($date)); }
+function wp_generate_uuid4(): string { return '00000000-0000-4000-8000-000000000000'; }
 function check(bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException('FAILED: ' . $message);
     if (!in_array('--render', $_SERVER['argv'] ?? [], true)) echo "PASS $message\n";

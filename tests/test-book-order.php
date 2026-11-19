@@ -140,6 +140,9 @@ function wp_send_json_error($data = null): void {
 function check_admin_referer(string $action): void {
     if (empty($GLOBALS['valid_nonce'])) throw new RuntimeException("Invalid nonce for $action");
 }
+if (!function_exists('wp_generate_uuid4')) {
+    function wp_generate_uuid4(): string { return '00000000-0000-4000-8000-000000000000'; }
+}
 function wp_nonce_field(string $action): void {
     echo '<input type="hidden" name="_wpnonce" value="test-nonce">';
 }

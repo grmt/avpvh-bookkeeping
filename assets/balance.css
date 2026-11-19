@@ -147,21 +147,82 @@
     margin-top: .5rem;
 }
 
-.avbk-balance-dispute {
-    margin-top: 1.5rem;
+.avbk-messages {
+    margin-top: 2rem;
 }
 
-.avbk-balance-dispute summary {
+.avbk-message-thread,
+.avbk-message-new {
+    margin: .75rem 0;
+    padding: .5rem .75rem;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.avbk-message-thread summary,
+.avbk-message-new summary {
     cursor: pointer;
+}
+
+.avbk-message-new summary {
     color: #2271b1;
 }
 
-.avbk-balance-dispute-textarea {
+.avbk-message-state {
+    margin-left: .5rem;
+    font-size: .875em;
+    color: #646970;
+}
+
+.avbk-message-list {
+    list-style: none;
+    margin: .75rem 0;
+    padding: 0;
+}
+
+.avbk-message {
+    margin: .5rem 0;
+    padding: .5rem .75rem;
+    border-radius: 4px;
+    background: #f6f7f7;
+}
+
+.avbk-message--treasurer {
+    background: #f0f6fc;
+    border-left: 3px solid #2271b1;
+}
+
+.avbk-message--status {
+    background: none;
+    padding: 0 .75rem;
+    font-size: .875em;
+    color: #646970;
+}
+
+.avbk-message-meta {
+    display: block;
+    font-size: .875em;
+    color: #646970;
+}
+
+.avbk-message-form label,
+.avbk-message-form input[type="text"],
+.avbk-message-form select,
+.avbk-message-form textarea {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    margin-top: .75rem;
-    text-align: left;
+    margin-top: .5rem;
+}
+
+.avbk-message-form button {
+    margin-top: .5rem;
+}
+
+.avbk-balance-notice.avbk-balance-notice--error {
+    background: #fcf0f1;
+    border-left-color: #d63638;
 }
 
 .avbk-balance-declare-link {

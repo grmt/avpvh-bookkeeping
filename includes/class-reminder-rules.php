@@ -26,7 +26,7 @@ class AVBK_Reminder_Rules {
             $warnings[] = 'geen geldig e-mailadres';
         }
         if ($disputed) {
-            $warnings[] = 'open bezwaar';
+            $warnings[] = 'open bericht';
         }
         if (array_filter($items, static fn($item) => !empty($item->is_estimated))) {
             $warnings[] = 'geschat bedrag';

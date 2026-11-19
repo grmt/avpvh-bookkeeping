@@ -30,7 +30,7 @@ check($row['oldest'] === '2026-01-05', 'Oldest item');
 check($row['reminders'] === 2 && $row['warnings'] === [], 'History, no warnings');
 
 $warned = AVBK_Reminder_Rules::candidate(2, (object) ['email' => 'lid@avpvh.local'], [$item(12, 10.0, '2026-02-01', 1)], [], true);
-check($warned['warnings'] === ['geen geldig e-mailadres', 'open bezwaar', 'geschat bedrag'], 'Placeholder address, open dispute and estimate are warned');
+check($warned['warnings'] === ['geen geldig e-mailadres', 'open bericht', 'geschat bedrag'], 'Placeholder address, open dispute and estimate are warned');
 check(!AVBK_Reminder_Rules::has_mail_address(null) && !AVBK_Reminder_Rules::has_mail_address((object) ['email' => 'geen-adres']), 'No member or no valid address');
 
 // matches()
