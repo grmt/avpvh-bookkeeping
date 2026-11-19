@@ -36,6 +36,8 @@ $assigned_payment_counts = AVBK_DB::get_assigned_payment_counts_by_year();
 $transaction_date_ranges = AVBK_DB::get_transaction_date_ranges_by_year();
 $total_credit = round(array_sum(array_map(fn($m) => AVBK_DB::get_total_credit_for_member((int) $m->id), $members)), 2);
 $total_donations = AVBK_DB::get_total_donations();
+$outgoing = AVBK_DB::get_outgoing_summary($current_book_year);
+$waiting_messages = AVBK_DB::count_open_disputes();
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>
@@ -60,6 +62,18 @@ $total_donations = AVBK_DB::get_total_donations();
         <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1', 'f_activiteit' => 'Schenking'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
             <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($total_donations, 2, ',', '.')); ?></span>
             <span class="avbk-stat-label">Totaal geschonken</span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-expenses', 'tab' => 'explained', 'year' => $current_book_year], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value">&euro; <?php echo esc_html(number_format($outgoing['total'], 2, ',', '.')); ?></span>
+            <span class="avbk-stat-label">Uitgaven <?php echo esc_html($current_book_year); ?></span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-expenses'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value"><?php echo esc_html($outgoing['open_count']); ?></span>
+            <span class="avbk-stat-label">Uitgaven te verantwoorden<?php echo $outgoing['open_count'] ? esc_html(' (€ ' . number_format($outgoing['open_amount'], 2, ',', '.') . ')') : ''; ?></span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-disputes'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value"><?php echo esc_html($waiting_messages); ?></span>
+            <span class="avbk-stat-label">Berichten wachten op jou</span>
         </a>
     </div>
 

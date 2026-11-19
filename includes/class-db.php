@@ -4567,6 +4567,32 @@ class AVBK_DB {
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
+    /**
+     * Outgoing bank payments of a year for the Overzicht: the total, and
+     * how many and how much still wait for an explanation in Uitgaven.
+     *
+     * @return array{total: float, open_count: int, open_amount: float}
+     */
+    public static function get_outgoing_summary(int $year): array {
+        global $wpdb;
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is a fixed condition.
+        $where = self::unexplained_outgoing_where();
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COALESCE(SUM(t.amount), 0) AS total,
+                    COALESCE(SUM(CASE WHEN $where THEN 1 ELSE 0 END), 0) AS open_count,
+                    COALESCE(SUM(CASE WHEN $where THEN t.amount ELSE 0 END), 0) AS open_amount
+             FROM {$wpdb->prefix}avb_transactions t
+             WHERE t.direction = 'out' AND t.duplicate_of IS NULL AND YEAR(t.transaction_date) = %d",
+            $year
+        ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        return [
+            'total'       => round((float) ($row->total ?? 0), 2),
+            'open_count'  => (int) ($row->open_count ?? 0),
+            'open_amount' => round((float) ($row->open_amount ?? 0), 2),
+        ];
+    }
+
     public static function count_unexplained_outgoing(int $min_year = 0): int {
         global $wpdb;
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
