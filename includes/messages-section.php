@@ -42,9 +42,9 @@ function avbk_render_member_thread(object $thread, object $own_member, string $p
             </summary>
             <?php if ($fee_item) : ?><p class="description">Over: <?php echo esc_html($fee_item->description); ?></p><?php endif; ?>
             <ol class="avbk-message-list">
-                <?php foreach ($entries as $entry) {
-                    avbk_render_message_entry($entry, $own_member);
-                } ?>
+                <?php foreach ($entries as $entry) : ?>
+                    <li class="avbk-message avbk-message--<?php echo esc_attr($entry['kind'] === 'status' ? 'status' : $entry['author']); ?>"><?php avbk_render_message_entry($entry, $own_member); ?></li>
+                <?php endforeach; ?>
             </ol>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-message-form">
                 <?php wp_nonce_field('avbk_message_reply'); ?>
@@ -71,10 +71,10 @@ function avbk_member_thread_state(object $thread): string {
 /** @param array{author: string, member_id: ?int, text: string, at: string, kind: string, event: ?object} $entry */
 function avbk_render_message_entry(array $entry, object $own_member): void {
     $at = wp_date('d-m-Y H:i', strtotime($entry['at']));
-    if ($entry['kind'] === 'status') : ?>
-                <li class="avbk-message avbk-message--status"><?php echo esc_html(($entry['event']->event_type === 'resolved' ? 'Afgehandeld' : 'Heropend') . ' · ' . $at); ?></li>
-        <?php return;
-    endif;
+    if ($entry['kind'] === 'status') {
+        echo esc_html(($entry['event']->event_type === 'resolved' ? 'Afgehandeld' : 'Heropend') . ' · ' . $at);
+        return;
+    }
     $member = $entry['member_id'] ? AVPVH_DB::get_member($entry['member_id']) : null;
     $who = match (true) {
         $entry['author'] === 'treasurer'                         => 'Penningmeester',
@@ -83,10 +83,8 @@ function avbk_render_message_entry(array $entry, object $own_member): void {
         default                                                  => 'Lid',
     };
     ?>
-                <li class="avbk-message avbk-message--<?php echo esc_attr($entry['author']); ?>">
                     <span class="avbk-message-meta"><?php echo esc_html($who . ' · ' . $at); ?></span>
                     <div class="avbk-message-text"><?php echo nl2br(esc_html($entry['text'])); ?></div>
-                </li>
     <?php
 }
 

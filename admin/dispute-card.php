@@ -1,6 +1,9 @@
 <?php
 defined('ABSPATH') || exit;
 
+/** How dates show in a conversation. */
+const AVBK_DISPUTE_DATETIME = 'd-m-Y H:i';
+
 /** One conversation on the Berichten page. */
 function avbk_render_dispute_card(object $dispute): void {
 $member = AVPVH_DB::get_member((int) $dispute->member_id);
@@ -23,7 +26,7 @@ $event_labels = ['reply' => 'Antwoord', 'member_message' => 'Bericht van', 'note
         </h3>
         <span class="avbk-dispute-status"><?php echo esc_html(AVBK_Messages::admin_state($dispute)); ?></span>
     </header>
-    <p class="description">#<?php echo esc_html($dispute->id); ?> · <?php echo ($dispute->started_by ?? 'member') === 'treasurer' ? 'Begonnen door de penningmeester' : 'Ontvangen'; ?> op <?php echo esc_html(mysql2date('d-m-Y H:i', $dispute->created_at)); ?>
+    <p class="description">#<?php echo esc_html($dispute->id); ?> · <?php echo ($dispute->started_by ?? 'member') === 'treasurer' ? 'Begonnen door de penningmeester' : 'Ontvangen'; ?> op <?php echo esc_html(mysql2date(AVBK_DISPUTE_DATETIME, $dispute->created_at)); ?>
         <?php if ($fee_item) : ?> · Over: <?php echo esc_html($fee_item->description); ?><?php endif; ?>
         <?php if (!empty($dispute->submitted_by_member_id) && $recipient && (int) $recipient->id !== (int) $dispute->member_id) : ?>
             · Ingediend door <?php echo esc_html(avpvh_format_name($recipient, 'list')); ?>
@@ -41,22 +44,36 @@ function avbk_render_dispute_history(object $dispute, array $events, array $even
 ?><ol class="avbk-dispute-conversation">
         <?php foreach (AVBK_Messages::conversation($dispute, $events, true) as $entry) : ?>
             <li class="avbk-dispute-entry avbk-dispute-entry--<?php echo esc_attr($entry['kind'] === 'message' ? $entry['author'] : $entry['kind']); ?>">
-                <?php if ($entry['event'] === null) : ?>
-                    <strong><?php echo esc_html(avbk_dispute_member_label($entry['member_id'])); ?></strong>
-                    <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $entry['at'])); ?></span>
-                    <div class="avbk-dispute-event-message"><?php echo nl2br(esc_html($entry['text'])); ?></div>
-                <?php else :
-                    $event = $entry['event'];
-                    $actor = $event->actor_id ? get_userdata((int) $event->actor_id) : null;
-                    $actor_label = $event->event_type === 'member_message'
-                        ? avbk_dispute_member_label($entry['member_id'])
-                        : ($actor ? $actor->display_name : ($event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar'));
-                    avbk_render_dispute_event($event_labels, $event, $actor_label);
-                endif; ?>
+                <?php avbk_render_dispute_entry($entry, $event_labels); ?>
             </li>
         <?php endforeach; ?>
     </ol>
 <?php
+}
+
+/** One entry: the opening message of the thread, or an event. */
+function avbk_render_dispute_entry(array $entry, array $event_labels): void {
+    if ($entry['event'] !== null) {
+        avbk_render_dispute_event($event_labels, $entry['event'], avbk_dispute_actor_label($entry['event'], $entry['member_id']));
+        return;
+    }
+    ?>
+                    <strong><?php echo esc_html(avbk_dispute_member_label($entry['member_id'])); ?></strong>
+                    <span class="description">· <?php echo esc_html(mysql2date(AVBK_DISPUTE_DATETIME, $entry['at'])); ?></span>
+                    <div class="avbk-dispute-event-message"><?php echo nl2br(esc_html($entry['text'])); ?></div>
+    <?php
+}
+
+/** Who wrote an event: the member for their own message, otherwise the user who acted. */
+function avbk_dispute_actor_label(object $event, ?int $member_id): string {
+    if ($event->event_type === 'member_message') {
+        return avbk_dispute_member_label($member_id);
+    }
+    $actor = $event->actor_id ? get_userdata((int) $event->actor_id) : null;
+    if ($actor) {
+        return (string) $actor->display_name;
+    }
+    return $event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar';
 }
 
 /** The name of the member who wrote a message. */
@@ -68,7 +85,7 @@ function avbk_dispute_member_label(?int $member_id): string {
 /** One entry of a conversation that is an event (answer, member message, note, status change). */
 function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
 ?><strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
-                    <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $event->created_at)); ?> · <?php echo esc_html($actor_label); ?></span>
+                    <span class="description">· <?php echo esc_html(mysql2date(AVBK_DISPUTE_DATETIME, $event->created_at)); ?> · <?php echo esc_html($actor_label); ?></span>
                     <?php if ($event->event_type === 'reply') : ?>
                         <p class="avbk-dispute-delivery <?php echo $event->delivery_status === 'sent' ? '' : 'avbk-dispute-delivery--warning'; ?>">
                             Naar <?php echo esc_html($event->recipient_email); ?> —

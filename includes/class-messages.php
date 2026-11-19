@@ -15,6 +15,9 @@ class AVBK_Messages implements AVBK_Component {
 
     private const NO_ACCESS = 'Geen toegang.';
 
+    /** Where Berichten is on the member page. */
+    private const ANCHOR = '#berichten';
+
     /** Names of the member-side notices, from the query string. */
     public const NOTICES = [
         'message_sent'   => 'Je bericht is verstuurd naar de penningmeester. Je antwoord verschijnt hier.',
@@ -39,9 +42,10 @@ class AVBK_Messages implements AVBK_Component {
         $entries = [];
         if (trim((string) $thread->message) !== '') {
             $by_treasurer = ($thread->started_by ?? 'member') === 'treasurer';
+            $author_id = !empty($thread->submitted_by_member_id) ? (int) $thread->submitted_by_member_id : (int) $thread->member_id;
             $entries[] = [
                 'author'    => $by_treasurer ? 'treasurer' : 'member',
-                'member_id' => $by_treasurer ? null : (int) ($thread->submitted_by_member_id ?: $thread->member_id),
+                'member_id' => $by_treasurer ? null : $author_id,
                 'text'      => (string) $thread->message,
                 'at'        => (string) $thread->created_at,
                 'kind'      => 'message',
@@ -101,13 +105,12 @@ class AVBK_Messages implements AVBK_Component {
     private static function posted(): array {
         // phpcs:disable WordPress.Security.NonceVerification.Missing -- every caller checked its nonce first.
         $redirect = esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: home_url('/');
-        $posted = [
+        return [
             'message'     => trim(sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''))),
             'request_key' => sanitize_text_field(wp_unslash($_POST['request_key'] ?? '')),
-            'redirect'    => strtok($redirect, '#') . '#berichten',
+            'redirect'    => strtok($redirect, '#') . self::ANCHOR,
         ];
         // phpcs:enable WordPress.Security.NonceVerification.Missing
-        return $posted;
     }
 
     /** The logged-in member, or a 403. */
@@ -120,7 +123,7 @@ class AVBK_Messages implements AVBK_Component {
     }
 
     private static function back(string $redirect, string $notice): void {
-        wp_safe_redirect(add_query_arg($notice, '1', strtok($redirect, '#')) . '#berichten');
+        wp_safe_redirect(add_query_arg($notice, '1', strtok($redirect, '#')) . self::ANCHOR);
         exit;
     }
 
@@ -211,7 +214,7 @@ class AVBK_Messages implements AVBK_Component {
             avbk_log_failure('message start', $result->get_error_code(), ['member' => $member_id]);
             $notice = ['message_start_failed' => $result->get_error_code()];
         }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id] + $notice, admin_url('admin.php')) . '#berichten');
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id] + $notice, admin_url('admin.php')) . self::ANCHOR);
         exit;
     }
 

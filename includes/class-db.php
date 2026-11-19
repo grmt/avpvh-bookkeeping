@@ -3098,12 +3098,14 @@ class AVBK_DB {
             return false;
         }
         $event_id = self::add_dispute_event($id, $status === 'resolved' ? 'resolved' : 'reopened', $message, $actor_id, $request_key);
-        $updated = $event_id ? $wpdb->update("{$wpdb->prefix}avb_disputes", [
+        $resolved = $status === 'resolved';
+        $fields = [
             'status' => $status,
-            'awaiting' => $status === 'resolved' ? '' : 'treasurer',
-            'resolved_at' => $status === 'resolved' ? current_time('mysql') : null,
-            'resolved_by' => $status === 'resolved' ? $actor_id : null,
-        ], ['id' => $id]) : false;
+            'awaiting' => $resolved ? '' : 'treasurer',
+            'resolved_at' => $resolved ? current_time('mysql') : null,
+            'resolved_by' => $resolved ? $actor_id : null,
+        ];
+        $updated = $event_id ? $wpdb->update("{$wpdb->prefix}avb_disputes", $fields, ['id' => $id]) : false;
         if ($updated === false || $wpdb->query('COMMIT') === false) {
             $wpdb->query('ROLLBACK');
             return false;

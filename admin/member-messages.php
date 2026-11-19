@@ -25,7 +25,14 @@ function avbk_render_admin_member_messages(object $member, array $fee_items): vo
     <?php elseif ($failed !== '') : ?>
         <div class="notice notice-error inline"><p><?php echo esc_html($failures[$failed] ?? 'Het bericht is niet verstuurd.'); ?></p></div>
     <?php endif; ?>
-    <?php if ($threads) : ?>
+    <?php avbk_render_admin_member_threads($threads); ?>
+    <?php avbk_render_admin_message_start_form($member, $fee_items, $failed !== ''); ?>
+    <?php
+}
+
+/** @param object[] $threads */
+function avbk_render_admin_member_threads(array $threads): void {
+    if ($threads) : ?>
         <table class="widefat striped" style="max-width:60em">
             <thead><tr><th scope="col">Onderwerp</th><th scope="col">Laatste bericht</th><th scope="col">Status</th></tr></thead>
             <tbody>
@@ -40,8 +47,13 @@ function avbk_render_admin_member_messages(object $member, array $fee_items): vo
         </table>
     <?php else : ?>
         <p class="description">Nog geen berichten met dit lid.</p>
-    <?php endif; ?>
-    <details style="margin:1rem 0;max-width:60em"<?php echo $failed !== '' ? ' open' : ''; ?>>
+    <?php endif;
+}
+
+/** "Bericht sturen": the penningmeester starts a conversation. */
+function avbk_render_admin_message_start_form(object $member, array $fee_items, bool $open): void {
+    ?>
+    <details style="margin:1rem 0;max-width:60em"<?php echo $open ? ' open' : ''; ?>>
         <summary>Bericht sturen</summary>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <?php wp_nonce_field('avbk_message_start'); ?>

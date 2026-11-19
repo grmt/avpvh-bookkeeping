@@ -66,16 +66,11 @@ class AVBK_Disputes {
      * message, mailed like any answer. Returns the thread id, or an error.
      */
     public static function start(int $member_id, string $subject, ?int $fee_item_id, string $message, string $request_key): int|WP_Error {
-        if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
-            return new WP_Error('forbidden', 'Geen toegang.');
-        }
         $message = trim($message);
-        if ($message === '' || !preg_match(self::REQUEST_KEY, $request_key)) {
-            return new WP_Error($message === '' ? 'empty_message' : 'invalid_action', 'Vul een bericht in.');
-        }
-        $existing = AVBK_DB::get_thread_by_request($request_key);
-        if ($existing) {
-            return (int) $existing->id;
+        $error = self::start_rejection($message, $request_key);
+        $existing = $error ? null : AVBK_DB::get_thread_by_request($request_key);
+        if ($error || $existing) {
+            return $error ?? (int) $existing->id;
         }
         $thread_id = AVBK_DB::create_message_thread([
             'member_id'              => $member_id,
@@ -87,11 +82,20 @@ class AVBK_Disputes {
             'request_key'            => $request_key,
         ]);
         $thread = $thread_id ? AVBK_DB::get_dispute($thread_id) : null;
-        if (!$thread) {
-            return new WP_Error('save_failed', 'Het bericht is niet opgeslagen en niet verstuurd. Probeer opnieuw.');
-        }
-        $sent = self::send_reply($thread, $message, wp_generate_uuid4());
+        $sent = $thread ? self::send_reply($thread, $message, wp_generate_uuid4()) : new WP_Error('save_failed', 'Het bericht is niet opgeslagen en niet verstuurd. Probeer opnieuw.');
+        // A failed mail still leaves the conversation on the member page; it shows as failed in Berichten.
         return is_wp_error($sent) && $sent->get_error_code() !== 'reply_failed' ? $sent : $thread_id;
+    }
+
+    /** Why the penningmeester can't start this conversation, or null. */
+    private static function start_rejection(string $message, string $request_key): ?WP_Error {
+        if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
+            return new WP_Error('forbidden', 'Geen toegang.');
+        }
+        if ($message === '') {
+            return new WP_Error('empty_message', 'Vul een bericht in.');
+        }
+        return preg_match(self::REQUEST_KEY, $request_key) ? null : new WP_Error('invalid_action', 'Ongeldige actie. Herlaad de pagina en probeer opnieuw.');
     }
 
     /**
@@ -114,6 +118,12 @@ class AVBK_Disputes {
             return AVBK_DB::has_dispute_request($request_key) ? 'duplicate'
                 : new WP_Error('save_failed', 'Het antwoord is niet opgeslagen en niet verstuurd. Probeer opnieuw.');
         }
+        return self::deliver($dispute, $recipient, $email, $message, $event_id);
+    }
+
+    /** Mails the saved answer and records the outcome; then it is the member's turn. */
+    private static function deliver(object $dispute, object $recipient, string $email, string $message, int $event_id): string|WP_Error {
+        $id = (int) $dispute->id;
 
         $from = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from)) {
