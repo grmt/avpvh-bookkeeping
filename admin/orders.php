@@ -83,8 +83,11 @@ function avbk_render_orders_notices(): void {
     <?php endif; ?>
     <?php if (isset($_GET['order_deleted'])) : ?>
         <div class="notice notice-success is-dismissible">
-            <p>Bestelling #<?php echo (int) $_GET['order_deleted']; ?> succesvol verwijderd<?php echo !empty($_GET['email_sent']) ? ' (annuleringsmail verstuurd naar besteller).' : ' (zonder e-mail).'; ?></p>
+            <p>Bestelling #<?php echo (int) $_GET['order_deleted']; ?> succesvol verwijderd<?php echo ($_GET['email_sent'] ?? '') === '1' ? ' (annuleringsmail verstuurd naar besteller).' : ' (zonder e-mail).'; ?></p>
         </div>
+        <?php if (($_GET['email_sent'] ?? '') === 'failed') : ?>
+            <div class="notice notice-error is-dismissible"><p>De annuleringsmail kon niet worden verstuurd. Mail de besteller zelf.</p></div>
+        <?php endif; ?>
     <?php endif; ?>
     <?php if (isset($_GET['delete_error'])) : ?>
         <div class="notice notice-error is-dismissible">
@@ -115,13 +118,13 @@ function avbk_render_orders_delete_modal(): void {
                 <div id="avbk-delete-email-option" style="margin: 15px 0; padding: 12px; background: #f0f0f1; border-radius: 4px; border: 1px solid #dcdcde;">
                     <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9rem;">
                         <input type="checkbox" name="send_email" id="avbk-delete-send-email" value="1" style="margin-top: 2px;">
-                        <span>Stuur een annuleringsmail naar de besteller (<span id="avbk-delete-order-email" style="font-weight: 600;"></span>)</span>
+                        <span>Stuur een annuleringsmail naar de besteller (<span id="avbk-delete-order-email" style="font-weight: 600;"></span>). Je ziet de mail eerst en kunt hem aanpassen; de bestelling wordt pas verwijderd als je hem verstuurt.</span>
                     </label>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
                     <button type="button" class="button" id="avbk-delete-modal-cancel">Annuleren</button>
-                    <button type="submit" class="button button-primary" style="background: #b32d2e; border-color: #b32d2e;">Ja, verwijder bestelling</button>
+                    <button type="submit" class="button button-primary" id="avbk-delete-modal-submit" style="background: #b32d2e; border-color: #b32d2e;">Ja, verwijder bestelling</button>
                 </div>
             </form>
         </div>
@@ -217,6 +220,11 @@ function avbk_render_orders_script(): void {
         var delSpanEmail = document.getElementById('avbk-delete-order-email');
         var delEmailBox  = document.getElementById('avbk-delete-email-option');
         var delCheckbox  = document.getElementById('avbk-delete-send-email');
+        var delSubmit    = document.getElementById('avbk-delete-modal-submit');
+        var updateDelSubmit = function () {
+            delSubmit.textContent = delCheckbox.checked ? 'Verder: mail bekijken' : 'Ja, verwijder bestelling';
+        };
+        delCheckbox.addEventListener('change', updateDelSubmit);
 
         document.querySelectorAll('.avbk-delete-order-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
@@ -238,6 +246,7 @@ function avbk_render_orders_script(): void {
                     delCheckbox.checked = false;
                 }
 
+                updateDelSubmit();
                 delModal.style.display = 'flex';
             });
         });

@@ -206,6 +206,8 @@ class Mock_Orders_WPDB {
     public array $orders = [];
     public array $order_items = [];
     public array $fee_items = [];
+    /** Paid per fee item id, for the allocations SUM query. */
+    public array $paid = [];
     public array $addresses = [];
 
     public function prepare(string $query, ...$args): string {
@@ -315,6 +317,9 @@ class Mock_Orders_WPDB {
     }
 
     public function get_var(string $query) {
+        if (str_contains($query, 'avb_transaction_allocations') && preg_match('/fee_item_id = (\d+)/', $query, $pm)) {
+            return (string) ($this->paid[(int) $pm[1]] ?? 0);
+        }
         if (str_contains($query, 'COUNT(*)') && str_contains($query, 'avb_orders')) {
             $count = 0;
             $type_match = null;
@@ -889,6 +894,42 @@ check(str_contains($GLOBALS['sent_mails'][0]['subject'], '—') && !str_contains
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'geannuleerd'), 'Cancellation email body states order is cancelled');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], 'de jubileumkleding'), 'Cancellation email body mentions de jubileumkleding');
 check(str_contains($GLOBALS['sent_mails'][0]['body'], '<!doctype html>'), 'Cancellation email body has HTML document structure');
+check(str_contains($GLOBALS['sent_mails'][0]['body'], 'Je hoeft hiervoor dus niets te betalen.'), 'Nothing paid: the mail says nothing has to be paid');
+check($res_del_2['mail_sent'] === true, 'delete_order reports the mail as sent');
+
+// 11c: The default mail only says "niets te betalen" when nothing was paid
+$paid_order = (object) ['id' => 501, 'order_type' => 'book', 'first_name' => 'Anna', 'fee_item_id' => 777];
+$GLOBALS['wpdb']->paid[777] = 35.0;
+[$paid_subject, $paid_body] = AVBK_DB::order_cancellation_mail($paid_order);
+check($paid_subject === 'Bestelling geannuleerd — Jubileumboek' && str_contains($paid_body, 'het jubileumboek'), 'Book order: subject and body name the book');
+check(!str_contains($paid_body, 'niets te betalen'), 'Already paid: the mail does not say nothing has to be paid');
+$GLOBALS['wpdb']->paid[777] = 0;
+check(str_contains(AVBK_DB::order_cancellation_mail($paid_order)[1], 'niets te betalen'), 'Unpaid fee item: the mail says nothing has to be paid');
+
+// 11d: An edited mail (Mail controleren) is sent as given, and a failed send is reported
+$del_order_3 = AVBK_DB::create_order([
+    'order_type'    => 'book',
+    'first_name'    => 'Cas',
+    'last_name'     => 'Jansen',
+    'email'         => 'cas@example.test',
+    'total_amount'  => 35.00,
+    'quantity'      => 1,
+    'items'         => [['design' => 'book', 'variant' => '', 'quantity' => 1, 'unit_price' => 35.00, 'total_price' => 35.00, 'title' => 'Boek']],
+]);
+$GLOBALS['sent_mails'] = [];
+$res_del_3 = AVBK_DB::delete_order((int) $del_order_3['id'], true, ['Eigen onderwerp', '<!doctype html><html><body><p>Eigen tekst</p></body></html>']);
+check(count($GLOBALS['sent_mails']) === 1 && $GLOBALS['sent_mails'][0]['subject'] === 'Eigen onderwerp' && str_contains($GLOBALS['sent_mails'][0]['body'], 'Eigen tekst'), 'The edited subject and body are sent');
+$del_order_4 = AVBK_DB::create_order([
+    'order_type' => 'book', 'first_name' => 'Cas', 'last_name' => 'Jansen', 'email' => 'cas@example.test',
+    'total_amount' => 35.00, 'quantity' => 1,
+    'items' => [['design' => 'book', 'variant' => '', 'quantity' => 1, 'unit_price' => 35.00, 'total_price' => 35.00, 'title' => 'Boek']],
+]);
+$mail_success_before = $GLOBALS['mail_success'] ?? null;
+$GLOBALS['mail_success'] = false;
+$res_del_4 = AVBK_DB::delete_order((int) $del_order_4['id'], true);
+$GLOBALS['mail_success'] = $mail_success_before;
+check(!empty($res_del_4['success']) && $res_del_4['mail_sent'] === false, 'A failed cancellation mail is reported, the order is still deleted');
+check(AVBK_DB::delete_order((int) $del_order_4['id'], false)['success'] === false, 'Deleting a deleted order fails');
 
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
 
