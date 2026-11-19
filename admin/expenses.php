@@ -105,7 +105,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <br><span class="description"><?php echo esc_html(AVBK_Matcher::strip_name_field((string) $tx->description)); ?></span>
         </p>
         <?php if ($member_id) : ?>
-            <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage? <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))); ?>">Koppel die bij het lid</a>.</p>
+            <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage of van tegoed? <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))); ?>">Koppel die bij het lid</a>.</p>
         <?php endif; ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-expense-form">
             <?php wp_nonce_field('avbk_explain_expense'); ?>

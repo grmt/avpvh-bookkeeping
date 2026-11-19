@@ -1,6 +1,9 @@
 <?php
 defined('ABSPATH') || exit;
 
+/** The attribute that opens a <details> element. */
+const AVBK_DETAILS_OPEN = ' open';
+
 /** Renders the admin/members-balance.php page. */
 function avbk_render_members_balance(): void {
 if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('penningmeester')) {
@@ -47,11 +50,13 @@ $settings = compact('closed_through_year', 'show_all_years', 'per_year', 'curren
                     <th data-col="saldo" data-type="number">Openstaand saldo</th>
                 <?php endif; ?>
                 <th data-col="tegoed" data-type="number">Tegoed</th>
+                <th data-col="tegoed-terugbetaald" data-type="number">Tegoed terugbetaald</th>
                 <th data-col="status" data-filter="select">Status</th><th></th>
             </tr></thead>
             <tbody>
+            <?php $credit_refunded = AVBK_DB::get_credit_refunded_by_member(); ?>
             <?php foreach ($members as $m) : ?>
-                <?php avbk_render_members_overview_row($m, $per_year, $show_all_years); ?>
+                <?php avbk_render_members_overview_row($m, $per_year, $show_all_years, $credit_refunded[(int) $m->id] ?? 0.0); ?>
             <?php endforeach; ?>
             </tbody>
         </table>
@@ -120,7 +125,9 @@ function avbk_render_member_balance_detail(object $member, array $settings): voi
                     ?>
                     <?php avbk_render_member_credit_row($show_member_column, $member, $available_credit, $credit_transactions, $detail_member_id); ?>
                 <?php endif; ?>
-                <?php if (!$shown_items && $available_credit <= 0.005) : ?>
+                <?php $credit_refunds = AVBK_DB::get_credit_refunds_for_member($detail_member_id);
+                avbk_render_member_credit_refund_rows($credit_refunds, $show_member_column, $member); ?>
+                <?php if (!$shown_items && $available_credit <= 0.005 && !$credit_refunds) : ?>
                     <tr><td colspan="<?php echo $show_member_column ? 9 : 8; ?>">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php elseif ($shown_items) : foreach ($shown_items as $item) : ?>
                     <?php avbk_render_member_fee_row($item, $show_member_column, $combined_members, $member); ?>
@@ -245,6 +252,7 @@ function avbk_render_members_balance_notices(): void {
             'invalid_amount'      => 'Vul een bedrag van minimaal € 0,01 in.',
             'exceeds_transaction' => 'Het bedrag is hoger dan wat er van deze transactie nog niet gekoppeld is.',
             'exceeds_paid'        => 'Het bedrag is hoger dan wat er voor deze bijdrage betaald en nog niet terugbetaald is.',
+            'exceeds_credit'      => 'Het bedrag is hoger dan het tegoed van dit lid.',
             'not_found'           => 'Deze terugbetaling bestaat niet meer.',
         ];
         $refund_failure = sanitize_key(wp_unslash($_GET['refund_failed']));
@@ -344,7 +352,7 @@ function avbk_render_member_balance_per_year($per_year, $current_book_year): voi
 function avbk_render_member_student_years($detail_member_id): void {
     $student_years = AVBK_DB::get_member_student_years($detail_member_id); ?>
             <?php if (isset($_GET['student_year_saved'])) : ?><div class="notice notice-success inline"><p>Studentstatus op 1 januari opgeslagen. Genereer de betreffende bijdrage opnieuw om het bedrag bij te werken.</p></div><?php endif; ?>
-            <details style="margin:1rem 0"<?php echo isset($_GET['student_year_saved']) ? ' open' : ''; ?>>
+            <details style="margin:1rem 0"<?php echo esc_attr(isset($_GET['student_year_saved']) ? AVBK_DETAILS_OPEN : ''); ?>>
                 <summary><strong>Historische studentstatus op 1 januari</strong></summary>
                 <p class="description">Een vastgelegde jaarstatus gaat voor op het huidige studentvinkje en wordt gebruikt voor alle activiteiten in dat kalenderjaar.</p>
                 <?php if ($student_years) : ?>
@@ -405,9 +413,110 @@ function avbk_render_member_credit_row($show_member_column, $member, $available_
                                 <input type="hidden" name="amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>">
                                 <button type="submit" class="button button-small" onclick="return confirm('Dit tegoed boeken als schenking aan de vereniging? Dit kan niet ongedaan gemaakt worden.');">Schenking</button>
                             </form>
+                            <?php avbk_render_member_credit_refund_form($detail_member_id, $available_credit, $credit_transactions); ?>
                         </td>
                     </tr>
 <?php
+}
+
+/**
+ * "Terugbetalen" on the Tegoed row: link an outgoing bank transaction as
+ * paying back (part of) the credit. Transfers to the account the credit
+ * came from come first.
+ *
+ * @param object[] $credit_transactions The payments the credit comes from, oldest first.
+ */
+function avbk_render_member_credit_refund_form(int $member_id, float $available_credit, array $credit_transactions): void {
+    if (!$credit_transactions) {
+        return;
+    }
+    $candidates = AVBK_Refunds::rank_candidates(
+        AVBK_DB::get_refund_candidates_since((string) $credit_transactions[0]->transaction_date),
+        array_map(static fn($row) => (string) $row->counterparty_iban, $credit_transactions),
+        array_map(static fn($k) => (string) $k->iban, AVBK_DB::get_known_ibans_for_member($member_id)),
+        $available_credit
+    );
+    $wanted_tx = (int) ($_GET['refund_tx'] ?? 0);
+    $match_notes = [2 => ' · zelfde rekening als het tegoed', 1 => ' · rekening van het lid', 0 => ''];
+    $fits = static fn($c) => (int) $c->id === $wanted_tx && ($c->match === 2 || abs($c->open - $available_credit) < 0.005);
+    ?>
+                            <details<?php echo esc_attr($wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''); ?>>
+                                <summary>Terugbetalen</summary>
+                                <?php if (!$candidates) : ?>
+                                    <p class="description">Geen uitgaande transactie gevonden na de betaling met het tegoed. Importeer eerst het bankafschrift met de terugbetaling.</p>
+                                <?php else : ?>
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                        <?php wp_nonce_field('avbk_add_credit_refund'); ?>
+                                        <input type="hidden" name="action" value="avbk_add_credit_refund">
+                                        <input type="hidden" name="member_id" value="<?php echo esc_attr($member_id); ?>">
+                                        <p>
+                                            <label for="avbk-credit-refund-tx">Uitgaande transactie</label><br>
+                                            <select name="transaction_id" id="avbk-credit-refund-tx" style="max-width:28em">
+                                                <?php foreach ($candidates as $candidate) : ?>
+                                                    <option value="<?php echo esc_attr($candidate->id); ?>" <?php selected($wanted_tx, (int) $candidate->id); ?>>
+                                                        <?php echo esc_html(wp_date('d-m-Y', strtotime($candidate->transaction_date)) . ' — € ' . number_format((float) $candidate->open, 2, ',', '.') . ' — ' . $candidate->counterparty_name . $match_notes[$candidate->match]); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </p>
+                                        <p>
+                                            <label for="avbk-credit-refund-amount">Bedrag terugbetaald</label><br>
+                                            &euro; <input type="text" name="amount" id="avbk-credit-refund-amount" value="<?php echo esc_attr(number_format($available_credit, 2, ',', '')); ?>" size="7" inputmode="decimal">
+                                            <span class="description">maximaal &euro; <?php echo esc_html(number_format($available_credit, 2, ',', '.')); ?></span>
+                                        </p>
+                                        <button type="submit" class="button button-small">Koppel terugbetaling</button>
+                                    </form>
+                                <?php endif; ?>
+                            </details>
+<?php
+}
+
+/**
+ * Credit paid back to the member, one row per outgoing transaction (a
+ * refund spread over several payments is one row), with "ontkoppelen".
+ *
+ * @param object[] $credit_refunds AVBK_DB::get_credit_refunds_for_member(), newest first.
+ */
+function avbk_render_member_credit_refund_rows(array $credit_refunds, bool $show_member_column, object $member): void {
+    $by_transaction = [];
+    foreach ($credit_refunds as $refund) {
+        $by_transaction[(int) $refund->transaction_id][] = $refund;
+    }
+    foreach ($by_transaction as $transaction_id => $parts) :
+        $first = $parts[0];
+        $amount = round(array_sum(array_map(static fn($r) => (float) $r->amount, $parts)), 2);
+        $transaction_url = add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-';
+        $row_id = $transaction_id === array_key_first($by_transaction) ? ' id="credit-refunds"' : '';
+        ?><tr<?php echo $row_id; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- a fixed attribute. ?> style="color:#8a2424">
+                        <td>&mdash;</td>
+                        <?php if ($show_member_column) : ?><td><?php echo esc_html(avpvh_format_name($member)); ?></td><?php endif; ?>
+                        <td><strong>Tegoed terugbetaald</strong><?php echo $first->counterparty_name !== '' ? ' <span class="description">aan ' . esc_html($first->counterparty_name) . '</span>' : ''; ?></td>
+                        <td>&minus;&euro; <?php echo esc_html(number_format($amount, 2, ',', '.')); ?></td>
+                        <td>&mdash;</td>
+                        <td>
+                            <div>
+                                <a href="<?php echo esc_url($transaction_url . $transaction_id); ?>">
+                                    <?php echo esc_html(wp_date('d-m-Y', strtotime($first->transaction_date))); ?>
+                                    &mdash; transactie #<?php echo esc_html($transaction_id); ?>
+                                </a>
+                            </div>
+                            <?php foreach ($parts as $part) : ?>
+                                <div class="description">uit tegoed van <a href="<?php echo esc_url($transaction_url . (int) $part->credit_transaction_id); ?>">transactie #<?php echo esc_html($part->credit_transaction_id); ?></a> (&euro; <?php echo esc_html(number_format((float) $part->amount, 2, ',', '.')); ?>)</div>
+                            <?php endforeach; ?>
+                        </td>
+                        <td>&mdash;</td>
+                        <td>Terugbetaald</td>
+                        <td>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                                <?php wp_nonce_field('avbk_remove_refund'); ?>
+                                <input type="hidden" name="action" value="avbk_remove_refund">
+                                <input type="hidden" name="refund_id" value="<?php echo esc_attr($first->id); ?>">
+                                <input type="hidden" name="member_id" value="<?php echo esc_attr($member->id); ?>">
+                                <button type="submit" class="button-link" onclick="return confirm('Deze terugbetaling van tegoed ontkoppelen? Het bedrag wordt weer tegoed.');">ontkoppelen</button>
+                            </form>
+                        </td>
+                    </tr>
+    <?php endforeach;
 }
 
 /** One fee item in the member's account. */
@@ -579,7 +688,7 @@ function avbk_render_member_fee_refund_form(object $item, float $refunded, int $
     // transfer fits, i.e. went to the paying account or has the exact amount.
     $fits = static fn($c) => (int) $c->id === $wanted_tx && ($c->match === 2 || abs($c->open - $refundable) < 0.005);
     ?>
-                                <details<?php echo $wanted_tx && array_filter($candidates, $fits) ? ' open' : ''; ?>>
+                                <details<?php echo esc_attr($wanted_tx && array_filter($candidates, $fits) ? AVBK_DETAILS_OPEN : ''); ?>>
                                     <summary>Terugbetalen</summary>
                                     <?php if (!$candidates) : ?>
                                         <p class="description">Geen uitgaande transactie gevonden vanaf de betaaldatum. Importeer eerst het bankafschrift met de terugbetaling.</p>
@@ -693,7 +802,7 @@ function avbk_render_members_overview_per_year($per_year, $current_book_year): v
 }
 
 /** One member in the overview: open balance, credit and status. */
-function avbk_render_members_overview_row($m, $per_year, $show_all_years): void {
+function avbk_render_members_overview_row($m, $per_year, $show_all_years, float $credit_refunded = 0.0): void {
     $by_year = AVBK_DB::get_member_balance_by_year((int) $m->id, $show_all_years);
     $has_estimate_warning = (bool) array_filter($by_year['items'], fn($i) =>
         !empty($i->is_estimated)
@@ -709,6 +818,7 @@ function avbk_render_members_overview_row($m, $per_year, $show_all_years): void 
                     <td<?php echo $member_credit > 0.005 ? ' style="color:#2271b1;font-weight:bold"' : ''; ?>>
                         <?php echo $member_credit > 0.005 ? '&euro; ' . esc_html(number_format($member_credit, 2, ',', '.')) : '&mdash;'; ?>
                     </td>
+                    <td><?php if ($credit_refunded > 0.005) : ?><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id) . '#credit-refunds'); ?>">&euro; <?php echo esc_html(number_format($credit_refunded, 2, ',', '.')); ?></a><?php else : ?>&mdash;<?php endif; ?></td>
                     <td><?php echo esc_html($balance_status); ?></td>
                     <td><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id)); ?>">Details</a></td>
                 </tr>

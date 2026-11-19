@@ -1263,6 +1263,23 @@ class AVBK_DB {
         if (version_compare($version, '1.52', '<') && self::install_reminder_schema()) {
             update_option('avbk_db_version', '1.52');
         }
+        if (version_compare($version, '1.53', '<') && self::install_credit_refund_schema()) {
+            update_option('avbk_db_version', '1.53');
+        }
+    }
+
+    /**
+     * A refund can also pay back credit: fee_item_id empty and
+     * credit_transaction_id the incoming payment whose leftover went back.
+     * dbDelta adds the column but doesn't relax NOT NULL, hence the ALTER.
+     */
+    private static function install_credit_refund_schema(): bool {
+        global $wpdb;
+        if (!self::install_refund_schema()) {
+            return false;
+        }
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}avb_refunds MODIFY fee_item_id INT UNSIGNED NULL");
+        return (bool) $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_refunds LIKE 'credit_transaction_id'");
     }
 
     /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
@@ -1364,7 +1381,8 @@ class AVBK_DB {
         dbDelta("CREATE TABLE {$wpdb->prefix}avb_refunds (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             transaction_id INT UNSIGNED NOT NULL,
-            fee_item_id INT UNSIGNED NOT NULL,
+            fee_item_id INT UNSIGNED NULL,
+            credit_transaction_id INT UNSIGNED NULL,
             member_id INT UNSIGNED NOT NULL,
             amount DECIMAL(8,2) NOT NULL,
             created_by BIGINT UNSIGNED NULL,
@@ -1372,6 +1390,7 @@ class AVBK_DB {
             PRIMARY KEY (id),
             KEY transaction_id (transaction_id),
             KEY fee_item_id (fee_item_id),
+            KEY credit_transaction_id (credit_transaction_id),
             KEY member_id (member_id)
         ) {$wpdb->get_charset_collate()};");
         return self::table_exists('avb_refunds');
@@ -2318,6 +2337,9 @@ class AVBK_DB {
      * spent. That's a deliberate choice for now; what happens to such a
      * leftover is decided outside the bookkeeping.
      *
+     * Credit paid back to the member (a refund with this transaction as
+     * credit_transaction_id, see AVBK_Refunds::add_credit()) is gone too.
+     *
      * Each row gets a `credit` property: the still-unallocated remainder.
      */
     public static function get_credit_transactions_for_member(int $member_id): array {
@@ -2325,7 +2347,8 @@ class AVBK_DB {
         $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT t.id, t.transaction_date, t.amount, t.description, t.counterparty_name, t.counterparty_iban,
-                    COALESCE(SUM(a.amount), 0) AS allocated_total
+                    COALESCE(SUM(a.amount), 0) AS allocated_total,
+                    (SELECT COALESCE(SUM(r.amount), 0) FROM {$wpdb->prefix}avb_refunds r WHERE r.credit_transaction_id = t.id) AS refunded_total
              FROM {$wpdb->prefix}avb_transactions t
              LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.transaction_id = t.id
              WHERE t.direction = 'in'
@@ -2337,13 +2360,13 @@ class AVBK_DB {
                    WHERE k.iban = t.counterparty_iban AND k.member_id = %d AND k.confirmed = 1
                )
              GROUP BY t.id
-             HAVING allocated_total < t.amount
+             HAVING allocated_total + refunded_total < t.amount - 0.005
              ORDER BY t.transaction_date ASC, t.id ASC",
             $closed_through_year,
             $member_id
         )) ?: [];
         foreach ($rows as $row) {
-            $row->credit = round((float) $row->amount - (float) $row->allocated_total, 2);
+            $row->credit = round((float) $row->amount - (float) $row->allocated_total - (float) $row->refunded_total, 2);
             // A joint ("en/of") account's leftover shows up this same way for
             // every co-owner — allocated_total above sums every allocation on
             // this transaction regardless of whose, so it's already one
@@ -3810,12 +3833,18 @@ class AVBK_DB {
     // -------------------------------------------------------------------
 
     /** Links a refund and marks the outgoing transaction matched, ready for Tweede controle again. */
-    public static function insert_refund(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
+    /**
+     * Links a refund: of a fee item ($fee_item_id), or of credit (no fee
+     * item, $credit_transaction_id the incoming payment whose leftover is
+     * paid back).
+     */
+    public static function insert_refund(int $transaction_id, ?int $fee_item_id, int $member_id, float $amount, ?int $credit_transaction_id = null): int {
         global $wpdb;
         $inserted = $wpdb->insert("{$wpdb->prefix}avb_refunds", [
-            'transaction_id' => $transaction_id,
-            'fee_item_id'    => $fee_item_id,
-            'member_id'      => $member_id,
+            'transaction_id'        => $transaction_id,
+            'fee_item_id'           => $fee_item_id,
+            'credit_transaction_id' => $credit_transaction_id,
+            'member_id'             => $member_id,
             'amount'         => round($amount, 2),
             'created_by'     => get_current_user_id() ?: null,
             'created_at'     => current_time('mysql'),
@@ -3829,7 +3858,7 @@ class AVBK_DB {
             ['status' => 'matched', 'ignore_reason' => '', 'confirmed_by' => get_current_user_id() ?: null, 'second_approved_by' => null, 'second_approved_at' => null],
             ['id' => $transaction_id]
         );
-        self::audit('refund.added', 'transaction', $transaction_id, ['fee_item_id' => $fee_item_id, 'amount' => round($amount, 2), 'refund_id' => $refund_id], $member_id);
+        self::audit('refund.added', 'transaction', $transaction_id, array_filter(['fee_item_id' => $fee_item_id, 'credit_transaction_id' => $credit_transaction_id, 'amount' => round($amount, 2), 'refund_id' => $refund_id], static fn($v) => $v !== null), $member_id);
         return $refund_id;
     }
 
@@ -3854,7 +3883,7 @@ class AVBK_DB {
                 ['id' => $transaction_id]
             );
         }
-        self::audit('refund.removed', 'transaction', $transaction_id, ['fee_item_id' => (int) $refund->fee_item_id, 'amount' => (float) $refund->amount, 'refund_id' => $refund_id], (int) $refund->member_id);
+        self::audit('refund.removed', 'transaction', $transaction_id, ['fee_item_id' => (int) $refund->fee_item_id, 'credit_transaction_id' => (int) $refund->credit_transaction_id, 'amount' => (float) $refund->amount, 'refund_id' => $refund_id], (int) $refund->member_id);
         return true;
     }
 
@@ -3894,6 +3923,47 @@ class AVBK_DB {
         )) ?: [];
     }
 
+    public static function get_refund(int $refund_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_refunds WHERE id = %d", $refund_id)) ?: null;
+    }
+
+    /** @return object[] Credit paid back to a member, with the outgoing transaction's date, newest first. */
+    public static function get_credit_refunds_for_member(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.*, t.transaction_date, t.counterparty_name, t.counterparty_iban
+             FROM {$wpdb->prefix}avb_refunds r
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = r.transaction_id
+             WHERE r.member_id = %d AND r.credit_transaction_id IS NOT NULL
+             ORDER BY t.transaction_date DESC, r.id DESC",
+            $member_id
+        )) ?: [];
+    }
+
+    /** @return array<int, float> Member id => credit paid back to them, all years. */
+    public static function get_credit_refunded_by_member(): array {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT member_id, SUM(amount) AS refunded FROM {$wpdb->prefix}avb_refunds
+             WHERE credit_transaction_id IS NOT NULL GROUP BY member_id"
+        ) ?: [];
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(int) $row->member_id] = round((float) $row->refunded, 2);
+        }
+        return $totals;
+    }
+
+    /** @return object[] Credit refunds that paid back part of this incoming payment. */
+    public static function get_credit_refunds_of_payment(int $credit_transaction_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_refunds WHERE credit_transaction_id = %d ORDER BY id ASC",
+            $credit_transaction_id
+        )) ?: [];
+    }
+
     /** @return object[] */
     public static function get_refunds_for_transaction(int $transaction_id): array {
         global $wpdb;
@@ -3930,7 +4000,16 @@ class AVBK_DB {
              WHERE a.fee_item_id = %d",
             $fee_item_id
         ));
-        $since = $first_payment !== '' ? $first_payment : '1970-01-01';
+        return self::get_refund_candidates_since($first_payment !== '' ? $first_payment : '1970-01-01');
+    }
+
+    /**
+     * Outgoing transactions not (fully) linked as refund yet, on or after a date.
+     *
+     * @return object[] Each with ->refunded.
+     */
+    public static function get_refund_candidates_since(string $since): array {
+        global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
             "SELECT t.id, t.transaction_date, t.amount, t.counterparty_name, t.counterparty_iban, t.description,
                     COALESCE(SUM(r.amount), 0) AS refunded
@@ -4487,6 +4566,13 @@ class AVBK_DB {
         }
     }
 
+    /** Credit paid back from a payment is no longer credit once the payment goes back to review: unlinks those refunds. */
+    private static function unlink_credit_refunds_of_payment(int $transaction_id): void {
+        foreach (self::get_credit_refunds_of_payment($transaction_id) as $credit_refund) {
+            self::delete_refund((int) $credit_refund->id);
+        }
+    }
+
     public static function revert_transaction_to_review(int $transaction_id): void {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
@@ -4494,6 +4580,7 @@ class AVBK_DB {
             self::unlink_outgoing_transaction($transaction_id);
             return;
         }
+        self::unlink_credit_refunds_of_payment($transaction_id);
         self::audit('transaction.reverted', 'transaction', $transaction_id, [
             'status'  => [$transaction->status ?? '', 'review'],
             'removed' => self::allocation_snapshot($transaction_id),

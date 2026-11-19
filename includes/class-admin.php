@@ -30,6 +30,7 @@ class AVBK_Admin implements AVBK_Component {
         add_action('admin_post_avbk_update_fee_item_amount', [$this, 'handle_update_fee_item_amount']);
         add_action('admin_post_avbk_add_refund', [$this, 'handle_add_refund']);
         add_action('admin_post_avbk_remove_refund', [$this, 'handle_remove_refund']);
+        add_action('admin_post_avbk_add_credit_refund', [$this, 'handle_add_credit_refund']);
         add_action('admin_post_avbk_save_student_year',    [$this, 'handle_save_student_year']);
         add_action('admin_post_avbk_delete_student_year',  [$this, 'handle_delete_student_year']);
         add_action('admin_post_avbk_save_settings',        [$this, 'handle_save_settings']);
@@ -2764,6 +2765,28 @@ class AVBK_Admin implements AVBK_Component {
             ['page' => 'avbk-members', 'member_id' => $member_id] + $notice,
             admin_url('admin.php')
         ) . '#fee-item-' . $fee_item_id);
+        exit;
+    }
+
+    /** "Terugbetalen" on the Tegoed row: links an outgoing transaction as paying back the member's credit. */
+    public function handle_add_credit_refund(): void {
+        check_admin_referer('avbk_add_credit_refund');
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
+        }
+        $member_id = (int) ($_POST['member_id'] ?? 0);
+        $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
+        $amount = (float) str_replace(',', '.', sanitize_text_field(wp_unslash($_POST['amount'] ?? '')));
+        $result = AVBK_Refunds::add_credit($transaction_id, $member_id, $amount);
+        $notice = ['refund_added' => '1'];
+        if (is_string($result)) {
+            avbk_log_failure('credit refund link', $result, ['transaction' => $transaction_id, 'member' => $member_id]);
+            $notice = ['refund_failed' => $result];
+        }
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'avbk-members', 'member_id' => $member_id] + $notice,
+            admin_url('admin.php')
+        ) . '#credit-refunds');
         exit;
     }
 
