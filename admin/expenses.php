@@ -49,9 +49,14 @@ function avbk_render_expenses_notices(): void {
         'related_returned'  => 'Die betaling is al als teruggestort verantwoord.',
         'amount_mismatch'   => 'Het bedrag komt niet overeen met de gekozen declaratie of betaling.',
         'no_note'           => 'Beschrijf bij Overig waar de betaling voor was.',
-        'not_found'         => 'Deze verantwoording bestaat niet meer.',
+        'not_found'         => 'Deze verantwoording of dit verzoek bestaat niet meer.',
+        'request_failed'    => 'De bon kon niet worden opgevraagd: de rekening van deze betaling hoort niet (meer) bij een lid.',
     ];
-    if (isset($_GET['explained'])) : ?>
+    if (isset($_GET['document_requested'])) : ?>
+        <div class="notice notice-success is-dismissible"><p>Bon opgevraagd. Het lid ziet het verzoek onder &ldquo;Te doen&rdquo; op de ledenpagina; er is geen mail gestuurd.</p></div>
+    <?php elseif (isset($_GET['document_request_withdrawn'])) : ?>
+        <div class="notice notice-success is-dismissible"><p>Verzoek ingetrokken.</p></div>
+    <?php elseif (isset($_GET['explained'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Uitgave verantwoord. Ze staat nu bij Tweede controle.</p></div>
     <?php elseif (isset($_GET['removed'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Verantwoording verwijderd. De betaling staat weer bij Te verantwoorden.</p></div>
@@ -108,6 +113,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
         </p>
         <?php if ($member_id) : ?>
             <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage of van tegoed? <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))); ?>">Koppel die bij het lid</a>.</p>
+            <?php avbk_render_expense_document_request($tx, (int) $member_id); ?>
         <?php endif; ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-expense-form">
             <?php wp_nonce_field('avbk_explain_expense'); ?>
@@ -150,6 +156,46 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <button type="submit" class="button button-primary">Verantwoorden</button>
         </form>
     </div>
+    <?php
+}
+
+/**
+ * The receipt asked from the member this payment went to: a button to ask
+ * for it, or whether it came in yet, with a withdraw button. Separate
+ * forms, outside the explanation form.
+ */
+function avbk_render_expense_document_request(object $tx, int $member_id): void {
+    $request = AVBK_DB::get_document_request_for_transaction((int) $tx->id);
+    $member = AVPVH_DB::get_member($member_id);
+    $name = $member ? avpvh_format_name($member) : 'het lid';
+    ?>
+        <div class="avbk-expense-request" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0">
+            <?php if (!$request) : ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('avbk_request_document'); ?>
+                    <input type="hidden" name="action" value="avbk_request_document">
+                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                    <button type="submit" class="button button-small">Bon opvragen bij <?php echo esc_html($name); ?></button>
+                </form>
+                <span class="description">Komt als taak op de ledenpagina, zonder mail.</span>
+            <?php else : ?>
+                <span>
+                    <?php if ($request->document_path !== '') : ?>
+                        <strong>Bon ontvangen</strong> van <?php echo esc_html($name); ?> op <?php echo esc_html(wp_date('d-m-Y', strtotime((string) $request->uploaded_at))); ?>:
+                        <a href="<?php echo esc_url(AVBK_Document_Requests::view_url($request)); ?>" target="_blank" rel="noopener">bekijk</a>.
+                        Wordt gebruikt als je hieronder geen ander document kiest.
+                    <?php else : ?>
+                        Bon gevraagd aan <?php echo esc_html($name); ?> op <?php echo esc_html(wp_date('d-m-Y', strtotime((string) $request->requested_at))); ?>; nog niet geüpload.
+                    <?php endif; ?>
+                </span>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('avbk_withdraw_document_request'); ?>
+                    <input type="hidden" name="action" value="avbk_withdraw_document_request">
+                    <input type="hidden" name="document_request_id" value="<?php echo esc_attr($request->id); ?>">
+                    <button type="submit" class="button-link button-link-delete" onclick="return confirm('Dit verzoek intrekken?');">intrekken</button>
+                </form>
+            <?php endif; ?>
+        </div>
     <?php
 }
 

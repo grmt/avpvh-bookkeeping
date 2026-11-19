@@ -24,6 +24,7 @@ class AVBK_Audit implements AVBK_Component {
     private const ID_FIELDS = [
         'id', 'order_id', 'member_id', 'fee_item_id', 'fee_item_ids', 'transaction_id', 'activity_id',
         'source_activity_id', 'company_id', 'document_id', 'receipt_id', 'dispute_id', 'entry_id', 'account_id', 'year',
+        'document_request_id',
     ];
 
     /** Actions that only read, export or preview: not worth a row. */
