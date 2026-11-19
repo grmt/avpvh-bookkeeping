@@ -7,6 +7,8 @@ defined('ABSPATH') || exit;
  */
 const AVBK_MAIL_KINDS = [
     'payment_request'    => 'Betaalverzoek',
+    'reminder'           => 'Herinnering',
+    'reminder_test'      => 'Testherinnering',
     'credit'             => 'Tegoed',
     'donation'           => 'Schenking',
     'dispute_reply'      => 'Antwoord op bericht',

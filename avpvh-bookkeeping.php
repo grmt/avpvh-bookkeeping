@@ -125,6 +125,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-refunds.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-expenses.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-reminders.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
@@ -145,6 +146,7 @@ add_action('plugins_loaded', function () {
         AVBK_Balance_Shortcode::class,
         AVBK_Reimbursements::class,
         AVBK_Expenses::class,
+        AVBK_Reminders::class,
         AVBK_Congress::class,
         AVBK_Product_Payment::class,
         AVBK_Book_Order::class,

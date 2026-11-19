@@ -134,14 +134,14 @@ class AVBK_Mail_Compose implements AVBK_Component {
                 <?php wp_nonce_field('avbk_send_composed_mail'); ?>
                 <input type="hidden" name="action" value="avbk_send_composed_mail">
                 <input type="hidden" name="draft" value="<?php echo esc_attr($key); ?>">
-                <table class="form-table" role="presentation">
+                <table class="form-table">
                     <tr><th scope="row">Aan</th><td><?php echo esc_html($draft['to']); ?></td></tr>
                     <tr><th scope="row"><label for="avbk-compose-subject">Onderwerp</label></th>
                         <td><input type="text" class="large-text" id="avbk-compose-subject" name="mail_subject" value="<?php echo esc_attr($draft['subject']); ?>"></td></tr>
                 </table>
                 <p class="description">Klik in de mail om tekst toe te voegen, te wijzigen of weg te halen. Wat je hier ziet, wordt verstuurd.</p>
                 <iframe id="avbk-compose-frame" title="Mail" style="width:100%;max-width:760px;height:560px;border:1px solid #8c8f94;background:#fff;display:block"></iframe>
-                <textarea name="mail_body" id="avbk-compose-body" hidden></textarea>
+                <input type="hidden" name="mail_body" id="avbk-compose-body">
                 <p class="submit">
                     <?php submit_button($draft['send_label'] ?? 'Verstuur', 'primary', 'submit', false); ?>
                     <a class="button" href="<?php echo esc_url($draft['return_url']); ?>">Terug, niets versturen</a>

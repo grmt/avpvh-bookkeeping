@@ -221,6 +221,7 @@ class AVBK_Admin implements AVBK_Component {
         $orders_label = 'Bestellingen' . ($pending_orders ? " <span class=\"awaiting-mod count-{$pending_orders}\"><span class=\"pending-count\">{$pending_orders}</span></span>" : '');
         add_submenu_page('avbk-overview', 'Bestellingen', $orders_label, 'read', 'avbk-orders', [$this, 'render_orders']);
         add_submenu_page('avbk-overview', 'QR-flyers', 'QR-flyers', 'read', 'avbk-flyers', [$this, 'render_flyers']);
+        add_submenu_page('avbk-overview', 'Herinneringen', 'Herinneringen', 'read', 'avbk-reminders', [$this, 'render_reminders']);
         add_submenu_page('avbk-overview', 'Verzonden mails', 'Verzonden mails', 'read', 'avbk-mail-log', [$this, 'render_mail_log']);
         add_submenu_page('avbk-overview', 'Logboek', 'Logboek', 'read', 'avbk-audit-log', [$this, 'render_audit_log']);
     }
@@ -255,6 +256,13 @@ class AVBK_Admin implements AVBK_Component {
             wp_enqueue_style('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.css', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.css'));
             wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         }
+        if (str_contains($hook, 'avbk-reminders')) {
+            wp_enqueue_script('avbk-reminders', AVBK_PLUGIN_URL . 'assets/reminders.js', [], avbk_asset_version('assets/reminders.js'), true);
+            wp_localize_script('avbk-reminders', 'avbkReminders', [
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce'   => wp_create_nonce('avbk_reminders_batch'),
+            ]);
+        }
         if (str_contains($hook, 'avbk-expenses')) {
             wp_enqueue_script('avbk-expenses', AVBK_PLUGIN_URL . 'assets/expenses.js', [], avbk_asset_version('assets/expenses.js'), true);
         }
@@ -281,6 +289,7 @@ class AVBK_Admin implements AVBK_Component {
     public function render_review(): void { require_once AVBK_PLUGIN_DIR . 'admin/review-queue.php'; avbk_render_review_queue(); }
     public function render_second_approval(): void { require_once AVBK_PLUGIN_DIR . 'admin/second-approval.php'; avbk_render_second_approval(); }
     public function render_transactions(): void { require_once AVBK_PLUGIN_DIR . 'admin/transactions.php'; avbk_render_transactions(); }
+    public function render_reminders(): void { require_once AVBK_PLUGIN_DIR . 'admin/reminders.php'; avbk_render_reminders(); }
     public function render_mail_log(): void { require_once AVBK_PLUGIN_DIR . 'admin/mail-log.php'; avbk_render_mail_log(); }
     public function render_expenses(): void { require_once AVBK_PLUGIN_DIR . 'admin/expenses.php'; avbk_render_expenses(); }
     public function render_members(): void { require_once AVBK_PLUGIN_DIR . 'admin/members-balance.php'; avbk_render_members_balance(); }
@@ -1283,7 +1292,10 @@ class AVBK_Admin implements AVBK_Component {
      * (AVBK_QR::short_reference_code()), which is all
      * AVBK_Matcher::match_fee_item_reference() needs.
      */
-    private static function balance_request_mail_html(object $member, array $items, array $settlement, string $balance_url): string {
+    /**
+     * @param string $intro Replaces "Zou je dit willen betalen?" when not empty (a reminder's own text); plain text.
+     */
+    private static function balance_request_mail_html(object $member, array $items, array $settlement, string $balance_url, string $intro = ''): string {
         $member_id = (int) $member->id;
         $open_items = array_filter($items, static fn($item) => $item->open_after > 0.005);
         $total = round(array_sum(wp_list_pluck($open_items, 'open_after')), 2);
@@ -1301,7 +1313,7 @@ class AVBK_Admin implements AVBK_Component {
         $household_hint = trim(self::household_payment_hint($member_id));
         return '<!doctype html><html><body style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">'
             . '<p>Dag ' . esc_html((string) $member->first_name) . ',</p>'
-            . '<p>Zou je dit willen betalen?</p>'
+            . ($intro !== '' ? wpautop(esc_html($intro)) : '<p>Zou je dit willen betalen?</p>')
             . self::balance_items_table_html($items, $settlement['applied'], $member_id)
             . self::credit_explanation_html($settlement, $member_id)
             . '<p style="margin-bottom:0">Overmaken kan naar:</p>'
@@ -2185,7 +2197,7 @@ class AVBK_Admin implements AVBK_Component {
      * from ?also[]) won't recognize their fee item ids and will silently
      * drop them from the combined QR/overzicht.
      */
-    private static function balance_request_url(int $member_id, array $open_items): string {
+    public static function balance_request_url(int $member_id, array $open_items): string {
         $also_member_ids = array_values(array_diff(array_unique(array_map(static fn($item) => (int) $item->member_id, $open_items)), [$member_id]));
         return add_query_arg(
             array_filter([
@@ -2336,8 +2348,8 @@ class AVBK_Admin implements AVBK_Component {
         exit;
     }
 
-    /** Sends a mail from the penningmeester to a member. @return string|null The mailer's error, null when sent. */
-    private static function send_penningmeester_mail(object $member, string $subject, string $body): ?string {
+    /** Sends a mail from the penningmeester to a member, logged as $kind. @return string|null The mailer's error, null when sent. */
+    private static function send_penningmeester_mail(object $member, string $subject, string $body, string $kind = 'payment_request'): ?string {
         $from_email = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
         if (!is_email($from_email)) {
             $from_email = 'penningmeester@avphilipsvanhorne.nl';
@@ -2361,15 +2373,18 @@ class AVBK_Admin implements AVBK_Component {
             $mail_error = $wp_error->get_error_message();
         };
         add_action('wp_mail_failed', $capture_error);
-        $sent = avbk_mail('payment_request', (int) $member->id, $member->email, $subject, $body, [
-            'From: AV-PvH Penningmeester <' . $from_email . '>',
-            'Reply-To: ' . $from_email,
-            'Content-Type: text/html; charset=UTF-8',
-        ]);
-        remove_action('wp_mail_failed', $capture_error);
-        remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
-        remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
-        remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
+        try {
+            $sent = avbk_mail($kind, (int) $member->id, $member->email, $subject, $body, [
+                'From: AV-PvH Penningmeester <' . $from_email . '>',
+                'Reply-To: ' . $from_email,
+                'Content-Type: text/html; charset=UTF-8',
+            ]);
+        } finally {
+            remove_action('wp_mail_failed', $capture_error);
+            remove_action('phpmailer_init', $force_sender, PHP_INT_MAX);
+            remove_filter('wp_mail_from', $force_from, PHP_INT_MAX);
+            remove_filter('wp_mail_from_name', $force_from_name, PHP_INT_MAX);
+        }
         return $sent ? null : $mail_error;
     }
 
@@ -2390,6 +2405,28 @@ class AVBK_Admin implements AVBK_Component {
         self::mail_credit_applied($member, $items, $settlement);
         wp_safe_redirect(add_query_arg('credit_applied', '1', $return_url));
         exit;
+    }
+
+    /**
+     * Mails the payment request of the member page (or a reminder, with
+     * $kind 'reminder' and the round's own $intro) from the penningmeester's
+     * address.
+     *
+     * @return array{sent: bool, error: string}
+     */
+    public static function send_balance_request(object $member, array $items, array $settlement, string $balance_url, string $subject, string $kind = 'payment_request', string $intro = ''): array {
+        $error = self::send_penningmeester_mail($member, $subject, self::balance_request_mail_html($member, $items, $settlement, $balance_url, $intro), $kind);
+        return ['sent' => $error === null, 'error' => (string) $error];
+    }
+
+    /** The payment request mail as HTML, for a preview. */
+    public static function balance_request_preview(object $member, array $items, string $balance_url, string $intro = ''): string {
+        return self::balance_request_mail_html($member, $items, self::NO_SETTLEMENT, $balance_url, $intro);
+    }
+
+    /** The open items of one member, as a reminder asks for them (no household, no credit). */
+    public static function open_items_for_reminder(int $member_id, array $fee_item_ids): array {
+        return self::balance_selection_items($fee_item_ids, [$member_id]);
     }
 
     /**
