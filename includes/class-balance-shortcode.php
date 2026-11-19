@@ -285,7 +285,8 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                     </tr>
                 </thead>
                 <tbody>
-                <?php if (!$display_items) : ?>
+                <?php $credit_refunds = self::credit_refunds_shown($combined_ids); ?>
+                <?php if (!$display_items && !$credit_refunds) : ?>
                     <tr><td colspan="<?php echo ($show_member_column ? 8 : 7) + ($balance['balance'] > 0.005 ? 1 : 0); ?>">Nog geen bijdragen geregistreerd.</td></tr>
                 <?php else : foreach ($display_items as $item) :
                     $is_credit_row = (int) $item->id === self::CREDIT_ROW_ID;
@@ -327,6 +328,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
                         <td><span class="avbk-status-badge"><?php echo esc_html($status); ?></span></td>
                     </tr>
                 <?php endforeach; endif; ?>
+                <?php self::render_credit_refund_rows($credit_refunds, $balance['balance'] > 0.005, $show_member_column, $combined_members, $target_member); ?>
                 </tbody>
                 <tfoot>
                     <?php
@@ -432,6 +434,55 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
      * recorded) and kept as a todo item in AVBK_DB::get_disputes() /
      * admin/disputes.php, so it doesn't just disappear into an inbox.
      */
+    /**
+     * Credit the penningmeester paid back (AVBK_Refunds::add_credit()) to
+     * the members in this view, one entry per bank transfer, outside
+     * closed years like the rest of the page.
+     *
+     * @param int[] $member_ids
+     * @return array<string, object> Each with ->member_id, ->transaction_date, ->amount.
+     */
+    private static function credit_refunds_shown(array $member_ids): array {
+        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+        $shown = [];
+        foreach ($member_ids as $member_id) {
+            foreach (AVBK_DB::get_credit_refunds_for_member((int) $member_id) as $refund) {
+                if ((int) substr((string) $refund->transaction_date, 0, 4) <= $closed_through_year) {
+                    continue;
+                }
+                $key = $refund->transaction_id . '-' . $refund->member_id;
+                $shown[$key] ??= (object) ['member_id' => (int) $refund->member_id, 'transaction_date' => $refund->transaction_date, 'amount' => 0.0];
+                $shown[$key]->amount = round($shown[$key]->amount + (float) $refund->amount, 2);
+            }
+        }
+        return $shown;
+    }
+
+    /**
+     * "Tegoed terugbetaald" rows: informational, never selectable and not
+     * in the total (the credit they paid back was never in it either).
+     *
+     * @param object[] $refunds credit_refunds_shown()
+     * @param array<int, object> $combined_members
+     */
+    private static function render_credit_refund_rows(array $refunds, bool $has_pay_column, bool $show_member_column, array $combined_members, object $target_member): void {
+        foreach ($refunds as $refund) : ?>
+                    <tr class="avbk-status-paid">
+                        <?php if ($has_pay_column) : ?><td>&mdash;</td><?php endif; ?>
+                        <?php if ($show_member_column) : ?>
+                            <td class="avbk-cell-wrap-words"><?php echo esc_html(avpvh_format_name($combined_members[$refund->member_id] ?? $target_member)); ?></td>
+                        <?php endif; ?>
+                        <td class="avbk-col-description">Tegoed terugbetaald (<?php echo esc_html(wp_date('d-m-Y', strtotime((string) $refund->transaction_date))); ?>)</td>
+                        <td>&mdash;</td>
+                        <td>&mdash;</td>
+                        <td class="avbk-cell-nowrap">&mdash;</td>
+                        <td class="avbk-cell-nowrap">&minus;&euro; <?php echo esc_html(number_format((float) $refund->amount, 2, ',', '.')); ?></td>
+                        <td class="avbk-cell-nowrap">&mdash;</td>
+                        <td><span class="avbk-status-badge">Terugbetaald</span></td>
+                    </tr>
+        <?php endforeach;
+    }
+
     public function handle_dispute(): void {
         check_admin_referer('avbk_submit_dispute');
         if (!is_user_logged_in()) {
