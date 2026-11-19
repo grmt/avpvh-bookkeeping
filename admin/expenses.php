@@ -43,7 +43,7 @@ function avbk_render_expenses_notices(): void {
         'no_supplier'       => 'Vul de leverancier van de factuur in.',
         'no_document'       => 'Upload de factuur (pdf of foto).',
         'document_invalid'  => 'Het document is niet opgeslagen: kies een pdf of foto (jpg, png, webp, heic) van maximaal 25 MB.',
-        'no_reimbursement'  => 'Kies de declaratie die met deze betaling is uitbetaald.',
+        'no_reimbursement'  => 'Kies de declaratie die met deze betaling is uitbetaald, of upload de bon als de declaratie niet via de website is ingediend.',
         'no_related'        => 'Kies de binnengekomen betaling die is teruggestort.',
         'related_allocated' => 'Die betaling is aan bijdragen toegewezen. Gebruik bij het lid Terugbetalen bij de bijdrage.',
         'related_returned'  => 'Die betaling is al als teruggestort verantwoord.',
@@ -126,7 +126,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
                 <label for="<?php echo esc_attr($field); ?>-supplier">Leverancier</label><br>
                 <input type="text" name="supplier" id="<?php echo esc_attr($field); ?>-supplier" value="<?php echo esc_attr($tx->counterparty_name); ?>" class="regular-text">
             </p>
-            <p data-kinds="invoice other bank_costs transfer">
+            <p data-kinds="invoice reimbursement other bank_costs transfer">
                 <label for="<?php echo esc_attr($field); ?>-category">Categorie</label><br>
                 <input type="text" name="category" id="<?php echo esc_attr($field); ?>-category" list="avbk-expense-categories" class="regular-text">
             </p>
@@ -136,8 +136,8 @@ function avbk_render_expense_form(object $tx, array $context): void {
                     <option value="0">&mdash; geen &mdash;</option>
                 </select>
             </p>
-            <p data-kinds="invoice other">
-                <label for="<?php echo esc_attr($field); ?>-document">Document (pdf of foto; verplicht bij een factuur)</label><br>
+            <p data-kinds="invoice reimbursement other">
+                <label for="<?php echo esc_attr($field); ?>-document">Document (pdf of foto; verplicht bij een factuur, en bij een declaratie die niet via de website is ingediend)</label><br>
                 <input type="file" name="document" id="<?php echo esc_attr($field); ?>-document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
                 <span class="description avbk-drop-hint">of sleep het bestand op deze betaling</span>
             </p>
@@ -159,7 +159,7 @@ function avbk_render_expense_reimbursement_field(string $field, array $reimburse
             <p data-kinds="reimbursement">
                 <label for="<?php echo esc_attr($field); ?>-reimbursement">Declaratie</label><br>
                 <?php if (!$reimbursements) : ?>
-                    <span class="description">Er is geen openstaande of uitbetaalde declaratie zonder gekoppelde betaling.</span>
+                    <span class="description">Er is geen ingediende declaratie zonder gekoppelde betaling. Is de declaratie buiten de website om gedaan? Upload dan hieronder de bon.</span>
                 <?php else : ?>
                     <select name="reimbursement_id" id="<?php echo esc_attr($field); ?>-reimbursement" style="max-width:36em">
                         <?php foreach ($reimbursements as $r) :
@@ -175,6 +175,7 @@ function avbk_render_expense_reimbursement_field(string $field, array $reimburse
                             ?>
                             <option value="<?php echo esc_attr($r->id); ?>"><?php echo esc_html($label . (abs((float) $r->amount - $amount) < 0.005 ? ' · zelfde bedrag' : '')); ?></option>
                         <?php endforeach; ?>
+                        <option value="0">&mdash; niet via de website ingediend: bon hieronder uploaden &mdash;</option>
                     </select>
                 <?php endif; ?>
             </p>
