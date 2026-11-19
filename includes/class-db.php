@@ -1260,6 +1260,9 @@ class AVBK_DB {
         if (version_compare($version, '1.51', '<') && self::install_mail_log_schema()) {
             update_option('avbk_db_version', '1.51');
         }
+        if (version_compare($version, '1.52', '<') && self::install_reminder_schema()) {
+            update_option('avbk_db_version', '1.52');
+        }
     }
 
     /** Whether a plugin table (name without the WordPress prefix) exists, to confirm a schema step before recording its version. */
@@ -1267,6 +1270,37 @@ class AVBK_DB {
         global $wpdb;
         $name = $wpdb->prefix . $table;
         return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($name))) === $name;
+    }
+
+    /** Reminder rounds and the reminder per member in each, see AVBK_Reminders. */
+    private static function install_reminder_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_reminder_rounds (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            request_key CHAR(36) NOT NULL,
+            intro TEXT NOT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY request_key (request_key)
+        ) $charset;");
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_reminders (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            round_id INT UNSIGNED NOT NULL,
+            member_id INT UNSIGNED NOT NULL,
+            fee_item_ids VARCHAR(1000) NOT NULL DEFAULT '',
+            amount DECIMAL(8,2) NOT NULL DEFAULT 0.00,
+            status VARCHAR(10) NOT NULL DEFAULT 'pending',
+            error VARCHAR(255) NOT NULL DEFAULT '',
+            sent_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY round_member (round_id, member_id),
+            KEY member_status (member_id, status),
+            KEY round_status (round_id, status)
+        ) $charset;");
+        return self::table_exists('avb_reminder_rounds') && self::table_exists('avb_reminders');
     }
 
     /** The plugin's sent mails, see avbk_mail(). */
@@ -3911,6 +3945,196 @@ class AVBK_DB {
              LIMIT 200",
             $since
         )) ?: [];
+    }
+
+    // -------------------------------------------------------------------
+    // Reminders (see AVBK_Reminders)
+    // -------------------------------------------------------------------
+
+    /**
+     * Every open fee item with something left to pay, outside closed years,
+     * grouped per member: the same items the member page shows as open.
+     *
+     * @return array<int, object[]> member_id => items, each with ->paid and ->remaining.
+     */
+    public static function get_open_items_by_member(): array {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT f.*, COALESCE(SUM(a.amount), 0) AS paid
+             FROM {$wpdb->prefix}avb_fee_items f
+             LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.fee_item_id = f.id
+             WHERE f.status = 'open'
+             GROUP BY f.id
+             HAVING f.amount_due - paid > 0.005
+             ORDER BY f.member_id ASC, f.created_at ASC"
+        ) ?: [];
+        $closed_through_year = (int) get_option('avbk_closed_through_year', 0);
+        $by_member = [];
+        foreach ($rows as $item) {
+            if ($closed_through_year && self::fee_item_book_year($item) <= $closed_through_year) {
+                continue;
+            }
+            $item->paid = (float) $item->paid;
+            $item->remaining = round((float) $item->amount_due - $item->paid, 2);
+            $by_member[(int) $item->member_id][] = $item;
+        }
+        return $by_member;
+    }
+
+    /**
+     * Per member: how often a reminder was sent and when last, and when the
+     * last payment request of any kind went out (mail log, plus the older
+     * per-activity requests of avb_payment_requests).
+     *
+     * @return array<int, array{reminders: int, last_reminder: ?string, last_request: ?string}>
+     */
+    public static function get_request_history(): array {
+        global $wpdb;
+        $history = [];
+        $empty = ['reminders' => 0, 'last_reminder' => null, 'last_request' => null];
+        $reminders = $wpdb->get_results(
+            "SELECT member_id, COUNT(*) AS n, MAX(sent_at) AS last_sent FROM {$wpdb->prefix}avb_mail_log
+             WHERE kind = 'reminder' AND status = 'sent' AND member_id IS NOT NULL GROUP BY member_id"
+        ) ?: [];
+        foreach ($reminders as $row) {
+            $history[(int) $row->member_id] = ['reminders' => (int) $row->n, 'last_reminder' => $row->last_sent, 'last_request' => $row->last_sent];
+        }
+        $requests = $wpdb->get_results(
+            "SELECT member_id, MAX(sent_at) AS last_sent FROM (
+                 SELECT member_id, sent_at FROM {$wpdb->prefix}avb_mail_log
+                 WHERE kind IN ('payment_request', 'reminder') AND status = 'sent' AND member_id IS NOT NULL
+                 UNION ALL
+                 SELECT member_id, requested_at AS sent_at FROM {$wpdb->prefix}avb_payment_requests
+             ) r GROUP BY member_id"
+        ) ?: [];
+        foreach ($requests as $row) {
+            $history[(int) $row->member_id] = ['last_request' => $row->last_sent] + ($history[(int) $row->member_id] ?? $empty);
+        }
+        return $history;
+    }
+
+    /** @return int[] Members with an open bezwaar. */
+    public static function get_open_dispute_member_ids(): array {
+        global $wpdb;
+        return array_map('intval', $wpdb->get_col("SELECT DISTINCT member_id FROM {$wpdb->prefix}avb_disputes WHERE status = 'open'") ?: []);
+    }
+
+    /**
+     * Starts a round: one pending reminder per member. Returns the round id,
+     * or the existing round's id when this request_key was used before (a
+     * double click or a reload), so nothing is queued twice.
+     *
+     * @param array<int, array{member_id: int, fee_item_ids: int[], amount: float}> $reminders
+     */
+    public static function create_reminder_round(string $request_key, string $intro, array $reminders): int {
+        global $wpdb;
+        $existing = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}avb_reminder_rounds WHERE request_key = %s", $request_key));
+        if ($existing) {
+            return $existing;
+        }
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_reminder_rounds", [
+            'request_key' => $request_key,
+            'intro'       => $intro,
+            'created_by'  => get_current_user_id() ?: null,
+            'created_at'  => current_time('mysql'),
+        ]);
+        if (!$inserted) {
+            return 0;
+        }
+        $round_id = (int) $wpdb->insert_id;
+        foreach ($reminders as $reminder) {
+            $wpdb->insert("{$wpdb->prefix}avb_reminders", [
+                'round_id'     => $round_id,
+                'member_id'    => $reminder['member_id'],
+                'fee_item_ids' => implode(',', array_map('intval', $reminder['fee_item_ids'])),
+                'amount'       => round($reminder['amount'], 2),
+            ]);
+        }
+        self::audit('reminders.round_started', 'reminder_round', $round_id, ['count' => count($reminders)]);
+        return $round_id;
+    }
+
+    /**
+     * Claims up to $limit pending reminders of a round for sending. A row is
+     * only returned when this call changed it from pending to sending, so
+     * two batches running at once never send the same reminder.
+     *
+     * @return object[]
+     */
+    public static function claim_pending_reminders(int $round_id, int $limit): array {
+        global $wpdb;
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}avb_reminders WHERE round_id = %d AND status = 'pending' ORDER BY id ASC LIMIT %d",
+            $round_id,
+            $limit
+        )) ?: [];
+        $claimed = [];
+        foreach ($ids as $id) {
+            $changed = $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}avb_reminders SET status = 'sending' WHERE id = %d AND status = 'pending'",
+                (int) $id
+            ));
+            if ($changed) {
+                $claimed[] = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_reminders WHERE id = %d", (int) $id));
+            }
+        }
+        return array_values(array_filter($claimed));
+    }
+
+    /** Records how a claimed reminder ended: sent, failed or skipped. */
+    public static function finish_reminder(int $id, string $status, string $error = ''): void {
+        global $wpdb;
+        $wpdb->update("{$wpdb->prefix}avb_reminders", [
+            'status'  => $status,
+            'error'   => mb_substr($error, 0, 255),
+            'sent_at' => $status === 'sent' ? current_time('mysql') : null,
+        ], ['id' => $id]);
+    }
+
+    public static function get_reminder_round(int $id): ?object {
+        global $wpdb;
+        $round = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_reminder_rounds WHERE id = %d", $id));
+        if (!$round) {
+            return null;
+        }
+        $round->counts = self::reminder_counts($id);
+        return $round;
+    }
+
+    /** @return array{pending: int, sending: int, sent: int, failed: int, skipped: int} */
+    public static function reminder_counts(int $round_id): array {
+        global $wpdb;
+        $counts = ['pending' => 0, 'sending' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0];
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT status, COUNT(*) AS n FROM {$wpdb->prefix}avb_reminders WHERE round_id = %d GROUP BY status",
+            $round_id
+        )) ?: [];
+        foreach ($rows as $row) {
+            $counts[$row->status] = (int) $row->n;
+        }
+        return $counts;
+    }
+
+    /** @return object[] The reminders of a round with their outcome. */
+    public static function get_reminders_for_round(int $round_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reminders WHERE round_id = %d ORDER BY id ASC",
+            $round_id
+        )) ?: [];
+    }
+
+    /** @return object[] The latest rounds, newest first, each with ->counts. */
+    public static function get_reminder_rounds(int $limit = 20): array {
+        global $wpdb;
+        $rounds = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reminder_rounds ORDER BY created_at DESC, id DESC LIMIT %d",
+            $limit
+        )) ?: [];
+        foreach ($rounds as $round) {
+            $round->counts = self::reminder_counts((int) $round->id);
+        }
+        return $rounds;
     }
 
     // -------------------------------------------------------------------
