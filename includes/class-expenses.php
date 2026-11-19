@@ -184,15 +184,35 @@ class AVBK_Expenses implements AVBK_Component {
         return $input;
     }
 
+    /** The receipt the member uploaded on request for this payment, if any (see AVBK_Document_Requests). */
+    private static function requested_document(int $transaction_id): ?object {
+        $request = AVBK_DB::get_document_request_for_transaction($transaction_id);
+        return $request && $request->document_path !== '' ? $request : null;
+    }
+
+    /**
+     * Stores the uploaded document, or a copy of the member's receipt
+     * (the request keeps its own); nothing when there is neither.
+     *
+     * @return array{0: string, 1: string} Stored name and original name.
+     */
+    private static function save_document(array $upload, ?object $requested): array {
+        if (isset($upload['tmp'])) {
+            return [AVBK_Documents::store($upload['tmp'], $upload['ext'], 'expense'), (string) $upload['name']];
+        }
+        if ($requested !== null) {
+            return [AVBK_Documents::copy((string) $requested->document_path, 'expense'), (string) $requested->document_name];
+        }
+        return ['', ''];
+    }
+
     /** Checks and stores an explanation; returns the reason it was refused, or null. */
     private function explain(int $transaction_id, string $kind, array $input): ?string {
         $upload = AVBK_Documents::from_upload('document');
         if (isset($upload['error'])) {
             return $upload['error'];
         }
-        // No document chosen here: the receipt the member uploaded on request, if any.
-        $requested = isset($upload['tmp']) ? null : AVBK_DB::get_document_request_for_transaction($transaction_id);
-        $requested_document = $requested && $requested->document_path !== '' ? $requested : null;
+        $requested_document = isset($upload['tmp']) ? null : self::requested_document($transaction_id);
         $related_id = $input['related_transaction_id'];
         $reimbursement_id = $input['reimbursement_id'];
         $rejection = self::rejection($kind, AVBK_DB::get_transaction($transaction_id), [
@@ -207,11 +227,7 @@ class AVBK_Expenses implements AVBK_Component {
         if ($rejection !== null) {
             return $rejection;
         }
-        $document = isset($upload['tmp']) ? AVBK_Documents::store($upload['tmp'], $upload['ext'], 'expense') : '';
-        if ($requested_document !== null) {
-            $document = AVBK_Documents::copy((string) $requested_document->document_path, 'expense');
-            $upload['name'] = (string) $requested_document->document_name;
-        }
+        [$document, $document_name] = self::save_document($upload, $requested_document);
         $saved = AVBK_DB::insert_expense([
             'transaction_id'         => $transaction_id,
             'kind'                   => $kind,
@@ -222,7 +238,7 @@ class AVBK_Expenses implements AVBK_Component {
             'related_transaction_id' => $related_id ?: null,
             'reimbursement_id'       => $reimbursement_id ?: null,
             'document_path'          => $document,
-            'document_name'          => $upload['name'] ?? '',
+            'document_name'          => $document_name,
         ]);
         if (!$saved) {
             AVBK_Documents::delete($document);
