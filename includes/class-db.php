@@ -1272,6 +1272,30 @@ class AVBK_DB {
         if (version_compare($version, '1.55', '<') && self::install_message_schema()) {
             update_option('avbk_db_version', '1.55');
         }
+        if (version_compare($version, '1.56', '<') && self::install_document_request_schema()) {
+            update_option('avbk_db_version', '1.56');
+        }
+    }
+
+    /** The penningmeester asks a member for the receipt of a payment to them; see AVBK_Document_Requests. */
+    private static function install_document_request_schema(): bool {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE {$wpdb->prefix}avb_document_requests (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            transaction_id INT UNSIGNED NOT NULL,
+            member_id INT UNSIGNED NOT NULL,
+            requested_by BIGINT UNSIGNED NULL,
+            requested_at DATETIME NOT NULL,
+            document_path VARCHAR(255) NOT NULL DEFAULT '',
+            document_name VARCHAR(255) NOT NULL DEFAULT '',
+            uploaded_by_member_id INT UNSIGNED NULL,
+            uploaded_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY transaction_id (transaction_id),
+            KEY member_id (member_id)
+        ) {$wpdb->get_charset_collate()};");
+        return self::table_exists('avb_document_requests');
     }
 
     /**
@@ -4602,6 +4626,95 @@ class AVBK_DB {
             $min_year
         ));
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    /**
+     * Asks a member for the receipt of a payment; returns the request id,
+     * or the existing one's when the payment was asked for before.
+     */
+    public static function create_document_request(int $transaction_id, int $member_id): int {
+        global $wpdb;
+        $existing = self::get_document_request_for_transaction($transaction_id);
+        if ($existing) {
+            return (int) $existing->id;
+        }
+        $inserted = $wpdb->insert("{$wpdb->prefix}avb_document_requests", [
+            'transaction_id' => $transaction_id,
+            'member_id'      => $member_id,
+            'requested_by'   => get_current_user_id() ?: null,
+            'requested_at'   => current_time('mysql'),
+        ]);
+        if (!$inserted) {
+            return 0;
+        }
+        $id = (int) $wpdb->insert_id;
+        self::audit('document_request.created', 'transaction', $transaction_id, ['document_request_id' => $id], $member_id);
+        return $id;
+    }
+
+    public static function get_document_request(int $id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_document_requests WHERE id = %d", $id)) ?: null;
+    }
+
+    public static function get_document_request_for_transaction(int $transaction_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_document_requests WHERE transaction_id = %d", $transaction_id)) ?: null;
+    }
+
+    /**
+     * Requests still waiting for a member's upload, with the payment's
+     * date, amount and description, oldest first.
+     *
+     * @param int[] $member_ids
+     * @return object[]
+     */
+    public static function get_open_document_requests(array $member_ids): array {
+        global $wpdb;
+        $member_ids = array_values(array_filter(array_map('intval', $member_ids)));
+        if (!$member_ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($member_ids), '%d'));
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $in is placeholders only.
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT d.*, t.transaction_date, t.amount, t.description
+             FROM {$wpdb->prefix}avb_document_requests d
+             JOIN {$wpdb->prefix}avb_transactions t ON t.id = d.transaction_id
+             WHERE d.member_id IN ($in) AND d.document_path = ''
+             ORDER BY t.transaction_date ASC, d.id ASC",
+            ...$member_ids
+        )) ?: [];
+    }
+
+    /** The member's upload for a request; false when it already has one. */
+    public static function attach_requested_document(int $id, string $path, string $name, int $member_id): bool {
+        global $wpdb;
+        $updated = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}avb_document_requests
+             SET document_path = %s, document_name = %s, uploaded_by_member_id = %d, uploaded_at = %s
+             WHERE id = %d AND document_path = ''",
+            $path,
+            mb_substr($name, 0, 255),
+            $member_id,
+            current_time('mysql'),
+            $id
+        ));
+        if ($updated) {
+            self::audit('document_request.uploaded', 'document_request', $id, [], $member_id);
+        }
+        return (bool) $updated;
+    }
+
+    /** Withdraws a request; returns its stored document ('' when none), or null when it doesn't exist. */
+    public static function delete_document_request(int $id): ?string {
+        global $wpdb;
+        $request = self::get_document_request($id);
+        if (!$request || !$wpdb->delete("{$wpdb->prefix}avb_document_requests", ['id' => $id])) {
+            return null;
+        }
+        self::audit('document_request.withdrawn', 'transaction', (int) $request->transaction_id, ['document_request_id' => $id], (int) $request->member_id);
+        return (string) $request->document_path;
     }
 
     /** @return object[] Explained outgoing transactions of a year, newest first, with the transaction's fields. */

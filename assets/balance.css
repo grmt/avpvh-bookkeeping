@@ -338,3 +338,30 @@
 .avbk-profile-book-action a:hover {
     text-decoration: underline;
 }
+
+.avbk-todos {
+    margin: 1rem 0 1.5rem;
+    padding: .75rem 1rem;
+    border-left: 4px solid #dba617;
+    background: #fcf9e8;
+}
+
+.avbk-todos h3 {
+    margin-top: 0;
+}
+
+.avbk-todo + .avbk-todo {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e0d6a8;
+}
+
+.avbk-todo label,
+.avbk-todo input[type="file"] {
+    display: block;
+    margin-top: .25rem;
+}
+
+.avbk-todo button {
+    margin-top: .5rem;
+}

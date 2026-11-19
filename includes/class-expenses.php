@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/class-documents.php';
 
 /**
  * Uitgaven verantwoorden: every outgoing bank transaction gets an
@@ -185,17 +186,20 @@ class AVBK_Expenses implements AVBK_Component {
 
     /** Checks and stores an explanation; returns the reason it was refused, or null. */
     private function explain(int $transaction_id, string $kind, array $input): ?string {
-        $upload = $this->uploaded_document();
+        $upload = AVBK_Documents::from_upload('document');
         if (isset($upload['error'])) {
             return $upload['error'];
         }
+        // No document chosen here: the receipt the member uploaded on request, if any.
+        $requested = isset($upload['tmp']) ? null : AVBK_DB::get_document_request_for_transaction($transaction_id);
+        $requested_document = $requested && $requested->document_path !== '' ? $requested : null;
         $related_id = $input['related_transaction_id'];
         $reimbursement_id = $input['reimbursement_id'];
         $rejection = self::rejection($kind, AVBK_DB::get_transaction($transaction_id), [
             'explained'     => AVBK_DB::get_expense_for_transaction($transaction_id) !== null,
             'supplier'      => $input['supplier'],
             'note'          => $input['note'],
-            'document'      => isset($upload['tmp']),
+            'document'      => isset($upload['tmp']) || $requested_document !== null,
             'reimbursement' => $reimbursement_id ? AVBK_DB::get_reimbursement($reimbursement_id) : null,
             'related'       => $related_id ? AVBK_DB::get_transaction($related_id) : null,
             'returned'      => $related_id && AVBK_DB::is_returned_payment($related_id),
@@ -203,7 +207,11 @@ class AVBK_Expenses implements AVBK_Component {
         if ($rejection !== null) {
             return $rejection;
         }
-        $document = isset($upload['tmp']) ? $this->store_document($upload['tmp'], $upload['ext']) : '';
+        $document = isset($upload['tmp']) ? AVBK_Documents::store($upload['tmp'], $upload['ext'], 'expense') : '';
+        if ($requested_document !== null) {
+            $document = AVBK_Documents::copy((string) $requested_document->document_path, 'expense');
+            $upload['name'] = (string) $requested_document->document_name;
+        }
         $saved = AVBK_DB::insert_expense([
             'transaction_id'         => $transaction_id,
             'kind'                   => $kind,
@@ -216,54 +224,10 @@ class AVBK_Expenses implements AVBK_Component {
             'document_path'          => $document,
             'document_name'          => $upload['name'] ?? '',
         ]);
-        if (!$saved && $document !== '') {
-            self::filesystem()->delete(AVBK_Reimbursements::receipts_dir() . '/' . $document);
+        if (!$saved) {
+            AVBK_Documents::delete($document);
         }
         return $saved ? null : 'not_saved';
-    }
-
-    /**
-     * The document of this request, validated like a receipt.
-     *
-     * @return array{tmp?: string, ext?: string, name?: string, error?: string} Empty when nothing was uploaded.
-     */
-    private function uploaded_document(): array {
-        $file = $_FILES['document'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated below: uploaded-file check, size, extension and real bytes.
-        $error = is_array($file) ? (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) : UPLOAD_ERR_NO_FILE;
-        $result = [];
-        if ($error !== UPLOAD_ERR_NO_FILE) {
-            $result = ['error' => 'document_invalid'];
-            try {
-                $tmp = $error === UPLOAD_ERR_OK ? avbk_uploaded_file_path((string) $file['tmp_name']) : '';
-                $name = sanitize_file_name((string) $file['name']);
-                $ext = $tmp !== '' ? AVBK_Reimbursements::validate_receipt_file($tmp, $name) : null;
-                if ($ext !== null) {
-                    $result = ['tmp' => $tmp, 'ext' => $ext, 'name' => $name];
-                }
-            } catch (AVBK_Upload_Exception $e) {
-                // Not this request's upload: stays document_invalid.
-            }
-        }
-        return $result;
-    }
-
-    private function store_document(string $tmp, string $ext): string {
-        AVBK_Reimbursements::ensure_receipts_dir_protected();
-        $name = 'expense-' . wp_generate_password(32, false, false) . '.' . $ext;
-        // WP_Filesystem->move(), not move_uploaded_file() (Plugin Check);
-        // uploaded_document() already checked this is this request's upload.
-        self::filesystem()->move($tmp, AVBK_Reimbursements::receipts_dir() . '/' . $name);
-        return $name;
-    }
-
-    /** @return \WP_Filesystem_Base */
-    private static function filesystem() {
-        global $wp_filesystem;
-        if (!$wp_filesystem) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-            WP_Filesystem();
-        }
-        return $wp_filesystem;
     }
 
     /** Removes an explanation; the transaction is ignored again and waits for a new one. */
@@ -278,8 +242,8 @@ class AVBK_Expenses implements AVBK_Component {
         if ($document === null) {
             avbk_log_failure('expense remove', 'not_found', ['expense' => $expense_id]);
             $notice = ['explain_failed' => 'not_found'];
-        } elseif ($document !== '') {
-            self::filesystem()->delete(AVBK_Reimbursements::receipts_dir() . '/' . basename($document));
+        } else {
+            AVBK_Documents::delete($document);
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-expenses', 'tab' => 'explained'] + $notice, admin_url('admin.php')));
         exit;
@@ -290,18 +254,7 @@ class AVBK_Expenses implements AVBK_Component {
             wp_die(esc_html(self::NO_ACCESS), 'Fout', ['response' => 403]);
         }
         $expense = AVBK_DB::get_expense((int) ($_GET['id'] ?? 0));
-        $path = $expense && $expense->document_path !== '' ? AVBK_Reimbursements::receipts_dir() . '/' . basename($expense->document_path) : '';
-        if ($path === '' || !file_exists($path)) {
-            wp_die('Bestand niet gevonden.', 'Fout', ['response' => 404]);
-        }
-        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        $mimes = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'heic' => 'image/heic', 'heif' => 'image/heif', 'pdf' => 'application/pdf'];
-        header('Content-Type: ' . ($mimes[$ext] ?? 'application/octet-stream'));
-        header('Content-Disposition: ' . ($ext === 'pdf' ? 'attachment' : 'inline') . '; filename="uitgave-' . (int) $expense->id . '.' . $ext . '"');
-        header('X-Content-Type-Options: nosniff');
-        header("Content-Security-Policy: default-src 'none'");
-        echo self::filesystem()->get_contents($path); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- raw image/pdf bytes, not HTML.
-        exit;
+        AVBK_Documents::serve($expense ? (string) $expense->document_path : '', 'uitgave-' . (int) ($expense->id ?? 0));
     }
 
     /** Link that shows an expense's document to the penningmeester. */
