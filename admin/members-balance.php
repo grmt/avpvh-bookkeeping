@@ -47,11 +47,13 @@ $settings = compact('closed_through_year', 'show_all_years', 'per_year', 'curren
                     <th data-col="saldo" data-type="number">Openstaand saldo</th>
                 <?php endif; ?>
                 <th data-col="tegoed" data-type="number">Tegoed</th>
+                <th data-col="tegoed-terugbetaald" data-type="number">Tegoed terugbetaald</th>
                 <th data-col="status" data-filter="select">Status</th><th></th>
             </tr></thead>
             <tbody>
+            <?php $credit_refunded = AVBK_DB::get_credit_refunded_by_member(); ?>
             <?php foreach ($members as $m) : ?>
-                <?php avbk_render_members_overview_row($m, $per_year, $show_all_years); ?>
+                <?php avbk_render_members_overview_row($m, $per_year, $show_all_years, $credit_refunded[(int) $m->id] ?? 0.0); ?>
             <?php endforeach; ?>
             </tbody>
         </table>
@@ -797,7 +799,7 @@ function avbk_render_members_overview_per_year($per_year, $current_book_year): v
 }
 
 /** One member in the overview: open balance, credit and status. */
-function avbk_render_members_overview_row($m, $per_year, $show_all_years): void {
+function avbk_render_members_overview_row($m, $per_year, $show_all_years, float $credit_refunded = 0.0): void {
     $by_year = AVBK_DB::get_member_balance_by_year((int) $m->id, $show_all_years);
     $has_estimate_warning = (bool) array_filter($by_year['items'], fn($i) =>
         !empty($i->is_estimated)
@@ -813,6 +815,7 @@ function avbk_render_members_overview_row($m, $per_year, $show_all_years): void 
                     <td<?php echo $member_credit > 0.005 ? ' style="color:#2271b1;font-weight:bold"' : ''; ?>>
                         <?php echo $member_credit > 0.005 ? '&euro; ' . esc_html(number_format($member_credit, 2, ',', '.')) : '&mdash;'; ?>
                     </td>
+                    <td><?php if ($credit_refunded > 0.005) : ?><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id) . '#credit-refunds'); ?>">&euro; <?php echo esc_html(number_format($credit_refunded, 2, ',', '.')); ?></a><?php else : ?>&mdash;<?php endif; ?></td>
                     <td><?php echo esc_html($balance_status); ?></td>
                     <td><a href="<?php echo esc_url(admin_url('admin.php?page=avbk-members&member_id=' . $m->id)); ?>">Details</a></td>
                 </tr>

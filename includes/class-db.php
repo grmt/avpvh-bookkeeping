@@ -3941,6 +3941,20 @@ class AVBK_DB {
         )) ?: [];
     }
 
+    /** @return array<int, float> Member id => credit paid back to them, all years. */
+    public static function get_credit_refunded_by_member(): array {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT member_id, SUM(amount) AS refunded FROM {$wpdb->prefix}avb_refunds
+             WHERE credit_transaction_id IS NOT NULL GROUP BY member_id"
+        ) ?: [];
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(int) $row->member_id] = round((float) $row->refunded, 2);
+        }
+        return $totals;
+    }
+
     /** @return object[] Credit refunds that paid back part of this incoming payment. */
     public static function get_credit_refunds_of_payment(int $credit_transaction_id): array {
         global $wpdb;
