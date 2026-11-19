@@ -4566,6 +4566,13 @@ class AVBK_DB {
         }
     }
 
+    /** Credit paid back from a payment is no longer credit once the payment goes back to review: unlinks those refunds. */
+    private static function unlink_credit_refunds_of_payment(int $transaction_id): void {
+        foreach (self::get_credit_refunds_of_payment($transaction_id) as $credit_refund) {
+            self::delete_refund((int) $credit_refund->id);
+        }
+    }
+
     public static function revert_transaction_to_review(int $transaction_id): void {
         global $wpdb;
         $transaction = self::get_transaction($transaction_id);
@@ -4573,11 +4580,7 @@ class AVBK_DB {
             self::unlink_outgoing_transaction($transaction_id);
             return;
         }
-        // Credit paid back from this payment is no longer credit once the
-        // payment goes back to review: unlink those refunds too.
-        foreach (self::get_credit_refunds_of_payment($transaction_id) as $credit_refund) {
-            self::delete_refund((int) $credit_refund->id);
-        }
+        self::unlink_credit_refunds_of_payment($transaction_id);
         self::audit('transaction.reverted', 'transaction', $transaction_id, [
             'status'  => [$transaction->status ?? '', 'review'],
             'removed' => self::allocation_snapshot($transaction_id),
