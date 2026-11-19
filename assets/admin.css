@@ -518,3 +518,10 @@
     font-size: 1.2em;
     margin-top: 1.5rem;
 }
+
+/* Uitgaven: a payment that a document is being dragged over. */
+.avbk-review-row.avbk-drop-active {
+    outline: 3px dashed #2271b1;
+    outline-offset: -3px;
+    background: #f0f6fc !important;
+}
