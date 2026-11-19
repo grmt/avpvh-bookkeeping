@@ -209,8 +209,8 @@ class AVBK_Admin implements AVBK_Component {
         add_submenu_page('avbk-overview', 'IBAN-bankcodes', 'IBAN-bankcodes', 'read', 'avbk-iban-bank-codes', [$this, 'render_iban_bank_codes']);
 
         $open_disputes = AVBK_DB::count_open_disputes();
-        $disputes_label = 'Bezwaren' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
-        add_submenu_page('avbk-overview', 'Bezwaren', $disputes_label, 'read', 'avbk-disputes', [$this, 'render_disputes']);
+        $disputes_label = 'Berichten' . ($open_disputes ? " <span class=\"awaiting-mod count-{$open_disputes}\"><span class=\"pending-count\">{$open_disputes}</span></span>" : '');
+        add_submenu_page('avbk-overview', 'Berichten', $disputes_label, 'read', 'avbk-disputes', [$this, 'render_disputes']);
 
         $pending_reimbursements = AVBK_DB::count_pending_reimbursements();
         $reimbursements_label = 'Declaraties' . ($pending_reimbursements ? " <span class=\"awaiting-mod count-{$pending_reimbursements}\"><span class=\"pending-count\">{$pending_reimbursements}</span></span>" : '');

@@ -468,6 +468,29 @@
 .avbk-dispute-history li {
     padding: .5rem 0;
 }
+.avbk-dispute-conversation {
+    list-style: none;
+    margin: 1rem 0;
+    padding: 0;
+}
+.avbk-dispute-entry {
+    margin: .5rem 0;
+    padding: .5rem .75rem;
+    border-radius: 4px;
+    background: #f6f7f7;
+}
+.avbk-dispute-entry--treasurer {
+    background: #f0f6fc;
+    border-left: 3px solid #2271b1;
+}
+.avbk-dispute-entry--note {
+    background: #fcf9e8;
+    border-left: 3px solid #dba617;
+}
+.avbk-dispute-entry--status {
+    background: none;
+    padding: 0 .75rem;
+}
 .avbk-dispute-delivery {
     margin: .3rem 0;
 }

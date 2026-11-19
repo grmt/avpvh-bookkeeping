@@ -1,61 +1,71 @@
 <?php
 defined('ABSPATH') || exit;
 
-/** One bezwaar card on the Bezwaren page. */
+/** One conversation on the Berichten page. */
 function avbk_render_dispute_card(object $dispute): void {
 $member = AVPVH_DB::get_member((int) $dispute->member_id);
 $recipient = AVBK_Disputes::recipient($dispute);
 $email = $recipient ? (string) ($recipient->email ?? '') : '';
 $can_reply = (bool) is_email($email);
 $events = AVBK_DB::get_dispute_events((int) $dispute->id);
+$fee_item = !empty($dispute->fee_item_id) ? AVBK_DB::get_fee_item((int) $dispute->fee_item_id) : null;
 $draft = get_transient('avbk_dispute_draft_' . get_current_user_id() . '_' . $dispute->id);
 $draft = is_array($draft) ? $draft : [];
 $focused = absint(wp_unslash($_GET['dispute_id'] ?? 0)) === (int) $dispute->id;
-$event_labels = ['reply' => 'Antwoord per e-mail', 'note' => 'Interne notitie', 'resolved' => 'Afgehandeld', 'reopened' => 'Heropend'];
+$event_labels = ['reply' => 'Antwoord', 'member_message' => 'Bericht van', 'note' => 'Interne notitie', 'resolved' => 'Afgehandeld', 'reopened' => 'Heropend'];
 ?>
 <article id="avbk-dispute-<?php echo esc_attr($dispute->id); ?>" class="avbk-dispute-card">
     <header class="avbk-dispute-header">
-        <h3>Bezwaar #<?php echo esc_html($dispute->id); ?> —
+        <h3><?php echo esc_html(trim((string) ($dispute->subject ?? '')) !== '' ? $dispute->subject : 'Bericht #' . $dispute->id); ?> —
             <?php if ($member) : ?>
                 <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member->id], admin_url('admin.php'))); ?>"><?php echo esc_html(avpvh_format_name($member, 'list')); ?></a>
             <?php else : ?>Onbekend lid<?php endif; ?>
         </h3>
-        <span class="avbk-dispute-status"><?php echo $dispute->status === 'resolved' ? 'Afgehandeld' : 'Open'; ?></span>
+        <span class="avbk-dispute-status"><?php echo esc_html(AVBK_Messages::admin_state($dispute)); ?></span>
     </header>
-    <p class="description">Ontvangen op <?php echo esc_html(mysql2date('d-m-Y H:i', $dispute->created_at)); ?>
+    <p class="description">#<?php echo esc_html($dispute->id); ?> · <?php echo ($dispute->started_by ?? 'member') === 'treasurer' ? 'Begonnen door de penningmeester' : 'Ontvangen'; ?> op <?php echo esc_html(mysql2date('d-m-Y H:i', $dispute->created_at)); ?>
+        <?php if ($fee_item) : ?> · Over: <?php echo esc_html($fee_item->description); ?><?php endif; ?>
         <?php if (!empty($dispute->submitted_by_member_id) && $recipient && (int) $recipient->id !== (int) $dispute->member_id) : ?>
             · Ingediend door <?php echo esc_html(avpvh_format_name($recipient, 'list')); ?>
         <?php endif; ?>
     </p>
-    <div class="avbk-dispute-message"><?php echo nl2br(esc_html($dispute->message)); ?></div>
-
-    <?php avbk_render_dispute_history($focused, $events, $event_labels); ?>
+    <?php avbk_render_dispute_history($dispute, $events, $event_labels); ?>
 
     <?php avbk_render_dispute_actions($focused, $draft, $can_reply, $recipient, $email, $dispute); ?>
 </article>
 <?php
 }
 
-/** The action history of a bezwaar. */
-function avbk_render_dispute_history($focused, $events, $event_labels): void {
-?><details class="avbk-dispute-history" <?php echo $focused ? 'open' : ''; ?>>
-        <summary>Actiehistorie (<?php echo esc_html(count($events)); ?>)</summary>
-        <?php if (!$events) : ?><p class="description">Nog geen acties vastgelegd.</p><?php endif; ?>
-        <ol>
-            <?php foreach ($events as $event) :
-                $actor = $event->actor_id ? get_userdata((int) $event->actor_id) : null;
-                $actor_label = $actor ? $actor->display_name : ($event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar');
-                ?>
-                <li>
-                    <?php avbk_render_dispute_event($event_labels, $event, $actor_label); ?>
-                </li>
-            <?php endforeach; ?>
-        </ol>
-    </details>
+/** The whole conversation, with internal notes and status changes, oldest first. */
+function avbk_render_dispute_history(object $dispute, array $events, array $event_labels): void {
+?><ol class="avbk-dispute-conversation">
+        <?php foreach (AVBK_Messages::conversation($dispute, $events, true) as $entry) : ?>
+            <li class="avbk-dispute-entry avbk-dispute-entry--<?php echo esc_attr($entry['kind'] === 'message' ? $entry['author'] : $entry['kind']); ?>">
+                <?php if ($entry['event'] === null) : ?>
+                    <strong><?php echo esc_html(avbk_dispute_member_label($entry['member_id'])); ?></strong>
+                    <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $entry['at'])); ?></span>
+                    <div class="avbk-dispute-event-message"><?php echo nl2br(esc_html($entry['text'])); ?></div>
+                <?php else :
+                    $event = $entry['event'];
+                    $actor = $event->actor_id ? get_userdata((int) $event->actor_id) : null;
+                    $actor_label = $event->event_type === 'member_message'
+                        ? avbk_dispute_member_label($entry['member_id'])
+                        : ($actor ? $actor->display_name : ($event->actor_id ? 'Gebruiker #' . $event->actor_id : 'Onbekende behandelaar'));
+                    avbk_render_dispute_event($event_labels, $event, $actor_label);
+                endif; ?>
+            </li>
+        <?php endforeach; ?>
+    </ol>
 <?php
 }
 
-/** The contents of one entry of a bezwaar's action history. */
+/** The name of the member who wrote a message. */
+function avbk_dispute_member_label(?int $member_id): string {
+    $member = $member_id ? AVPVH_DB::get_member($member_id) : null;
+    return $member ? avpvh_format_name($member, 'list') : 'Lid';
+}
+
+/** One entry of a conversation that is an event (answer, member message, note, status change). */
 function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
 ?><strong><?php echo esc_html($event_labels[$event->event_type] ?? 'Actie'); ?></strong>
                     <span class="description">· <?php echo esc_html(mysql2date('d-m-Y H:i', $event->created_at)); ?> · <?php echo esc_html($actor_label); ?></span>
@@ -73,7 +83,7 @@ function avbk_render_dispute_event($event_labels, $event, $actor_label): void {
 <?php
 }
 
-/** Reply, note and resolve/reopen forms of a bezwaar. */
+/** Answer, note and close/reopen forms of a conversation. */
 function avbk_render_dispute_actions($focused, $draft, $can_reply, $recipient, $email, $dispute): void {
 ?><div class="avbk-dispute-actions">
         <?php avbk_render_dispute_reply_form($focused, $draft, $can_reply, $recipient, $email, $dispute); ?>
@@ -107,10 +117,10 @@ function avbk_render_dispute_actions($focused, $draft, $can_reply, $recipient, $
 <?php
 }
 
-/** The reply-by-e-mail form of a bezwaar. */
+/** The answer form of a conversation. */
 function avbk_render_dispute_reply_form($focused, $draft, $can_reply, $recipient, $email, $dispute): void {
 ?><details <?php echo $focused && ($draft['action'] ?? '') === 'reply' ? 'open' : ''; ?>>
-            <summary>Antwoorden per e-mail</summary>
+            <summary>Antwoorden</summary>
             <?php if ($can_reply) : ?>
                 <p>Ontvanger: <strong><?php echo esc_html(avpvh_format_name($recipient, 'list')); ?></strong> &lt;<?php echo esc_html($email); ?>&gt;</p>
                 <?php if (empty($dispute->submitted_by_member_id)) : ?>
@@ -124,7 +134,7 @@ function avbk_render_dispute_reply_form($focused, $draft, $can_reply, $recipient
                     <input type="hidden" name="request_key" value="<?php echo esc_attr(wp_generate_uuid4()); ?>">
                     <label for="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>">Je antwoord</label>
                     <textarea id="avbk-dispute-reply-<?php echo esc_attr($dispute->id); ?>" name="message" rows="5" required><?php echo esc_textarea(($draft['action'] ?? '') === 'reply' ? $draft['message'] : ''); ?></textarea>
-                    <p class="description">Je antwoord wordt per e-mail verstuurd en in de historie bewaard. Afhandelen doe je apart.</p>
+                    <p class="description">Je antwoord komt op de ledenpagina van het lid te staan en gaat met de hele tekst per mail. Afhandelen doe je apart.</p>
                     <p><button type="submit" class="button button-primary">Antwoord versturen</button></p>
                 </form>
             <?php else : ?>

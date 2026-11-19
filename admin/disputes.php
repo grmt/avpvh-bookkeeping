@@ -7,30 +7,32 @@ if (!current_user_can('manage_options') && !AVPVH_Roles::current_user_has_role('
     wp_die('Geen toegang.');
 }
 
+// Waiting for the penningmeester first, then those waiting for the member; newest first within each.
 $open = AVBK_DB::get_disputes('open');
+usort($open, static fn($a, $b) => (($a->awaiting ?? '') === 'member') <=> (($b->awaiting ?? '') === 'member'));
 $resolved = AVBK_DB::get_disputes('resolved');
 $result = sanitize_key(wp_unslash($_GET['dispute_result'] ?? ''));
 $focused_id = absint(wp_unslash($_GET['dispute_id'] ?? 0));
 $show_resolved = in_array($focused_id, array_map(fn($item) => (int) $item->id, $resolved), true);
 $notices = [
-    'reply_sent' => ['success', 'Het antwoord is aangeboden aan de mailserver en opgeslagen in de historie. Het bezwaar blijft open totdat je het afhandelt.'],
+    'reply_sent' => ['success', 'Het antwoord staat op de ledenpagina en is per mail verstuurd. Het gesprek blijft open totdat je het afhandelt.'],
     'note_saved' => ['success', 'Interne notitie opgeslagen. Er is geen e-mail verstuurd.'],
-    'resolved' => ['success', 'Bezwaar afgehandeld. De actie staat in de historie.'],
-    'reopened' => ['success', 'Bezwaar heropend. De eerdere historie blijft bewaard.'],
+    'resolved' => ['success', 'Gesprek afgehandeld. Reageert het lid nog, dan gaat het vanzelf weer open.'],
+    'reopened' => ['success', 'Gesprek heropend. De eerdere berichten blijven bewaard.'],
     'duplicate' => ['info', 'Deze actie is al verwerkt. Er is geen tweede antwoord verstuurd.'],
-    'unchanged' => ['info', 'Dit bezwaar had deze status al.'],
+    'unchanged' => ['info', 'Dit gesprek had deze status al.'],
     'reply_failed' => ['error', 'Verzenden is mislukt. Het antwoord staat in de historie en als concept klaar om opnieuw te proberen.'],
     'tracking_failed' => ['error', 'De verzendstatus kon niet worden opgeslagen. Controleer de verzending voordat je opnieuw verstuurt.'],
     'save_failed' => ['error', 'De actie kon niet worden opgeslagen. Er is geen nieuw antwoord verstuurd. Je tekst staat nog als concept klaar.'],
     'missing_email' => ['error', 'Er is geen geldig e-mailadres voor de ontvanger. Het antwoord is niet verstuurd.'],
     'empty_message' => ['error', 'Vul eerst een antwoord of interne notitie in.'],
     'invalid_action' => ['error', 'Ongeldige actie. Herlaad de pagina en probeer opnieuw.'],
-    'not_found' => ['error', 'Dit bezwaar bestaat niet meer.'],
+    'not_found' => ['error', 'Dit gesprek bestaat niet meer.'],
 ];
 ?>
 <div class="wrap avbk-disputes">
-    <h1>Bezwaren</h1>
-    <p class="description">Behandel berichten over het ledenoverzicht. Antwoorden gaan per e-mail naar de indiener; interne notities blijven alleen zichtbaar voor de penningmeester en beheerders.</p>
+    <h1>Berichten</h1>
+    <p class="description">Gesprekken met leden. Een antwoord komt op de ledenpagina van het lid te staan en gaat ook per mail; het lid reageert op de site. Interne notities zien alleen de penningmeester en beheerders. Een gesprek met een lid beginnen doe je op de pagina van het lid in het Ledenoverzicht.</p>
     <?php if (isset($notices[$result])) : ?>
         <div class="notice notice-<?php echo esc_attr($notices[$result][0]); ?> is-dismissible"><p><?php echo esc_html($notices[$result][1]); ?></p></div>
     <?php endif; ?>
