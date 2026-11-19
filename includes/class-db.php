@@ -1266,6 +1266,24 @@ class AVBK_DB {
         if (version_compare($version, '1.53', '<') && self::install_credit_refund_schema()) {
             update_option('avbk_db_version', '1.53');
         }
+        if (version_compare($version, '1.54', '<') && self::import_mail_history()) {
+            update_option('avbk_db_version', '1.54');
+        }
+    }
+
+    /**
+     * Verzonden mails gets a source column, and the plugin's mails from
+     * before it existed are taken over from FluentSMTP's log once.
+     */
+    private static function import_mail_history(): bool {
+        global $wpdb;
+        if (!self::install_mail_log_schema() || !$wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}avb_mail_log LIKE 'source'")) {
+            return false;
+        }
+        require_once __DIR__ . '/class-mail-history-import.php';
+        $imported = AVBK_Mail_History_Import::run();
+        self::audit('mail_log.imported', 'mail_log', 0, ['source' => AVBK_Mail_History_Import::SOURCE, 'imported' => $imported]);
+        return true;
     }
 
     /**
@@ -1336,6 +1354,7 @@ class AVBK_DB {
             status VARCHAR(10) NOT NULL DEFAULT 'sent',
             error VARCHAR(255) NOT NULL DEFAULT '',
             sent_by BIGINT UNSIGNED NULL,
+            source VARCHAR(20) NOT NULL DEFAULT '',
             PRIMARY KEY (id),
             KEY sent_at (sent_at),
             KEY member_sent (member_id, sent_at),

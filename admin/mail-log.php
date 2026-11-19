@@ -27,7 +27,7 @@ function avbk_render_mail_log(): void {
     ?>
 <div class="wrap">
     <h1>Verzonden mails</h1>
-    <p class="description">Alle mails die de boekhouding verstuurt: betaalverzoeken, bevestigingen, antwoorden op berichten en meldingen aan de penningmeester. Inlogcodes en andere mails van de website staan hier niet.</p>
+    <p class="description">Alle mails die de boekhouding verstuurt: betaalverzoeken, bevestigingen, antwoorden op berichten en meldingen aan de penningmeester. Inlogcodes en andere mails van de website staan hier niet. Mails van vóór 18 november 2026 zijn overgenomen uit het logboek van FluentSMTP (&ldquo;uit FluentSMTP&rdquo;).</p>
     <?php if ($member) : ?>
         <p>Mails aan <strong><?php echo esc_html(avpvh_format_name($member, 'list')); ?></strong>. <a href="<?php echo esc_url(avbk_mail_log_url()); ?>">Toon alle mails</a>.</p>
     <?php endif; ?>
@@ -109,9 +109,17 @@ function avbk_render_mail_log_row(object $mail): void {
                 </td>
                 <td><a href="<?php echo esc_url($view_url); ?>"><?php echo esc_html($mail->subject !== '' ? $mail->subject : '(geen onderwerp)'); ?></a></td>
                 <td><?php if ($mail->status === 'failed') : ?><span style="color:#b32d2e;font-weight:600" title="<?php echo esc_attr($mail->error); ?>">Mislukt</span><?php else : ?>Verstuurd<?php endif; ?></td>
-                <td><?php echo esc_html($sender ? $sender->display_name : 'automatisch'); ?></td>
+                <td><?php echo esc_html(avbk_mail_log_sender($mail, $sender)); ?></td>
             </tr>
     <?php
+}
+
+/** Who sent a logged mail: the user, "automatisch", or that it came over from FluentSMTP. */
+function avbk_mail_log_sender(object $mail, $sender): string {
+    if (($mail->source ?? '') === 'fluentsmtp') {
+        return 'uit FluentSMTP';
+    }
+    return $sender ? (string) $sender->display_name : 'automatisch';
 }
 
 function avbk_render_mail_log_pagination(int $total, int $page): void {
