@@ -139,6 +139,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <p data-kinds="invoice other">
                 <label for="<?php echo esc_attr($field); ?>-document">Document (pdf of foto; verplicht bij een factuur)</label><br>
                 <input type="file" name="document" id="<?php echo esc_attr($field); ?>-document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
+                <span class="description avbk-drop-hint">of sleep het bestand op deze betaling</span>
             </p>
             <?php avbk_render_expense_reimbursement_field($field, $reimbursements, (float) $tx->amount); ?>
             <?php avbk_render_expense_returned_field($field, $returned, (float) $tx->amount); ?>
