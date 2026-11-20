@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/class-document-requests.php';
+require_once __DIR__ . '/class-reimbursements.php';
 require_once __DIR__ . '/functions-mail.php';
 
 /**
@@ -206,6 +207,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
         <div class="avbk-balance" id="bijdrage">
             <h2>Bijdrage &mdash; <?php echo esc_html(avpvh_format_name($target_member)); ?></h2>
 
+            <?php AVBK_Reimbursements::render_member_notices($own_member, $target_member, $requested_id ? add_query_arg('member_id', $target_id, get_permalink()) : (string) get_permalink()); ?>
             <?php AVBK_Document_Requests::render_member_todos($target_member, $requested_id ? add_query_arg('member_id', $target_id, get_permalink()) : (string) get_permalink()); ?>
             <p class="avbk-balance-processed">Betalingen zijn verwerkt tot en met <?php echo esc_html(wp_date('d-m-Y', strtotime(AVBK_DB::get_last_processed_date()))); ?>.</p>
 

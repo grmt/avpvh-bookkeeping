@@ -105,6 +105,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         add_action('admin_post_avbk_mark_reimbursement_paid', [$this, 'handle_mark_paid']);
         add_action('admin_post_avbk_reject_reimbursement', [$this, 'handle_reject']);
         add_action('admin_post_avbk_view_receipt', [$this, 'handle_view_receipt']);
+        add_action('admin_post_avbk_reimbursement_seen', [$this, 'handle_seen']);
     }
 
     private function can_manage(): bool {
@@ -153,6 +154,8 @@ class AVBK_Reimbursements implements AVBK_Component {
         $activities = AVPVH_DB::get_activities();
         $known_ibans = AVBK_DB::get_known_ibans_for_member((int) $member->id);
         $requests = AVBK_DB::get_reimbursements_for_member((int) $member->id);
+        // Seeing the list here is seeing the decisions: no notice on the member page about them any more.
+        AVBK_DB::mark_reimbursement_decisions_seen((int) $member->id);
         $status_labels = ['pending' => 'In behandeling', 'paid' => 'Uitbetaald', 'rejected' => 'Afgewezen', 'withdrawn' => 'Ingetrokken'];
 
         ob_start();
@@ -225,6 +228,11 @@ class AVBK_Reimbursements implements AVBK_Component {
                     <?php endif; ?>
                 </p>
 
+                <p>
+                    <label for="avbk-member-note">Toelichting voor de penningmeester (optioneel)</label><br>
+                    <textarea name="member_note" id="avbk-member-note" rows="3" class="large-text" maxlength="2000" placeholder="Bijv.: voorgeschoten voor de hele groep, of: graag op de rekening van mijn partner"></textarea>
+                </p>
+
                 <p><button type="submit" class="button button-primary">Declareren</button></p>
             </form>
 
@@ -243,6 +251,9 @@ class AVBK_Reimbursements implements AVBK_Component {
                             <td><span class="avbk-status-badge avbk-status-<?php echo esc_attr($r->status); ?>"><?php echo esc_html($status_labels[$r->status] ?? $r->status); ?></span></td>
                             <td><?php if ($is_pending) : ?><a href="#" class="avbk-reimbursement-edit-toggle" data-target="avbk-edit-row-<?php echo (int) $r->id; ?>">wijzigen</a><?php endif; ?></td>
                         </tr>
+                        <?php if ($r->status === 'rejected' && trim((string) ($r->rejection_reason ?? '')) !== '') : ?>
+                            <tr class="avbk-reimbursement-reason"><td colspan="5"><strong>Reden:</strong> <?php echo nl2br(esc_html((string) $r->rejection_reason)); ?> <a href="<?php echo esc_url(AVBK_Disputes::member_page_url((int) $r->member_id)); ?>">Reageren in Berichten</a></td></tr>
+                        <?php endif; ?>
                         <?php if ($is_pending) :
                             $iban_matches_known = false;
                             foreach ($known_ibans as $known) {
@@ -300,8 +311,8 @@ class AVBK_Reimbursements implements AVBK_Component {
                                             </label>
                                         </p>
                                         <p>
-                                            <label>Omschrijving<br>
-                                                <input type="text" name="description" class="regular-text" value="<?php echo esc_attr($r->description); ?>">
+                                            <label>Toelichting voor de penningmeester<br>
+                                                <textarea name="member_note" rows="3" class="large-text" maxlength="2000"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
                                             </label>
                                         </p>
                                         <p>
@@ -501,6 +512,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         }
 
         $ocr_amounts = array_filter(array_column($analyzed, 'ocr_amount'), fn($v) => $v !== null);
+        $member_note = self::posted_note();
 
         // One activity per declaration (it can only ever be booked against
         // one open fee item), but each bundled purchase gets its own
@@ -510,6 +522,7 @@ class AVBK_Reimbursements implements AVBK_Component {
             'member_id'   => (int) $member->id,
             'activity_id' => (int) ($_POST['activity_id'] ?? 0) ?: null,
             'description' => '',
+            'member_note' => $member_note,
             'amount'      => $amount,
             'ocr_amount'  => $ocr_amounts ? array_sum($ocr_amounts) : null,
             'iban'        => $iban,
@@ -537,10 +550,11 @@ class AVBK_Reimbursements implements AVBK_Component {
         $to = get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl');
         $subject = sprintf('[AV-PvH] Nieuwe declaratie van %s', avpvh_format_name($member));
         $body = sprintf(
-            "%s heeft een bonnetje gedeclareerd van € %s.\n\nOmschrijving: %s\n\nBeoordelen: %s",
+            "%s heeft een bonnetje gedeclareerd van € %s.\n\nOmschrijving: %s%s\n\nBeoordelen: %s",
             avpvh_format_name($member),
             number_format($amount, 2, ',', '.'),
             $descriptions,
+            $member_note !== '' ? "\n\nToelichting:\n" . $member_note : '',
             admin_url('admin.php?page=avbk-reimbursements')
         );
         avbk_mail('treasurer_notice', (int) $member->id, $to, $subject, $body);
@@ -610,6 +624,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         if ($member && $id && $amount > 0 && $iban !== '') {
             AVBK_DB::member_update_reimbursement($id, (int) $member->id, [
                 'activity_id' => (int) ($_POST['activity_id'] ?? 0),
+                'member_note' => self::posted_note(),
                 'amount'      => $amount,
                 'iban'        => $iban,
             ]);
@@ -731,11 +746,90 @@ class AVBK_Reimbursements implements AVBK_Component {
             wp_die('Geen toegang.', 'Fout', ['response' => 403]);
         }
         $id = (int) ($_POST['id'] ?? 0);
-        if ($id) {
-            AVBK_DB::reject_reimbursement($id);
+        $reason = trim(sanitize_textarea_field(wp_unslash($_POST['reason'] ?? '')));
+        $reimbursement = $id ? AVBK_DB::get_reimbursement($id) : null;
+        $notice = ['rejected' => '1'];
+        if ($reason === '' || !$reimbursement || !AVBK_DB::reject_reimbursement($id, $reason)) {
+            avbk_log_failure('reimbursement reject', $reason === '' ? 'no_reason' : 'not_saved', ['reimbursement' => $id]);
+            $notice = ['reject_failed' => $reason === '' ? 'no_reason' : 'not_saved'];
+        } else {
+            $notice += self::start_rejection_conversation($reimbursement, $reason);
         }
-        wp_safe_redirect(add_query_arg(['page' => 'avbk-reimbursements', 'rejected' => '1'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'avbk-reimbursements'] + $notice, admin_url('admin.php')));
         exit;
+    }
+
+    /**
+     * A rejection starts a conversation in Berichten, so the member can
+     * answer; the mail of that message is the member's notice.
+     *
+     * @return array<string, string> An extra notice when the conversation failed.
+     */
+    private static function start_rejection_conversation(object $reimbursement, string $reason): array {
+        $what = trim((string) $reimbursement->description);
+        $thread = AVBK_Disputes::start(
+            (int) $reimbursement->member_id,
+            sprintf('Declaratie van € %s afgewezen', number_format((float) $reimbursement->amount, 2, ',', '.')),
+            null,
+            "Je declaratie van € " . number_format((float) $reimbursement->amount, 2, ',', '.') . ($what !== '' ? ' (' . $what . ')' : '') . " is afgewezen.\n\nReden: " . $reason,
+            wp_generate_uuid4()
+        );
+        if (is_wp_error($thread)) {
+            avbk_log_failure('reimbursement reject message', $thread->get_error_code(), ['reimbursement' => (int) $reimbursement->id]);
+            return ['message_failed' => $thread->get_error_code()];
+        }
+        return [];
+    }
+
+    /**
+     * On the member page: the member's declaraties paid or rejected since
+     * they last looked, with "Gezien". No mail; a rejection also comes as
+     * a message in Berichten.
+     */
+    public static function render_member_notices(object $own_member, object $target_member, string $page_url): void {
+        if ((int) $own_member->id !== (int) $target_member->id) {
+            return;
+        }
+        $decisions = AVBK_DB::get_unseen_reimbursement_decisions((int) $target_member->id);
+        if (!$decisions) {
+            return;
+        }
+        ?>
+        <div class="avbk-balance-notice avbk-reimbursement-decisions">
+            <?php foreach ($decisions as $r) :
+                $amount = '€ ' . number_format((float) $r->amount, 2, ',', '.');
+                $what = trim((string) $r->description) !== '' ? ' (' . $r->description . ')' : '';
+                ?>
+                <p><?php echo esc_html($r->status === 'paid'
+                    ? sprintf('Je declaratie van %s%s is uitbetaald.', $amount, $what)
+                    : sprintf('Je declaratie van %s%s is afgewezen. De reden staat bij je declaraties en in Berichten.', $amount, $what)); ?></p>
+            <?php endforeach; ?>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('avbk_reimbursement_seen'); ?>
+                <input type="hidden" name="action" value="avbk_reimbursement_seen">
+                <input type="hidden" name="redirect_url" value="<?php echo esc_url($page_url); ?>">
+                <a href="<?php echo esc_url(home_url('/leden/beheer/declareren/')); ?>">Bekijk je declaraties</a>
+                <button type="submit" class="button button-small">Gezien</button>
+            </form>
+        </div>
+        <?php
+    }
+
+    /** "Gezien" on the member page's declaratie notice. */
+    public function handle_seen(): void {
+        check_admin_referer('avbk_reimbursement_seen');
+        $member = is_user_logged_in() ? avpvh_get_member_by_wp_user(get_current_user_id()) : null;
+        if ($member) {
+            AVBK_DB::mark_reimbursement_decisions_seen((int) $member->id);
+        }
+        wp_safe_redirect(esc_url_raw(wp_unslash($_POST['redirect_url'] ?? '')) ?: home_url('/'));
+        exit;
+    }
+
+    /** The posted toelichting of a declaratie. */
+    private static function posted_note(): string {
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- every caller checked its nonce.
+        return mb_substr(trim(sanitize_textarea_field(wp_unslash($_POST['member_note'] ?? ''))), 0, 2000);
     }
 
     /** Streams a receipt photo — never a public URL, gated on being the submitter or bestuur/penningmeester. */

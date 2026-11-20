@@ -45,7 +45,13 @@ function avbk_render_reimbursements_notices(): void {
         <div class="notice notice-success is-dismissible"><p>Gemarkeerd als betaald.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['rejected'])) : ?>
-        <div class="notice notice-success is-dismissible"><p>Afgewezen.</p></div>
+        <div class="notice notice-success is-dismissible"><p>Afgewezen. Het lid ziet de reden bij de declaratie<?php echo isset($_GET['message_failed']) ? '' : ' en heeft hem als bericht gekregen in Berichten'; ?>.</p></div>
+        <?php if (isset($_GET['message_failed'])) : ?>
+            <div class="notice notice-warning"><p>Het bericht in Berichten kon niet worden verstuurd (<?php echo esc_html(sanitize_key(wp_unslash($_GET['message_failed']))); ?>). Stuur het lid zelf een bericht vanaf de ledenpagina.</p></div>
+        <?php endif; ?>
+    <?php endif; ?>
+    <?php if (isset($_GET['reject_failed'])) : ?>
+        <div class="notice notice-error"><p><?php echo sanitize_key(wp_unslash($_GET['reject_failed'])) === 'no_reason' ? 'Vul een reden in: het lid ziet die bij de declaratie.' : 'De declaratie is niet afgewezen; staat ze nog open?'; ?></p></div>
     <?php endif; ?>
     <?php if (isset($_GET['updated'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Wijziging opgeslagen.</p></div>
@@ -71,6 +77,9 @@ function avbk_render_reimbursement_card(object $r, array $activities): void {
                     <tr><th>Datum</th><td><?php echo esc_html(wp_date('d-m-Y H:i', strtotime($r->created_at))); ?></td></tr>
                     <tr><th>Activiteit</th><td><?php echo $activity ? esc_html($activity->name . ' (' . $activity->year . ')') : '&mdash;'; ?></td></tr>
                     <tr><th>Omschrijving</th><td><?php echo esc_html($r->description ?: '&mdash;'); ?></td></tr>
+                    <?php if (trim((string) ($r->member_note ?? '')) !== '') : ?>
+                        <tr><th>Toelichting van het lid</th><td><?php echo nl2br(esc_html((string) $r->member_note)); ?></td></tr>
+                    <?php endif; ?>
                     <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?><?php echo $r->ocr_amount ? ' (OCR herkende totaal € ' . esc_html(number_format((float) $r->ocr_amount, 2, ',', '.')) . ')' : ''; ?></td></tr>
                     <tr><th>Rekeningnummer</th><td><?php echo esc_html($r->iban); ?><?php echo $iban_account_name ? ' &mdash; ' . esc_html($iban_account_name) : ''; ?><?php echo count($known_ibans) > 1 ? ' <span class="description">(meerdere rekeningen bekend bij dit lid &mdash; zie &ldquo;aanpassen&rdquo; hieronder)</span>' : ''; ?></td></tr>
                     <tr><th>Bonnetje(s)</th><td>
@@ -208,12 +217,17 @@ function avbk_render_reimbursement_decision($r): void {
                 <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
                 <?php submit_button('Betaald', 'primary', 'submit', false); ?>
             </form>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
-                <?php wp_nonce_field('avbk_reject_reimbursement'); ?>
-                <input type="hidden" name="action" value="avbk_reject_reimbursement">
-                <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                <?php submit_button('Afwijzen', 'secondary', 'submit', false, ['onclick' => "return confirm('Declaratie afwijzen?');"]); ?>
-            </form>
+            <details style="display:inline-block;vertical-align:top;margin-left:.5rem">
+                <summary class="button">Afwijzen&hellip;</summary>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:.5rem">
+                    <?php wp_nonce_field('avbk_reject_reimbursement'); ?>
+                    <input type="hidden" name="action" value="avbk_reject_reimbursement">
+                    <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                    <label for="avbk-reject-reason-<?php echo esc_attr($r->id); ?>">Reden (het lid ziet die bij de declaratie en krijgt hem als bericht in Berichten)</label><br>
+                    <textarea name="reason" id="avbk-reject-reason-<?php echo esc_attr($r->id); ?>" rows="3" cols="50" required></textarea><br>
+                    <?php submit_button('Afwijzen', 'secondary', 'submit', false); ?>
+                </form>
+            </details>
 <?php
 }
 
@@ -233,7 +247,7 @@ function avbk_render_reimbursements_handled($paid, $rejected, $withdrawn): void 
                     <td><?php echo $member ? esc_html(avpvh_format_name($member, 'list')) : '&mdash;'; ?></td>
                     <td><?php echo esc_html($r->description ?: '&mdash;'); ?></td>
                     <td>&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?></td>
-                    <td><?php echo esc_html($status_labels[$r->status] ?? $r->status); ?></td>
+                    <td><?php echo esc_html($status_labels[$r->status] ?? $r->status); ?><?php if ($r->status === 'rejected' && trim((string) ($r->rejection_reason ?? '')) !== '') : ?><br><span class="description"><?php echo esc_html((string) $r->rejection_reason); ?></span><?php endif; ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
