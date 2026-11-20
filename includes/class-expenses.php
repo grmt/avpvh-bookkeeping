@@ -26,7 +26,7 @@ class AVBK_Expenses implements AVBK_Component {
     ];
 
     /** Suggestions for the category field; earlier used categories are added. */
-    public const DEFAULT_CATEGORIES = ['Zaalhuur', 'Catering', 'Drukwerk', 'Materiaal', 'Porto', 'Abonnementen', 'Verzekering', 'Website en software', 'Excursie', 'Attenties', 'Overig'];
+    public const DEFAULT_CATEGORIES = ['Accommodatie', 'Catering', 'Boodschappen', 'Vervoer', 'Brandstof', 'Materiaalhuur', 'Kampeerbenodigdheden', 'EHBO', 'Drukwerk', 'Materiaal', 'Porto', 'Abonnementen', 'Verzekering', 'Website en software', 'Excursie', 'Attenties', 'Overig'];
 
     /** Which kinds keep which optional field; the form shows the same (data-kinds). */
     public const FIELD_KINDS = [
