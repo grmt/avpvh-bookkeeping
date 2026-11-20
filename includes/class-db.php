@@ -1275,6 +1275,33 @@ class AVBK_DB {
         if (version_compare($version, '1.56', '<') && self::install_document_request_schema()) {
             update_option('avbk_db_version', '1.56');
         }
+        if (version_compare($version, '1.57', '<') && self::install_reimbursement_note_schema()) {
+            update_option('avbk_db_version', '1.57');
+        }
+    }
+
+    /**
+     * Declaraties: the member's own toelichting, the reason of a rejection,
+     * when it was decided (paid or rejected) and when the member last saw
+     * the decisions, for the notice on the member page.
+     */
+    private static function install_reimbursement_note_schema(): bool {
+        global $wpdb;
+        $table = "{$wpdb->prefix}avb_reimbursements";
+        $columns = [
+            'member_note'      => 'ADD COLUMN member_note TEXT NULL AFTER description',
+            'rejection_reason' => 'ADD COLUMN rejection_reason TEXT NULL',
+            'decided_at'       => 'ADD COLUMN decided_at DATETIME NULL',
+            'member_seen_at'   => 'ADD COLUMN member_seen_at DATETIME NULL',
+        ];
+        foreach ($columns as $column => $alter) {
+            if (!$wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", $column))) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
+                $wpdb->query("ALTER TABLE $table $alter"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed DDL.
+            }
+        }
+        // Earlier decisions count as seen: no notices about old declaraties after the upgrade.
+        $wpdb->query("UPDATE $table SET decided_at = paid_at, member_seen_at = paid_at WHERE status = 'paid' AND decided_at IS NULL"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
+        return (bool) $wpdb->get_var("SHOW COLUMNS FROM $table LIKE 'member_seen_at'"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
     }
 
     /** The penningmeester asks a member for the receipt of a payment to them; see AVBK_Document_Requests. */
@@ -3155,6 +3182,7 @@ class AVBK_DB {
             'member_id'   => (int) $data['member_id'],
             'activity_id' => $data['activity_id'] ?: null,
             'description' => (string) $data['description'],
+            'member_note' => (string) ($data['member_note'] ?? ''),
             'amount'      => (float) $data['amount'],
             'ocr_amount'  => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
             'iban'        => strtoupper(str_replace(' ', '', (string) $data['iban'])),
@@ -3382,14 +3410,47 @@ class AVBK_DB {
         global $wpdb;
         $wpdb->update(
             "{$wpdb->prefix}avb_reimbursements",
-            ['status' => 'paid', 'paid_at' => current_time('mysql'), 'paid_by' => $paid_by],
+            ['status' => 'paid', 'paid_at' => current_time('mysql'), 'paid_by' => $paid_by, 'decided_at' => current_time('mysql')],
             ['id' => $id]
         );
     }
 
-    public static function reject_reimbursement(int $id): void {
+    /** Rejects a declaratie that is still pending, with the reason the member sees. */
+    public static function reject_reimbursement(int $id, string $reason = ''): bool {
         global $wpdb;
-        $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'rejected'], ['id' => $id]);
+        return (bool) $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            ['status' => 'rejected', 'rejection_reason' => $reason, 'decided_at' => current_time('mysql')],
+            ['id' => $id, 'status' => 'pending']
+        );
+    }
+
+    /**
+     * Declaraties of a member paid or rejected since the member last
+     * looked, for the notice on the member page; at most two months back.
+     *
+     * @return object[]
+     */
+    public static function get_unseen_reimbursement_decisions(int $member_id): array {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements
+             WHERE member_id = %d AND status IN ('paid', 'rejected') AND decided_at IS NOT NULL
+               AND decided_at >= DATE_SUB(%s, INTERVAL 60 DAY) AND (member_seen_at IS NULL OR member_seen_at < decided_at)
+             ORDER BY decided_at DESC",
+            $member_id,
+            current_time('mysql')
+        )) ?: [];
+    }
+
+    /** The member saw the decisions on their declaraties. */
+    public static function mark_reimbursement_decisions_seen(int $member_id): void {
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}avb_reimbursements SET member_seen_at = %s WHERE member_id = %d AND decided_at IS NOT NULL",
+            current_time('mysql'),
+            $member_id
+        ));
     }
 
     /** Penningmeester corrections before paying out — e.g. the member picked the wrong known IBAN. Never touches status/paid fields. */
@@ -3420,6 +3481,7 @@ class AVBK_DB {
             "{$wpdb->prefix}avb_reimbursements",
             [
                 'activity_id' => $data['activity_id'] ?: null,
+                'member_note' => (string) ($data['member_note'] ?? ''),
                 'amount'      => $data['amount'],
                 'iban'        => $data['iban'],
             ],
@@ -4537,7 +4599,7 @@ class AVBK_DB {
             $wpdb->update("{$wpdb->prefix}avb_transactions", ['status' => $status, 'ignore_reason' => $reason], ['id' => (int) $expense->related_transaction_id]);
         }
         if ($expense->reimbursement_id && $expense->reimbursement_marked_paid) {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'pending', 'paid_at' => null, 'paid_by' => null], ['id' => (int) $expense->reimbursement_id]);
+            $wpdb->update("{$wpdb->prefix}avb_reimbursements", ['status' => 'pending', 'paid_at' => null, 'paid_by' => null, 'decided_at' => null], ['id' => (int) $expense->reimbursement_id]);
         }
         self::audit('expense.removed', 'transaction', (int) $expense->transaction_id, ['expense_id' => $expense_id, 'kind' => (string) $expense->kind]);
         return (string) $expense->document_path;
