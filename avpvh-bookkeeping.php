@@ -3,7 +3,7 @@
  * Plugin Name: AV-PvH Bookkeeping
  * Plugin URI:  https://github.com/grmt/avpvh-bookkeeping
  * Description: Membership fee and camp contribution bookkeeping for AV Philips van Horne: imports bank exports, matches payments to members, and shows balances via a QR popup and the profile page.
- * Version:     1.47.0
+ * Version:     1.47.1
  * Author:      grmt
  * Author URI:  https://github.com/grmt/avpvh-bookkeeping
  * Text Domain: avpvh-bookkeeping
@@ -115,6 +115,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-import.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-duplicate-candidates.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-fee-generation.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-qr.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-flyer.php';

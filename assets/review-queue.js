@@ -267,13 +267,22 @@ document.addEventListener('DOMContentLoaded', function () {
         var input = wrapper.querySelector('.avbk-duplicate-combo-input');
         var list = wrapper.querySelector('.avbk-duplicate-combo-list');
         var excludeId = wrapper.dataset.excludeId;
+        // Payments of the member's family come first: a double payment is
+        // usually a partner or parent paying the same thing again.
+        var family = (wrapper.dataset.family || '').split(',').filter(Boolean);
+        var candidates = family.map(function (id) {
+            var c = cfg.duplicateCandidates.filter(function (x) { return String(x.id) === id; })[0];
+            return c ? { id: c.id, label: 'familie — ' + c.label } : null;
+        }).filter(Boolean).concat(cfg.duplicateCandidates.filter(function (c) {
+            return family.indexOf(String(c.id)) === -1;
+        }));
         if (!hidden || !input || !list) return;
 
         var activeIndex = -1;
         var renderedItems = [];
 
         function labelFor(id) {
-            var c = cfg.duplicateCandidates.filter(function (x) { return String(x.id) === String(id); })[0];
+            var c = candidates.filter(function (x) { return String(x.id) === String(id); })[0];
             return c ? c.label : '';
         }
 
@@ -301,7 +310,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var term = forceEmptyTerm ? '' : input.value.trim().toLowerCase();
             list.innerHTML = '';
             renderedItems = [];
-            cfg.duplicateCandidates.forEach(function (c) {
+            candidates.forEach(function (c) {
                 if (String(c.id) === String(excludeId)) return;
                 if (term !== '' && c.label.toLowerCase().indexOf(term) === -1) return;
                 var item = document.createElement('div');
