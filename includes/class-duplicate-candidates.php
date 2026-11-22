@@ -18,7 +18,7 @@ class AVBK_Duplicate_Candidates {
      * @param callable(int): int[] $household_of Member ids in a member's extended household.
      * @return int[]
      */
-    public static function family_ids(array $direct_ids, callable $household_of): array {
+    public static function relatives(array $direct_ids, callable $household_of): array {
         $family = [];
         foreach (array_unique(array_map('intval', $direct_ids)) as $member_id) {
             $family[$member_id] = true;

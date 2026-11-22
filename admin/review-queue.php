@@ -750,7 +750,7 @@ function avbk_review_family_duplicates(object $tx, array $suggested_ids, array $
         $households[$member_id] ??= array_map('intval', wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id'));
         return $households[$member_id];
     };
-    $family = AVBK_Duplicate_Candidates::family_ids(
+    $family = AVBK_Duplicate_Candidates::relatives(
         array_merge($suggested_ids, AVBK_DB::get_member_ids_by_iban((string) $tx->counterparty_iban)),
         $household_of
     );
