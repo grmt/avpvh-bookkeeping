@@ -7,6 +7,7 @@ class AVPVH_Roles {
 }
 class AVPVH_DB {
     public static function get_member(int $id): ?object { return $GLOBALS['members'][$id] ?? null; }
+    public static function get_extended_household(int $id): array { return []; }
     public static function get_activity_types(): array {
         return array_map(fn($name) => (object) ['name' => $name], ['Kamp', 'Contributie', 'Drank', 'Boek', 'T-shirt']);
     }
@@ -57,6 +58,8 @@ class AVBK_DB {
     public static function get_transaction(int $id): ?object { return self::$transactions[$id] ?? null; }
     public static function get_transactions(): array { return array_values(self::$transactions); }
     public static function get_payable_members(): array { self::$guesses++; return array_values($GLOBALS['members']); }
+    public static function get_members_involved_in_transactions(array $ids): array { return []; }
+    public static function get_member_ids_by_iban(string $iban): array { return []; }
     public static function update_import_batch_counts(...$args): void {}
     public static function remember_iban(...$args): void {}
     public static function get_current_activity_for_type_name(string $name): ?object { return (object) ['id' => 1, 'name' => $name]; }
@@ -114,6 +117,7 @@ require AVBK_PLUGIN_DIR . 'includes/class-bank-import-layout.php';
 require AVBK_PLUGIN_DIR . 'includes/class-csv-reader.php';
 require AVBK_PLUGIN_DIR . 'includes/class-matcher.php';
 require AVBK_PLUGIN_DIR . 'includes/class-import.php';
+require AVBK_PLUGIN_DIR . 'includes/class-duplicate-candidates.php';
 function check(bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException('FAILED: ' . $message);
     if (!in_array('--render', $_SERVER['argv'] ?? [], true)) echo "PASS $message\n";

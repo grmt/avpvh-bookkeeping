@@ -5063,6 +5063,40 @@ class AVBK_DB {
     }
 
     /** Only confident when exactly one member is known for this IBAN — a shared/joint account is ambiguous and belongs in manual review, not an auto-match. */
+    /**
+     * The members each transaction involves: owners of its account and
+     * members its money was allocated to or for.
+     *
+     * @param int[] $transaction_ids
+     * @return array<int, int[]> Transaction id => member ids.
+     */
+    public static function get_members_involved_in_transactions(array $transaction_ids): array {
+        global $wpdb;
+        $ids = array_values(array_filter(array_map('intval', $transaction_ids)));
+        if (!$ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($ids), '%d'));
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $in is placeholders only.
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT t.id AS transaction_id, k.member_id FROM {$wpdb->prefix}avb_transactions t
+             JOIN {$wpdb->prefix}avb_known_ibans k ON k.iban = t.counterparty_iban
+             WHERE t.id IN ($in) AND t.counterparty_iban != ''
+             UNION
+             SELECT a.transaction_id, a.member_id FROM {$wpdb->prefix}avb_transaction_allocations a WHERE a.transaction_id IN ($in)
+             UNION
+             SELECT a.transaction_id, f.member_id FROM {$wpdb->prefix}avb_transaction_allocations a
+             JOIN {$wpdb->prefix}avb_fee_items f ON f.id = a.fee_item_id WHERE a.transaction_id IN ($in)",
+            ...array_merge($ids, $ids, $ids)
+        )) ?: [];
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $involved = [];
+        foreach ($rows as $row) {
+            $involved[(int) $row->transaction_id][] = (int) $row->member_id;
+        }
+        return $involved;
+    }
+
     public static function find_member_id_by_iban(string $iban): ?int {
         $member_ids = self::get_member_ids_by_iban($iban);
         return count($member_ids) === 1 ? $member_ids[0] : null;

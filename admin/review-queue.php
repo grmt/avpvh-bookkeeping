@@ -180,6 +180,7 @@ $duplicate_candidates = array_values(array_filter(
     fn($candidate) => $candidate->direction === 'in' && empty($candidate->duplicate_of)
         && $candidate->transaction_date >= $duplicate_cutoff
 ));
+$duplicate_involved = AVBK_DB::get_members_involved_in_transactions(array_map(static fn($c) => (int) $c->id, $duplicate_candidates));
 $all_members = AVBK_DB::get_payable_members();
 
 // Rendered inline on the transaction's own row below (not as a page-top
@@ -220,7 +221,7 @@ $other_activity_type_names[] = 'Overig'; // fixed fallback (auto-vult de omschri
 // transacties (incident 2026-10-19: used to fall into the generic
 // "Anders"-categorie and was invisible in both places).
 $other_activity_type_names[] = 'Schenking';
-$context = compact('all_members', 'recent_activities', 'other_activity_type_names', 'confirm_failed_tx_id', 'confirm_errors');
+$context = compact('all_members', 'recent_activities', 'other_activity_type_names', 'confirm_failed_tx_id', 'confirm_errors', 'duplicate_candidates', 'duplicate_involved');
 
 
 ?>
@@ -314,7 +315,7 @@ function avbk_render_review_card(object $tx, array $context): void {
                 <button type="submit" name="action" value="avbk_save_transaction_draft" class="button">Opslaan</button>
                 <button type="submit" name="action" value="avbk_confirm_transaction" class="button button-primary">Bevestigen</button>
             </form>
-            <?php avbk_render_review_secondary_forms($tx); ?>
+            <?php avbk_render_review_secondary_forms($tx, avbk_review_family_duplicates($tx, $suggested_ids, $context)); ?>
         </div>
 <?php
 }
@@ -736,8 +737,32 @@ function avbk_render_review_row_template(array $select_lists): void {
 <?php
 }
 
-/** The ignore and mark-as-duplicate forms of a transaction. */
-function avbk_render_review_secondary_forms($tx): void {
+/**
+ * The earlier payments of this payment's family, to offer first as the
+ * original of a double payment; see AVBK_Duplicate_Candidates.
+ *
+ * @param int[] $suggested_ids
+ * @return int[]
+ */
+function avbk_review_family_duplicates(object $tx, array $suggested_ids, array $context): array {
+    static $households = [];
+    $household_of = static function (int $member_id) use (&$households): array {
+        $households[$member_id] ??= array_map('intval', wp_list_pluck(AVPVH_DB::get_extended_household($member_id), 'id'));
+        return $households[$member_id];
+    };
+    $family = AVBK_Duplicate_Candidates::relatives(
+        array_merge($suggested_ids, AVBK_DB::get_member_ids_by_iban((string) $tx->counterparty_iban)),
+        $household_of
+    );
+    return AVBK_Duplicate_Candidates::preferred($context['duplicate_candidates'], $context['duplicate_involved'], $family, (int) $tx->id, (float) $tx->amount);
+}
+
+/**
+ * The ignore and mark-as-duplicate forms of a transaction.
+ *
+ * @param int[] $family_duplicates Candidate ids to list first.
+ */
+function avbk_render_review_secondary_forms($tx, array $family_duplicates = []): void {
 ?><form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-review-ignore-form">
                 <?php wp_nonce_field('avbk_ignore_transaction'); ?>
                 <input type="hidden" name="action" value="avbk_ignore_transaction">
@@ -750,7 +775,7 @@ function avbk_render_review_secondary_forms($tx): void {
                 <input type="hidden" name="action" value="avbk_mark_transaction_duplicate">
                 <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
                 <label>Dubbele betaling van:
-                    <div class="avbk-duplicate-combo" data-exclude-id="<?php echo esc_attr($tx->id); ?>">
+                    <div class="avbk-duplicate-combo" data-exclude-id="<?php echo esc_attr($tx->id); ?>" data-family="<?php echo esc_attr(implode(',', $family_duplicates)); ?>">
                         <input type="hidden" name="duplicate_of" class="avbk-duplicate-combo-value" value="">
                         <input type="text" class="avbk-duplicate-combo-input" autocomplete="off" placeholder="&mdash; kies de oorspronkelijke transactie &mdash;" value="">
                         <div class="avbk-duplicate-combo-list" hidden></div>
