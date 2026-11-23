@@ -5,3 +5,5 @@
 *.local
 *.local.*
 .env.local
+/.phpunit.cache/
+/coverage.xml

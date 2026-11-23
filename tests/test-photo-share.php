@@ -99,7 +99,7 @@ class Mock_Photo_Shares_WPDB {
         }
         if (preg_match("/WHERE confirm_token = '([^']+)'/", $query, $m)) {
             foreach ($this->photo_shares as $s) {
-                if ($s->confirm_token === $m[1]) {
+                if (($s->confirm_token ?? null) === $m[1]) {
                     return $s;
                 }
             }

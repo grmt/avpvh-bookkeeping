@@ -43,7 +43,6 @@ function check(bool $ok, string $message): void {
 
 function find_candidates_for_row(string $iban, string $name, string $description, array $type_hints): array {
     $method = new ReflectionMethod(AVBK_Import::class, 'find_candidates_for_row');
-    $method->setAccessible(true);
     return $method->invoke(null, $iban, $name, $description, $type_hints);
 }
 

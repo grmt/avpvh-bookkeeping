@@ -163,14 +163,14 @@ class AVBK_Sheet_Import {
             if (!isset($lines[$header_index])) {
                 return ['matched' => [], 'unmatched' => [], 'errors' => ["Kopregel {$header_row} is niet gevonden in de Google Sheet."]];
             }
-            $header_cells = str_getcsv($lines[$header_index], ',');
+            $header_cells = str_getcsv($lines[$header_index], ',', '"', '\\');
             $data_lines = array_values(array_filter(array_slice($lines, $header_index + 1), fn($line) => trim($line) !== ''));
             $data_rows = [];
             foreach ($data_lines as $line_index => $line) {
                 if ($last_data_row && ($header_row + 1 + $line_index) > $last_data_row) {
                     break;
                 }
-                $cells = str_getcsv($line, ',');
+                $cells = str_getcsv($line, ',', '"', '\\');
                 if (self::is_total_row($cells)) {
                     break;
                 }
@@ -408,12 +408,12 @@ class AVBK_Sheet_Import {
                 'error' => "Kopregel {$header_row} is niet gevonden in de Google Sheet.",
             ];
         }
-        $cells = str_getcsv($fetched['lines'][$header_index], ',');
+        $cells = str_getcsv($fetched['lines'][$header_index], ',', '"', '\\');
         $data_lines = array_values(array_filter(
             array_slice($fetched['lines'], $header_index + 1),
             fn($line) => trim($line) !== ''
         ));
-        $data_rows = array_map(fn($line) => str_getcsv($line, ','), array_slice($data_lines, 0, 3));
+        $data_rows = array_map(fn($line) => str_getcsv($line, ',', '"', '\\'), array_slice($data_lines, 0, 3));
         return self::build_preview($cells, $data_rows) + [
             'raw_rows' => self::first_csv_rows($fetched['lines']),
             'error' => null,
@@ -428,16 +428,16 @@ class AVBK_Sheet_Import {
                 continue;
             }
             if (count($rows) < 3) {
-                $rows[] = ['row_number' => $index + 1, 'cells' => str_getcsv($line, ',')];
+                $rows[] = ['row_number' => $index + 1, 'cells' => str_getcsv($line, ',', '"', '\\')];
             }
         }
         foreach ($lines as $index => $line) {
-            if (!self::is_total_row(str_getcsv($line, ','))) {
+            if (!self::is_total_row(str_getcsv($line, ',', '"', '\\'))) {
                 continue;
             }
             foreach ([$index - 1, $index, $index + 1] as $context_index) {
                 if (isset($lines[$context_index]) && trim($lines[$context_index]) !== '') {
-                    $rows[] = ['row_number' => $context_index + 1, 'cells' => str_getcsv($lines[$context_index], ',')];
+                    $rows[] = ['row_number' => $context_index + 1, 'cells' => str_getcsv($lines[$context_index], ',', '"', '\\')];
                 }
             }
             break;
