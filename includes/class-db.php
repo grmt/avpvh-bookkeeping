@@ -2282,6 +2282,38 @@ class AVBK_DB {
         )) ?: [];
     }
 
+    /**
+     * Contribution fee items of $member_ids (all years, or only $year), each
+     * with ->paid (allocated so far) and ->paid_date (date of the latest
+     * paying transaction, or null). Ordered newest year first.
+     *
+     * @param int[] $member_ids
+     * @return object[]
+     */
+    public static function get_contribution_items_with_payments(array $member_ids, ?int $year = null): array {
+        global $wpdb;
+        $member_ids = array_values(array_filter(array_map('intval', $member_ids)));
+        if (!$member_ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($member_ids), '%d'));
+        $year_sql = $year === null ? '' : ' AND f.year = %d';
+        $params = $year === null ? $member_ids : [...$member_ids, $year];
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $in and $year_sql only hold placeholders
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT f.id, f.member_id, f.year, f.amount_due, f.status,
+                    COALESCE(SUM(a.amount), 0) AS paid, MAX(t.transaction_date) AS paid_date
+             FROM {$wpdb->prefix}avb_fee_items f
+             LEFT JOIN {$wpdb->prefix}avb_transaction_allocations a ON a.fee_item_id = f.id
+             LEFT JOIN {$wpdb->prefix}avb_transactions t ON t.id = a.transaction_id
+             WHERE f.type = 'contribution' AND f.member_id IN ($in)$year_sql
+             GROUP BY f.id
+             ORDER BY f.year DESC, f.id ASC",
+            ...$params
+        )) ?: [];
+        // phpcs:enable
+    }
+
     /** Open fee items for a member, oldest first — the FIFO allocation order. */
     public static function get_open_fee_items_for_member(int $member_id): array {
         global $wpdb;
