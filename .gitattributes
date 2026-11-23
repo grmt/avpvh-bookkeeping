@@ -12,3 +12,4 @@
 /.sonarcloud.properties export-ignore
 /composer.json export-ignore
 /composer.lock export-ignore
+/phpunit.xml.dist export-ignore

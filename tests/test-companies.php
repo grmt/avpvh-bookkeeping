@@ -266,9 +266,9 @@ try {
     $csv = $dir . '/bank.csv';
     $handle = fopen($csv, 'w');
     $csv_bank = $bank; unset($csv_bank['__row_number']);
-    fputcsv($handle, array_keys($csv_bank), ';'); fputcsv($handle, $csv_bank, ';');
+    fputcsv($handle, array_keys($csv_bank), ';', '"', '\\'); fputcsv($handle, $csv_bank, ';', '"', '\\');
     $csv_previous = $csv_bank; $csv_previous['Date'] = '20260630';
-    fputcsv($handle, $csv_previous, ';'); fclose($handle);
+    fputcsv($handle, $csv_previous, ';', '"', '\\'); fclose($handle);
     $result = AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3);
     company_check($result === ['added' => 1, 'duplicates' => 0, 'outside_period' => 1], 'semicolon CSV upload stores selected-quarter rows and reports excluded rows');
     company_check(AVBK_Companies::import(1, $csv, 'bank.csv', 2026, 3) === ['added' => 0, 'duplicates' => 1, 'outside_period' => 1], 'overlapping longer exports do not duplicate transactions');
@@ -532,7 +532,7 @@ try {
     $bad_card = $other_account; $bad_card['Bedrag in EUR'] = 'nonsense';
     company_reject(fn() => AVBK_Company_Cards::prepare($wpdb->companies[1], ['headers' => $card_parsed['headers'], 'rows' => [$card_row, $bad_card]], 2026, 3), 'excluded card rows must still contain valid financial data');
     $card_csv = $dir . '/cards.csv'; $handle = fopen($card_csv, 'w');
-    fputcsv($handle, $card_parsed['headers']); foreach ($card_parsed['rows'] as $r) fputcsv($handle, $r); fclose($handle);
+    fputcsv($handle, $card_parsed['headers'], ',', '"', '\\'); foreach ($card_parsed['rows'] as $r) fputcsv($handle, $r, ',', '"', '\\'); fclose($handle);
     company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3) === ['added' => 4, 'duplicates' => 0, 'outside_account' => 1, 'outside_period' => 1], 'card CSV is saved separately from bank records');
     company_check(AVBK_Company_Cards::import(1, $card_csv, 'cards.csv', 2026, 3)['duplicates'] === 4, 'overlapping card statements do not duplicate purchases');
     $pdf_row = $card_row; $pdf_row['Boekingsdatum'] = '';
@@ -556,7 +556,7 @@ try {
     company_reject(fn() => AVBK_Company_Cards::import_statement(1, $bad_statement, 'statement.pdf', 2026, 3), 'PDF purchase rows must reconcile to the statement total');
     $broken_card_csv = $dir . '/card-rollback.csv'; $handle = fopen($broken_card_csv, 'w');
     $new_purchase = $card_row; $new_purchase['Bedrag in EUR'] = '-242,00';
-    fputcsv($handle, $card_parsed['headers']); fputcsv($handle, $new_purchase); fclose($handle);
+    fputcsv($handle, $card_parsed['headers'], ',', '"', '\\'); fputcsv($handle, $new_purchase, ',', '"', '\\'); fclose($handle);
     $wpdb->fail_insert = true;
     company_reject(fn() => AVBK_Company_Cards::import(1, $broken_card_csv, 'cards.csv', 2026, 3), 'card database failures abort the complete import');
     company_check(count($wpdb->card_transactions) === 4, 'failed card import preserves existing purchases');

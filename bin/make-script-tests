@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Writes tests/phpt/<name>.phpt for every tests/test-*.php that has none.
+# Each .phpt runs the script as its own PHP process (so its stubs and globals
+# stay its own, and exit() works), and PHPUnit measures its coverage. The
+# script fails the test by printing FAIL (or a PHP error), as in CI before.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+for script in tests/test-*.php; do
+    name=$(basename "$script" .php)
+    phpt="tests/phpt/${name#test-}.phpt"
+    [ -e "$phpt" ] && continue
+    cat > "$phpt" <<PHPT
+--TEST--
+$script
+--FILE--
+<?php
+require __DIR__ . '/../../$script';
+--EXPECTREGEX--
+\A(?s)(?!.*(?:\bFAIL\b|Fatal error|Warning: |Deprecated: |Notice: )).*
+PHPT
+    echo "wrote $phpt"
+done

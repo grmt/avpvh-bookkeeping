@@ -5,60 +5,15 @@ on:
   push:
     branches: [main]
   pull_request:
-env:
-  cache-version: 1
 jobs:
+  # The PHP tests run under PHPUnit in the quality job below; this job keeps
+  # the Node and Python tests.
   lint:
-    name: "Tests (PHP ${{ matrix.php }})"
+    name: "Node and Python tests"
     runs-on: ubuntu-latest
-    # The PHP floor (the servers' PHP) and the newest PHP.
-    strategy:
-      matrix:
-        php: ["8.4", "8.5"]
     steps:
       - name: "Checkout"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: "Setup PHP"
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: zip, dom, simplexml, mbstring, fileinfo
-          coverage: none
-
-      - name: "Cache Composer dependencies"
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: "~/.composer/cache"
-          key: composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-${{ hashFiles('composer.json') }}
-          restore-keys: |
-            composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-${{ hashFiles('composer.json') }}
-            composer-dependencies-${{ runner.os }}-${{ env.cache-version }}-
-
-      - name: "Install Composer dependencies"
-        run: |
-          composer install -n --prefer-dist
-
-      - name: "Run test suite"
-        # Loops over every tests/*.php file instead of listing each one as
-        # its own step — a new test file used to need a matching step
-        # added here by hand, and nothing caught it if that was forgotten
-        # (found 2026-10-30: 7 of 16 test files had no step at all, so they
-        # never ran in CI). ::group::/::endgroup:: keeps each test's output
-        # foldable in the Actions log, same readability as separate steps.
-        run: |
-          status=0
-          for f in tests/*.php; do
-            echo "::group::$f"
-            if php "$f"; then
-              echo "PASS: $f"
-            else
-              echo "FAIL: $f"
-              status=1
-            fi
-            echo "::endgroup::"
-          done
-          exit $status
 
       - name: "Company workbook upload browser handler regression"
         run: node tests/test-company-export.cjs
@@ -136,3 +91,18 @@ jobs:
         WordPress.WP.AlternativeFunctions.file_system_operations_fclose
         WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
         WordPress.WP.AlternativeFunctions.file_system_operations_fread
+
+  # PHPUnit on 8.4 and 8.5 with coverage to Codecov, and SonarQube Cloud
+  # (shared with the other own plugins). The tests are the stand-alone
+  # tests/test-*.php: each runs as its own PHP process through
+  # tests/phpt/*.phpt, so its WordPress stand-ins stay its own, and fails by
+  # printing FAIL or a PHP warning/deprecation. bin/make-script-tests adds the
+  # .phpt for a new test. quality.yml adds .sonarcloud.properties to the
+  # settings.
+  quality:
+    name: "Quality"
+    uses: grmt/wp-plugin-ci/.github/workflows/quality.yml@main
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit

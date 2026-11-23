@@ -38,11 +38,11 @@ class AVBK_Csv_Reader {
         $header_line = array_shift($lines);
         $delimiter_map = ['semicolon' => ';', 'comma' => ',', 'tab' => "\t"];
         $delimiter = $delimiter_map[$delimiter_setting] ?? self::detect_delimiter($header_line);
-        $headers = array_map(fn($h) => trim($h, " \t\"'"), str_getcsv($header_line, $delimiter));
+        $headers = array_map(fn($h) => trim($h, " \t\"'"), str_getcsv($header_line, $delimiter, '"', '\\'));
 
         $rows = [];
         foreach ($lines as $i => $line) {
-            $cells = str_getcsv($line, $delimiter);
+            $cells = str_getcsv($line, $delimiter, '"', '\\');
             $row = [];
             foreach ($headers as $index => $name) {
                 if ($name === '') {
@@ -63,7 +63,7 @@ class AVBK_Csv_Reader {
     private static function detect_delimiter(string $header_line): string {
         $scores = [];
         foreach ([';' => ';', ',' => ',', "\t" => "\t"] as $key => $delimiter) {
-            $scores[$key] = count(str_getcsv($header_line, $delimiter));
+            $scores[$key] = count(str_getcsv($header_line, $delimiter, '"', '\\'));
         }
         arsort($scores);
         $best = (string) array_key_first($scores);

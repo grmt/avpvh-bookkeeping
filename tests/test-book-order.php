@@ -467,8 +467,8 @@ class Mock_WPDB {
                 if ($mid_match !== null && (int) ($o->member_id ?? 0) !== $mid_match) continue;
                 if ($type_match !== null && ($o->order_type ?? 'book') !== $type_match) continue;
                 $row = clone $o;
-                $row->fee_amount_due = $this->fee_items[$o->fee_item_id]->amount_due ?? $o->total_amount;
-                $row->fee_status = $this->fee_items[$o->fee_item_id]->status ?? 'open';
+                $row->fee_amount_due = $this->fee_items[$o->fee_item_id ?? 0]->amount_due ?? $o->total_amount;
+                $row->fee_status = $this->fee_items[$o->fee_item_id ?? 0]->status ?? 'open';
                 $row->fee_paid = 0.0;
                 $list[] = $row;
             }
@@ -478,8 +478,8 @@ class Mock_WPDB {
             $list = [];
             foreach ($this->book_orders as $o) {
                 $row = clone $o;
-                $row->fee_amount_due = $this->fee_items[$o->fee_item_id]->amount_due ?? $o->total_amount;
-                $row->fee_status = $this->fee_items[$o->fee_item_id]->status ?? 'open';
+                $row->fee_amount_due = $this->fee_items[$o->fee_item_id ?? 0]->amount_due ?? $o->total_amount;
+                $row->fee_status = $this->fee_items[$o->fee_item_id ?? 0]->status ?? 'open';
                 $row->fee_paid = 0.0;
                 $list[] = $row;
             }
