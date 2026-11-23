@@ -21,12 +21,8 @@ class AVBK_Fee_Generation implements AVBK_Component {
         add_action(self::CRON_HOOK, [self::class, 'generate_contribution_fees']);
         add_action('avpvh_activity_participation_saved', [$this, 'on_activity_participation_saved'], 10, 3);
 
-        // avpvh-members saves profile edits through this AJAX action but
-        // currently emits no domain hook after update_member_with_audit().
-        // Register a shutdown refresh before its priority-10 handler runs:
-        // wp_send_json_*() ends the request, but shutdown callbacks still
-        // run after the member row has been committed.
-        add_action('wp_ajax_avpvh_save_member_profile', [$this, 'schedule_member_contribution_refresh'], 1);
+        // Profile edits: AVBK_Member_Fee_Status listens to avpvh-members'
+        // avpvh_mbrs_member_changed and calls generate_contribution_fee_for_member().
     }
 
     public static function schedule_cron(): void {
@@ -48,7 +44,7 @@ class AVBK_Fee_Generation implements AVBK_Component {
         }
     }
 
-    /** Recomputes one member immediately after a profile edit. */
+    /** Recomputes one member immediately after a change to them (see AVBK_Member_Fee_Status). */
     public static function generate_contribution_fee_for_member(int $member_id, ?int $year = null): bool {
         $year = $year ?? (int) current_time('Y');
         $activity = self::get_contribution_activity($year);
@@ -83,24 +79,6 @@ class AVBK_Fee_Generation implements AVBK_Component {
             (int) $activity->id
         );
         return true;
-    }
-
-    /**
-     * Captures the profile target before avpvh-members handles the AJAX
-     * request, then refreshes after that handler has saved (or harmlessly
-     * recomputes the unchanged value if validation rejected the edit).
-     */
-    public function schedule_member_contribution_refresh(): void {
-        $member_id = absint(wp_unslash($_POST['member_id'] ?? 0));
-        if (!$member_id) {
-            $own_member = AVPVH_DB::get_member_by_wp_user(get_current_user_id());
-            $member_id = $own_member ? (int) $own_member->id : 0;
-        }
-        if ($member_id) {
-            add_action('shutdown', static function () use ($member_id): void {
-                self::generate_contribution_fee_for_member($member_id);
-            });
-        }
     }
 
     /** The "Contributie" activity for $year (an avm_camps row, name "Contributie" + year=$year — same convention as a camp), or null if it doesn't exist yet. Created by the 1.8 migration for years with pre-existing rates; otherwise the treasurer creates it via Activiteiten same as a camp. */
