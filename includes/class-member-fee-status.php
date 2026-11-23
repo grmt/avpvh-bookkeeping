@@ -10,7 +10,8 @@ defined('ABSPATH') || exit;
  * A member-year's status comes from their contribution fee items:
  * waived when every item is waived, paid when nothing is left, partial
  * when some money came in, otherwise pending. A member without an item
- * but with a fee-exempt flag counts as waived. An unpaid item in a closed
+ * counts as waived when no item is ever made for them: a fee-exempt flag,
+ * or no rate that covers them (a child under the youngest age bracket). An unpaid item in a closed
  * book year (avbk_closed_through_year) is left out: the books started
  * after it and don't know whether it was paid.
  *
@@ -47,7 +48,7 @@ class AVBK_Member_Fee_Status implements AVBK_Component {
         $result = [];
         foreach ($member_ids as $member_id) {
             $row = self::summarize($by_member[(int) $member_id] ?? [], $year, $closed)
-                ?? self::exempt_row((int) $member_id, $year);
+                ?? self::no_item_row((int) $member_id, $year);
             if ($row) {
                 $result[(int) $member_id] = $row;
             }
@@ -64,7 +65,7 @@ class AVBK_Member_Fee_Status implements AVBK_Component {
         $closed = (int) get_option('avbk_closed_through_year', 0);
         $current_year = (int) current_time('Y');
         $result = [];
-        $exempt = isset($by_year[$current_year]) ? null : self::exempt_row($member_id, $current_year);
+        $exempt = isset($by_year[$current_year]) ? null : self::no_item_row($member_id, $current_year);
         if ($exempt) {
             $result[] = $exempt;
         }
@@ -124,9 +125,9 @@ class AVBK_Member_Fee_Status implements AVBK_Component {
         return $paid > 0.005 ? 'partial' : 'pending';
     }
 
-    /** Waived for a fee-exempt member without an item that year (none is ever generated for them). */
-    private static function exempt_row(int $member_id, int $year): ?array {
-        if (!AVPVH_DB::member_is_fee_exempt($member_id)) {
+    /** Waived for a member without an item that year because none is ever made for them. */
+    private static function no_item_row(int $member_id, int $year): ?array {
+        if (!AVPVH_DB::member_is_fee_exempt($member_id) && !AVBK_Fee_Generation::owes_no_contribution($member_id, $year)) {
             return null;
         }
         return ['year' => $year, 'status' => 'waived', 'amount_due' => 0.0, 'amount_paid' => 0.0, 'paid_date' => null];

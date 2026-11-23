@@ -57,6 +57,22 @@ class AVBK_Fee_Generation implements AVBK_Component {
         }
     }
 
+    /**
+     * True when $year's contribution is set up but no rate covers this
+     * active member (a child younger than the youngest bracket, say), so no
+     * item is ever made for them: they owe nothing, rather than an item
+     * having been missed.
+     */
+    public static function owes_no_contribution(int $member_id, int $year): bool {
+        $activity = self::get_contribution_activity($year);
+        if (!$activity || !AVBK_DB::get_activity_rates((int) $activity->id)) {
+            return false;
+        }
+        $member = AVPVH_DB::get_member($member_id);
+        return $member && $member->status === 'active'
+            && self::compute_activity_rate($member, $activity, 1, "$year-01-01") === null;
+    }
+
     /** Recomputes one member immediately after a change to them (see AVBK_Member_Fee_Status). */
     public static function generate_contribution_fee_for_member(int $member_id, ?int $year = null): bool {
         $year = $year ?? (int) current_time('Y');

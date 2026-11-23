@@ -27,6 +27,7 @@ final class AVPVH_DB {
 final class AVBK_Fee_Generation {
     public static array $refreshed = [];
     public static function generate_contribution_fee_for_member(int $id): bool { self::$refreshed[] = $id; return true; }
+    public static function owes_no_contribution(int $id, int $year): bool { return $id === 10; }
 }
 require dirname(__DIR__) . '/includes/class-member-fee-status.php';
 
@@ -50,7 +51,7 @@ AVBK_DB::$items = [
     item(2, 2025, 20, 20, '2025-05-05'),
     item(6, 2026, 0),
 ];
-$s = AVBK_Member_Fee_Status::statuses(null, [1, 2, 3, 4, 5, 6, 7, 8], 2026);
+$s = AVBK_Member_Fee_Status::statuses(null, [1, 2, 3, 4, 5, 6, 7, 8, 10], 2026);
 check($s[1]['status'] === 'paid' && $s[1]['paid_date'] === '2026-02-10', 'Fully paid, date without time');
 check($s[2]['status'] === 'pending' && $s[2]['amount_paid'] === 0.0, 'Nothing paid is pending');
 check($s[3]['status'] === 'partial' && $s[3]['amount_paid'] === 10.0, 'Some money is partial');
@@ -59,6 +60,7 @@ check($s[5]['status'] === 'paid', 'Overpaid counts as paid');
 check($s[6]['status'] === 'paid', 'Nothing due counts as paid');
 check($s[7]['status'] === 'waived' && $s[7]['amount_due'] === 0.0, 'Fee-exempt member without an item is waived');
 check(!isset($s[8]), 'Member without item and not exempt is left out');
+check($s[10]['status'] === 'waived' && $s[10]['amount_due'] === 0.0, 'Member no rate covers (a toddler) is waived');
 
 $history = AVBK_Member_Fee_Status::member_fees(null, 1);
 check(array_column($history, 'year') === [2026], 'Unpaid item in a closed year is left out');
@@ -72,6 +74,9 @@ check(
     'Waived and paid items together: paid'
 );
 check(AVBK_Member_Fee_Status::summarize([], 2026, 2025) === null, 'No items, no row');
+
+$history = AVBK_Member_Fee_Status::member_fees(null, 10);
+check(count($history) === 1 && $history[0]['status'] === 'waived', 'Member no rate covers gets this year as waived');
 
 $m = AVBK_Member_Fee_Status::manager(null, 12);
 check($m['label'] === 'boekhouding' && str_contains($m['url'], 'page=avbk-members') && str_contains($m['url'], 'member_id=12'), 'Manager links to the member');
