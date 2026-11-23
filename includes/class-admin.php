@@ -3119,105 +3119,181 @@ class AVBK_Admin implements AVBK_Component {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
-
-        $filter_args = ['order_type' => 'book'];
-        $status_filter = sanitize_key(wp_unslash($_GET['status'] ?? ''));
-        $dist_filter   = sanitize_key(wp_unslash($_GET['distribution_status'] ?? 'all'));
-        $pay_filter    = sanitize_key(wp_unslash($_GET['payment_status'] ?? 'all'));
-        $pres_filter   = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
-        $search        = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
-
-        if ($status_filter !== '' && $status_filter !== 'all') {
-            $filter_args['status'] = $status_filter;
+        $filters = self::order_export_filters('book');
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only export filter; the export checks can_manage().
+        $presentation = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
+        if ($presentation !== '' && $presentation !== 'all') {
+            $filters['presentation'] = $presentation;
         }
-        if ($dist_filter !== '' && $dist_filter !== 'all') {
-            $filter_args['distribution_status'] = $dist_filter;
+        self::send_csv('boekbestellingen', self::book_orders_csv(AVBK_DB::get_orders($filters)));
+    }
+
+    public function handle_export_tshirt_orders(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
         }
-        if ($pay_filter !== '' && $pay_filter !== 'all') {
-            $filter_args['payment_status'] = $pay_filter;
+        self::send_csv('tshirt-bestellingen', self::tshirt_orders_csv(AVBK_DB::get_orders(self::order_export_filters('tshirt'))));
+    }
+
+    public function handle_export_tshirt_matrix(): void {
+        if (!$this->can_manage()) {
+            wp_die('Geen toegang.', 403);
         }
-        if ($pres_filter !== '' && $pres_filter !== 'all') {
-            $filter_args['presentation'] = $pres_filter;
-        }
-        if ($search !== '') {
-            $filter_args['search'] = $search;
-        }
+        $unit_price = (float) (get_option('avbk_tshirt_price', AVBK_Tshirt_Order::DEFAULT_PRICE) ?: AVBK_Tshirt_Order::DEFAULT_PRICE);
+        self::send_csv('tshirt-inkoopmatrix', self::tshirt_matrix_csv(AVBK_DB::get_order_matrix('tshirt'), $unit_price));
+    }
 
-        $orders = AVBK_DB::get_orders($filter_args);
+    /** The columns both order exports start with. */
+    private const ORDER_CSV_CONTACT_HEADERS = [
+        'Bestelnummer', 'Datum', 'Status bestelling', 'Lidnummer', 'Voornaam', 'Tussenvoegsel', 'Achternaam',
+        'E-mailadres', 'Telefoonnummer', 'Straat', 'Huisnummer', 'Postcode', 'Woonplaats', 'Land',
+    ];
 
-        $filename = 'boekbestellingen-' . gmdate('Ymd-His') . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
-
-        fputcsv($out, [
-            'Bestelnummer',
-            'Datum',
-            'Status bestelling',
-            'Lidnummer',
-            'Voornaam',
-            'Tussenvoegsel',
-            'Achternaam',
-            'E-mailadres',
-            'Telefoonnummer',
-            'Straat',
-            'Huisnummer',
-            'Postcode',
-            'Woonplaats',
-            'Land',
-            'Aantal exemplaren',
-            'Stukprijs',
-            'Totaalbedrag',
-            'Betaald bedrag',
-            'Betaalstatus',
-            'Uitreiking',
-            'Aanwezig bij presentatie',
-            'Op de hoogte houden',
-            'Opmerkingen',
-        ], ';');
-
+    /**
+     * The book order export: a header row, then one row per order.
+     *
+     * @param object[] $orders
+     * @return list<array<int, mixed>>
+     */
+    public static function book_orders_csv(array $orders): array {
+        $rows = [array_merge(self::ORDER_CSV_CONTACT_HEADERS, [
+            'Aantal exemplaren', 'Stukprijs', 'Totaalbedrag', 'Betaald bedrag', 'Betaalstatus', 'Uitreiking',
+            'Aanwezig bij presentatie', 'Op de hoogte houden', 'Opmerkingen',
+        ])];
         foreach ($orders as $order) {
-            $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
-            $pay_status_label = $order->fee_status === 'waived' ? 'Kwijtgescholden' : ($is_paid ? 'Betaald' : 'Open');
-            $dist_label = match ($order->distribution_status) {
-                'collected'   => 'Opgehaald',
-                'distributed' => 'Uitgereikt',
-                default       => 'In afwachting',
-            };
-
-            fputcsv($out, self::sanitize_csv_row([
-                $order->id,
-                $order->created_at,
-                $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
-                $order->member_id ?: '',
-                $order->first_name,
-                $order->suffix,
-                $order->last_name,
-                $order->email,
-                $order->phone,
-                $order->street,
-                $order->house_number,
-                $order->postal_code,
-                $order->city,
-                $order->country,
+            $rows[] = self::sanitize_csv_row(array_merge(self::order_csv_contact_cells($order), [
                 $order->quantity,
-                number_format((float) $order->unit_price, 2, ',', ''),
-                number_format((float) $order->total_amount, 2, ',', ''),
-                number_format((float) $order->fee_paid, 2, ',', ''),
-                $pay_status_label,
-                $dist_label,
+                self::csv_amount($order->unit_price),
+                self::csv_amount($order->total_amount),
+                self::csv_amount($order->fee_paid),
+                self::order_payment_label($order),
+                self::order_distribution_label($order),
                 !empty($order->attend_presentation) ? 'Ja' : 'Nee',
                 !empty($order->keep_updated) ? 'Ja' : 'Nee',
                 $order->notes ?: '',
-            ]), ';');
+            ]));
         }
+        return $rows;
+    }
 
+    /**
+     * The T-shirt order export: a header row, then one row per order.
+     *
+     * @param object[] $orders
+     * @return list<array<int, mixed>>
+     */
+    public static function tshirt_orders_csv(array $orders): array {
+        $rows = [array_merge(self::ORDER_CSV_CONTACT_HEADERS, [
+            'Bestelde shirts (overzicht)', 'Totaal aantal shirts', 'Totaalbedrag', 'Betaald bedrag', 'Betaalstatus',
+            'Uitreiking', 'Opmerkingen',
+        ])];
+        foreach ($orders as $order) {
+            $items_summary = array_map(static fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", (array) ($order->items ?? []));
+            $rows[] = self::sanitize_csv_row(array_merge(self::order_csv_contact_cells($order), [
+                implode(', ', $items_summary),
+                $order->quantity,
+                self::csv_amount($order->total_amount),
+                self::csv_amount($order->fee_paid),
+                self::order_payment_label($order),
+                self::order_distribution_label($order),
+                $order->notes ?: '',
+            ]));
+        }
+        return $rows;
+    }
+
+    /**
+     * The T-shirt purchase matrix: designs by size, with row and column totals.
+     *
+     * @param array<string, mixed> $matrix AVBK_DB::get_order_matrix()
+     * @return list<array<int, mixed>>
+     */
+    public static function tshirt_matrix_csv(array $matrix, float $unit_price): array {
+        $rows = [self::sanitize_csv_row(array_merge(['Design / Model'], $matrix['variants'], ['Totaal aantal shirts', 'Omzet (EUR)']))];
+        foreach ($matrix['designs'] as $design) {
+            $row_qty = $matrix['totals_by_design'][$design] ?? 0;
+            $row = [$design];
+            foreach ($matrix['variants'] as $var) {
+                $row[] = $matrix['cells'][$design][$var] ?? 0;
+            }
+            $row[] = $row_qty;
+            $row[] = self::csv_amount(round($row_qty * $unit_price, 2));
+            $rows[] = self::sanitize_csv_row($row);
+        }
+        $summary = ['TOTAAL PER MAAT'];
+        foreach ($matrix['variants'] as $var) {
+            $summary[] = $matrix['totals_by_variant'][$var] ?? 0;
+        }
+        $summary[] = $matrix['grand_total'];
+        $summary[] = self::csv_amount($matrix['total_revenue']);
+        $rows[] = self::sanitize_csv_row($summary);
+        return $rows;
+    }
+
+    /** @return array<int, mixed> the ORDER_CSV_CONTACT_HEADERS cells of one order */
+    private static function order_csv_contact_cells(object $order): array {
+        return [
+            $order->id,
+            $order->created_at,
+            $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
+            $order->member_id ?: '',
+            $order->first_name,
+            $order->suffix,
+            $order->last_name,
+            $order->email,
+            $order->phone,
+            $order->street,
+            $order->house_number,
+            $order->postal_code,
+            $order->city,
+            $order->country,
+        ];
+    }
+
+    private static function order_distribution_label(object $order): string {
+        return match ($order->distribution_status) {
+            'collected'   => 'Opgehaald',
+            'distributed' => 'Uitgereikt',
+            default       => 'In afwachting',
+        };
+    }
+
+    /** 12,50: a comma decimal and no thousands separator, as Dutch Excel reads it. */
+    private static function csv_amount(mixed $amount): string {
+        return number_format((float) $amount, 2, ',', '');
+    }
+
+    /**
+     * Sends the rows as a CSV download named <name>-<timestamp>.csv. Nothing
+     * follows it: admin-post.php ends the request after the handler.
+     */
+    private static function send_csv(string $name, array $rows): void {
+        self::download_headers('text/csv', $name . '-' . gmdate('Ymd-His') . '.csv');
+        $out = fopen('php://output', 'w');
+        self::write_csv($out, $rows);
         fclose($out);
-        exit;
+    }
+
+    private static function download_headers(string $content_type, string $filename): void {
+        header("Content-Type: {$content_type}; charset=utf-8");
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+    }
+
+    /**
+     * Semicolon-separated with a UTF-8 BOM, so Dutch Excel opens it as is.
+     * The escape character is passed explicitly: its default is deprecated
+     * since PHP 8.4 and changes later.
+     *
+     * @param resource $handle
+     * @param list<array<int, mixed>> $rows
+     */
+    public static function write_csv($handle, array $rows): void {
+        fwrite($handle, "\xEF\xBB\xBF");
+        foreach ($rows as $row) {
+            fputcsv($handle, $row, ';', '"', '\\');
+        }
     }
 
     /** The order list filters from the export link; empty and "all" mean no filter. */
@@ -3239,130 +3315,6 @@ class AVBK_Admin implements AVBK_Component {
             return 'Kwijtgescholden';
         }
         return (float) $order->fee_paid >= (float) $order->total_amount - 0.005 ? 'Betaald' : 'Open';
-    }
-
-    public function handle_export_tshirt_orders(): void {
-        if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
-        }
-
-        $orders = AVBK_DB::get_orders(self::order_export_filters('tshirt'));
-
-        $filename = 'tshirt-bestellingen-' . gmdate('Ymd-His') . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
-
-        fputcsv($out, [
-            'Bestelnummer',
-            'Datum',
-            'Status bestelling',
-            'Lidnummer',
-            'Voornaam',
-            'Tussenvoegsel',
-            'Achternaam',
-            'E-mailadres',
-            'Telefoonnummer',
-            'Straat',
-            'Huisnummer',
-            'Postcode',
-            'Woonplaats',
-            'Land',
-            'Bestelde shirts (overzicht)',
-            'Totaal aantal shirts',
-            'Totaalbedrag',
-            'Betaald bedrag',
-            'Betaalstatus',
-            'Uitreiking',
-            'Opmerkingen',
-        ], ';');
-
-        foreach ($orders as $order) {
-            $pay_status_label = self::order_payment_label($order);
-            $dist_label = match ($order->distribution_status) {
-                'collected'   => 'Opgehaald',
-                'distributed' => 'Uitgereikt',
-                default       => 'In afwachting',
-            };
-            $items_summary = array_map(static fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", (array) ($order->items ?? []));
-
-            fputcsv($out, self::sanitize_csv_row([
-                $order->id,
-                $order->created_at,
-                $order->status === 'confirmed' ? 'Bevestigd' : 'In afwachting van bevestiging',
-                $order->member_id ?: '',
-                $order->first_name,
-                $order->suffix,
-                $order->last_name,
-                $order->email,
-                $order->phone,
-                $order->street,
-                $order->house_number,
-                $order->postal_code,
-                $order->city,
-                $order->country,
-                implode(', ', $items_summary),
-                $order->quantity,
-                number_format((float) $order->total_amount, 2, ',', ''),
-                number_format((float) $order->fee_paid, 2, ',', ''),
-                $pay_status_label,
-                $dist_label,
-                $order->notes ?: '',
-            ]), ';');
-        }
-
-        fclose($out);
-        exit;
-    }
-
-    public function handle_export_tshirt_matrix(): void {
-        if (!$this->can_manage()) {
-            wp_die('Geen toegang.', 403);
-        }
-
-        $matrix = AVBK_DB::get_order_matrix('tshirt');
-        $unit_price = (float) (get_option('avbk_tshirt_price', AVBK_Tshirt_Order::DEFAULT_PRICE) ?: AVBK_Tshirt_Order::DEFAULT_PRICE);
-
-        $filename = 'tshirt-inkoopmatrix-' . gmdate('Ymd-His') . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
-
-        // Headers
-        $header_row = array_merge(['Design / Model'], $matrix['variants'], ['Totaal aantal shirts', 'Omzet (EUR)']);
-        fputcsv($out, self::sanitize_csv_row($header_row), ';');
-
-        foreach ($matrix['designs'] as $design) {
-            $row_qty = $matrix['totals_by_design'][$design] ?? 0;
-            $row_eur = round($row_qty * $unit_price, 2);
-            $row_data = [$design];
-            foreach ($matrix['variants'] as $var) {
-                $row_data[] = $matrix['cells'][$design][$var] ?? 0;
-            }
-            $row_data[] = $row_qty;
-            $row_data[] = number_format($row_eur, 2, ',', '');
-            fputcsv($out, self::sanitize_csv_row($row_data), ';');
-        }
-
-        // Summary row
-        $summary_row = ['TOTAAL PER MAAT'];
-        foreach ($matrix['variants'] as $var) {
-            $summary_row[] = $matrix['totals_by_variant'][$var] ?? 0;
-        }
-        $summary_row[] = $matrix['grand_total'];
-        $summary_row[] = number_format((float) $matrix['total_revenue'], 2, ',', '');
-        fputcsv($out, self::sanitize_csv_row($summary_row), ';');
-
-        fclose($out);
-        exit;
     }
 
     public function handle_save_order_settings(): void {
@@ -3487,10 +3439,7 @@ class AVBK_Admin implements AVBK_Component {
         if ($format === 'svg') {
             $svg = AVBK_Flyer::generate_qr_svg($item['url']);
             $filename = sanitize_file_name($item['name'] . '-qr.svg');
-            header('Content-Type: image/svg+xml; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Pragma: no-cache');
-            header('Expires: 0');
+            self::download_headers('image/svg+xml', $filename);
             // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded SVG file body, not HTML page output; escaping would corrupt the markup.
             echo $svg;
             exit;
@@ -3498,10 +3447,7 @@ class AVBK_Admin implements AVBK_Component {
 
         $html = AVBK_Flyer::render_flyer_html($item);
         $filename = sanitize_file_name($item['name'] . '-flyer.html');
-        header('Content-Type: text/html; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        self::download_headers('text/html', $filename);
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded HTML file body, not output into an existing page; escaping would corrupt the markup.
         echo $html;
         exit;
