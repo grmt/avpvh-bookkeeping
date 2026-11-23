@@ -44,6 +44,19 @@ class AVBK_Fee_Generation implements AVBK_Component {
         }
     }
 
+    /**
+     * Waives $year's contribution items of a member who became fee-exempt
+     * after they were made. An item that already received money stays as
+     * it is: whether to refund or keep that is the treasurer's call.
+     */
+    private static function waive_unpaid_contribution(int $member_id, int $year): void {
+        foreach (AVBK_DB::get_contribution_items_with_payments([$member_id], $year) as $item) {
+            if ($item->status === 'open' && (float) $item->paid < 0.005) {
+                AVBK_DB::waive_fee_item((int) $item->id);
+            }
+        }
+    }
+
     /** Recomputes one member immediately after a change to them (see AVBK_Member_Fee_Status). */
     public static function generate_contribution_fee_for_member(int $member_id, ?int $year = null): bool {
         $year = $year ?? (int) current_time('Y');
@@ -60,8 +73,10 @@ class AVBK_Fee_Generation implements AVBK_Component {
             return false;
         }
         // Ere-lid (or any future flag with affects_fees=1 — see AVPVH_DB's
-        // "Member flags" section) never gets a contribution item generated.
+        // "Member flags" section) never gets a contribution item generated,
+        // and one made before the flag was set is waived.
         if (AVPVH_DB::member_is_fee_exempt($member_id)) {
+            self::waive_unpaid_contribution($member_id, $year);
             return false;
         }
         $computed = self::compute_activity_rate($member, $activity, 1, "$year-01-01");
