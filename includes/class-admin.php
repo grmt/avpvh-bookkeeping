@@ -3178,7 +3178,7 @@ class AVBK_Admin implements AVBK_Component {
             'Aanwezig bij presentatie',
             'Op de hoogte houden',
             'Opmerkingen',
-        ], ';', '"', '\\');
+        ], ';');
 
         foreach ($orders as $order) {
             $is_paid = $order->fee_status === 'waived' || ((float) $order->fee_paid >= (float) $order->total_amount - 0.005);
@@ -3213,7 +3213,7 @@ class AVBK_Admin implements AVBK_Component {
                 !empty($order->attend_presentation) ? 'Ja' : 'Nee',
                 !empty($order->keep_updated) ? 'Ja' : 'Nee',
                 $order->notes ?: '',
-            ]), ';', '"', '\\');
+            ]), ';');
         }
 
         fclose($out);
@@ -3279,7 +3279,7 @@ class AVBK_Admin implements AVBK_Component {
             'Betaalstatus',
             'Uitreiking',
             'Opmerkingen',
-        ], ';', '"', '\\');
+        ], ';');
 
         foreach ($orders as $order) {
             $pay_status_label = self::order_payment_label($order);
@@ -3312,7 +3312,7 @@ class AVBK_Admin implements AVBK_Component {
                 $pay_status_label,
                 $dist_label,
                 $order->notes ?: '',
-            ]), ';', '"', '\\');
+            ]), ';');
         }
 
         fclose($out);
@@ -3338,7 +3338,7 @@ class AVBK_Admin implements AVBK_Component {
 
         // Headers
         $header_row = array_merge(['Design / Model'], $matrix['variants'], ['Totaal aantal shirts', 'Omzet (EUR)']);
-        fputcsv($out, self::sanitize_csv_row($header_row), ';', '"', '\\');
+        fputcsv($out, self::sanitize_csv_row($header_row), ';');
 
         foreach ($matrix['designs'] as $design) {
             $row_qty = $matrix['totals_by_design'][$design] ?? 0;
@@ -3349,7 +3349,7 @@ class AVBK_Admin implements AVBK_Component {
             }
             $row_data[] = $row_qty;
             $row_data[] = number_format($row_eur, 2, ',', '');
-            fputcsv($out, self::sanitize_csv_row($row_data), ';', '"', '\\');
+            fputcsv($out, self::sanitize_csv_row($row_data), ';');
         }
 
         // Summary row
@@ -3359,7 +3359,7 @@ class AVBK_Admin implements AVBK_Component {
         }
         $summary_row[] = $matrix['grand_total'];
         $summary_row[] = number_format((float) $matrix['total_revenue'], 2, ',', '');
-        fputcsv($out, self::sanitize_csv_row($summary_row), ';', '"', '\\');
+        fputcsv($out, self::sanitize_csv_row($summary_row), ';');
 
         fclose($out);
         exit;
