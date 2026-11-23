@@ -3263,16 +3263,22 @@ class AVBK_Admin implements AVBK_Component {
         return number_format((float) $amount, 2, ',', '');
     }
 
-    /** Sends the rows as a CSV download named <name>-<timestamp>.csv and ends the request. */
-    private static function send_csv(string $name, array $rows): never {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $name . '-' . gmdate('Ymd-His') . '.csv"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+    /**
+     * Sends the rows as a CSV download named <name>-<timestamp>.csv. Nothing
+     * follows it: admin-post.php ends the request after the handler.
+     */
+    private static function send_csv(string $name, array $rows): void {
+        self::download_headers('text/csv', $name . '-' . gmdate('Ymd-His') . '.csv');
         $out = fopen('php://output', 'w');
         self::write_csv($out, $rows);
         fclose($out);
-        exit;
+    }
+
+    private static function download_headers(string $content_type, string $filename): void {
+        header("Content-Type: {$content_type}; charset=utf-8");
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
     }
 
     /**
@@ -3433,10 +3439,7 @@ class AVBK_Admin implements AVBK_Component {
         if ($format === 'svg') {
             $svg = AVBK_Flyer::generate_qr_svg($item['url']);
             $filename = sanitize_file_name($item['name'] . '-qr.svg');
-            header('Content-Type: image/svg+xml; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Pragma: no-cache');
-            header('Expires: 0');
+            self::download_headers('image/svg+xml', $filename);
             // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded SVG file body, not HTML page output; escaping would corrupt the markup.
             echo $svg;
             exit;
@@ -3444,10 +3447,7 @@ class AVBK_Admin implements AVBK_Component {
 
         $html = AVBK_Flyer::render_flyer_html($item);
         $filename = sanitize_file_name($item['name'] . '-flyer.html');
-        header('Content-Type: text/html; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        self::download_headers('text/html', $filename);
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- this is the full downloaded HTML file body, not output into an existing page; escaping would corrupt the markup.
         echo $html;
         exit;

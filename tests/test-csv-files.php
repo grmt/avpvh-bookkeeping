@@ -5,6 +5,8 @@
  */
 define('ABSPATH', __DIR__ . '/');
 define('AVBK_PLUGIN_DIR', dirname(__DIR__) . '/');
+// Hold the PASS lines back, so the handlers' header() calls aren't "after output".
+ob_start();
 
 $GLOBALS['options'] = [];
 $GLOBALS['sheet_body'] = '';
@@ -17,8 +19,25 @@ function is_wp_error($v) { return false; }
 function wp_remote_retrieve_response_code($r) { return 200; }
 function wp_remote_retrieve_body($r) { return $GLOBALS['sheet_body']; }
 interface AVBK_Component { public function register(): void; }
+function current_user_can($cap) { return !empty($GLOBALS['can_manage']); }
+function wp_die($message = '', $code = 0) { throw new RuntimeException((string) $message); }
+function sanitize_key($v) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $v)); }
+function sanitize_text_field($v) { return trim((string) $v); }
+function wp_unslash($v) { return $v; }
 final class AVPVH_DB {
     public static function get_activity(int $id): ?object { return (object) ['name' => 'Excursie']; }
+}
+final class AVPVH_Roles {
+    public static function current_user_has_role(string $role): bool { return false; }
+}
+final class AVBK_Tshirt_Order { const DEFAULT_PRICE = 20.0; }
+final class AVBK_DB {
+    public static array $order_filters = [];
+    public static function get_orders(array $filters): array { self::$order_filters[] = $filters; return []; }
+    public static function get_order_matrix(string $type): array {
+        return ['variants' => ['M'], 'designs' => ['Logo'], 'cells' => ['Logo' => ['M' => 1]], 'totals_by_design' => ['Logo' => 1],
+            'totals_by_variant' => ['M' => 1], 'grand_total' => 1, 'total_revenue' => 0];
+    }
 }
 require AVBK_PLUGIN_DIR . 'includes/class-admin.php';
 require AVBK_PLUGIN_DIR . 'includes/class-sheet-import.php';
@@ -84,6 +103,27 @@ check($rows[0] === ['Design / Model', 'M', 'L', 'Totaal aantal shirts', 'Omzet (
 check($rows[1] === ['Logo', 2, 0, 2, '40,00'], 'Matrix: a missing size counts 0, revenue per design');
 check($rows[2][0] === "'+Jubileum", 'Matrix: a design name that looks like a formula is defused');
 check($rows[3] === ['TOTAAL PER MAAT', 3, 3, 6, '120,00'], 'Matrix: totals per size');
+
+// --- the download handlers -------------------------------------------------------
+$admin = (new ReflectionClass(AVBK_Admin::class))->newInstanceWithoutConstructor();
+/** What a handler sends, or the wp_die() message. */
+function download(object $admin, string $handler): string {
+    ob_start();
+    try {
+        $admin->$handler();
+    } catch (RuntimeException $e) {
+        echo 'DIED: ' . $e->getMessage();
+    }
+    return (string) ob_get_clean();
+}
+check(download($admin, 'handle_export_book_orders') === 'DIED: Geen toegang.', 'Export without the right: refused');
+$GLOBALS['can_manage'] = true;
+$_GET = ['status' => 'all', 'payment_status' => 'open', 'presentation' => 'yes', 's' => ' Anna '];
+check(str_starts_with(download($admin, 'handle_export_book_orders'), "\xEF\xBB\xBFBestelnummer;Datum;"), 'Book export: sends the CSV');
+check(AVBK_DB::$order_filters[0] === ['order_type' => 'book', 'payment_status' => 'open', 'search' => 'Anna', 'presentation' => 'yes'], 'Book export: the list filters, "all" left out');
+$_GET = [];
+check(str_contains(download($admin, 'handle_export_tshirt_orders'), 'Bestelde shirts (overzicht)') && AVBK_DB::$order_filters[1] === ['order_type' => 'tshirt'], 'T-shirt export: sends the CSV, unfiltered');
+check(str_contains(download($admin, 'handle_export_tshirt_matrix'), "Logo;1;1;20,00\n"), 'Matrix export: revenue at the default price');
 
 // --- reading the Google Sheet ---------------------------------------------------------
 $url = 'https://docs.google.com/spreadsheets/d/abc123/edit#gid=5';
