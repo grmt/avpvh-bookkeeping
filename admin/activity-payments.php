@@ -757,15 +757,18 @@ function avbk_render_activity_participants_table($activity_id, $participants, $c
                     <th scope="col" data-col="allergieen" class="avpvh-col-optional">Allergieën</th>
                     <th scope="col" data-col="notities" class="avpvh-col-optional">Notities</th>
                     <th scope="col" data-col="betaald" data-type="number">Betaald</th>
-                    <th scope="col" data-col="totaal" data-type="number">Berekend totaal</th>
+                    <th scope="col" data-col="totaal" data-type="number" data-filter="select">Berekend totaal</th>
+                    <th scope="col" data-col="open" data-type="number">Nog te betalen</th>
+                    <th scope="col" data-col="status" data-filter="select">Status</th>
                     <th scope="col" data-col="betaalverzoek" data-filter="select">Betaalverzoek</th>
                 </tr></thead>
                 <tbody>
-                <?php $participants_paid_total = 0.0; $participants_due_total = 0.0; foreach ($participants as $p) :
+                <?php $participants_paid_total = 0.0; $participants_due_total = 0.0; $participants_open_total = 0.0; foreach ($participants as $p) :
                     $values = avbk_activity_participant_values($p, $activity_id, $config);
                     // Net of refunds, the same value the cell sorts and filters on.
                     $participants_paid_total += $values['paid'] - $values['refunded'];
                     $participants_due_total += $values['due'];
+                    $participants_open_total += $values['open'];
                     ?>
                     <?php avbk_render_activity_participant_row($p, $values, $activity_id); ?>
                 <?php endforeach; ?>
@@ -774,7 +777,8 @@ function avbk_render_activity_participants_table($activity_id, $participants, $c
                     <th scope="row">Totaal</th><td></td><td></td><td></td><td></td><td></td><td></td>
                     <td data-total-col="betaald" data-sort-value="<?php echo esc_attr(number_format($participants_paid_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_paid_total, 2, ',', '.')); ?></td>
                     <td data-total-col="totaal" data-sort-value="<?php echo esc_attr(number_format($participants_due_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_due_total, 2, ',', '.')); ?></td>
-                    <td></td>
+                    <td data-total-col="open" data-sort-value="<?php echo esc_attr(number_format($participants_open_total, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($participants_open_total, 2, ',', '.')); ?></td>
+                    <td></td><td></td>
                 </tr></tfoot>
             </table>
             </div>
@@ -821,7 +825,7 @@ function avbk_render_activity_payments_script(): void {
  * @param array<string, mixed> $values From avbk_activity_participant_values().
  */
 function avbk_render_activity_participant_row(object $p, array $values, int $activity_id): void {
-    ['paid' => $paid, 'refunded' => $refunded, 'due' => $due, 'waived' => $waived, 'remaining' => $remaining, 'registration_meta' => $registration_meta, 'payments' => $payments, 'payment_request' => $payment_request, 'registration_sort' => $registration_sort, 'known_ibans' => $known_ibans, 'bank_names' => $bank_names, 'countries' => $countries] = $values;
+    ['paid' => $paid, 'refunded' => $refunded, 'due' => $due, 'waived' => $waived, 'open' => $open, 'status' => $status, 'remaining' => $remaining, 'registration_meta' => $registration_meta, 'payments' => $payments, 'payment_request' => $payment_request, 'registration_sort' => $registration_sort, 'known_ibans' => $known_ibans, 'bank_names' => $bank_names, 'countries' => $countries] = $values;
     ?>
                     <tr>
                         <td><a href="<?php echo esc_url(add_query_arg(['page' => 'avpvh-member-detail', 'id' => $p->member_id], admin_url('admin.php'))); ?>" target="_blank"><?php echo esc_html(avpvh_format_name($p, 'list')); ?></a></td>
@@ -841,6 +845,10 @@ function avbk_render_activity_participant_row(object $p, array $values, int $act
                         <td data-sort-value="<?php echo esc_attr(number_format($due, 2, '.', '')); ?>">
                             <?php echo esc_html($waived ? 'Kwijtgescholden' : '€ ' . number_format($due, 2, ',', '.')); ?>
                         </td>
+                        <td data-sort-value="<?php echo esc_attr(number_format($open, 2, '.', '')); ?>">
+                            <?php echo esc_html('€ ' . number_format($open, 2, ',', '.')); ?>
+                        </td>
+                        <td><?php echo esc_html($status); ?></td>
                         <td data-filter-value="<?php echo esc_attr($payment_request ? 'Gevraagd' : 'Niet gevraagd'); ?>">
                             <?php avbk_render_activity_payment_request($remaining, $activity_id, $p, $payment_request); ?>
                         </td>
@@ -849,9 +857,9 @@ function avbk_render_activity_participant_row(object $p, array $values, int $act
 }
 
 /**
- * What the participants table shows for one participant: paid, due and
- * remaining from their fee item (the activity price when there is none
- * yet; nothing when it is waived), payments, last payment request,
+ * What the participants table shows for one participant: paid, due,
+ * remaining and status from their fee item (the activity price when there
+ * is none yet; nothing when it is waived), payments, last payment request,
  * registration and bank accounts.
  *
  * Almost every participant has at most one account, so the joined bank
@@ -873,12 +881,16 @@ function avbk_activity_participant_values(object $p, int $activity_id, array $co
     }
     $registration_meta = AVBK_DB::get_sheet_participation_meta($activity_id, (int) $p->member_id);
     $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
+    $remaining = $fee_item && !$waived ? round($due - $paid, 2) : 0.0;
     return [
         'paid' => $paid,
         'refunded' => $refunded,
         'due' => $due,
         'waived' => $waived,
-        'remaining' => $fee_item && !$waived ? round($due - $paid, 2) : 0.0,
+        'remaining' => $remaining,
+        // What is still to come in; an overpayment leaves nothing open, not a negative amount.
+        'open' => max(0.0, $remaining),
+        'status' => avbk_activity_participant_status($fee_item, $waived, $paid, $remaining),
         'registration_meta' => $registration_meta,
         'payments' => $fee_item ? AVBK_DB::get_payments_for_fee_item((int) $fee_item->id) : [],
         'payment_request' => $fee_item ? AVBK_DB::get_last_payment_request((int) $fee_item->id) : null,
@@ -889,6 +901,20 @@ function avbk_activity_participant_values(object $p, int $activity_id, array $co
         'bank_names' => array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_bank_name($k->iban), $known_ibans))),
         'countries' => array_values(array_unique(array_map(fn($k) => AVBK_DB::iban_country($k->iban), $known_ibans))),
     ];
+}
+
+/** Betaald, Deels betaald, Open, Kwijtgescholden, or Geen post when no fee item exists yet. */
+function avbk_activity_participant_status(?object $fee_item, bool $waived, float $paid, float $remaining): string {
+    if (!$fee_item) {
+        return 'Geen post';
+    }
+    if ($waived) {
+        return 'Kwijtgescholden';
+    }
+    if ($remaining <= 0.005) {
+        return 'Betaald';
+    }
+    return $paid > 0.005 ? 'Deels betaald' : 'Open';
 }
 
 /** The participant's known bank accounts. */
