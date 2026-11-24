@@ -9,6 +9,11 @@ interface AVBK_Component { public function register(): void; }
 function is_email($email) { return (bool) filter_var($email, FILTER_VALIDATE_EMAIL); }
 function add_action(...$args): void {}
 function remove_action(...$args): void {}
+final class AVBK_DB {
+    public static function split_fee_description(string $description): array {
+        return preg_match('/^(.*)\s\(([^)]+)\)$/', $description, $m) ? ['base' => $m[1], 'label' => $m[2]] : ['base' => $description, 'label' => ''];
+    }
+}
 require dirname(__DIR__) . '/includes/class-reminders.php';
 
 $failures = 0;
@@ -32,6 +37,25 @@ check($row['reminders'] === 2 && $row['warnings'] === [], 'History, no warnings'
 $warned = AVBK_Reminder_Rules::candidate(2, (object) ['email' => 'lid@avpvh.local'], [$item(12, 10.0, '2026-02-01', 1)], [], true);
 check($warned['warnings'] === ['geen geldig e-mailadres', 'open bericht', 'geschat bedrag'], 'Placeholder address, open dispute and estimate are warned');
 check(!AVBK_Reminder_Rules::has_mail_address(null) && !AVBK_Reminder_Rules::has_mail_address((object) ['email' => 'geen-adres']), 'No member or no valid address');
+
+// item_label() and the labels of a row
+$contribution = (object) ['name' => 'Contributie', 'year' => 2026];
+$camp = (object) ['name' => 'Zonneveld', 'year' => 2026];
+$congress = (object) ['name' => 'Reünie 2026', 'year' => 2026];
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'contribution'], $contribution) === 'Contributie 2026', 'Activity name with its year');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'camp'], $camp) === 'Kamp Zonneveld 2026', 'A camp says Kamp');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'event'], $congress) === 'Reünie 2026', 'No year twice');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'other', 'category' => 'book', 'description' => 'Boek (2 stuks)'], null) === 'Boekbestelling', 'A book order');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'other', 'category' => 'tshirt', 'description' => '1x Shirt (M)'], null) === 'Kledingbestelling', 'A clothing order');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'other', 'category' => 'Schenking', 'description' => 'Schenking'], null) === 'Schenking', 'Another category as it is');
+check(AVBK_Reminder_Rules::item_label((object) ['type' => 'other', 'category' => '', 'description' => 'Losse post (extra)'], null) === 'Losse post', 'Otherwise the description without its detail');
+$labelled = AVBK_Reminder_Rules::candidate(3, $anna, [
+    (object) ['id' => 20, 'remaining' => 50.0, 'created_at' => '2026-01-05 10:00:00', 'type' => 'contribution', 'activity_id' => 3],
+    (object) ['id' => 21, 'remaining' => 16.0, 'created_at' => '2026-03-05 10:00:00', 'type' => 'other', 'category' => 'tshirt', 'description' => '1x Shirt (M)'],
+    (object) ['id' => 22, 'remaining' => 16.0, 'created_at' => '2026-03-06 10:00:00', 'type' => 'other', 'category' => 'tshirt', 'description' => '1x Shirt (L)'],
+], [], false, [3 => $contribution]);
+check($labelled['labels'] === ['Contributie 2026', 'Kledingbestelling'], 'Each label once, sorted');
+check($row['labels'] === [], 'An item without activity, category or description gives no empty label');
 
 // matches()
 check(AVBK_Reminder_Rules::matches($row, $filters, $today), 'Shown with default filters');

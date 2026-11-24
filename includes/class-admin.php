@@ -258,7 +258,9 @@ class AVBK_Admin implements AVBK_Component {
             wp_enqueue_script('avbk-balance-admin', AVBK_PLUGIN_URL . 'assets/balance.js', ['avpvh-sortable-table'], avbk_asset_version('assets/balance.js'), true);
         }
         if (str_contains($hook, 'avbk-reminders')) {
-            wp_enqueue_script('avbk-reminders', AVBK_PLUGIN_URL . 'assets/reminders.js', [], avbk_asset_version('assets/reminders.js'), true);
+            // The selection table is avpvh-members' shared sortable table.
+            wp_enqueue_style('avpvh-sortable-table');
+            wp_enqueue_script('avbk-reminders', AVBK_PLUGIN_URL . 'assets/reminders.js', ['avpvh-sortable-table'], avbk_asset_version('assets/reminders.js'), true);
             wp_localize_script('avbk-reminders', 'avbkReminders', [
                 'ajaxUrl' => admin_url('admin-ajax.php'),
                 'nonce'   => wp_create_nonce('avbk_reminders_batch'),

@@ -64,6 +64,7 @@ function avbk_render_reminder_selection(): void {
     avbk_render_reminder_notices();
     ?>
     <p class="description">Iedereen met een openstaand bedrag buiten afgesloten jaren. Aangevinkt zijn de leden die in de laatste <?php echo esc_html($filters['not_reminded_days']); ?> dagen geen betaalverzoek of herinnering kregen en geen waarschuwing hebben. Vink aan of uit wie een mail krijgt.</p>
+    <p class="description">Zoek of filter in de velden onder de kolomkoppen; klik op een kolomkop om te sorteren. Alleen de aangevinkte leden die je ziet krijgen een mail. De herinnering noemt alles wat een lid open heeft, niet alleen de gefilterde posten.</p>
     <form method="get" style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin:1rem 0">
         <input type="hidden" name="page" value="avbk-reminders">
         <label>Minimaal openstaand (&euro;)<br><input type="text" name="min_amount" value="<?php echo esc_attr(number_format($filters['min_amount'], 2, ',', '')); ?>" size="6" inputmode="decimal"></label>
@@ -78,11 +79,25 @@ function avbk_render_reminder_selection(): void {
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="avbk-reminder-form">
         <?php wp_nonce_field('avbk_reminders_send'); ?>
         <input type="hidden" name="request_key" value="<?php echo esc_attr(wp_generate_uuid4()); ?>">
-        <table class="widefat striped">
+        <div data-avpvh-sortable>
+        <div class="avpvh-table-tools">
+            <input type="search" class="avpvh-table-search" placeholder="Zoek" aria-label="Zoek in de lijst">
+            <span class="avpvh-table-count" aria-live="polite"></span>
+            <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+            <span class="avpvh-col-toggle-panel" hidden></span>
+        </div>
+        <div class="avpvh-table-wrap">
+        <table class="widefat striped avpvh-sortable-table" data-storage-key="avbk_reminders_hidden_cols">
             <thead><tr>
-                <td class="check-column"><input type="checkbox" id="avbk-reminder-all" aria-label="Alles aan- of uitvinken"></td>
-                <th scope="col">Lid</th><th scope="col">Openstaand</th><th scope="col">Posten</th><th scope="col">Oudste post</th>
-                <th scope="col">Herinnerd</th><th scope="col">Laatst gevraagd</th><th scope="col">Let op</th>
+                <td class="check-column"><input type="checkbox" id="avbk-reminder-all" aria-label="Alle zichtbare leden aan- of uitvinken"></td>
+                <th scope="col" data-col="lid">Lid</th>
+                <th scope="col" data-col="openstaand" data-type="number">Openstaand</th>
+                <th scope="col" data-col="posten" data-filter="select" data-filter-sep="|">Posten</th>
+                <th scope="col" data-col="aantal" data-type="number" class="avpvh-col-optional">Aantal</th>
+                <th scope="col" data-col="oudste">Oudste post</th>
+                <th scope="col" data-col="herinnerd" data-filter="select" data-type="number">Herinnerd</th>
+                <th scope="col" data-col="gevraagd">Laatst gevraagd</th>
+                <th scope="col" data-col="letop" data-filter="select" data-filter-sep="|">Let op</th>
             </tr></thead>
             <tbody>
                 <?php foreach ($rows as $row) {
@@ -90,6 +105,8 @@ function avbk_render_reminder_selection(): void {
                 } ?>
             </tbody>
         </table>
+        </div>
+        </div>
         <p>
             <label for="avbk-reminder-intro"><strong>Tekst na &ldquo;Dag [voornaam],&rdquo;</strong></label><br>
             <textarea name="intro" id="avbk-reminder-intro" rows="5" class="large-text"><?php echo esc_textarea(AVBK_Reminder_Rules::intro()); ?></textarea>
@@ -115,12 +132,13 @@ function avbk_render_reminder_row(array $row, bool $selected): void {
                 <tr>
                     <th scope="row" class="check-column"><input type="checkbox" name="member_ids[]" value="<?php echo esc_attr($row['member_id']); ?>" id="<?php echo esc_attr($field); ?>" class="avbk-reminder-member"<?php checked($selected); ?>></th>
                     <td><label for="<?php echo esc_attr($field); ?>"><a href="<?php echo esc_url($member_url); ?>"><?php echo esc_html($member ? avpvh_format_name($member, 'list') : 'onbekend lid #' . $row['member_id']); ?></a></label></td>
-                    <td>&euro; <?php echo esc_html(number_format($row['amount'], 2, ',', '.')); ?></td>
+                    <td data-sort-value="<?php echo esc_attr(number_format($row['amount'], 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format($row['amount'], 2, ',', '.')); ?></td>
+                    <td data-filter-value="<?php echo esc_attr(implode('|', $row['labels'])); ?>"><?php echo esc_html(implode(', ', $row['labels'])); ?></td>
                     <td><?php echo esc_html($row['count']); ?></td>
-                    <td><?php echo $row['oldest'] !== '' ? esc_html(wp_date('d-m-Y', strtotime($row['oldest']))) : '—'; ?></td>
-                    <td><?php echo $row['reminders'] ? esc_html($row['reminders'] . '× (laatst ' . wp_date('d-m-Y', strtotime($row['last_reminder'])) . ')') : 'nog niet'; ?></td>
-                    <td><?php echo esc_html($last_request); ?></td>
-                    <td style="color:#b32d2e"><?php echo esc_html(implode(', ', $row['warnings'])); ?></td>
+                    <td data-sort-value="<?php echo esc_attr($row['oldest']); ?>"><?php echo $row['oldest'] !== '' ? esc_html(wp_date('d-m-Y', strtotime($row['oldest']))) : '—'; ?></td>
+                    <td data-sort-value="<?php echo esc_attr($row['reminders']); ?>" data-filter-value="<?php echo esc_attr($row['reminders'] ? $row['reminders'] . '×' : 'nog niet'); ?>"><?php echo $row['reminders'] ? esc_html($row['reminders'] . '× (laatst ' . wp_date('d-m-Y', strtotime($row['last_reminder'])) . ')') : 'nog niet'; ?></td>
+                    <td data-sort-value="<?php echo esc_attr($row['last_request'] ? substr((string) $row['last_request'], 0, 10) : ''); ?>"><?php echo esc_html($last_request); ?></td>
+                    <td data-filter-value="<?php echo esc_attr($row['warnings'] ? implode('|', $row['warnings']) : 'geen'); ?>" style="color:#b32d2e"><?php echo esc_html(implode(', ', $row['warnings'])); ?></td>
                 </tr>
     <?php
 }

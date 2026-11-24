@@ -18,9 +18,10 @@ class AVBK_Reminder_Rules {
      *
      * @param object[] $items Open items with ->id, ->remaining, ->created_at, ->is_estimated.
      * @param array{reminders?: int, last_reminder?: ?string, last_request?: ?string} $history
-     * @return array{member_id: int, member: ?object, fee_item_ids: int[], amount: float, count: int, oldest: string, reminders: int, last_reminder: ?string, last_request: ?string, warnings: string[]}
+     * @param array<int, object> $activities The items' activities by id, for item_label().
+     * @return array{member_id: int, member: ?object, fee_item_ids: int[], amount: float, count: int, labels: string[], oldest: string, reminders: int, last_reminder: ?string, last_request: ?string, warnings: string[]}
      */
-    public static function candidate(int $member_id, ?object $member, array $items, array $history, bool $disputed): array {
+    public static function candidate(int $member_id, ?object $member, array $items, array $history, bool $disputed, array $activities = []): array {
         $warnings = [];
         if (!self::has_mail_address($member)) {
             $warnings[] = 'geen geldig e-mailadres';
@@ -38,12 +39,47 @@ class AVBK_Reminder_Rules {
             'fee_item_ids'  => array_map(static fn($item) => (int) $item->id, $items),
             'amount'        => round(array_sum(array_map(static fn($item) => (float) $item->remaining, $items)), 2),
             'count'         => count($items),
+            'labels'        => self::item_labels($items, $activities),
             'oldest'        => $dates ? min($dates) : '',
             'reminders'     => (int) ($history['reminders'] ?? 0),
             'last_reminder' => $history['last_reminder'] ?? null,
             'last_request'  => $history['last_request'] ?? null,
             'warnings'      => $warnings,
         ];
+    }
+
+    /**
+     * What an open item is for, short enough to filter on: its activity
+     * ("Contributie 2026", "Kamp Goeblange 2026"), the kind of order, or
+     * else its category or description without the bracketed detail.
+     */
+    public static function item_label(object $item, ?object $activity): string {
+        if ($activity) {
+            $name = trim((string) $activity->name);
+            $year = (int) ($activity->year ?? 0);
+            if ($year && !str_contains($name, (string) $year)) {
+                $name .= " $year";
+            }
+            return ($item->type ?? '') === 'camp' && stripos($name, 'kamp') !== 0 ? "Kamp $name" : $name;
+        }
+        $category = trim((string) ($item->category ?? ''));
+        return match ($category) {
+            'book'   => 'Boekbestelling',
+            'tshirt' => 'Kledingbestelling',
+            ''       => AVBK_DB::split_fee_description((string) ($item->description ?? ''))['base'],
+            default  => $category,
+        };
+    }
+
+    /**
+     * @param object[] $items
+     * @param array<int, object> $activities
+     * @return string[] Each label once, sorted; an empty one is left out.
+     */
+    private static function item_labels(array $items, array $activities): array {
+        $labels = array_unique(array_filter(array_map(static fn($item) => self::item_label($item, $activities[(int) ($item->activity_id ?? 0)] ?? null), $items)));
+        sort($labels, SORT_NATURAL | SORT_FLAG_CASE);
+        return $labels;
     }
 
     /** Whether a member can be mailed: a valid address that isn't a placeholder. */
@@ -107,9 +143,20 @@ class AVBK_Reminder_Rules {
     public static function candidates(): array {
         $history = AVBK_DB::get_request_history();
         $disputed = array_flip(AVBK_DB::get_open_dispute_member_ids());
+        $open = AVBK_DB::get_open_items_by_member();
+        $activities = [];
+        foreach ($open as $items) {
+            foreach ($items as $item) {
+                $activity_id = (int) ($item->activity_id ?? 0);
+                if ($activity_id && !array_key_exists($activity_id, $activities)) {
+                    $activities[$activity_id] = AVPVH_DB::get_activity($activity_id);
+                }
+            }
+        }
+        $activities = array_filter($activities);
         $rows = [];
-        foreach (AVBK_DB::get_open_items_by_member() as $member_id => $items) {
-            $rows[] = self::candidate($member_id, AVPVH_DB::get_member($member_id), $items, $history[$member_id] ?? [], isset($disputed[$member_id]));
+        foreach ($open as $member_id => $items) {
+            $rows[] = self::candidate($member_id, AVPVH_DB::get_member($member_id), $items, $history[$member_id] ?? [], isset($disputed[$member_id]), $activities);
         }
         usort($rows, static fn($a, $b) => $b['amount'] <=> $a['amount']);
         return $rows;
