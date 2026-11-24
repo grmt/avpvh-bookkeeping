@@ -5,7 +5,8 @@
  * long F-form when the selection can't be stored. Fictional data only.
  */
 define('ABSPATH', __DIR__ . '/');
-function get_option($name, $default = false) { return $default; }
+function get_option($name, $default = false) { return ['avbk_club_iban' => 'NL00TEST0123456789', 'avbk_club_name' => 'Testclub'][$name] ?? $default; }
+function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
 final class AVBK_DB {
     public static bool $can_store = true;
     /** "ids" => reference id */
@@ -43,6 +44,11 @@ check(AVBK_QR::short_reference_code(40, [601, 51]) === 'PVH-40-B2', 'Whatever or
 
 $combined = AVBK_QR::remittance_for_combined([['item' => $fee, 'name' => 'Anna'], ['item' => $shirt, 'name' => 'Bram']], 40);
 check(str_starts_with($combined, 'PVH-40-B2: Anna: Contributie 2026'), 'The combined QR uses the short reference too');
+
+check(AVBK_QR::manual_reference(40, $shirt) === 'PVH-40-B1: Lustrumkleding', 'The reference to type by hand is the same one');
+$html = AVBK_QR::manual_transfer_html(40, (object) ['id' => 601, 'description' => 'Shirt <M>']);
+check(str_contains($html, 'NL00TEST0123456789') && str_contains($html, 'Testclub'), 'The manual transfer names the IBAN and the club');
+check(str_contains($html, '<code>PVH-40-B1: Shirt &lt;M&gt;</code>'), 'and the escaped reference');
 
 AVBK_DB::$can_store = false;
 check(AVBK_QR::remittance_for_fee_item(40, $shirt) === 'PVH-40-F601: Lustrumkleding 2026', 'Without storage the long form is used');

@@ -643,11 +643,7 @@ class AVBK_Book_Order implements AVBK_Component {
                             <?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode ?>
                         </div>
                         <p class="avbk-book-qr-hint">Gebruik de scanfunctie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling direct klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
-                        <p class="avbk-book-qr-ref">
-                            Bij een handmatige overschrijving:<br>
-                            IBAN: <code><?php echo esc_html(get_option('avbk_club_iban', '')); ?></code> t.n.v. <code><?php echo esc_html(get_option('avbk_club_name', '')); ?></code><br>
-                            Referentie: <strong><code><?php echo esc_html((class_exists('AVBK_QR') ? AVBK_QR::short_reference_code((int) $order->member_id, [(int) $fee_item->id]) : ('PVH-' . $order->member_id)) . ': ' . $fee_item->description); ?></code></strong>
-                        </p>
+                        <?php echo AVBK_QR::manual_transfer_html((int) $order->member_id, $fee_item); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in the helper ?>
                     <?php else : ?>
                         <p>Bedrag: &euro; <?php echo esc_html(number_format((float) $order->total_amount, 2, ',', '.')); ?></p>
                         <p>Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) voor betalingsinstructies.</p>

@@ -68,6 +68,19 @@ class AVBK_QR {
         return $reference_id ? self::reference_code($member_id) . '-B' . $reference_id : self::fee_reference_code($member_id, $fee_item_ids);
     }
 
+    /** What to type as omschrijving for one fee item: the short reference, then what it is for. */
+    public static function manual_reference(int $member_id, object $fee_item): string {
+        return self::short_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
+    }
+
+    /** The "Bij een handmatige overschrijving" paragraph under an order's QR code: IBAN, name and manual_reference(). */
+    public static function manual_transfer_html(int $member_id, object $fee_item): string {
+        return '<p class="avbk-book-qr-ref">Bij een handmatige overschrijving:<br>'
+            . 'IBAN: <code>' . esc_html((string) get_option('avbk_club_iban', '')) . '</code>'
+            . ' t.n.v. <code>' . esc_html((string) get_option('avbk_club_name', '')) . '</code><br>'
+            . 'Referentie: <strong><code>' . esc_html(self::manual_reference($member_id, $fee_item)) . '</code></strong></p>';
+    }
+
     /**
      * EPC069-12 "BCD" payload, one field per line. BIC (field 5) is left
      * blank — allowed for IBANs from SEPA countries, which covers every
