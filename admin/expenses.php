@@ -454,8 +454,8 @@ function avbk_render_expense_edit_dialog(object $expense, string $dialog, int $y
                             <input type="hidden" name="action" value="avbk_edit_expense">
                             <input type="hidden" name="expense_id" value="<?php echo esc_attr($expense->id); ?>">
                             <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
-                            <?php avbk_render_expense_kind_field($field, AVBK_Expenses::editable_kinds($expense), (string) $expense->kind); ?>
-                            <?php if (count(AVBK_Expenses::editable_kinds($expense)) === 1) : ?>
+                            <?php avbk_render_expense_kind_field($field, AVBK_Expense_Edits::editable_kinds($expense), (string) $expense->kind); ?>
+                            <?php if (count(AVBK_Expense_Edits::editable_kinds($expense)) === 1) : ?>
                                 <p class="description">Deze uitgave is gekoppeld aan een declaratie of een binnengekomen betaling. Een andere soort kies je door de verantwoording te verwijderen en opnieuw te verantwoorden.</p>
                             <?php endif; ?>
                             <?php avbk_render_expense_detail_fields($field, [

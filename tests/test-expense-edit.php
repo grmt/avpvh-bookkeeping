@@ -43,7 +43,7 @@ final class AVBK_DB {
     public static function get_expenses_for_year(int $year): array { return array_map(static fn($e) => (object) $e, array_values(self::$expenses)); }
     public static function get_expense_categories(): array { return ['Accommodatie']; }
 }
-require dirname(__DIR__) . '/includes/class-expenses.php';
+require dirname(__DIR__) . '/includes/class-expense-edits.php';
 require dirname(__DIR__) . '/admin/expenses.php';
 
 $failures = 0;
@@ -63,16 +63,16 @@ $other = AVBK_DB::get_expense(1);
 $linked = AVBK_DB::get_expense(2);
 
 // What may change
-check(AVBK_Expenses::edit_rejection($other, 'invoice', ['supplier' => 'Kampeerboerderij', 'document' => false]) === 'no_document', 'An invoice still needs a document');
-check(AVBK_Expenses::edit_rejection($other, 'invoice', ['supplier' => '', 'document' => true]) === 'no_supplier', 'and a supplier');
-check(AVBK_Expenses::edit_rejection($other, 'invoice', ['supplier' => 'Kampeerboerderij', 'document' => true]) === null, 'Overig can become an invoice');
-check(AVBK_Expenses::edit_rejection($other, 'other', ['note' => ' ']) === 'no_note', 'Overig keeps needing a note');
-check(AVBK_Expenses::edit_rejection($other, 'reimbursement', ['document' => false]) === 'no_reimbursement', 'A declaratie outside the site needs the receipt');
-check(AVBK_Expenses::edit_rejection($other, 'returned_payment', []) === 'kind_fixed', 'It can not become a returned payment');
-check(AVBK_Expenses::edit_rejection($other, 'gift', []) === 'unknown_kind', 'Unknown kind');
-check(AVBK_Expenses::edit_rejection($linked, 'reimbursement', ['document' => false]) === null, 'A linked declaratie keeps its kind, no receipt needed');
-check(AVBK_Expenses::edit_rejection($linked, 'other', ['note' => 'x']) === 'kind_fixed', 'but can not change kind');
-check(array_keys(AVBK_Expenses::editable_kinds($linked)) === ['reimbursement'] && !isset(AVBK_Expenses::editable_kinds($other)['returned_payment']), 'The kinds offered');
+check(AVBK_Expense_Edits::rejection($other, 'invoice', ['supplier' => 'Kampeerboerderij', 'document' => false]) === 'no_document', 'An invoice still needs a document');
+check(AVBK_Expense_Edits::rejection($other, 'invoice', ['supplier' => '', 'document' => true]) === 'no_supplier', 'and a supplier');
+check(AVBK_Expense_Edits::rejection($other, 'invoice', ['supplier' => 'Kampeerboerderij', 'document' => true]) === null, 'Overig can become an invoice');
+check(AVBK_Expense_Edits::rejection($other, 'other', ['note' => ' ']) === 'no_note', 'Overig keeps needing a note');
+check(AVBK_Expense_Edits::rejection($other, 'reimbursement', ['document' => false]) === 'no_reimbursement', 'A declaratie outside the site needs the receipt');
+check(AVBK_Expense_Edits::rejection($other, 'returned_payment', []) === 'kind_fixed', 'It can not become a returned payment');
+check(AVBK_Expense_Edits::rejection($other, 'gift', []) === 'unknown_kind', 'Unknown kind');
+check(AVBK_Expense_Edits::rejection($linked, 'reimbursement', ['document' => false]) === null, 'A linked declaratie keeps its kind, no receipt needed');
+check(AVBK_Expense_Edits::rejection($linked, 'other', ['note' => 'x']) === 'kind_fixed', 'but can not change kind');
+check(array_keys(AVBK_Expense_Edits::editable_kinds($linked)) === ['reimbursement'] && !isset(AVBK_Expense_Edits::editable_kinds($other)['returned_payment']), 'The kinds offered');
 check(AVBK_Expenses::summary($linked) === 'Declaratie — Attenties — declaratie #7', 'Summary: kind, category, details');
 check(AVBK_Expenses::details($other) === ['tweede termijn'], 'Details hold the note');
 
@@ -80,7 +80,7 @@ check(AVBK_Expenses::details($other) === ['tweede termijn'], 'Details hold the n
 function save(array $post): string {
     $_POST = $post;
     try {
-        (new AVBK_Expenses())->handle_edit();
+        (new AVBK_Expense_Edits())->handle_edit();
     } catch (Redirected $redirect) {
         return $GLOBALS['redirect'];
     }

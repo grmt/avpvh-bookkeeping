@@ -26,8 +26,12 @@ class Fake_Expense_WPDB {
         if ($this->fail) {
             return false;
         }
-        $rows = str_ends_with($table, 'avb_expenses') ? 'expenses' : 'transactions';
-        $this->$rows[(int) $where['id']] = $data + $this->$rows[(int) $where['id']];
+        $id = (int) $where['id'];
+        if (str_ends_with($table, 'avb_expenses')) {
+            $this->expenses[$id] = $data + $this->expenses[$id];
+        } else {
+            $this->transactions[$id] = $data + $this->transactions[$id];
+        }
         return 1;
     }
 }

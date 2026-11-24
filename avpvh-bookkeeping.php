@@ -129,6 +129,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-reimbursements.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-refunds.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-expenses.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-expense-edits.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-reminders.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
@@ -153,6 +154,7 @@ add_action('plugins_loaded', function () {
         AVBK_Document_Requests::class,
         AVBK_Reimbursements::class,
         AVBK_Expenses::class,
+        AVBK_Expense_Edits::class,
         AVBK_Reminders::class,
         AVBK_Congress::class,
         AVBK_Product_Payment::class,
