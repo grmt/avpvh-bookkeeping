@@ -17,6 +17,7 @@ class AVPVH_DB {
     public static function get_activity(int $id): ?object { return (object) ['id' => $id, 'year' => 2026, 'type_name' => 'Kamp', 'name' => 'Voorbeeldkamp']; }
 }
 class AVBK_DB {
+    public static function get_unexplained_outgoing(int $min_year = 0): array { return []; }
     public static array $fees = [];
     public static array $transactions = [];
     public static array $allocations = [];

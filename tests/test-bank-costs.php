@@ -5,7 +5,6 @@
  * Fictional data only.
  */
 define('ABSPATH', __DIR__ . '/');
-interface AVBK_Component { public function register(): void; }
 function get_option($name, $default = false) { return ['avbk_club_iban' => 'NL00TEST0123456789', 'avbk_closed_through_year' => 2025][$name] ?? $default; }
 function avbk_log_failure(string $where, string $reason, array $ids = []): void { $GLOBALS['logged'][] = "$where: $reason"; }
 function sanitize_text_field($text) { return trim((string) $text); }

@@ -5,7 +5,6 @@
  * Fictional data only.
  */
 define('ABSPATH', __DIR__ . '/');
-interface AVBK_Component { public function register(): void; }
 function get_option($name, $default = false) { return ['avbk_club_iban' => 'NL00TEST0123456789'][$name] ?? $default; }
 function avbk_log_failure(string $where, string $reason, array $ids = []): void {}
 final class AVBK_Bank_Import_Layout { public static function resolve(): array { return ['csv_delimiter' => ';']; } }
