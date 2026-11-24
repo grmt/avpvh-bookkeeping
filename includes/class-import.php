@@ -104,6 +104,9 @@ class AVBK_Import {
         }
 
         AVBK_DB::update_import_batch_counts($batch_id, $row_count, $matched_count);
+        if (class_exists('AVBK_Bank_Costs')) {
+            AVBK_Bank_Costs::explain_open();
+        }
         return ['batch_id' => $batch_id, 'row_count' => $row_count, 'matched_count' => $matched_count];
     }
 

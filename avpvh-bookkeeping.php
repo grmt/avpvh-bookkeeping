@@ -130,6 +130,7 @@ add_action('plugins_loaded', function () {
     require_once AVBK_PLUGIN_DIR . 'includes/class-refunds.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-expenses.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-expense-edits.php';
+    require_once AVBK_PLUGIN_DIR . 'includes/class-bank-costs.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-reminders.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-congress.php';
     require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';

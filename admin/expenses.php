@@ -236,26 +236,16 @@ function avbk_render_expense_note_field(string $field, string $note): void {
  */
 function avbk_render_expense_document_request(object $tx, array $suggestions): void {
     $request = AVBK_DB::get_document_request_for_transaction((int) $tx->id);
-    $field = 'avbk-expense-' . (int) $tx->id . '-request-member';
     ?>
         <div class="avbk-expense-request" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0">
-            <?php if (!$request) : ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
-                    <?php wp_nonce_field('avbk_request_document'); ?>
-                    <input type="hidden" name="action" value="avbk_request_document">
-                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
-                    <label for="<?php echo esc_attr($field); ?>">Bon opvragen bij</label>
-                    <select name="member_id" id="<?php echo esc_attr($field); ?>" required style="max-width:22em" data-options="avbk-expense-members">
-                        <?php if (!$suggestions) : ?><option value="">&mdash; kies een lid &mdash;</option><?php endif; ?>
-                        <?php if ($suggestions) : ?>
-                            <optgroup label="Voorstel">
-                                <?php foreach ($suggestions as $suggested) : ?><option value="<?php echo esc_attr($suggested->id); ?>"><?php echo esc_html(avpvh_format_name($suggested, 'list')); ?></option><?php endforeach; ?>
-                            </optgroup>
-                        <?php endif; ?>
-                    </select>
-                    <button type="submit" class="button button-small">Bon opvragen</button>
-                </form>
-                <span class="description">Het lid krijgt een mail en kan op de ledenpagina, onder Te doen, een foto of pdf uploaden.</span>
+            <?php if (!$request && $suggestions) : ?>
+                <?php avbk_render_expense_request_form($tx, $suggestions); ?>
+            <?php elseif (!$request) : ?>
+                <details>
+                    <summary>Bon opvragen bij een lid</summary>
+                    <p class="description">Rekening en naam horen bij geen lid. Kies het lid zelf.</p>
+                    <?php avbk_render_expense_request_form($tx, []); ?>
+                </details>
             <?php else :
                 $member = AVPVH_DB::get_member((int) $request->member_id);
                 $name = $member ? avpvh_format_name($member) : 'het lid'; ?>
@@ -305,6 +295,33 @@ function avbk_render_expense_reimbursement_field(string $field, array $reimburse
                     </select>
                 <?php endif; ?>
             </p>
+    <?php
+}
+
+/**
+ * The "Bon opvragen" form: a member to choose, the suggestions first.
+ *
+ * @param object[] $suggestions From AVBK_Document_Requests::suggestions().
+ */
+function avbk_render_expense_request_form(object $tx, array $suggestions): void {
+    $field = 'avbk-expense-' . (int) $tx->id . '-request-member';
+    ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
+                    <?php wp_nonce_field('avbk_request_document'); ?>
+                    <input type="hidden" name="action" value="avbk_request_document">
+                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                    <label for="<?php echo esc_attr($field); ?>">Bon opvragen bij</label>
+                    <select name="member_id" id="<?php echo esc_attr($field); ?>" required style="max-width:22em" data-options="avbk-expense-members">
+                        <?php if (!$suggestions) : ?><option value="">&mdash; kies een lid &mdash;</option><?php endif; ?>
+                        <?php if ($suggestions) : ?>
+                            <optgroup label="Voorstel">
+                                <?php foreach ($suggestions as $suggested) : ?><option value="<?php echo esc_attr($suggested->id); ?>"><?php echo esc_html(avpvh_format_name($suggested, 'list')); ?></option><?php endforeach; ?>
+                            </optgroup>
+                        <?php endif; ?>
+                    </select>
+                    <button type="submit" class="button button-small">Bon opvragen</button>
+                </form>
+                <span class="description">Het lid krijgt een mail en kan op de ledenpagina, onder Te doen, een foto of pdf uploaden.</span>
     <?php
 }
 
