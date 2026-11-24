@@ -918,26 +918,12 @@ class AVBK_Book_Order implements AVBK_Component {
         return [$subject, $body];
     }
 
-    /** Sends the order mail, or $mail ([subject, HTML]) as checked on Mail controleren. */
+    /** Sends the book order mail, or $mail ([subject, HTML]) as checked on Mail controleren. */
     public static function send_order_email(object $order, ?array $mail = null): array {
-        $email = $order->email;
-        if (!is_email($email)) {
+        if (!is_email($order->email)) {
             return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
         }
-        [$subject, $body] = $mail ?? self::order_mail($order);
-
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        $mail_error = '';
-        $capture_error = function ($wp_error) use (&$mail_error) {
-            $mail_error = $wp_error->get_error_message();
-        };
-        add_action('wp_mail_failed', $capture_error);
-        $sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $email, $subject, $body, $headers);
-        remove_action('wp_mail_failed', $capture_error);
-
-        AVBK_DB::mark_order_email_result((int) $order->id, $sent, $mail_error);
-
-        return ['success' => $sent, 'error' => $mail_error];
+        return AVBK_DB::send_order_mail($order, $mail ?? self::order_mail($order));
     }
 
     public function handle_check_email(): void {

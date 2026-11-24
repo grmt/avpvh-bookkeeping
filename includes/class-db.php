@@ -6254,6 +6254,26 @@ class AVBK_DB {
             : ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
     }
 
+    /**
+     * Sends an order's mail ([subject, HTML]) to the order's address and
+     * records the result on the order (email_status / email_error).
+     *
+     * @param array{0: string, 1: string} $mail
+     * @return array{success: bool, error: string}
+     */
+    public static function send_order_mail(object $order, array $mail): array {
+        [$subject, $body] = $mail;
+        $mail_error = '';
+        $capture_error = static function ($wp_error) use (&$mail_error): void {
+            $mail_error = $wp_error->get_error_message();
+        };
+        add_action('wp_mail_failed', $capture_error);
+        $sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, (string) $order->email, $subject, $body, ['Content-Type: text/html; charset=UTF-8']);
+        remove_action('wp_mail_failed', $capture_error);
+        self::mark_order_email_result((int) $order->id, $sent, $mail_error);
+        return ['success' => $sent, 'error' => $mail_error];
+    }
+
     /** The order's mail as [subject, HTML], without sending it; null for an order type without one. */
     public static function order_mail(object $order): ?array {
         $class = self::order_mail_class($order);
