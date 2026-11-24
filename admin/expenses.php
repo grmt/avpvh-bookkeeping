@@ -50,10 +50,16 @@ function avbk_render_expenses_notices(): void {
         'amount_mismatch'   => 'Het bedrag komt niet overeen met de gekozen declaratie of betaling.',
         'no_note'           => 'Beschrijf bij Overig waar de betaling voor was.',
         'not_found'         => 'Deze verantwoording of dit verzoek bestaat niet meer.',
-        'request_failed'    => 'De bon kon niet worden opgevraagd: de rekening van deze betaling hoort niet (meer) bij een lid.',
+        'request_failed'    => 'De bon kon niet worden opgevraagd. Kies het lid aan wie je de bon vraagt.',
     ];
-    if (isset($_GET['document_requested'])) : ?>
-        <div class="notice notice-success is-dismissible"><p>Bon opgevraagd. Het lid ziet het verzoek onder &ldquo;Te doen&rdquo; op de ledenpagina; er is geen mail gestuurd.</p></div>
+    $requested = [
+        'mailed'     => ['success', 'Bon opgevraagd. Het lid heeft een mail gekregen en ziet het verzoek onder &ldquo;Te doen&rdquo; op de ledenpagina.'],
+        'not_mailed' => ['warning', 'Bon opgevraagd. Het lid ziet het verzoek onder &ldquo;Te doen&rdquo; op de ledenpagina, maar de mail is niet verstuurd (zie Verzonden mails).'],
+        'no_address' => ['warning', 'Bon opgevraagd. Het lid ziet het verzoek onder &ldquo;Te doen&rdquo; op de ledenpagina; er is geen mail gestuurd, want het lid heeft geen bruikbaar e-mailadres.'],
+    ];
+    if (isset($_GET['document_requested'])) :
+        [$type, $text] = $requested[sanitize_key(wp_unslash($_GET['document_requested']))] ?? $requested['mailed']; ?>
+        <div class="notice notice-<?php echo esc_attr($type); ?> is-dismissible"><p><?php echo wp_kses($text, []); ?></p></div>
     <?php elseif (isset($_GET['document_request_withdrawn'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Verzoek ingetrokken.</p></div>
     <?php elseif (isset($_GET['explained'])) : ?>
@@ -80,8 +86,11 @@ function avbk_render_expenses_open(int $min_year, int $closed_through_year): voi
         'activities'     => AVPVH_DB::get_activities(),
         'reimbursements' => AVBK_DB::get_reimbursement_candidates(),
         'categories'     => array_values(array_unique(array_merge(AVBK_DB::get_expense_categories(), AVBK_Expenses::DEFAULT_CATEGORIES))),
+        'members'        => AVBK_DB::get_payable_members(),
     ];
     ?>
+    <?php // Every member once for the whole page; assets/expenses.js copies them into each "Bon opvragen" select. ?>
+    <template id="avbk-expense-members"><optgroup label="Alle leden"><?php foreach ($context['members'] as $member) : ?><option value="<?php echo esc_attr($member->id); ?>"><?php echo esc_html(avpvh_format_name($member, 'list')); ?></option><?php endforeach; ?></optgroup></template>
     <datalist id="avbk-expense-categories">
         <?php foreach ($context['categories'] as $category) : ?><option value="<?php echo esc_attr($category); ?>"></option><?php endforeach; ?>
     </datalist>
@@ -96,7 +105,7 @@ function avbk_render_expenses_open(int $min_year, int $closed_through_year): voi
  * One outgoing transaction with its explanation form. Fields carry the kinds
  * they belong to (data-kinds); assets/expenses.js shows only those.
  *
- * @param array{activities: object[], reimbursements: object[], categories: string[]} $context
+ * @param array{activities: object[], reimbursements: object[], categories: string[], members: object[]} $context
  */
 function avbk_render_expense_form(object $tx, array $context): void {
     $field = 'avbk-expense-' . (int) $tx->id;
@@ -113,8 +122,8 @@ function avbk_render_expense_form(object $tx, array $context): void {
         </p>
         <?php if ($member_id) : ?>
             <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage of van tegoed? <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))); ?>">Koppel die bij het lid</a>.</p>
-            <?php avbk_render_expense_document_request($tx, (int) $member_id); ?>
         <?php endif; ?>
+        <?php avbk_render_expense_document_request($tx, $context['members']); ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-expense-form">
             <?php wp_nonce_field('avbk_explain_expense'); ?>
             <input type="hidden" name="action" value="avbk_explain_expense">
@@ -160,25 +169,39 @@ function avbk_render_expense_form(object $tx, array $context): void {
 }
 
 /**
- * The receipt asked from the member this payment went to: a button to ask
- * for it, or whether it came in yet, with a withdraw button. Separate
- * forms, outside the explanation form.
+ * The receipt asked from a member for this payment: a member to choose
+ * (the account's and look-alike names first) and a button to ask, or
+ * whether it came in yet, with a withdraw button. Separate forms, outside
+ * the explanation form.
+ *
+ * @param object[] $members Every member that can be asked.
  */
-function avbk_render_expense_document_request(object $tx, int $member_id): void {
+function avbk_render_expense_document_request(object $tx, array $members): void {
     $request = AVBK_DB::get_document_request_for_transaction((int) $tx->id);
-    $member = AVPVH_DB::get_member($member_id);
-    $name = $member ? avpvh_format_name($member) : 'het lid';
+    $field = 'avbk-expense-' . (int) $tx->id . '-request-member';
     ?>
         <div class="avbk-expense-request" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0">
-            <?php if (!$request) : ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <?php if (!$request) :
+                $suggestions = AVBK_Document_Requests::suggestions($tx, $members); ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
                     <?php wp_nonce_field('avbk_request_document'); ?>
                     <input type="hidden" name="action" value="avbk_request_document">
                     <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
-                    <button type="submit" class="button button-small">Bon opvragen bij <?php echo esc_html($name); ?></button>
+                    <label for="<?php echo esc_attr($field); ?>">Bon opvragen bij</label>
+                    <select name="member_id" id="<?php echo esc_attr($field); ?>" required style="max-width:22em" data-options="avbk-expense-members">
+                        <?php if (!$suggestions) : ?><option value="">&mdash; kies een lid &mdash;</option><?php endif; ?>
+                        <?php if ($suggestions) : ?>
+                            <optgroup label="Voorstel">
+                                <?php foreach ($suggestions as $suggested) : ?><option value="<?php echo esc_attr($suggested->id); ?>"><?php echo esc_html(avpvh_format_name($suggested, 'list')); ?></option><?php endforeach; ?>
+                            </optgroup>
+                        <?php endif; ?>
+                    </select>
+                    <button type="submit" class="button button-small">Bon opvragen</button>
                 </form>
-                <span class="description">Komt als taak op de ledenpagina, zonder mail.</span>
-            <?php else : ?>
+                <span class="description">Het lid krijgt een mail en kan op de ledenpagina, onder Te doen, een foto of pdf uploaden.</span>
+            <?php else :
+                $member = AVPVH_DB::get_member((int) $request->member_id);
+                $name = $member ? avpvh_format_name($member) : 'het lid'; ?>
                 <span>
                     <?php if ($request->document_path !== '') : ?>
                         <strong>Bon ontvangen</strong> van <?php echo esc_html($name); ?> op <?php echo esc_html(wp_date('d-m-Y', strtotime((string) $request->uploaded_at))); ?>:
