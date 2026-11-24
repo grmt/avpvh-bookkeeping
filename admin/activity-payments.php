@@ -867,7 +867,10 @@ function avbk_activity_participant_values(object $p, int $activity_id, array $co
     $refunded = $fee_item && $paid > 0.005 ? AVBK_DB::get_refunded_for_fee_item((int) $fee_item->id) : 0.0;
     // A waived item (an honorary member's contribution, say) is owed by no one.
     $waived = $fee_item && $fee_item->status === 'waived';
-    $due = $waived ? 0.0 : ($fee_item ? (float) $fee_item->amount_due : (float) $config['price_per_person']);
+    $due = $fee_item ? (float) $fee_item->amount_due : (float) $config['price_per_person'];
+    if ($waived) {
+        $due = 0.0;
+    }
     $registration_meta = AVBK_DB::get_sheet_participation_meta($activity_id, (int) $p->member_id);
     $known_ibans = AVBK_DB::get_own_known_ibans((int) $p->member_id);
     return [
