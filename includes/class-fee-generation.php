@@ -7,7 +7,8 @@ defined('ABSPATH') || exit;
  *  - contribution fee items: a daily cron tick (cheap to run daily since
  *    upserting an already-open item is a harmless no-op / self-heals if
  *    the rate table gets corrected mid-year) creates/refreshes this
- *    year's item for every active member.
+ *    year's item for every active member, and makes each one a
+ *    participant of that year's Contributie activity.
  *  - camp fee items: created/refreshed live whenever activity participation
  *    is saved (avpvh_activity_participation_saved, fired from avpvh-members'
  *    AVPVH_DB::save_participation()), so they track nights/attendance
@@ -88,6 +89,7 @@ class AVBK_Fee_Generation implements AVBK_Component {
         if (!$member || $member->status !== 'active') {
             return false;
         }
+        self::ensure_contribution_participation($member_id, (int) $activity->id);
         // Ere-lid (or any future flag with affects_fees=1 — see AVPVH_DB's
         // "Member flags" section) never gets a contribution item generated,
         // and one made before the flag was set is waived.
@@ -110,6 +112,18 @@ class AVBK_Fee_Generation implements AVBK_Component {
             (int) $activity->id
         );
         return true;
+    }
+
+    /**
+     * Every active member takes part in the year's contribution, so
+     * Deelname en betalingen lists all of them, also an ere-lid or a young
+     * child who owes nothing. Only adds a missing participation: an
+     * existing one, with its notes, is left as it is.
+     */
+    private static function ensure_contribution_participation(int $member_id, int $activity_id): void {
+        if (!AVPVH_DB::get_participation($member_id, $activity_id)) {
+            AVPVH_DB::save_participation($member_id, $activity_id, ['nights' => null]);
+        }
     }
 
     /** The "Contributie" activity for $year (an avm_camps row, name "Contributie" + year=$year — same convention as a camp), or null if it doesn't exist yet. Created by the 1.8 migration for years with pre-existing rates; otherwise the treasurer creates it via Activiteiten same as a camp. */

@@ -17,6 +17,8 @@ final class AVPVH_DB {
     public static function get_member(int $id): ?object { return $GLOBALS['members'][$id] ?? (object) ['id' => $id, 'status' => 'active']; }
     public static function get_flags_for_member(int $id): array { return []; }
     public static function member_is_fee_exempt(int $id): bool { return $id !== 4; }
+    public static function get_participation(int $member_id, int $activity_id): ?object { return null; }
+    public static function save_participation(int $member_id, int $activity_id, array $fields): int { return 1; }
     public static function get_activity_by_name_year(string $name, int $year): ?object { return (object) ['id' => 3, 'year' => $year]; }
 }
 final class AVBK_DB {
