@@ -4611,6 +4611,32 @@ class AVBK_DB {
     }
 
     /**
+     * Changes an explanation's own fields (kind, category, supplier,
+     * activity, note, document). A change takes back an earlier Tweede
+     * controle: what was approved is no longer what is there.
+     *
+     * @param array<string, mixed> $data Only the fields that change.
+     */
+    public static function update_expense(int $expense_id, array $data): bool {
+        global $wpdb;
+        $expense = self::get_expense($expense_id);
+        $data = array_intersect_key($data, array_flip(['kind', 'category', 'supplier', 'activity_id', 'note', 'document_path', 'document_name']));
+        if (!$expense || !$data) {
+            return false;
+        }
+        if ($wpdb->update("{$wpdb->prefix}avb_expenses", $data, ['id' => $expense_id]) === false) {
+            return false;
+        }
+        $wpdb->update(
+            "{$wpdb->prefix}avb_transactions",
+            ['second_approved_by' => null, 'second_approved_at' => null],
+            ['id' => (int) $expense->transaction_id]
+        );
+        self::audit('expense.updated', 'transaction', (int) $expense->transaction_id, ['expense_id' => $expense_id, 'fields' => array_keys($data)]);
+        return true;
+    }
+
+    /**
      * Removes an explanation and undoes its side effects. Returns the stored
      * document name ('' when none) for the caller to delete, or null when the
      * expense doesn't exist.

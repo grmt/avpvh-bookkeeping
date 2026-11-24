@@ -1,5 +1,6 @@
 /*
  * Uitgaven: show only the fields that belong to the chosen kind of expense,
+ * open the edit form of an explained expense,
  * fill each activity select from the one list on the page (the page sends
  * it once instead of once per payment), and take a document dropped
  * anywhere on a payment into that payment's document field.
@@ -18,6 +19,18 @@
         if (source) {
             select.appendChild(source.content.cloneNode(true));
         }
+        if (select.dataset.value) {
+            select.value = select.dataset.value;
+        }
+    });
+    // Verantwoord: "bewerken" opens that expense's edit form.
+    document.querySelectorAll('[data-dialog]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var dialog = document.getElementById(button.getAttribute('data-dialog'));
+            if (dialog) {
+                dialog.showModal();
+            }
+        });
     });
     function hasFiles(event) {
         return event.dataTransfer && Array.prototype.indexOf.call(event.dataTransfer.types, 'Files') !== -1;

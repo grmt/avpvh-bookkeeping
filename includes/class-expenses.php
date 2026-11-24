@@ -162,11 +162,12 @@ class AVBK_Expenses implements AVBK_Component {
 
     /**
      * The posted fields, without those that don't belong to the kind.
+     * Shared with AVBK_Expense_Edits.
      *
      * @return array{supplier: string, category: string, note: string, activity_id: int, reimbursement_id: int, related_transaction_id: int}
      */
-    private static function posted_input(string $kind): array {
-        // phpcs:disable WordPress.Security.NonceVerification.Missing -- handle_explain() checked the nonce.
+    public static function posted_input(string $kind): array {
+        // phpcs:disable WordPress.Security.NonceVerification.Missing -- handle_explain() and AVBK_Expense_Edits::handle_edit() checked the nonce.
         $input = [
             'supplier'               => sanitize_text_field(wp_unslash($_POST['supplier'] ?? '')),
             'category'               => sanitize_text_field(wp_unslash($_POST['category'] ?? '')),
@@ -281,10 +282,22 @@ class AVBK_Expenses implements AVBK_Component {
     /** One-line description of an explanation, for lists and Tweede controle. */
     public static function summary(object $expense): string {
         $parts = [self::KINDS[$expense->kind] ?? $expense->kind];
-        foreach (['supplier', 'category'] as $field) {
-            if (trim((string) $expense->$field) !== '') {
-                $parts[] = (string) $expense->$field;
-            }
+        if (trim((string) $expense->category) !== '') {
+            $parts[] = (string) $expense->category;
+        }
+        return implode(' — ', array_merge($parts, self::details($expense)));
+    }
+
+    /**
+     * What an explanation says besides its kind and category: supplier,
+     * the incoming payment or declaratie it is tied to, and the note.
+     *
+     * @return string[]
+     */
+    public static function details(object $expense): array {
+        $parts = [];
+        if (trim((string) $expense->supplier) !== '') {
+            $parts[] = (string) $expense->supplier;
         }
         if (!empty($expense->related_transaction_id)) {
             $parts[] = 'van transactie #' . (int) $expense->related_transaction_id;
@@ -297,6 +310,6 @@ class AVBK_Expenses implements AVBK_Component {
         if (trim((string) $expense->note) !== '') {
             $parts[] = (string) $expense->note;
         }
-        return implode(' — ', $parts);
+        return $parts;
     }
 }
