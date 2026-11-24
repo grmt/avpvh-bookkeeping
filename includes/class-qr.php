@@ -60,11 +60,25 @@ class AVBK_QR {
      * The short reference to type by hand: PVH-<member>-B<id>, where B<id>
      * stands for exactly these fee items (AVBK_DB::payment_reference_id()).
      * The matcher resolves it like the long F-form. Falls back to the long
-     * form if the selection can't be stored.
+     * form if the selection can't be stored. The QR codes carry it too, so
+     * the mail, the page and a scanned payment all show the same code.
      */
     public static function short_reference_code(int $member_id, array $fee_item_ids): string {
         $reference_id = $fee_item_ids ? AVBK_DB::payment_reference_id($member_id, $fee_item_ids) : 0;
         return $reference_id ? self::reference_code($member_id) . '-B' . $reference_id : self::fee_reference_code($member_id, $fee_item_ids);
+    }
+
+    /** What to type as omschrijving for one fee item: the short reference, then what it is for. */
+    public static function manual_reference(int $member_id, object $fee_item): string {
+        return self::short_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description;
+    }
+
+    /** The "Bij een handmatige overschrijving" paragraph under an order's QR code: IBAN, name and manual_reference(). */
+    public static function manual_transfer_html(int $member_id, object $fee_item): string {
+        return '<p class="avbk-book-qr-ref">Bij een handmatige overschrijving:<br>'
+            . 'IBAN: <code>' . esc_html((string) get_option('avbk_club_iban', '')) . '</code>'
+            . ' t.n.v. <code>' . esc_html((string) get_option('avbk_club_name', '')) . '</code><br>'
+            . 'Referentie: <strong><code>' . esc_html(self::manual_reference($member_id, $fee_item)) . '</code></strong></p>';
     }
 
     /**
@@ -164,7 +178,7 @@ class AVBK_QR {
             $qty = AVBK_DB::fee_item_quantity_label($item);
             $fragments[] = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
         }
-        $reference = self::fee_reference_code($member_id, $fee_item_ids);
+        $reference = self::short_reference_code($member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;
@@ -204,7 +218,7 @@ class AVBK_QR {
         if ($year && !str_contains($description, (string) $year)) {
             $description .= ' ' . $year;
         }
-        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $description;
+        $remittance = self::short_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $description;
         return mb_strlen($remittance) > 140 ? mb_substr($remittance, 0, 139) . '…' : $remittance;
     }
 
@@ -252,7 +266,7 @@ class AVBK_QR {
             $base = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
             $fragments[] = "{$entry['name']}: {$base}";
         }
-        $reference = self::fee_reference_code($reference_member_id, $fee_item_ids);
+        $reference = self::short_reference_code($reference_member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;

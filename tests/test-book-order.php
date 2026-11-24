@@ -86,8 +86,8 @@ class AVBK_QR {
     public static function for_fee_item(int $member_id, object $item): string {
         return '<svg viewBox="0 0 100 100"><rect width="100" height="100"/></svg>';
     }
-    public static function fee_reference_code(int $member_id, array $ids): string {
-        return 'PVH-' . $member_id;
+    public static function manual_transfer_html(int $member_id, object $item): string {
+        return '<p class="avbk-book-qr-ref">Referentie: PVH-' . $member_id . ': ' . htmlspecialchars($item->description) . '</p>';
     }
 }
 

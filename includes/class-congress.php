@@ -100,7 +100,7 @@ class AVBK_Congress implements AVBK_Component {
                 <?php if ($qr) : ?>
                     <div class="avbk-congress-qr"><?php echo $qr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered SVG from chillerlan/php-qrcode, not user input; esc_html() would break the markup. ?></div>
                     <p class="avbk-congress-qr-hint">Gebruik de QR code met de scan functie in je <strong>bankieren app</strong> (niet met de camera app) om de betaling klaar te zetten.<br><?php echo esc_html(AVBK_QR::UNSUPPORTED_BANKS_NOTE); ?></p>
-                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::fee_reference_code((int) $reg->member_id, [(int) $fee_item->id]) . ': ' . $fee_item->description); ?></code></p>
+                    <p class="avbk-congress-qr-ref">Gebruik bij een handmatige overschrijving de referentie:<br><code><?php echo esc_html(AVBK_QR::manual_reference((int) $reg->member_id, $fee_item)); ?></code></p>
                 <?php elseif ($remaining > 0.005) : ?>
                     <p>Er kon geen QR-code worden gegenereerd. Neem contact op met de penningmeester (<?php echo esc_html(get_option('avbk_penningmeester_email', 'info@avphilipsvanhorne.nl')); ?>) om te betalen.</p>
                 <?php endif; ?>
