@@ -26,6 +26,9 @@ function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES); 
 function esc_attr($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
 function esc_url($url) { return (string) $url; }
 function wp_nonce_field($action) { echo '<input type="hidden" name="_wpnonce" value="x">'; }
+function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
+function wp_unslash($value) { return $value; }
+function wp_kses($text, $allowed) { return (string) $text; }
 function avpvh_format_name($member, $style = '') { return $member->first_name . ' ' . $member->last_name; }
 final class AVPVH_Roles { public static function current_user_has_role($role) { return true; } }
 $GLOBALS['member_rows'] = [
@@ -35,6 +38,7 @@ $GLOBALS['member_rows'] = [
 ];
 final class AVPVH_DB {
     public static function get_member(int $id): ?object { return $GLOBALS['member_rows'][$id] ?? null; }
+    public static function get_activities(): array { return [(object) ['id' => 3, 'name' => 'Kamp', 'year' => 2026]]; }
 }
 final class AVBK_Matcher {
     public static function find_payer_candidates(string $name, array $members): array {
@@ -53,9 +57,16 @@ final class AVBK_DB {
         return self::$requests[$transaction_id]->id;
     }
     public static function get_document_request_for_transaction(int $id): ?object { return self::$requests[$id] ?? null; }
+    public static function get_unexplained_outgoing(int $min_year): array { return [$GLOBALS['transactions'][5]]; }
+    public static function get_reimbursement_candidates(): array { return []; }
+    public static function get_expense_categories(): array { return ['Attenties']; }
+    public static function get_payable_members(): array { return array_values($GLOBALS['member_rows']); }
+    public static function get_returned_payment_candidates(object $tx): array { return []; }
+    public static function find_member_id_by_iban(string $iban): ?int { return null; }
     public static function log_mail(array $row): void { $GLOBALS['logged_mails'][] = $row['kind']; }
 }
 require dirname(__DIR__) . '/includes/class-document-requests.php';
+require dirname(__DIR__) . '/includes/class-expenses.php';
 require dirname(__DIR__) . '/admin/expenses.php';
 
 $failures = 0;
@@ -130,6 +141,27 @@ AVBK_DB::create_document_request(5, 71);
 ob_start();
 avbk_render_expense_document_request($shared, $all);
 check(str_contains(ob_get_clean(), 'Bon gevraagd aan Anna Jansen'), 'An open request shows who was asked');
+
+// The open tab: every member once in a template, each payment gets the request
+AVBK_DB::$requests = [];
+ob_start();
+avbk_render_expenses_open(0, 0);
+$page = ob_get_clean();
+check(substr_count($page, '<template id="avbk-expense-members"><optgroup label="Alle leden">') === 1 && substr_count($page, 'value="73"') === 1, 'All members once per page');
+check(str_contains($page, 'name="member_id"') && str_contains($page, 'Bon opvragen'), 'The payment offers the request');
+
+// Notices
+foreach (['mailed' => 'notice-success', 'not_mailed' => 'mail is niet verstuurd', 'no_address' => 'geen bruikbaar e-mailadres', 'odd' => 'heeft een mail gekregen'] as $outcome => $expected) {
+    $_GET = ['document_requested' => $outcome];
+    ob_start();
+    avbk_render_expenses_notices();
+    check(str_contains(ob_get_clean(), $expected), "Notice for $outcome");
+}
+$_GET = ['explain_failed' => 'request_failed'];
+ob_start();
+avbk_render_expenses_notices();
+check(str_contains(ob_get_clean(), 'Kies het lid aan wie je de bon vraagt'), 'A refused request says to choose the member');
+$_GET = [];
 
 echo $failures === 0 ? "\nAll checks passed.\n" : "\n$failures check(s) failed.\n";
 exit($failures === 0 ? 0 : 1);
