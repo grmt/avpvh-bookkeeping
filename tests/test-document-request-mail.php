@@ -64,7 +64,7 @@ final class AVBK_DB {
     public static function get_expense_categories(): array { return ['Attenties']; }
     public static function get_payable_members(): array { return array_values($GLOBALS['member_rows']); }
     public static function get_returned_payment_candidates(object $tx): array { return []; }
-    public static function find_member_id_by_iban(string $iban): ?int { return null; }
+    public static function find_member_id_by_iban(string $iban): ?int { return $iban === 'NL00TEST0000000001' ? 72 : null; }
     public static function log_mail(array $row): void { $GLOBALS['logged_mails'][] = $row['kind']; }
 }
 require dirname(__DIR__) . '/includes/class-document-requests.php';
@@ -153,6 +153,7 @@ avbk_render_expenses_open(0, 0);
 $page = ob_get_clean();
 check(substr_count($page, '<template id="avbk-expense-members"><optgroup label="Alle leden">') === 1 && substr_count($page, 'value="73"') === 1, 'All members once per page');
 check(str_contains($page, 'name="member_id"') && str_contains($page, 'Bon opvragen'), 'The payment offers the request');
+check(str_contains($page, 'Deze rekening hoort bij een lid') && str_contains($page, 'member_id=72&refund_tx=5">Koppel die bij het lid</a>'), "An account of one member links to that member's refunds");
 check(str_contains($page, 'Gebruik dan Terugbetalen bij <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=72&refund_tx=5">Bram Jansen</a> of <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=71&refund_tx=5">Anna Jansen</a>.'), 'No returned payment found: links to Terugbetalen of each account holder');
 check(str_contains(avbk_expense_refund_links([], 7), 'via het <a href="https://example.test/wp-admin/admin.php?page=avbk-members">Ledenoverzicht</a>'), 'Nobody known: a link to the Ledenoverzicht');
 check(substr_count(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), '<a ') === 1 && !str_contains(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), ' of '), 'One member: one link');
