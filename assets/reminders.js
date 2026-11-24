@@ -7,21 +7,37 @@
 
     var form = document.getElementById('avbk-reminder-form');
     if (form) {
-        var boxes = form.querySelectorAll('.avbk-reminder-member');
         var count = document.getElementById('avbk-reminder-count');
         var all = document.getElementById('avbk-reminder-all');
+        var boxes = function () { return Array.prototype.slice.call(form.querySelectorAll('.avbk-reminder-member')); };
+        // A member hidden by a filter or the search box is never mailed,
+        // even when ticked: only the ticked rows you can see count.
+        var visible = function (box) { return !box.closest('tr').hidden; };
+        var chosen = function () { return boxes().filter(function (box) { return box.checked && visible(box); }); };
         var update = function () {
-            count.textContent = form.querySelectorAll('.avbk-reminder-member:checked').length;
+            count.textContent = chosen().length;
         };
-        boxes.forEach(function (box) { box.addEventListener('change', update); });
+        form.addEventListener('change', function (event) {
+            if (event.target.classList.contains('avbk-reminder-member')) {
+                update();
+            }
+        });
         if (all) {
             all.addEventListener('change', function () {
-                boxes.forEach(function (box) { box.checked = all.checked; });
+                boxes().filter(visible).forEach(function (box) { box.checked = all.checked; });
                 update();
             });
         }
+        form.addEventListener('avpvh-table-filtered', update);
+        // Hidden rows' boxes are left out of what is posted, for every
+        // button (preview, test, send), and put back right after.
+        form.addEventListener('submit', function () {
+            var hidden = boxes().filter(function (box) { return !visible(box) && !box.disabled; });
+            hidden.forEach(function (box) { box.disabled = true; });
+            window.setTimeout(function () { hidden.forEach(function (box) { box.disabled = false; }); }, 0);
+        });
         document.getElementById('avbk-reminder-send').addEventListener('click', function (event) {
-            var n = form.querySelectorAll('.avbk-reminder-member:checked').length;
+            var n = chosen().length;
             if (!n || !window.confirm('Je stuurt ' + n + (n === 1 ? ' herinnering' : ' herinneringen') + '. Doorgaan?')) {
                 event.preventDefault();
             }
