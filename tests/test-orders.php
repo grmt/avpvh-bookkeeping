@@ -130,6 +130,10 @@ function wp_nonce_field(string $action): void {
     echo '<input type="hidden" name="_wpnonce" value="test-nonce">';
 }
 function wp_safe_redirect(string $url): void {
+    if (!empty($GLOBALS['really_exit'])) {
+        $GLOBALS['redirected_to'] = $url;
+        return;
+    }
     $GLOBALS['last_redirect'] = $url;
     throw new RuntimeException("Redirect: $url");
 }
@@ -431,6 +435,18 @@ require_once AVBK_PLUGIN_DIR . 'includes/class-product-payment.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-db.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-tshirt-order.php';
 require_once AVBK_PLUGIN_DIR . 'includes/class-admin.php';
+defined('HOUR_IN_SECONDS') || define('HOUR_IN_SECONDS', 3600);
+require_once AVBK_PLUGIN_DIR . 'includes/class-mail-compose.php';
+require_once AVBK_PLUGIN_DIR . 'includes/class-book-order.php';
+if (!function_exists('wp_kses_post')) {
+    function wp_kses_post($html) { return preg_replace('#<script\b[^>]*>.*?</script>#is', '', (string) $html); }
+}
+if (!function_exists('wp_strip_all_tags')) {
+    function wp_strip_all_tags($text) { return strip_tags((string) $text); }
+}
+if (!function_exists('avbk_log_failure')) {
+    function avbk_log_failure(string $action, string $reason, array $context = []): void { $GLOBALS['failures_logged'][] = "$action: $reason"; }
+}
 
 function check(bool $condition, string $msg): void {
     if (!$condition) throw new RuntimeException("FAILED: $msg");
@@ -931,5 +947,99 @@ $GLOBALS['mail_success'] = $mail_success_before;
 check(!empty($res_del_4['success']) && $res_del_4['mail_sent'] === false, 'A failed cancellation mail is reported, the order is still deleted');
 check(AVBK_DB::delete_order((int) $del_order_4['id'], false)['success'] === false, 'Deleting a deleted order fails');
 
+// -------------------------------------------------------------
+// Test 12: E-mailadres bestelling verwerken: the mail is checked first
+// -------------------------------------------------------------
+$GLOBALS['is_admin'] = true;
+$orders_url = 'https://example.test/wp-admin/admin.php?page=avbk-orders&tab=book';
+$bounced = AVBK_DB::create_order([
+    'order_type' => 'book', 'first_name' => 'Dirk', 'last_name' => 'Jansen', 'email' => 'brma@example.test',
+    'total_amount' => 35.00, 'quantity' => 1,
+    'items' => [['design' => 'book', 'variant' => '', 'quantity' => 1, 'unit_price' => 35.00, 'total_price' => 35.00, 'title' => 'Boek']],
+]);
+$bounced_id = (int) $bounced['id'];
+/** Calls an admin-post handler; returns the redirect URL. */
+$post_handler = static function (string $method, array $post) use ($admin): string {
+    $_POST = $post + ['_wpnonce' => 'test-nonce'];
+    try {
+        $admin->$method();
+    } catch (RuntimeException $e) {
+        return str_starts_with($e->getMessage(), 'Redirect: ') ? substr($e->getMessage(), 10) : $e->getMessage();
+    }
+    return '';
+};
+$draft_key = static function (string $url): string {
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+    return (string) ($q['draft'] ?? '');
+};
+
+$GLOBALS['sent_mails'] = [];
+$url = $post_handler('handle_process_order_email', [
+    'order_id' => (string) $bounced_id, 'email' => 'bram@example.test', 'member_id' => '1',
+    'confirm_order' => '1', 'resend_email' => '1', 'redirect_url' => $orders_url,
+]);
+$key = $draft_key($url);
+$draft = AVBK_Mail_Compose::load_draft($key);
+check(str_contains($url, 'page=avbk-compose-mail') && $draft !== null, 'Versturen opens Mail controleren instead of sending');
+check($GLOBALS['sent_mails'] === [], 'Nothing is sent before Verstuur');
+check(AVBK_DB::get_order($bounced_id)->email === 'bram@example.test' && (int) AVBK_DB::get_order($bounced_id)->member_id === 1, 'The address and member link are saved right away');
+check($draft['kind'] === 'order_confirm' && $draft['to'] === 'bram@example.test' && (int) $draft['order_id'] === $bounced_id && $draft['return_url'] === $orders_url, 'The draft: kind, recipient, order and way back');
+check(str_contains($draft['subject'], 'Doorgraven') || str_contains($draft['subject'], 'bestelling'), 'The draft has the order mail subject');
+check(str_contains($draft['body'], 'Beste Dirk'), 'The draft has the order mail body');
+
+$url = $post_handler('handle_send_composed_mail', ['draft' => $key, 'mail_subject' => 'Gecontroleerd onderwerp', 'mail_body' => '<p>Gecontroleerde tekst</p>']);
+check(count($GLOBALS['sent_mails']) === 1 && $GLOBALS['sent_mails'][0]['to'] === 'bram@example.test'
+    && $GLOBALS['sent_mails'][0]['subject'] === 'Gecontroleerd onderwerp' && str_contains($GLOBALS['sent_mails'][0]['body'], 'Gecontroleerde tekst'), 'Verstuur sends the checked mail to the checked address');
+check(str_starts_with($url, $orders_url) && str_contains($url, 'order_email_processed=' . $bounced_id) && str_contains($url, 'mail_sent=1'), 'Back to Bestellingen with the result');
+check(AVBK_Mail_Compose::load_draft($key) === null, 'A sent draft is gone');
+
+// The order's address changed after the check: nothing is sent.
+$url = $post_handler('handle_process_order_email', ['order_id' => (string) $bounced_id, 'email' => 'bram@example.test', 'resend_email' => '1', 'redirect_url' => $orders_url]);
+$key = $draft_key($url);
+AVBK_DB::update_order_email($bounced_id, 'ander@example.test');
+$GLOBALS['sent_mails'] = [];
+$url = $post_handler('handle_send_composed_mail', ['draft' => $key, 'mail_subject' => 'X', 'mail_body' => '<p>Tekst</p>']);
+check(str_contains($url, 'send_failed=order_changed') && $GLOBALS['sent_mails'] === [], 'Address changed since the check: refused, nothing sent');
+
+// The order is gone, or the mail fails.
+$key = AVBK_Mail_Compose::save_draft(['kind' => 'order_confirm', 'to' => 'x@example.test', 'subject' => 'S', 'html' => '<p>T</p>', 'return_url' => $orders_url, 'order_id' => 99999]);
+check(str_contains($post_handler('handle_send_composed_mail', ['draft' => $key, 'mail_subject' => 'S', 'mail_body' => '<p>T</p>']), 'send_failed=no_order'), 'Order gone: refused');
+$url = $post_handler('handle_process_order_email', ['order_id' => (string) $bounced_id, 'email' => 'bram@example.test', 'resend_email' => '1', 'redirect_url' => $orders_url]);
+$key = $draft_key($url);
+$GLOBALS['mail_success'] = false;
+$url = $post_handler('handle_send_composed_mail', ['draft' => $key, 'mail_subject' => 'S', 'mail_body' => '<p>T</p>']);
+$GLOBALS['mail_success'] = $mail_success_before;
+check(str_contains($url, 'mail_sent=0') && str_contains($url, 'process_error='), 'A failed send is reported on Bestellingen');
+
+// Without "versturen": saved, no mail, no Mail controleren.
+$GLOBALS['sent_mails'] = [];
+$url = $post_handler('handle_process_order_email', ['order_id' => (string) $bounced_id, 'email' => 'bram@example.test', 'redirect_url' => $orders_url]);
+check(str_contains($url, 'order_email_processed=' . $bounced_id) && str_contains($url, 'mail_sent=0') && !str_contains($url, 'avbk-compose-mail') && $GLOBALS['sent_mails'] === [], 'Without versturen: only saved');
+
+// An order type without a mail of its own.
+$GLOBALS['wpdb']->orders[$bounced_id]->order_type = 'other';
+$url = $post_handler('handle_process_order_email', ['order_id' => (string) $bounced_id, 'email' => 'bram@example.test', 'resend_email' => '1', 'redirect_url' => $orders_url]);
+check(str_contains($url, 'process_error=') && !str_contains($url, 'avbk-compose-mail'), 'No mail for this order type: reported, no draft');
+check(AVBK_DB::order_mail(AVBK_DB::get_order($bounced_id)) === null && AVBK_DB::resend_order_email($bounced_id)['success'] === false, 'AVBK_DB has no mail for an unknown order type');
+check(AVBK_DB::resend_order_email(99999)['success'] === false, 'Resending for a missing order fails');
+
+// An order mail to an invalid address is refused, for both order types.
+$invalid = (object) ['id' => 1, 'email' => 'geen-adres', 'order_type' => 'book', 'status' => 'confirmed', 'first_name' => 'X', 'quantity' => 1, 'total_amount' => 35.0, 'confirm_token' => 't'];
+check(AVBK_Book_Order::send_order_email($invalid)['error'] === 'Ongeldig e-mailadres.', 'Book order mail: invalid address refused');
+check(AVBK_Tshirt_Order::send_order_email($invalid)['error'] === 'Ongeldig e-mailadres.', 'T-shirt order mail: invalid address refused');
+
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
+
+// Last: sending the checked mail really ends the request (exit), as in WordPress.
+$GLOBALS['wpdb']->orders[$bounced_id]->order_type = 'book';
+$GLOBALS['wpdb']->orders[$bounced_id]->email = 'bram@example.test';
+$exit_key = AVBK_Mail_Compose::save_draft(['kind' => 'order_confirm', 'to' => 'bram@example.test', 'subject' => 'S', 'html' => '<p>T</p>', 'return_url' => $orders_url, 'order_id' => $bounced_id]);
+$GLOBALS['really_exit'] = true;
+$_POST = ['_wpnonce' => 'test-nonce', 'draft' => $exit_key, 'mail_subject' => 'S', 'mail_body' => '<p>T</p>'];
+register_shutdown_function(static function () use ($orders_url, $bounced_id): void {
+    $ok = str_starts_with($GLOBALS['redirected_to'] ?? '', $orders_url) && str_contains($GLOBALS['redirected_to'], 'order_email_processed=' . $bounced_id);
+    echo ($ok ? 'PASS' : 'FAIL') . " Sending the checked mail ends the request with the redirect\n";
+});
+$admin->handle_send_composed_mail();
+echo "FAIL Still running after the redirect\n";
 

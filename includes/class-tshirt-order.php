@@ -1034,12 +1034,14 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         exit;
     }
 
-    public static function send_order_email(object $order): array {
-        $email = $order->email;
-        if (!is_email($email)) {
-            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
-        }
-
+    /**
+     * The order mail (confirm, or the payment instructions once confirmed)
+     * as [subject, full HTML], without sending it: shown first on Mail
+     * controleren when the penningmeester sends it by hand.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function order_mail(object $order): array {
         $items = !empty($order->items) ? $order->items : AVBK_DB::get_order_items((int) $order->id);
         $total_quantity = (int) ($order->quantity ?? 0);
         if ($total_quantity === 0 && !empty($items)) {
@@ -1105,6 +1107,17 @@ class AVBK_Tshirt_Order implements AVBK_Component {
             . '<strong>Archeologische Vereniging Philips van Horne</strong>'
             . '</p>'
             . '</body></html>';
+
+        return [$subject, $body];
+    }
+
+    /** Sends the order mail, or $mail ([subject, HTML]) as checked on Mail controleren. */
+    public static function send_order_email(object $order, ?array $mail = null): array {
+        $email = $order->email;
+        if (!is_email($email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
+        }
+        [$subject, $body] = $mail ?? self::order_mail($order);
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
         $mail_error = '';

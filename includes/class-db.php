@@ -6242,19 +6242,28 @@ class AVBK_DB {
         }
     }
 
-    public static function resend_order_email(int $id): array {
+    /** Sends the order's mail again, or $mail ([subject, HTML]) as checked on Mail controleren. */
+    public static function resend_order_email(int $id, ?array $mail = null): array {
         $order = self::get_order($id);
         if (!$order) {
             return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
         }
+        $class = self::order_mail_class($order);
+        return $class
+            ? $class::send_order_email($order, $mail)
+            : ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
+    }
 
-        if ($order->order_type === 'tshirt' && class_exists('AVBK_Tshirt_Order')) {
-            return AVBK_Tshirt_Order::send_order_email($order);
-        } elseif ($order->order_type === 'book' && class_exists('AVBK_Book_Order')) {
-            return AVBK_Book_Order::send_order_email($order);
-        }
+    /** The order's mail as [subject, HTML], without sending it; null for an order type without one. */
+    public static function order_mail(object $order): ?array {
+        $class = self::order_mail_class($order);
+        return $class ? $class::order_mail($order) : null;
+    }
 
-        return ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
+    /** The class that writes this order type's mail, if it is loaded. */
+    private static function order_mail_class(object $order): ?string {
+        $class = ['tshirt' => 'AVBK_Tshirt_Order', 'book' => 'AVBK_Book_Order'][$order->order_type ?? ''] ?? null;
+        return $class !== null && class_exists($class) ? $class : null;
     }
 
     public static function update_order_distribution(int $id, string $distribution_status): bool {
