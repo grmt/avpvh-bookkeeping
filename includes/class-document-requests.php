@@ -2,13 +2,17 @@
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/interface-component.php';
 require_once __DIR__ . '/class-documents.php';
+require_once __DIR__ . '/functions-mail.php';
+require_once __DIR__ . '/class-reminder-rules.php';
 
 /**
  * A receipt asked from a member: the penningmeester, on Uitgaven, asks the
  * member a payment went to for its receipt (a declaratie paid outside the
- * site, say). No mail: the member finds it under "Te doen" on the member
- * page and uploads it there. Explaining the payment on Uitgaven then uses
- * that receipt when no other document is chosen (AVBK_Expenses).
+ * site, say). The penningmeester picks the member; the ones the account
+ * belongs to and whose name looks like the payee's come first. The member
+ * gets a mail with a link to "Te doen" on the member page, and uploads a
+ * photo or pdf there. Explaining the payment on Uitgaven then uses that
+ * receipt when no other document is chosen (AVBK_Expenses).
  */
 class AVBK_Document_Requests implements AVBK_Component {
 
@@ -32,7 +36,7 @@ class AVBK_Document_Requests implements AVBK_Component {
         return add_query_arg(['page' => 'avbk-expenses'] + $notice, admin_url('admin.php')) . '#tx-' . $transaction_id;
     }
 
-    /** "Bon opvragen bij lid" on Uitgaven: for an outgoing payment to a member's account. */
+    /** "Bon opvragen" on Uitgaven: asks the chosen member for the receipt of an outgoing payment, and mails them. */
     public function handle_request(): void {
         check_admin_referer('avbk_request_document');
         if (!self::can_manage()) {
@@ -40,14 +44,95 @@ class AVBK_Document_Requests implements AVBK_Component {
         }
         $transaction_id = (int) ($_POST['transaction_id'] ?? 0);
         $tx = AVBK_DB::get_transaction($transaction_id);
-        $member_id = $tx && $tx->direction === 'out' && $tx->counterparty_iban !== '' ? (int) AVBK_DB::find_member_id_by_iban((string) $tx->counterparty_iban) : 0;
-        $notice = ['document_requested' => '1'];
-        if (!$member_id || !AVBK_DB::create_document_request($transaction_id, $member_id)) {
-            avbk_log_failure('document request', $member_id ? 'not_saved' : 'no_member', ['transaction' => $transaction_id]);
-            $notice = ['explain_failed' => 'request_failed', 'tx' => $transaction_id];
+        $member = AVPVH_DB::get_member((int) ($_POST['member_id'] ?? 0));
+        $failure = match (true) {
+            !$tx || $tx->direction !== 'out' => 'no_transaction',
+            !$member                         => 'no_member',
+            !AVBK_DB::create_document_request($transaction_id, (int) $member->id) => 'not_saved',
+            default                          => '',
+        };
+        if ($failure !== '') {
+            avbk_log_failure('document request', $failure, ['transaction' => $transaction_id]);
+            wp_safe_redirect(self::expenses_url($transaction_id, ['explain_failed' => 'request_failed', 'tx' => $transaction_id]));
+            exit;
         }
-        wp_safe_redirect(self::expenses_url($transaction_id, $notice));
+        $mailed = self::mail_request($member, $tx);
+        wp_safe_redirect(self::expenses_url($transaction_id, ['document_requested' => $mailed]));
         exit;
+    }
+
+    /**
+     * Members to offer first for a payment: those the account belongs to,
+     * then those whose name looks like the payee's, each once.
+     *
+     * @param int[]    $iban_member_ids
+     * @param object[] $name_matches From AVBK_Matcher::find_payer_candidates().
+     * @return int[]
+     */
+    public static function suggested_member_ids(array $iban_member_ids, array $name_matches): array {
+        $ids = array_merge(array_map('intval', $iban_member_ids), array_map(static fn($match) => (int) $match['member']->id, $name_matches));
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    /**
+     * The suggestions for one payment, as member objects.
+     *
+     * @param object[] $members Every member that can be asked, for the name match.
+     * @return object[]
+     */
+    public static function suggestions(object $tx, array $members): array {
+        $iban = (string) $tx->counterparty_iban;
+        $ids = self::suggested_member_ids(
+            $iban !== '' ? AVBK_DB::get_member_ids_by_iban($iban) : [],
+            trim((string) $tx->counterparty_name) !== '' ? AVBK_Matcher::find_payer_candidates((string) $tx->counterparty_name, $members) : []
+        );
+        return array_values(array_filter(array_map(static fn($id) => AVPVH_DB::get_member($id), $ids)));
+    }
+
+    /** Where the member uploads the receipt. */
+    public static function member_page_url(int $member_id): string {
+        return add_query_arg(['member_id' => $member_id], home_url('/leden/beheer/member-profile/')) . self::ANCHOR;
+    }
+
+    /**
+     * The mail asking for the receipt.
+     *
+     * @return array{0: string, 1: string} Subject and plain-text body.
+     */
+    public static function request_mail(object $member, object $tx, string $page_url, string $signature): array {
+        $first_name = trim((string) ($member->first_name ?? ''));
+        $description = trim(AVBK_Matcher::strip_name_field((string) $tx->description));
+        $paid = sprintf(
+            '€ %s op %s%s',
+            number_format((float) $tx->amount, 2, ',', '.'),
+            wp_date('d-m-Y', strtotime((string) $tx->transaction_date)),
+            $description !== '' ? ' (' . mb_strimwidth($description, 0, 80, '…') . ')' : ''
+        );
+        $body = ($first_name !== '' ? "Dag {$first_name},\n\n" : '')
+            . "De vereniging heeft je {$paid} betaald. Voor de boekhouding heb ik de bon of factuur daarvan nodig.\n\n"
+            . "Wil je er een foto of pdf van uploaden op je ledenpagina, onder Te doen?\n{$page_url}\n\n"
+            . "Groet,\n{$signature}";
+        return ['[AV-PvH] Bon gevraagd bij een betaling', $body];
+    }
+
+    /** Mails the request; 'mailed', 'not_mailed', or 'no_address' when the member has no usable address. */
+    private static function mail_request(object $member, object $tx): string {
+        if (!AVBK_Reminder_Rules::has_mail_address($member)) {
+            avbk_log_failure('document request mail', 'no_address', ['transaction' => (int) $tx->id]);
+            return 'no_address';
+        }
+        $from = sanitize_email(get_option('avbk_penningmeester_email', 'penningmeester@avphilipsvanhorne.nl'));
+        $signature = sanitize_text_field(get_option('avbk_penningmeester_name', 'de penningmeester'));
+        [$subject, $body] = self::request_mail($member, $tx, self::member_page_url((int) $member->id), $signature);
+        $headers = ['Content-Type: text/plain; charset=UTF-8'];
+        if (is_email($from)) {
+            $headers[] = 'Reply-To: ' . $from;
+        }
+        $sent = avbk_mail('document_request', (int) $member->id, (string) $member->email, $subject, $body, $headers);
+        if (!$sent) {
+            avbk_log_failure('document request mail', 'not_sent', ['transaction' => (int) $tx->id]);
+        }
+        return $sent ? 'mailed' : 'not_mailed';
     }
 
     /** Withdraws a request, with the receipt the member uploaded for it, if any. */

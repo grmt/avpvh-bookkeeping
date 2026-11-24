@@ -17,6 +17,7 @@ const AVBK_MAIL_KINDS = [
     'order_lookup'       => 'Bestelling opzoeken',
     'photo_share'        => "Foto's delen",
     'treasurer_notice'   => 'Melding aan penningmeester',
+    'document_request'   => 'Bon opvragen',
 ];
 
 /**
