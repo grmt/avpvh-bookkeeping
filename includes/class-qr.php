@@ -60,7 +60,8 @@ class AVBK_QR {
      * The short reference to type by hand: PVH-<member>-B<id>, where B<id>
      * stands for exactly these fee items (AVBK_DB::payment_reference_id()).
      * The matcher resolves it like the long F-form. Falls back to the long
-     * form if the selection can't be stored.
+     * form if the selection can't be stored. The QR codes carry it too, so
+     * the mail, the page and a scanned payment all show the same code.
      */
     public static function short_reference_code(int $member_id, array $fee_item_ids): string {
         $reference_id = $fee_item_ids ? AVBK_DB::payment_reference_id($member_id, $fee_item_ids) : 0;
@@ -164,7 +165,7 @@ class AVBK_QR {
             $qty = AVBK_DB::fee_item_quantity_label($item);
             $fragments[] = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
         }
-        $reference = self::fee_reference_code($member_id, $fee_item_ids);
+        $reference = self::short_reference_code($member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;
@@ -204,7 +205,7 @@ class AVBK_QR {
         if ($year && !str_contains($description, (string) $year)) {
             $description .= ' ' . $year;
         }
-        $remittance = self::fee_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $description;
+        $remittance = self::short_reference_code($member_id, [(int) $fee_item->id]) . ': ' . $description;
         return mb_strlen($remittance) > 140 ? mb_substr($remittance, 0, 139) . '…' : $remittance;
     }
 
@@ -252,7 +253,7 @@ class AVBK_QR {
             $base = $qty ? "{$parts['base']} ({$qty})" : $parts['base'];
             $fragments[] = "{$entry['name']}: {$base}";
         }
-        $reference = self::fee_reference_code($reference_member_id, $fee_item_ids);
+        $reference = self::short_reference_code($reference_member_id, $fee_item_ids);
         $summary = implode(', ', $fragments);
         if ($summary === '') {
             return $reference;
