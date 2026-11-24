@@ -131,17 +131,17 @@ check(in_array('document request: no_member', $GLOBALS['failures_logged'], true)
 // The Uitgaven page
 AVBK_DB::$requests = [];
 ob_start();
-avbk_render_expense_document_request($shared, $all);
+avbk_render_expense_document_request($shared, AVBK_Document_Requests::suggestions($shared, $all));
 $html = ob_get_clean();
 check(str_contains($html, 'data-options="avbk-expense-members"') && str_contains($html, '<optgroup label="Voorstel">'), 'A member select with the suggestions, filled with all members by the page script');
 check(strpos($html, 'value="72"') < strpos($html, 'value="71"') && !str_contains($html, 'kies een lid'), 'Suggestions in order, the first one chosen');
 check(str_contains($html, 'krijgt een mail'), 'Says the member is mailed');
 ob_start();
-avbk_render_expense_document_request($nobody, $all);
+avbk_render_expense_document_request($nobody, AVBK_Document_Requests::suggestions($nobody, $all));
 check(str_contains(ob_get_clean(), 'kies een lid'), 'Without a suggestion the member has to be chosen');
 AVBK_DB::create_document_request(5, 71);
 ob_start();
-avbk_render_expense_document_request($shared, $all);
+avbk_render_expense_document_request($shared, AVBK_Document_Requests::suggestions($shared, $all));
 check(str_contains(ob_get_clean(), 'Bon gevraagd aan Anna Jansen'), 'An open request shows who was asked');
 
 // The open tab: every member once in a template, each payment gets the request
@@ -151,6 +151,10 @@ avbk_render_expenses_open(0, 0);
 $page = ob_get_clean();
 check(substr_count($page, '<template id="avbk-expense-members"><optgroup label="Alle leden">') === 1 && substr_count($page, 'value="73"') === 1, 'All members once per page');
 check(str_contains($page, 'name="member_id"') && str_contains($page, 'Bon opvragen'), 'The payment offers the request');
+check(str_contains($page, 'Gebruik dan Terugbetalen bij <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=72&refund_tx=5">Bram Jansen</a> of <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=71&refund_tx=5">Anna Jansen</a>.'), 'No returned payment found: links to Terugbetalen of each account holder');
+check(str_contains(avbk_expense_refund_links([], 7), 'via het <a href="https://example.test/wp-admin/admin.php?page=avbk-members">Ledenoverzicht</a>'), 'Nobody known: a link to the Ledenoverzicht');
+check(substr_count(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), '<a ') === 1 && !str_contains(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), ' of '), 'One member: one link');
+check(str_contains(avbk_expense_refund_links(array_values($GLOBALS['member_rows']), 7), 'Anna Jansen</a>, <a'), 'Three members: a list ending in "of"');
 
 // Notices
 foreach (['mailed' => 'notice-success', 'not_mailed' => 'mail is niet verstuurd', 'no_address' => 'geen bruikbaar e-mailadres', 'odd' => 'heeft een mail gekregen'] as $outcome => $expected) {
