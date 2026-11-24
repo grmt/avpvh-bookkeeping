@@ -4,8 +4,8 @@ defined('ABSPATH') || exit;
 /**
  * "Mail controleren": a mail the penningmeester sends by hand is shown
  * first, with an editable subject and body, and only goes out on
- * "Verstuur". Used for the betaalverzoek from Ledenoverzicht and the
- * cancellation of an order.
+ * "Verstuur". Used for the betaalverzoek from Ledenoverzicht, the
+ * cancellation of an order and the order mail sent again from Bestellingen.
  *
  * The draft lives server side, per user, in a transient: what the send
  * does (which order, which fee items) and the mail's own <body> tag come
@@ -16,7 +16,7 @@ defined('ABSPATH') || exit;
 class AVBK_Mail_Compose implements AVBK_Component {
 
     public const PAGE = 'avbk-compose-mail';
-    public const KINDS = ['payment_request', 'order_cancel'];
+    public const KINDS = ['payment_request', 'order_cancel', 'order_confirm'];
     private const TTL = HOUR_IN_SECONDS;
 
     /** Why "Verstuur" was refused, as shown on the page. */
@@ -25,6 +25,7 @@ class AVBK_Mail_Compose implements AVBK_Component {
         'changed'       => 'De openstaande posten of het tegoed zijn intussen gewijzigd, dus deze mail klopt niet meer. Ga terug en maak het betaalverzoek opnieuw.',
         'invalid_email' => 'Dit lid heeft geen geldig e-mailadres (meer).',
         'no_order'      => 'De bestelling bestaat niet meer.',
+        'order_changed' => 'Het e-mailadres van de bestelling is intussen gewijzigd. Ga terug en verwerk de bestelling opnieuw.',
     ];
 
     public function register(): void {

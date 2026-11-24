@@ -2295,6 +2295,9 @@ class AVBK_Admin implements AVBK_Component {
         if ($draft['kind'] === 'order_cancel') {
             $this->send_order_cancellation($key, $draft, $mail, $back);
         }
+        if ($draft['kind'] === 'order_confirm') {
+            $this->send_order_confirmation($key, $draft, $mail, $back);
+        }
         $this->send_composed_balance_request($key, $draft, $mail, $back);
     }
 
@@ -2313,6 +2316,30 @@ class AVBK_Admin implements AVBK_Component {
             'order_deleted' => $order_id,
             'email_sent'    => $result['mail_sent'] === true ? '1' : 'failed',
         ], $draft['return_url']));
+        exit;
+    }
+
+    /**
+     * Sends the checked order mail to the address it was checked for. When
+     * the order's address changed since, nothing is sent.
+     */
+    private function send_order_confirmation(string $key, array $draft, array $mail, callable $back): void {
+        $order_id = (int) $draft['order_id'];
+        $order = AVBK_DB::get_order($order_id);
+        if (!$order) {
+            $back('no_order');
+        }
+        if (strcasecmp((string) $order->email, (string) $draft['to']) !== 0) {
+            $back('order_changed');
+        }
+        $result = AVBK_DB::resend_order_email($order_id, $mail);
+        AVBK_Mail_Compose::delete_draft($key);
+        $args = ['order_email_processed' => $order_id, 'mail_sent' => !empty($result['success']) ? '1' : '0'];
+        if (empty($result['success'])) {
+            avbk_log_failure('order mail', 'mail_failed', ['order' => $order_id]);
+            $args['process_error'] = urlencode('E-mailadres bijgewerkt, maar verzenden mislukte: ' . ($result['error'] ?: 'onbekende fout'));
+        }
+        wp_safe_redirect(add_query_arg($args, $draft['return_url']));
         exit;
     }
 
@@ -3068,29 +3095,37 @@ class AVBK_Admin implements AVBK_Component {
             exit;
         }
 
-        $mail_sent = false;
-        $mail_error = '';
-        if ($resend_email) {
-            $mail_res = AVBK_DB::resend_order_email($order_id);
-            $mail_sent = !empty($mail_res['success']);
-            $mail_error = (string) ($mail_res['error'] ?? '');
-        }
-
-        if ($resend_email && !$mail_sent) {
-            $redirect = add_query_arg([
-                'order_email_processed' => $order_id,
-                'mail_sent'             => '0',
-                'process_error'         => urlencode('E-mailadres bijgewerkt, maar verzenden mislukte: ' . ($mail_error ?: 'onbekende fout')),
-            ], $redirect);
-        } else {
-            $redirect = add_query_arg([
-                'order_email_processed' => $order_id,
-                'mail_sent'             => $mail_sent ? '1' : '0',
-            ], $redirect);
-        }
+        $redirect = $resend_email
+            ? $this->compose_order_confirmation($order_id, $redirect)
+            : add_query_arg(['order_email_processed' => $order_id, 'mail_sent' => '0'], $redirect);
 
         wp_safe_redirect($redirect);
         exit;
+    }
+
+    /**
+     * "Bevestigingsmail (opnieuw) versturen": the address and member link are
+     * saved, the mail itself is checked on Mail controleren and only sent
+     * from there. Returns where to go: that page, or back with an error.
+     */
+    private function compose_order_confirmation(int $order_id, string $redirect): string {
+        $order = AVBK_DB::get_order($order_id);
+        $mail = $order ? AVBK_DB::order_mail($order) : null;
+        if (!$mail) {
+            avbk_log_failure('order mail', $order ? 'no_mail' : 'no_order', ['order' => $order_id]);
+            return add_query_arg(['process_error' => urlencode('E-mailadres bijgewerkt, maar voor deze bestelling is geen mail beschikbaar.')], $redirect);
+        }
+        $key = AVBK_Mail_Compose::save_draft([
+            'kind'       => 'order_confirm',
+            'to'         => (string) $order->email,
+            'subject'    => $mail[0],
+            'html'       => $mail[1],
+            'return_url' => $redirect,
+            'send_label' => 'Verstuur mail',
+            'intro'      => 'Het e-mailadres en de koppeling van bestelling #' . $order_id . ' zijn opgeslagen. De mail gaat pas weg als je hem verstuurt.',
+            'order_id'   => $order_id,
+        ]);
+        return AVBK_Mail_Compose::url($key);
     }
 
     /**
