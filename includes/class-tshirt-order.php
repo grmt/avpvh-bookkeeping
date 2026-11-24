@@ -898,7 +898,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
             'items'         => $items,
         ];
 
-        $mail_result = self::send_order_email($order_obj);
+        $mail_result = AVBK_DB::send_order_mail($order_obj, self::order_mail($order_obj));
 
         if ($member) {
             wp_safe_redirect($confirm_link);
@@ -1041,6 +1041,24 @@ class AVBK_Tshirt_Order implements AVBK_Component {
      *
      * @return array{0: string, 1: string}
      */
+    /** The ordered garments as a list for the order mail. */
+    private static function mail_items_html(array $items, int $total_quantity, float $total_amount): string {
+        $lines = '';
+        foreach ($items as $it) {
+            $qty = (int) ($it->quantity ?? $it['quantity'] ?? 1);
+            $title = (string) ($it->title ?? $it['title'] ?? 'T-shirt');
+            $variant = (string) ($it->variant ?? $it['variant'] ?? '');
+            $line_total = (float) ($it->total_price ?? $it['total_price'] ?? 0.0);
+            $lines .= '<li><strong>' . $qty . '&times;</strong> '
+                . esc_html($title) . ($variant !== '' ? ' (Maat: ' . esc_html($variant) . ')' : '') . ' &mdash; &euro;&nbsp;'
+                . number_format($line_total, 2, ',', '.') . '</li>';
+        }
+        if ($lines === '') {
+            $lines = '<li><strong>' . $total_quantity . '&times;</strong> T-shirt &mdash; &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</li>';
+        }
+        return '<ul style="margin: 10px 0; padding-left: 20px;">' . $lines . '</ul>';
+    }
+
     public static function order_mail(object $order): array {
         $items = !empty($order->items) ? $order->items : AVBK_DB::get_order_items((int) $order->id);
         $total_quantity = (int) ($order->quantity ?? 0);
@@ -1053,21 +1071,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         $total_amount = (float) ($order->total_amount ?? 0.0);
         $first_name = trim((string) ($order->first_name ?? '')) ?: 'besteller';
 
-        $items_html = '<ul style="margin: 10px 0; padding-left: 20px;">';
-        if (!empty($items)) {
-            foreach ($items as $it) {
-                $qty = (int) ($it->quantity ?? $it['quantity'] ?? 1);
-                $title = (string) ($it->title ?? $it['title'] ?? 'T-shirt');
-                $variant = (string) ($it->variant ?? $it['variant'] ?? '');
-                $line_total = (float) ($it->total_price ?? $it['total_price'] ?? 0.0);
-                $items_html .= '<li><strong>' . $qty . '&times;</strong> '
-                    . esc_html($title) . ($variant !== '' ? ' (Maat: ' . esc_html($variant) . ')' : '') . ' &mdash; &euro;&nbsp;'
-                    . number_format($line_total, 2, ',', '.') . '</li>';
-            }
-        } else {
-            $items_html .= '<li><strong>' . $total_quantity . '&times;</strong> T-shirt &mdash; &euro;&nbsp;' . number_format($total_amount, 2, ',', '.') . '</li>';
-        }
-        $items_html .= '</ul>';
+        $items_html = self::mail_items_html($items, $total_quantity, $total_amount);
 
         $title_opt = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price_note_opt = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
@@ -1109,14 +1113,6 @@ class AVBK_Tshirt_Order implements AVBK_Component {
             . '</body></html>';
 
         return [$subject, $body];
-    }
-
-    /** Sends the T-shirt order mail, or $mail ([subject, HTML]) as checked on Mail controleren. */
-    public static function send_order_email(object $order, ?array $mail = null): array {
-        if (!is_email($order->email)) {
-            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
-        }
-        return AVBK_DB::send_order_mail($order, $mail ?? self::order_mail($order));
     }
 
     public function handle_check_email(): void {

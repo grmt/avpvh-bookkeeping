@@ -1025,8 +1025,9 @@ check(AVBK_DB::resend_order_email(99999)['success'] === false, 'Resending for a 
 
 // An order mail to an invalid address is refused, for both order types.
 $invalid = (object) ['id' => 1, 'email' => 'geen-adres', 'order_type' => 'book', 'status' => 'confirmed', 'first_name' => 'X', 'quantity' => 1, 'total_amount' => 35.0, 'confirm_token' => 't'];
-check(AVBK_Book_Order::send_order_email($invalid)['error'] === 'Ongeldig e-mailadres.', 'Book order mail: invalid address refused');
-check(AVBK_Tshirt_Order::send_order_email($invalid)['error'] === 'Ongeldig e-mailadres.', 'T-shirt order mail: invalid address refused');
+check(AVBK_DB::send_order_mail($invalid, AVBK_Book_Order::order_mail($invalid))['error'] === 'Ongeldig e-mailadres.', 'Order mail: invalid address refused');
+$invalid->items = [];
+check(str_contains(AVBK_Tshirt_Order::order_mail($invalid)[1], '1&times;</strong> T-shirt'), 'T-shirt mail without item lines lists the order as one line');
 
 echo "\nAll generalized order and T-shirt tests passed cleanly!\n";
 

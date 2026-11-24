@@ -782,7 +782,7 @@ class AVBK_Book_Order implements AVBK_Component {
             'status'        => $member ? 'confirmed' : 'pending_confirmation',
         ];
 
-        $mail_result = self::send_order_email($order_obj);
+        $mail_result = AVBK_DB::send_order_mail($order_obj, self::order_mail($order_obj));
 
         if ($member) {
             wp_safe_redirect($confirm_link);
@@ -916,14 +916,6 @@ class AVBK_Book_Order implements AVBK_Component {
             . '</body></html>';
 
         return [$subject, $body];
-    }
-
-    /** Sends the book order mail, or $mail ([subject, HTML]) as checked on Mail controleren. */
-    public static function send_order_email(object $order, ?array $mail = null): array {
-        if (!is_email($order->email)) {
-            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
-        }
-        return AVBK_DB::send_order_mail($order, $mail ?? self::order_mail($order));
     }
 
     public function handle_check_email(): void {

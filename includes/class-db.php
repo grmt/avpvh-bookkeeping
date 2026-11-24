@@ -6250,7 +6250,7 @@ class AVBK_DB {
         }
         $class = self::order_mail_class($order);
         return $class
-            ? $class::send_order_email($order, $mail)
+            ? self::send_order_mail($order, $mail ?? $class::order_mail($order))
             : ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
     }
 
@@ -6262,6 +6262,9 @@ class AVBK_DB {
      * @return array{success: bool, error: string}
      */
     public static function send_order_mail(object $order, array $mail): array {
+        if (!is_email((string) $order->email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
+        }
         [$subject, $body] = $mail;
         $mail_error = '';
         $capture_error = static function ($wp_error) use (&$mail_error): void {
