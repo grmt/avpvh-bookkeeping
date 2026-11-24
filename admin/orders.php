@@ -161,6 +161,7 @@ function avbk_render_orders_process_email_modal($all_members): void {
                 <div style="margin-bottom: 14px;">
                     <label for="avbk-pe-email" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem;">E-mailadres besteller:</label>
                     <input type="email" name="email" id="avbk-pe-email" class="regular-text" style="width: 100%;" required>
+                    <p id="avbk-pe-email-note" class="description" style="display: none; margin-top: 4px; font-size: 0.8rem; color: #996800;"></p>
                 </div>
 
                 <div style="margin-bottom: 14px;">
@@ -193,13 +194,13 @@ function avbk_render_orders_process_email_modal($all_members): void {
                 <div style="margin: 12px 0; padding: 10px; background: #f0f0f1; border-radius: 4px; border: 1px solid #dcdcde;">
                     <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9rem;">
                         <input type="checkbox" name="resend_email" id="avbk-pe-resend" value="1" checked style="margin-top: 2px;">
-                        <span><strong>Bevestigingsmail (opnieuw) versturen</strong><br><small style="color: #646970;">Stuurt de e-mail met betaalinstructies direct naar het opgegeven e-mailadres.</small></span>
+                        <span><strong>Bevestigingsmail (opnieuw) versturen</strong><br><small style="color: #646970;">Je ziet de mail met betaalinstructies eerst (Mail controleren) en verstuurt hem daar naar het opgegeven e-mailadres.</small></span>
                     </label>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
                     <button type="button" class="button" id="avbk-pe-cancel">Annuleren</button>
-                    <button type="submit" class="button button-primary">Opslaan en verwerken</button>
+                    <button type="submit" class="button button-primary">Opslaan en verder</button>
                 </div>
             </form>
         </div>
@@ -283,8 +284,27 @@ function avbk_render_orders_script(): void {
         var peSuggEmail     = document.getElementById('avbk-pe-suggested-email');
         var peApplySuggBtn  = document.getElementById('avbk-pe-apply-suggestion');
 
+        var peEmailNote     = document.getElementById('avbk-pe-email-note');
+
         var currentSuggestion    = '';
         var lastAppliedMemberEmail = '';
+        // The order's own address, and whether mail to it failed: a bounced
+        // address is not something to keep, so the member's address may
+        // replace it (the earlier rule only replaced an empty field or a
+        // previously chosen member's address).
+        var peOrderEmail   = '';
+        var peOrderBounced = false;
+
+        function replaceBouncedEmail(memberEmail) {
+            if (!peOrderBounced || !memberEmail || peInputEmail.value !== peOrderEmail
+                || memberEmail.toLowerCase() === peOrderEmail.toLowerCase()) {
+                return false;
+            }
+            peInputEmail.value = memberEmail;
+            peEmailNote.textContent = 'Het adres van de bestelling (' + peOrderEmail + ') gaf een verzendfout; het adres van het lid is ingevuld.';
+            peEmailNote.style.display = 'block';
+            return true;
+        }
 
         // Looked up by the exact "Naam (email)" label text the datalist
         // option shows, and by member id (for pre-filling an already-linked
@@ -318,8 +338,9 @@ function avbk_render_orders_script(): void {
             // still holds the previously-selected member's e-mail — a
             // value the visitor typed in by hand is never clobbered, but
             // picking a *different* member now does update it (previously
-            // it only filled once, when the field was empty).
-            if (!peInputEmail.value || peInputEmail.value === lastAppliedMemberEmail) {
+            // it only filled once, when the field was empty). The order's
+            // own address is replaced too when mail to it bounced.
+            if (!replaceBouncedEmail(match.email) && (!peInputEmail.value || peInputEmail.value === lastAppliedMemberEmail)) {
                 peInputEmail.value = match.email;
             }
             lastAppliedMemberEmail = match.email;
@@ -343,6 +364,9 @@ function avbk_render_orders_script(): void {
                 peSpanId.textContent = '#' + id;
                 peSpanName.textContent = name || 'de besteller';
                 peInputEmail.value = email || '';
+                peOrderEmail = email || '';
+                peOrderBounced = !!(error && error.trim() !== '');
+                peEmailNote.style.display = 'none';
 
                 var linkedMember = (memberId && memberId !== '0') ? peMemberById[memberId] : null;
                 if (peMemberInput && peMemberIdInput) {
@@ -356,6 +380,9 @@ function avbk_render_orders_script(): void {
                 // leaving a required field empty with nothing to type.
                 if (!peInputEmail.value && linkedMember) {
                     peInputEmail.value = linkedMember.email;
+                }
+                if (linkedMember) {
+                    replaceBouncedEmail(linkedMember.email);
                 }
 
                 currentSuggestion = sugg || '';
@@ -1288,7 +1315,7 @@ function avbk_render_order_row(object $order, string $order_type): void {
                             <?php avbk_render_book_presentation_cell($order, $order_type); ?><td data-filter-value="<?php echo esc_attr(['pending' => 'In afwachting', 'collected' => 'Opgehaald', 'distributed' => 'Uitgereikt'][$order->distribution_status] ?? $order->distribution_status); ?>">
                                 <?php avbk_render_order_distribution($order, $order_type); ?>
                             </td>
-                            <td>
+                            <td class="avbk-order-notes">
                                 <?php echo $order->notes ? esc_html($order->notes) : '&mdash;'; ?>
                             </td>
                             <td>

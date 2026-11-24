@@ -6242,19 +6242,51 @@ class AVBK_DB {
         }
     }
 
-    public static function resend_order_email(int $id): array {
+    /** Sends the order's mail again, or $mail ([subject, HTML]) as checked on Mail controleren. */
+    public static function resend_order_email(int $id, ?array $mail = null): array {
         $order = self::get_order($id);
         if (!$order) {
             return ['success' => false, 'error' => 'Bestelling niet gevonden.'];
         }
+        $class = self::order_mail_class($order);
+        return $class
+            ? self::send_order_mail($order, $mail ?? $class::order_mail($order))
+            : ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
+    }
 
-        if ($order->order_type === 'tshirt' && class_exists('AVBK_Tshirt_Order')) {
-            return AVBK_Tshirt_Order::send_order_email($order);
-        } elseif ($order->order_type === 'book' && class_exists('AVBK_Book_Order')) {
-            return AVBK_Book_Order::send_order_email($order);
+    /**
+     * Sends an order's mail ([subject, HTML]) to the order's address and
+     * records the result on the order (email_status / email_error).
+     *
+     * @param array{0: string, 1: string} $mail
+     * @return array{success: bool, error: string}
+     */
+    public static function send_order_mail(object $order, array $mail): array {
+        if (!is_email((string) $order->email)) {
+            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
         }
+        [$subject, $body] = $mail;
+        $mail_error = '';
+        $capture_error = static function ($wp_error) use (&$mail_error): void {
+            $mail_error = $wp_error->get_error_message();
+        };
+        add_action('wp_mail_failed', $capture_error);
+        $sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, (string) $order->email, $subject, $body, ['Content-Type: text/html; charset=UTF-8']);
+        remove_action('wp_mail_failed', $capture_error);
+        self::mark_order_email_result((int) $order->id, $sent, $mail_error);
+        return ['success' => $sent, 'error' => $mail_error];
+    }
 
-        return ['success' => false, 'error' => 'Geen e-mailmethode beschikbaar voor dit type bestelling.'];
+    /** The order's mail as [subject, HTML], without sending it; null for an order type without one. */
+    public static function order_mail(object $order): ?array {
+        $class = self::order_mail_class($order);
+        return $class ? $class::order_mail($order) : null;
+    }
+
+    /** The class that writes this order type's mail, if it is loaded. */
+    private static function order_mail_class(object $order): ?string {
+        $class = ['tshirt' => 'AVBK_Tshirt_Order', 'book' => 'AVBK_Book_Order'][$order->order_type ?? ''] ?? null;
+        return $class !== null && class_exists($class) ? $class : null;
     }
 
     public static function update_order_distribution(int $id, string $distribution_status): bool {

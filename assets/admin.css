@@ -525,3 +525,9 @@
     outline-offset: -3px;
     background: #f0f6fc !important;
 }
+
+/* Bestellingen: a long order note wraps in a readable column instead of one
+   word per line; the table scrolls sideways in its frame when it doesn't fit. */
+.avpvh-sortable-table td.avbk-order-notes {
+    min-width: 16em;
+}

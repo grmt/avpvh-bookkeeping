@@ -53,6 +53,8 @@ $GLOBALS['transients']['avbk_mail_draft_5_zzzzzzzzzzzzzzzzzzzz'] = ['kind' => 's
 check(AVBK_Mail_Compose::load_draft('zzzzzzzzzzzzzzzzzzzz') === null, 'A draft of an unknown kind loads nothing');
 AVBK_Mail_Compose::delete_draft($key);
 check(AVBK_Mail_Compose::load_draft($key) === null, 'A deleted (sent) draft is gone');
+$confirm_key = AVBK_Mail_Compose::save_draft(['kind' => 'order_confirm', 'to' => 'b@example.test', 'subject' => 'Bevestig je bestelling', 'html' => $mail, 'return_url' => 'https://example.test/', 'order_id' => 8]);
+check((AVBK_Mail_Compose::load_draft($confirm_key)['order_id'] ?? null) === 8, 'An order mail sent again is a known kind of draft');
 
 // posted_mail()
 $draft = ['subject' => 'Openstaande betaling', 'body_tag' => $tag];

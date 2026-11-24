@@ -782,7 +782,7 @@ class AVBK_Book_Order implements AVBK_Component {
             'status'        => $member ? 'confirmed' : 'pending_confirmation',
         ];
 
-        $mail_result = self::send_order_email($order_obj);
+        $mail_result = AVBK_DB::send_order_mail($order_obj, self::order_mail($order_obj));
 
         if ($member) {
             wp_safe_redirect($confirm_link);
@@ -862,12 +862,14 @@ class AVBK_Book_Order implements AVBK_Component {
         exit;
     }
 
-    public static function send_order_email(object $order): array {
-        $email = $order->email;
-        if (!is_email($email)) {
-            return ['success' => false, 'error' => 'Ongeldig e-mailadres.'];
-        }
-
+    /**
+     * The order mail (confirm, or the payment instructions once confirmed)
+     * as [subject, full HTML], without sending it: shown first on Mail
+     * controleren when the penningmeester sends it by hand.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function order_mail(object $order): array {
         $quantity = (int) ($order->quantity ?? 1);
         if ($quantity < 1) {
             $quantity = 1;
@@ -913,18 +915,7 @@ class AVBK_Book_Order implements AVBK_Component {
             . '</p>'
             . '</body></html>';
 
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        $mail_error = '';
-        $capture_error = function ($wp_error) use (&$mail_error) {
-            $mail_error = $wp_error->get_error_message();
-        };
-        add_action('wp_mail_failed', $capture_error);
-        $sent = avbk_mail('order', isset($order->member_id) ? (int) $order->member_id : null, $email, $subject, $body, $headers);
-        remove_action('wp_mail_failed', $capture_error);
-
-        AVBK_DB::mark_order_email_result((int) $order->id, $sent, $mail_error);
-
-        return ['success' => $sent, 'error' => $mail_error];
+        return [$subject, $body];
     }
 
     public function handle_check_email(): void {
