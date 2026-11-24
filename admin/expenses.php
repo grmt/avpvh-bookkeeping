@@ -50,6 +50,7 @@ function avbk_render_expenses_notices(): void {
         'amount_mismatch'   => 'Het bedrag komt niet overeen met de gekozen declaratie of betaling.',
         'no_note'           => 'Beschrijf bij Overig waar de betaling voor was.',
         'not_found'         => 'Deze verantwoording of dit verzoek bestaat niet meer.',
+        'kind_fixed'        => 'Deze uitgave is gekoppeld aan een declaratie of een binnengekomen betaling. Verwijder de verantwoording en verantwoord haar opnieuw om een andere soort te kiezen.',
         'request_failed'    => 'De bon kon niet worden opgevraagd. Kies het lid aan wie je de bon vraagt.',
     ];
     $requested = [
@@ -64,12 +65,39 @@ function avbk_render_expenses_notices(): void {
         <div class="notice notice-success is-dismissible"><p>Verzoek ingetrokken.</p></div>
     <?php elseif (isset($_GET['explained'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Uitgave verantwoord. Ze staat nu bij Tweede controle.</p></div>
+    <?php elseif (isset($_GET['updated'])) : ?>
+        <div class="notice notice-success is-dismissible"><p>Verantwoording aangepast. Ze staat weer bij Tweede controle.</p></div>
     <?php elseif (isset($_GET['removed'])) : ?>
         <div class="notice notice-success is-dismissible"><p>Verantwoording verwijderd. De betaling staat weer bij Te verantwoorden.</p></div>
     <?php elseif (isset($_GET['explain_failed'])) :
         $code = sanitize_key(wp_unslash($_GET['explain_failed'])); ?>
         <div class="notice notice-error"><p><?php echo esc_html($messages[$code] ?? 'De verantwoording is niet opgeslagen.'); ?></p></div>
     <?php endif;
+}
+
+/**
+ * The category suggestions and the activities, once for the whole page;
+ * assets/expenses.js copies the activities into each form's select.
+ *
+ * @param object[] $activities
+ * @param string[] $categories
+ */
+function avbk_render_expense_lists(array $activities, array $categories): void {
+    ?>
+    <datalist id="avbk-expense-categories">
+        <?php foreach ($categories as $category) : ?><option value="<?php echo esc_attr($category); ?>"></option><?php endforeach; ?>
+    </datalist>
+    <template id="avbk-expense-activities"><?php foreach ($activities as $activity) : ?><option value="<?php echo esc_attr($activity->id); ?>"><?php echo esc_html(avbk_expense_activity_label($activity)); ?></option><?php endforeach; ?></template>
+    <?php
+}
+
+function avbk_expense_activity_label(object $activity): string {
+    return $activity->name . ' (' . $activity->year . ')';
+}
+
+/** @return string[] Categories for the suggestions: the ones used before, then the defaults. */
+function avbk_expense_categories(): array {
+    return array_values(array_unique(array_merge(AVBK_DB::get_expense_categories(), AVBK_Expenses::DEFAULT_CATEGORIES)));
 }
 
 /** The outgoing transactions still waiting for an explanation. */
@@ -85,17 +113,13 @@ function avbk_render_expenses_open(int $min_year, int $closed_through_year): voi
     $context = [
         'activities'     => AVPVH_DB::get_activities(),
         'reimbursements' => AVBK_DB::get_reimbursement_candidates(),
-        'categories'     => array_values(array_unique(array_merge(AVBK_DB::get_expense_categories(), AVBK_Expenses::DEFAULT_CATEGORIES))),
+        'categories'     => avbk_expense_categories(),
         'members'        => AVBK_DB::get_payable_members(),
     ];
     ?>
     <?php // Every member once for the whole page; assets/expenses.js copies them into each "Bon opvragen" select. ?>
     <template id="avbk-expense-members"><optgroup label="Alle leden"><?php foreach ($context['members'] as $member) : ?><option value="<?php echo esc_attr($member->id); ?>"><?php echo esc_html(avpvh_format_name($member, 'list')); ?></option><?php endforeach; ?></optgroup></template>
-    <datalist id="avbk-expense-categories">
-        <?php foreach ($context['categories'] as $category) : ?><option value="<?php echo esc_attr($category); ?>"></option><?php endforeach; ?>
-    </datalist>
-    <?php // The activities once for the whole page; assets/expenses.js copies them into each form's select. ?>
-    <template id="avbk-expense-activities"><?php foreach ($context['activities'] as $activity) : ?><option value="<?php echo esc_attr($activity->id); ?>"><?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?></option><?php endforeach; ?></template>
+    <?php avbk_render_expense_lists($context['activities'], $context['categories']); ?>
     <?php foreach ($transactions as $tx) {
         avbk_render_expense_form($tx, $context);
     }
@@ -128,43 +152,76 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <?php wp_nonce_field('avbk_explain_expense'); ?>
             <input type="hidden" name="action" value="avbk_explain_expense">
             <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+            <?php avbk_render_expense_kind_field($field, AVBK_Expenses::KINDS, ''); ?>
+            <?php avbk_render_expense_detail_fields($field, ['supplier' => (string) $tx->counterparty_name], 'of sleep het bestand op deze betaling'); ?>
+            <?php avbk_render_expense_reimbursement_field($field, $reimbursements, (float) $tx->amount); ?>
+            <?php avbk_render_expense_returned_field($field, $returned, (float) $tx->amount); ?>
+            <?php avbk_render_expense_note_field($field, ''); ?>
+            <button type="submit" class="button button-primary">Verantwoorden</button>
+        </form>
+    </div>
+    <?php
+}
+
+/**
+ * The kind select. With one kind (an explanation tied to a declaratie or
+ * an incoming payment) it can't be changed.
+ *
+ * @param array<string, string> $kinds
+ */
+function avbk_render_expense_kind_field(string $field, array $kinds, string $selected): void {
+    ?>
             <p>
                 <label for="<?php echo esc_attr($field); ?>-kind">Soort uitgave</label><br>
                 <select name="kind" id="<?php echo esc_attr($field); ?>-kind" required class="avbk-expense-kind">
-                    <option value="">&mdash; kies &mdash;</option>
-                    <?php foreach (AVBK_Expenses::KINDS as $kind => $label) : ?>
-                        <option value="<?php echo esc_attr($kind); ?>"><?php echo esc_html($label); ?></option>
+                    <?php if (count($kinds) > 1) : ?><option value="">&mdash; kies &mdash;</option><?php endif; ?>
+                    <?php foreach ($kinds as $kind => $label) : ?>
+                        <option value="<?php echo esc_attr($kind); ?>"<?php selected($kind, $selected); ?>><?php echo esc_html($label); ?></option>
                     <?php endforeach; ?>
                 </select>
             </p>
+    <?php
+}
+
+/**
+ * Supplier, category, activity and document, each shown for the kinds it
+ * belongs to (data-kinds, see AVBK_Expenses::FIELD_KINDS).
+ *
+ * @param array{supplier?: string, category?: string, activity_id?: int|string|null, document_url?: string} $values
+ */
+function avbk_render_expense_detail_fields(string $field, array $values, string $document_hint): void {
+    ?>
             <p data-kinds="invoice">
                 <label for="<?php echo esc_attr($field); ?>-supplier">Leverancier</label><br>
-                <input type="text" name="supplier" id="<?php echo esc_attr($field); ?>-supplier" value="<?php echo esc_attr($tx->counterparty_name); ?>" class="regular-text">
+                <input type="text" name="supplier" id="<?php echo esc_attr($field); ?>-supplier" value="<?php echo esc_attr($values['supplier'] ?? ''); ?>" class="regular-text">
             </p>
             <p data-kinds="invoice reimbursement other bank_costs transfer">
                 <label for="<?php echo esc_attr($field); ?>-category">Categorie</label><br>
-                <input type="text" name="category" id="<?php echo esc_attr($field); ?>-category" list="avbk-expense-categories" class="regular-text">
+                <input type="text" name="category" id="<?php echo esc_attr($field); ?>-category" value="<?php echo esc_attr($values['category'] ?? ''); ?>" list="avbk-expense-categories" class="regular-text">
             </p>
             <p data-kinds="invoice reimbursement other">
                 <label for="<?php echo esc_attr($field); ?>-activity">Activiteit (optioneel)</label><br>
-                <select name="activity_id" id="<?php echo esc_attr($field); ?>-activity" style="max-width:28em" data-options="avbk-expense-activities">
+                <select name="activity_id" id="<?php echo esc_attr($field); ?>-activity" style="max-width:28em" data-options="avbk-expense-activities" data-value="<?php echo esc_attr((int) ($values['activity_id'] ?? 0)); ?>">
                     <option value="0">&mdash; geen &mdash;</option>
                 </select>
             </p>
             <p data-kinds="invoice reimbursement other">
                 <label for="<?php echo esc_attr($field); ?>-document">Document (pdf of foto; verplicht bij een factuur, en bij een declaratie die niet via de website is ingediend)</label><br>
+                <?php if (!empty($values['document_url'])) : ?>
+                    Nu: <a href="<?php echo esc_url($values['document_url']); ?>" target="_blank" rel="noopener">bekijk</a>. Kies alleen een bestand om het te vervangen.<br>
+                <?php endif; ?>
                 <input type="file" name="document" id="<?php echo esc_attr($field); ?>-document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
-                <span class="description avbk-drop-hint">of sleep het bestand op deze betaling</span>
+                <span class="description avbk-drop-hint"><?php echo esc_html($document_hint); ?></span>
             </p>
-            <?php avbk_render_expense_reimbursement_field($field, $reimbursements, (float) $tx->amount); ?>
-            <?php avbk_render_expense_returned_field($field, $returned, (float) $tx->amount); ?>
+    <?php
+}
+
+function avbk_render_expense_note_field(string $field, string $note): void {
+    ?>
             <p data-kinds="invoice reimbursement returned_payment bank_costs transfer other">
                 <label for="<?php echo esc_attr($field); ?>-note">Toelichting<span data-kinds="other"> (verplicht bij Overig)</span></label><br>
-                <textarea name="note" id="<?php echo esc_attr($field); ?>-note" rows="2" class="large-text" maxlength="500"></textarea>
+                <textarea name="note" id="<?php echo esc_attr($field); ?>-note" rows="2" class="large-text" maxlength="500"><?php echo esc_textarea($note); ?></textarea>
             </p>
-            <button type="submit" class="button button-primary">Verantwoorden</button>
-        </form>
-    </div>
     <?php
 }
 
@@ -308,36 +365,111 @@ function avbk_render_expenses_explained(): void {
         </tbody>
     </table>
     <h2>Uitgaven <?php echo esc_html($year); ?></h2>
-    <table class="widefat striped">
-        <thead><tr><th scope="col">Datum</th><th scope="col">Bedrag</th><th scope="col">Aan</th><th scope="col">Verantwoording</th><th scope="col">Document</th><th scope="col">Tweede controle</th><th scope="col"><span class="screen-reader-text">Acties</span></th></tr></thead>
+    <?php
+    $activities = AVPVH_DB::get_activities();
+    $activity_labels = [];
+    foreach ($activities as $activity) {
+        $activity_labels[(int) $activity->id] = avbk_expense_activity_label($activity);
+    }
+    avbk_render_expense_lists($activities, avbk_expense_categories());
+    ?>
+    <p class="description">Filter in de velden onder de kolomkoppen en klik op een kolomkop om te sorteren; het totaal onderaan telt de zichtbare uitgaven. Met &ldquo;bewerken&rdquo; pas je een verantwoording aan; die moet daarna opnieuw door Tweede controle.</p>
+    <div data-avpvh-sortable>
+    <div class="avpvh-table-tools">
+        <span class="avpvh-table-count" aria-live="polite"></span>
+        <button type="button" class="button button-small avpvh-col-toggle-btn">Kolommen</button>
+        <span class="avpvh-col-toggle-panel" hidden></span>
+    </div>
+    <div class="avpvh-table-wrap">
+    <table class="widefat striped avpvh-sortable-table" data-storage-key="avbk_expenses_hidden_cols">
+        <thead><tr>
+            <th scope="col" data-col="datum">Datum</th>
+            <th scope="col" data-col="bedrag" data-type="number">Bedrag</th>
+            <th scope="col" data-col="aan">Aan</th>
+            <th scope="col" data-col="soort" data-filter="select">Soort</th>
+            <th scope="col" data-col="categorie" data-filter="select">Categorie</th>
+            <th scope="col" data-col="activiteit" data-filter="select" class="avpvh-col-optional">Activiteit</th>
+            <th scope="col" data-col="details">Details</th>
+            <th scope="col" data-col="document" data-filter="select">Document</th>
+            <th scope="col" data-col="controle" data-filter="select">Tweede controle</th>
+            <td><span class="screen-reader-text">Acties</span></td>
+        </tr></thead>
         <tbody>
             <?php foreach ($expenses as $expense) {
-                avbk_render_expense_row($expense);
+                avbk_render_expense_row($expense, $activity_labels, $year);
             } ?>
         </tbody>
+        <tfoot><tr>
+            <th scope="row">Totaal</th><td data-total-col="bedrag"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+        </tr></tfoot>
     </table>
+    </div>
+    </div>
     <?php
 }
 
-/** One explained expense, with its document and a remove button. */
-function avbk_render_expense_row(object $expense): void {
+/**
+ * One explained expense: its columns, and the edit dialog and remove button.
+ *
+ * @param array<int, string> $activity_labels
+ */
+function avbk_render_expense_row(object $expense, array $activity_labels, int $year): void {
     $tx_url = add_query_arg(['page' => 'avbk-transactions', 'show_all_years' => '1'], admin_url('admin.php')) . '#tx-' . (int) $expense->transaction_id;
+    $has_document = (string) $expense->document_path !== '';
+    $activity = $activity_labels[(int) $expense->activity_id] ?? '';
+    $dialog = 'avbk-expense-edit-' . (int) $expense->id;
     ?>
-            <tr>
-                <td><a href="<?php echo esc_url($tx_url); ?>"><?php echo esc_html(wp_date('d-m-Y', strtotime($expense->transaction_date))); ?></a></td>
-                <td>&euro; <?php echo esc_html(number_format((float) $expense->amount, 2, ',', '.')); ?></td>
+            <tr id="expense-<?php echo esc_attr($expense->id); ?>">
+                <td data-sort-value="<?php echo esc_attr($expense->transaction_date); ?>"><a href="<?php echo esc_url($tx_url); ?>"><?php echo esc_html(wp_date('d-m-Y', strtotime($expense->transaction_date))); ?></a></td>
+                <td data-sort-value="<?php echo esc_attr(number_format((float) $expense->amount, 2, '.', '')); ?>">&euro; <?php echo esc_html(number_format((float) $expense->amount, 2, ',', '.')); ?></td>
                 <td><?php echo esc_html($expense->counterparty_name); ?></td>
-                <td><?php echo esc_html(AVBK_Expenses::summary($expense)); ?></td>
-                <td><?php if ($expense->document_path !== '') : ?><a href="<?php echo esc_url(AVBK_Expenses::document_url($expense)); ?>" target="_blank" rel="noopener">bekijk</a><?php else : ?>&mdash;<?php endif; ?></td>
+                <td><?php echo esc_html(AVBK_Expenses::KINDS[$expense->kind] ?? $expense->kind); ?></td>
+                <td data-filter-value="<?php echo esc_attr($expense->category !== '' ? $expense->category : 'geen'); ?>"><?php echo esc_html($expense->category); ?></td>
+                <td data-filter-value="<?php echo esc_attr($activity !== '' ? $activity : 'geen'); ?>"><?php echo esc_html($activity); ?></td>
+                <td><?php echo esc_html(implode(' — ', AVBK_Expenses::details($expense))); ?></td>
+                <td data-filter-value="<?php echo $has_document ? 'met document' : 'zonder document'; ?>"><?php if ($has_document) : ?><a href="<?php echo esc_url(AVBK_Expenses::document_url($expense)); ?>" target="_blank" rel="noopener">bekijk</a><?php else : ?>&mdash;<?php endif; ?></td>
                 <td><?php echo $expense->second_approved_by ? 'akkoord' : 'wacht'; ?></td>
-                <td>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <td style="white-space:nowrap">
+                    <button type="button" class="button-link" data-dialog="<?php echo esc_attr($dialog); ?>">bewerken</button> |
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
                         <?php wp_nonce_field('avbk_remove_expense'); ?>
                         <input type="hidden" name="action" value="avbk_remove_expense">
                         <input type="hidden" name="expense_id" value="<?php echo esc_attr($expense->id); ?>">
                         <button type="submit" class="button-link button-link-delete" onclick="return confirm('Deze verantwoording verwijderen? De betaling komt weer bij Te verantwoorden.');">verwijderen</button>
                     </form>
+                    <?php avbk_render_expense_edit_dialog($expense, $dialog, $year); ?>
                 </td>
             </tr>
+    <?php
+}
+
+/** The edit form of one explanation, in a dialog opened by its "bewerken" button. */
+function avbk_render_expense_edit_dialog(object $expense, string $dialog, int $year): void {
+    $field = 'avbk-expense-edit-field-' . (int) $expense->id;
+    ?>
+                    <dialog id="<?php echo esc_attr($dialog); ?>" class="avbk-review-row" style="max-width:40em;white-space:normal">
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-expense-form">
+                            <h2 style="margin-top:0"><?php echo esc_html(wp_date('d-m-Y', strtotime($expense->transaction_date)) . ' — € ' . number_format((float) $expense->amount, 2, ',', '.') . ' — ' . $expense->counterparty_name); ?></h2>
+                            <?php wp_nonce_field('avbk_edit_expense'); ?>
+                            <input type="hidden" name="action" value="avbk_edit_expense">
+                            <input type="hidden" name="expense_id" value="<?php echo esc_attr($expense->id); ?>">
+                            <input type="hidden" name="year" value="<?php echo esc_attr($year); ?>">
+                            <?php avbk_render_expense_kind_field($field, AVBK_Expenses::editable_kinds($expense), (string) $expense->kind); ?>
+                            <?php if (count(AVBK_Expenses::editable_kinds($expense)) === 1) : ?>
+                                <p class="description">Deze uitgave is gekoppeld aan een declaratie of een binnengekomen betaling. Een andere soort kies je door de verantwoording te verwijderen en opnieuw te verantwoorden.</p>
+                            <?php endif; ?>
+                            <?php avbk_render_expense_detail_fields($field, [
+                                'supplier'     => (string) $expense->supplier,
+                                'category'     => (string) $expense->category,
+                                'activity_id'  => $expense->activity_id,
+                                'document_url' => (string) $expense->document_path !== '' ? AVBK_Expenses::document_url($expense) : '',
+                            ], 'of sleep het bestand hierop'); ?>
+                            <?php avbk_render_expense_note_field($field, (string) $expense->note); ?>
+                            <p>
+                                <button type="submit" class="button button-primary">Opslaan</button>
+                                <button type="submit" class="button" formmethod="dialog" formnovalidate>Annuleren</button>
+                            </p>
+                        </form>
+                    </dialog>
     <?php
 }

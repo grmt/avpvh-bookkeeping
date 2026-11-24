@@ -76,6 +76,41 @@ class AVBK_Expenses implements AVBK_Component {
     }
 
     /**
+     * Why a change to an explanation can't be saved, or null when it can.
+     * The kind can change, except to or from one tied to a declaratie or
+     * an incoming payment: those links are made when explaining, so that
+     * takes removing the explanation and explaining it again.
+     *
+     * @param array{supplier?: string, note?: string, document?: bool} $facts document: the expense keeps or gets a document.
+     */
+    public static function edit_rejection(object $expense, string $kind, array $facts): ?string {
+        if (!isset(self::KINDS[$kind])) {
+            return 'unknown_kind';
+        }
+        if ($kind !== $expense->kind && !isset(self::editable_kinds($expense)[$kind])) {
+            return 'kind_fixed';
+        }
+        return match ($kind) {
+            'invoice'       => self::first_failed(['no_supplier' => trim($facts['supplier'] ?? '') === '', 'no_document' => empty($facts['document'])]),
+            'reimbursement' => empty($expense->reimbursement_id) && empty($facts['document']) ? 'no_reimbursement' : null,
+            'other'         => trim($facts['note'] ?? '') === '' ? 'no_note' : null,
+            default         => null,
+        };
+    }
+
+    /**
+     * The kinds an explanation can change to (see edit_rejection()).
+     *
+     * @return array<string, string>
+     */
+    public static function editable_kinds(object $expense): array {
+        if (!empty($expense->reimbursement_id) || !empty($expense->related_transaction_id) || $expense->kind === 'returned_payment') {
+            return [$expense->kind => self::KINDS[$expense->kind] ?? $expense->kind];
+        }
+        return array_diff_key(self::KINDS, ['returned_payment' => true]);
+    }
+
+    /**
      * A declaratie submitted on the site must match the transfer. One paid
      * outside the site (before declaraties went through the site, or by
      * hand) has no declaratie to choose; then the receipt is required.
@@ -134,6 +169,7 @@ class AVBK_Expenses implements AVBK_Component {
     public function register(): void {
         add_action('admin_post_avbk_explain_expense', [$this, 'handle_explain']);
         add_action('admin_post_avbk_remove_expense', [$this, 'handle_remove']);
+        add_action('admin_post_avbk_edit_expense', [$this, 'handle_edit']);
         add_action('admin_post_avbk_view_expense_document', [$this, 'handle_view_document']);
     }
 
@@ -246,6 +282,65 @@ class AVBK_Expenses implements AVBK_Component {
         return $saved ? null : 'not_saved';
     }
 
+    /** Saves a change to an explanation on the Verantwoord tab. */
+    public function handle_edit(): void {
+        check_admin_referer('avbk_edit_expense');
+        if (!$this->can_manage()) {
+            wp_die(esc_html(self::NO_ACCESS), 403);
+        }
+        $expense_id = (int) ($_POST['expense_id'] ?? 0);
+        $kind = sanitize_key(wp_unslash($_POST['kind'] ?? ''));
+        $rejection = $this->edit($expense_id, $kind, self::posted_input($kind));
+        $notice = ['updated' => '1'];
+        if ($rejection !== null) {
+            avbk_log_failure('expense edit', $rejection, ['expense' => $expense_id, 'kind' => $kind]);
+            $notice = ['explain_failed' => $rejection];
+        }
+        $year = (int) ($_POST['year'] ?? 0);
+        $args = ['page' => 'avbk-expenses', 'tab' => 'explained'] + ($year ? ['year' => $year] : []) + $notice;
+        wp_safe_redirect(add_query_arg($args, admin_url('admin.php')) . '#expense-' . $expense_id);
+        exit;
+    }
+
+    /** Checks and stores a change; returns the reason it was refused, or null. A new document replaces the old one. */
+    private function edit(int $expense_id, string $kind, array $input): ?string {
+        $expense = AVBK_DB::get_expense($expense_id);
+        if (!$expense) {
+            return 'not_found';
+        }
+        $upload = AVBK_Documents::from_upload('document');
+        if (isset($upload['error'])) {
+            return $upload['error'];
+        }
+        $rejection = self::edit_rejection($expense, $kind, [
+            'supplier' => $input['supplier'],
+            'note'     => $input['note'],
+            'document' => isset($upload['tmp']) || (string) $expense->document_path !== '',
+        ]);
+        if ($rejection !== null) {
+            return $rejection;
+        }
+        $data = [
+            'kind'        => $kind,
+            'category'    => $input['category'],
+            'supplier'    => $input['supplier'],
+            'activity_id' => $input['activity_id'] ?: null,
+            'note'        => $input['note'],
+        ];
+        $document = isset($upload['tmp']) ? AVBK_Documents::store($upload['tmp'], $upload['ext'], 'expense') : '';
+        if ($document !== '') {
+            $data += ['document_path' => $document, 'document_name' => (string) $upload['name']];
+        }
+        if (!AVBK_DB::update_expense($expense_id, $data)) {
+            AVBK_Documents::delete($document);
+            return 'not_saved';
+        }
+        if ($document !== '') {
+            AVBK_Documents::delete((string) $expense->document_path);
+        }
+        return null;
+    }
+
     /** Removes an explanation; the transaction is ignored again and waits for a new one. */
     public function handle_remove(): void {
         check_admin_referer('avbk_remove_expense');
@@ -281,10 +376,22 @@ class AVBK_Expenses implements AVBK_Component {
     /** One-line description of an explanation, for lists and Tweede controle. */
     public static function summary(object $expense): string {
         $parts = [self::KINDS[$expense->kind] ?? $expense->kind];
-        foreach (['supplier', 'category'] as $field) {
-            if (trim((string) $expense->$field) !== '') {
-                $parts[] = (string) $expense->$field;
-            }
+        if (trim((string) $expense->category) !== '') {
+            $parts[] = (string) $expense->category;
+        }
+        return implode(' — ', array_merge($parts, self::details($expense)));
+    }
+
+    /**
+     * What an explanation says besides its kind and category: supplier,
+     * the incoming payment or declaratie it is tied to, and the note.
+     *
+     * @return string[]
+     */
+    public static function details(object $expense): array {
+        $parts = [];
+        if (trim((string) $expense->supplier) !== '') {
+            $parts[] = (string) $expense->supplier;
         }
         if (!empty($expense->related_transaction_id)) {
             $parts[] = 'van transactie #' . (int) $expense->related_transaction_id;
@@ -297,6 +404,6 @@ class AVBK_Expenses implements AVBK_Component {
         if (trim((string) $expense->note) !== '') {
             $parts[] = (string) $expense->note;
         }
-        return implode(' — ', $parts);
+        return $parts;
     }
 }

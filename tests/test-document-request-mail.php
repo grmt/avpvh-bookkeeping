@@ -29,6 +29,8 @@ function wp_nonce_field($action) { echo '<input type="hidden" name="_wpnonce" va
 function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
 function wp_unslash($value) { return $value; }
 function wp_kses($text, $allowed) { return (string) $text; }
+function selected($a, $b) { echo (string) $a === (string) $b ? ' selected' : ''; }
+function esc_textarea($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
 function avpvh_format_name($member, $style = '') { return $member->first_name . ' ' . $member->last_name; }
 final class AVPVH_Roles { public static function current_user_has_role($role) { return true; } }
 $GLOBALS['member_rows'] = [

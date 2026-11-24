@@ -247,7 +247,7 @@ class AVBK_Admin implements AVBK_Component {
             return;
         }
         wp_enqueue_style('avbk-admin', AVBK_PLUGIN_URL . 'assets/admin.css', [], avbk_asset_version('assets/admin.css'));
-        if (str_contains($hook, 'avbk-members') || str_contains($hook, 'avbk-transactions') || str_contains($hook, 'avbk-activity-payments') || str_contains($hook, 'avbk-orders')) {
+        if (str_contains($hook, 'avbk-members') || str_contains($hook, 'avbk-transactions') || str_contains($hook, 'avbk-activity-payments') || str_contains($hook, 'avbk-orders') || str_contains($hook, 'avbk-expenses')) {
             // Sorting/filtering/column show-hide is avpvh-members' shared
             // sortable-table.js/.css (its own admin_enqueue_scripts hook
             // registers the handle at priority 5, ahead of this default-

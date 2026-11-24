@@ -51,13 +51,13 @@ class AVBK_Document_Requests implements AVBK_Component {
             !AVBK_DB::create_document_request($transaction_id, (int) $member->id) => 'not_saved',
             default                          => '',
         };
+        $notice = ['explain_failed' => 'request_failed', 'tx' => $transaction_id];
         if ($failure !== '') {
             avbk_log_failure('document request', $failure, ['transaction' => $transaction_id]);
-            wp_safe_redirect(self::expenses_url($transaction_id, ['explain_failed' => 'request_failed', 'tx' => $transaction_id]));
-            exit;
+        } else {
+            $notice = ['document_requested' => self::mail_request($member, $tx)];
         }
-        $mailed = self::mail_request($member, $tx);
-        wp_safe_redirect(self::expenses_url($transaction_id, ['document_requested' => $mailed]));
+        wp_safe_redirect(self::expenses_url($transaction_id, $notice));
         exit;
     }
 
