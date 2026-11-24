@@ -905,16 +905,13 @@ function avbk_activity_participant_values(object $p, int $activity_id, array $co
 
 /** Betaald, Deels betaald, Open, Kwijtgescholden, or Geen post when no fee item exists yet. */
 function avbk_activity_participant_status(?object $fee_item, bool $waived, float $paid, float $remaining): string {
-    if (!$fee_item) {
-        return 'Geen post';
-    }
-    if ($waived) {
-        return 'Kwijtgescholden';
-    }
-    if ($remaining <= 0.005) {
-        return 'Betaald';
-    }
-    return $paid > 0.005 ? 'Deels betaald' : 'Open';
+    return match (true) {
+        !$fee_item            => 'Geen post',
+        $waived               => 'Kwijtgescholden',
+        $remaining <= 0.005   => 'Betaald',
+        $paid > 0.005         => 'Deels betaald',
+        default               => 'Open',
+    };
 }
 
 /** The participant's known bank accounts. */
