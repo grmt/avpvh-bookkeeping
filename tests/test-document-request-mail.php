@@ -40,6 +40,8 @@ $GLOBALS['member_rows'] = [
 ];
 final class AVPVH_DB {
     public static function get_member(int $id): ?object { return $GLOBALS['member_rows'][$id] ?? null; }
+    public static array $parents = [];
+    public static function is_parent_of(int $parent_id, int $child_id): bool { return in_array([$parent_id, $child_id], self::$parents, true); }
     public static function get_activities(): array { return [(object) ['id' => 3, 'name' => 'Kamp', 'year' => 2026]]; }
 }
 final class AVBK_Matcher {
@@ -97,6 +99,14 @@ $all = array_values($GLOBALS['member_rows']);
 // Suggestions
 check(AVBK_Document_Requests::suggested_member_ids([72, 71], [['member' => $GLOBALS['member_rows'][71]]]) === [72, 71], 'Account holders first, a name match only once');
 check(array_column(AVBK_Document_Requests::suggestions($shared, $all), 'id') === [72, 71], 'A shared account offers both holders');
+$GLOBALS['member_rows'][74] = (object) ['id' => 74, 'first_name' => 'Daan', 'last_name' => 'Jansen', 'email' => 'daan@example.test'];
+AVPVH_DB::$parents = [[71, 74], [72, 74], [71, 72]];
+AVBK_DB::$ibans['NL00TEST0000000002'] = [74, 72, 71];
+$family = (object) ['id' => 9, 'counterparty_iban' => 'NL00TEST0000000002', 'counterparty_name' => ''];
+check(array_column(AVBK_Document_Requests::suggestions($family, $all), 'id') === [71, 74, 72], 'A child of another suggested member comes after the parents, each group in its own order');
+AVPVH_DB::$parents = [];
+check(array_column(AVBK_Document_Requests::suggestions($family, $all), 'id') === [74, 72, 71], 'Without a parent link the account order stays');
+unset($GLOBALS['member_rows'][74]);
 check(array_column(AVBK_Document_Requests::suggestions($unknown, $all), 'id') === [73], 'No account: the look-alike name');
 check(AVBK_Document_Requests::suggestions($nobody, $all) === [], 'No account and no name: nothing to suggest');
 

@@ -75,7 +75,8 @@ class AVBK_Document_Requests implements AVBK_Component {
     }
 
     /**
-     * The suggestions for one payment, as member objects.
+     * The suggestions for one payment, as member objects; a child of another
+     * suggested member comes after the parents.
      *
      * @param object[] $members Every member that can be asked, for the name match.
      * @return object[]
@@ -86,7 +87,24 @@ class AVBK_Document_Requests implements AVBK_Component {
             $iban !== '' ? AVBK_DB::get_member_ids_by_iban($iban) : [],
             trim((string) $tx->counterparty_name) !== '' ? AVBK_Matcher::find_payer_candidates((string) $tx->counterparty_name, $members) : []
         );
-        return array_values(array_filter(array_map(static fn($id) => AVPVH_DB::get_member($id), $ids)));
+        $members = array_values(array_filter(array_map(static fn($id) => AVPVH_DB::get_member($id), $ids)));
+        $is_child = [];
+        foreach ($members as $member) {
+            $is_child[(int) $member->id] = self::has_parent_among($member, $members);
+        }
+        // Stable sort: parents first, each group in its own order. Children stay choosable.
+        usort($members, static fn($a, $b) => $is_child[(int) $a->id] <=> $is_child[(int) $b->id]);
+        return $members;
+    }
+
+    /** @param object[] $members */
+    private static function has_parent_among(object $member, array $members): bool {
+        foreach ($members as $other) {
+            if ((int) $other->id !== (int) $member->id && AVPVH_DB::is_parent_of((int) $other->id, (int) $member->id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Where the member uploads the receipt. */
