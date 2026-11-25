@@ -4,7 +4,6 @@
  * reimbursements and returned payments are suggested first. Fictional data only.
  */
 define('ABSPATH', __DIR__ . '/');
-interface AVBK_Component { public function register(): void; }
 require dirname(__DIR__) . '/includes/class-expenses.php';
 
 $failures = 0;

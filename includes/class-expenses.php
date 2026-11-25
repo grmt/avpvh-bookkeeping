@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/interface-component.php';
 require_once __DIR__ . '/class-documents.php';
 
 /**
@@ -24,6 +25,9 @@ class AVBK_Expenses implements AVBK_Component {
         'transfer'         => 'Interne overboeking',
         'other'            => 'Overig',
     ];
+
+    /** The category of bank costs, filled in when none is given. */
+    public const BANK_COSTS_CATEGORY = 'Bankkosten';
 
     /** Suggestions for the category field; earlier used categories are added. */
     public const DEFAULT_CATEGORIES = ['Accommodatie', 'Catering', 'Boodschappen', 'Vervoer', 'Brandstof', 'Materiaalhuur', 'Kampeerbenodigdheden', 'EHBO', 'Drukwerk', 'Materiaal', 'Porto', 'Abonnementen', 'Verzekering', 'Website en software', 'Excursie', 'Attenties', 'Overig'];
@@ -181,6 +185,9 @@ class AVBK_Expenses implements AVBK_Component {
             if (!in_array($kind, $kinds, true)) {
                 $input[$name] = $name === 'activity_id' ? 0 : '';
             }
+        }
+        if ($kind === 'bank_costs' && $input['category'] === '') {
+            $input['category'] = self::BANK_COSTS_CATEGORY;
         }
         return $input;
     }

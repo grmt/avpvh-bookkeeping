@@ -95,8 +95,16 @@
         });
     }
 
+    // Bank costs get their category without asking.
+    function fillCategory(form) {
+        var category = form.querySelector('input[name="category"]');
+        if (category && category.value === '' && form.querySelector('.avbk-expense-kind').value === 'bank_costs') {
+            category.value = 'Bankkosten';
+        }
+    }
+
     document.querySelectorAll('.avbk-expense-form').forEach(function (form) {
-        form.querySelector('.avbk-expense-kind').addEventListener('change', function () { update(form); });
+        form.querySelector('.avbk-expense-kind').addEventListener('change', function () { fillCategory(form); update(form); });
         update(form);
         enableDrop(form);
     });

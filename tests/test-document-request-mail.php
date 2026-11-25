@@ -64,7 +64,7 @@ final class AVBK_DB {
     public static function get_expense_categories(): array { return ['Attenties']; }
     public static function get_payable_members(): array { return array_values($GLOBALS['member_rows']); }
     public static function get_returned_payment_candidates(object $tx): array { return []; }
-    public static function find_member_id_by_iban(string $iban): ?int { return null; }
+    public static function find_member_id_by_iban(string $iban): ?int { return $iban === 'NL00TEST0000000001' ? 72 : null; }
     public static function log_mail(array $row): void { $GLOBALS['logged_mails'][] = $row['kind']; }
 }
 require dirname(__DIR__) . '/includes/class-document-requests.php';
@@ -131,17 +131,19 @@ check(in_array('document request: no_member', $GLOBALS['failures_logged'], true)
 // The Uitgaven page
 AVBK_DB::$requests = [];
 ob_start();
-avbk_render_expense_document_request($shared, $all);
+avbk_render_expense_document_request($shared, AVBK_Document_Requests::suggestions($shared, $all));
 $html = ob_get_clean();
 check(str_contains($html, 'data-options="avbk-expense-members"') && str_contains($html, '<optgroup label="Voorstel">'), 'A member select with the suggestions, filled with all members by the page script');
 check(strpos($html, 'value="72"') < strpos($html, 'value="71"') && !str_contains($html, 'kies een lid'), 'Suggestions in order, the first one chosen');
 check(str_contains($html, 'krijgt een mail'), 'Says the member is mailed');
+check(!str_contains($html, '<details>'), 'With a suggestion the request is shown straight away');
 ob_start();
-avbk_render_expense_document_request($nobody, $all);
-check(str_contains(ob_get_clean(), 'kies een lid'), 'Without a suggestion the member has to be chosen');
+avbk_render_expense_document_request($nobody, AVBK_Document_Requests::suggestions($nobody, $all));
+$collapsed = ob_get_clean();
+check(str_contains($collapsed, 'kies een lid') && str_contains($collapsed, '<details>') && str_contains($collapsed, '<summary>Bon opvragen bij een lid</summary>'), 'Without a suggestion the request is folded away, and the member has to be chosen');
 AVBK_DB::create_document_request(5, 71);
 ob_start();
-avbk_render_expense_document_request($shared, $all);
+avbk_render_expense_document_request($shared, AVBK_Document_Requests::suggestions($shared, $all));
 check(str_contains(ob_get_clean(), 'Bon gevraagd aan Anna Jansen'), 'An open request shows who was asked');
 
 // The open tab: every member once in a template, each payment gets the request
@@ -151,6 +153,11 @@ avbk_render_expenses_open(0, 0);
 $page = ob_get_clean();
 check(substr_count($page, '<template id="avbk-expense-members"><optgroup label="Alle leden">') === 1 && substr_count($page, 'value="73"') === 1, 'All members once per page');
 check(str_contains($page, 'name="member_id"') && str_contains($page, 'Bon opvragen'), 'The payment offers the request');
+check(str_contains($page, 'Deze rekening hoort bij een lid') && str_contains($page, 'member_id=72&refund_tx=5">Koppel die bij het lid</a>'), "An account of one member links to that member's refunds");
+check(str_contains($page, 'Gebruik dan Terugbetalen bij <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=72&refund_tx=5">Bram Jansen</a> of <a href="https://example.test/wp-admin/admin.php?page=avbk-members&member_id=71&refund_tx=5">Anna Jansen</a>.'), 'No returned payment found: links to Terugbetalen of each account holder');
+check(str_contains(avbk_expense_refund_links([], 7), 'via het <a href="https://example.test/wp-admin/admin.php?page=avbk-members">Ledenoverzicht</a>'), 'Nobody known: a link to the Ledenoverzicht');
+check(substr_count(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), '<a ') === 1 && !str_contains(avbk_expense_refund_links([$GLOBALS['member_rows'][71]], 7), ' of '), 'One member: one link');
+check(str_contains(avbk_expense_refund_links(array_values($GLOBALS['member_rows']), 7), 'Anna Jansen</a>, <a'), 'Three members: a list ending in "of"');
 
 // Notices
 foreach (['mailed' => 'notice-success', 'not_mailed' => 'mail is niet verstuurd', 'no_address' => 'geen bruikbaar e-mailadres', 'odd' => 'heeft een mail gekregen'] as $outcome => $expected) {
