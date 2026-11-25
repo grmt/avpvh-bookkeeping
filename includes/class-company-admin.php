@@ -487,6 +487,7 @@ class AVBK_Company_Admin implements AVBK_Component {
                     wp_send_json_success(['html' => $this->report_html($report, $return_to)]);
                 }
             } elseif ($operation === 'export') {
+                AVBK_Companies::company($company_id, 'import');
                 $company = AVBK_Companies::company($company_id, 'export');
                 $previous = AVBK_Company_Report::get($company_id, $year, $quarter);
                 [$path] = $this->uploaded('workbook', ['xlsx']);

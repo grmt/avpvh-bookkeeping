@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/functions-mail.php';
+require_once __DIR__ . '/functions-public-forms.php';
 
 /**
  * Handles personal Google Drive photo upload shares for the 50-year anniversary.
@@ -109,6 +110,11 @@ class AVBK_Photo_Share implements AVBK_Component {
     private function handle_request_submission(): void {
         check_admin_referer('avbk_request_photo_share_action', 'avbk_photo_share_nonce');
         $base_url = home_url('/foto-delen/');
+        $sent_url = add_query_arg(['photo_share_sent' => 1], $base_url);
+        if (!avbk_public_rate_limit('photo_ip', (string) ($_SERVER['REMOTE_ADDR'] ?? ''), 5, 900)) {
+            wp_safe_redirect($sent_url);
+            exit;
+        }
 
         $member_id  = null;
         $wp_user_id = null;
@@ -137,6 +143,11 @@ class AVBK_Photo_Share implements AVBK_Component {
             $email = sanitize_email(wp_unslash($_POST['photo_share_email'] ?? ''));
             if (!is_email($email)) {
                 wp_safe_redirect(add_query_arg(['photo_share_error' => 'invalid_email'], $base_url));
+                exit;
+            }
+
+            if (!avbk_public_rate_limit('photo_email', $email, 1, 600)) {
+                wp_safe_redirect($sent_url);
                 exit;
             }
 
@@ -184,9 +195,14 @@ class AVBK_Photo_Share implements AVBK_Component {
             }
 
             if (!$found) {
-                wp_safe_redirect(add_query_arg(['photo_share_error' => 'not_found'], $base_url));
+                wp_safe_redirect($sent_url);
                 exit;
             }
+        }
+
+        if (is_user_logged_in() && !avbk_public_rate_limit('photo_email', $email, 1, 600)) {
+            wp_safe_redirect($sent_url);
+            exit;
         }
 
         // Create the pending share request (expires in 5 days)
@@ -201,11 +217,11 @@ class AVBK_Photo_Share implements AVBK_Component {
 
         if ($share) {
             self::send_confirmation_email($share);
-            wp_safe_redirect(add_query_arg(['photo_share_sent' => 1, 'sent_email' => urlencode($email)], $base_url));
+            wp_safe_redirect($sent_url);
             exit;
         }
 
-        wp_safe_redirect(add_query_arg(['photo_share_error' => 'failed'], $base_url));
+        wp_safe_redirect($sent_url);
         exit;
     }
 
@@ -348,11 +364,10 @@ class AVBK_Photo_Share implements AVBK_Component {
     private static function status_notices(): string {
         $out = '';
         if (!empty($_GET['photo_share_sent'])) {
-            $sent_email = !empty($_GET['sent_email']) ? esc_html(urldecode($_GET['sent_email'])) : '';
             $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-success">'
-                . '<strong>Bevestigingsmail verzonden!</strong> '
-                . ($sent_email ? sprintf('We hebben een verificatielink gestuurd naar <strong>%s</strong>. ', $sent_email) : 'We hebben een verificatielink gestuurd naar jouw e-mailadres. ')
-                . 'Klik binnen <strong>5 dagen</strong> op de link in de mail om jouw persoonlijke Google Drive uploadmap te activeren.'
+                . '<strong>Aanvraag ontvangen.</strong> '
+                . 'Als het e-mailadres bij ons bekend is, ontvang je een verificatielink. '
+                . 'Klik binnen <strong>5 dagen</strong> op de link om jouw persoonlijke Google Drive uploadmap te activeren.'
                 . '</div>';
         }
 
@@ -365,12 +380,7 @@ class AVBK_Photo_Share implements AVBK_Component {
 
         if (!empty($_GET['photo_share_error'])) {
             $err = sanitize_key($_GET['photo_share_error']);
-            if ($err === 'not_found') {
-                $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-error">'
-                    . 'Dit e-mailadres is niet gevonden als actief lid of geregistreerde deelnemer. '
-                    . 'Ben je wel deelnemer of lid? Neem dan even contact met ons op via <a href="mailto:info@avphilipsvanhorne.nl">info@avphilipsvanhorne.nl</a>.'
-                    . '</div>';
-            } elseif ($err === 'invalid_email') {
+            if ($err === 'invalid_email') {
                 $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-error">'
                     . 'Voer een geldig e-mailadres in.'
                     . '</div>';

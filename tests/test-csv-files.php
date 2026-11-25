@@ -20,10 +20,12 @@ function wp_remote_retrieve_response_code($r) { return 200; }
 function wp_remote_retrieve_body($r) { return $GLOBALS['sheet_body']; }
 interface AVBK_Component { public function register(): void; }
 function current_user_can($cap) { return !empty($GLOBALS['can_manage']); }
-function wp_die($message = '', $code = 0) { throw new RuntimeException((string) $message); }
+function wp_die($message = '', $code = 0, $args = []) { $GLOBALS['die_args'] = $args; throw new RuntimeException((string) $message); }
+function check_admin_referer($action) { if (($GLOBALS['export_nonce'] ?? '') !== $action) throw new RuntimeException('Ongeldige nonce.'); }
 function sanitize_key($v) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $v)); }
 function sanitize_text_field($v) { return trim((string) $v); }
 function wp_unslash($v) { return $v; }
+function esc_html($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 final class AVPVH_DB {
     public static function get_activity(int $id): ?object { return (object) ['name' => 'Excursie']; }
 }
@@ -33,6 +35,11 @@ final class AVPVH_Roles {
 final class AVBK_Tshirt_Order { const DEFAULT_PRICE = 20.0; }
 final class AVBK_DB {
     public static array $order_filters = [];
+    public static array $payment_urls = [];
+    public static function save_activity_payment_url(int $activity_id, string $url): void {
+        if (!str_starts_with($url, 'https://')) throw new InvalidArgumentException('Gebruik een geldige https://-betaallink.');
+        self::$payment_urls[$activity_id] = $url;
+    }
     public static function get_orders(array $filters): array { self::$order_filters[] = $filters; return []; }
     public static function get_order_matrix(string $type): array {
         return ['variants' => ['M'], 'designs' => ['Logo'], 'cells' => ['Logo' => ['M' => 1]], 'totals_by_design' => ['Logo' => 1],
@@ -118,12 +125,24 @@ function download(object $admin, string $handler): string {
 }
 check(download($admin, 'handle_export_book_orders') === 'DIED: Geen toegang.', 'Export without the right: refused');
 $GLOBALS['can_manage'] = true;
+$GLOBALS['export_nonce'] = 'avbk_export_book_orders';
 $_GET = ['status' => 'all', 'payment_status' => 'open', 'presentation' => 'yes', 's' => ' Anna '];
 check(str_starts_with(download($admin, 'handle_export_book_orders'), "\xEF\xBB\xBFBestelnummer;Datum;"), 'Book export: sends the CSV');
 check(AVBK_DB::$order_filters[0] === ['order_type' => 'book', 'payment_status' => 'open', 'search' => 'Anna', 'presentation' => 'yes'], 'Book export: the list filters, "all" left out');
 $_GET = [];
+$GLOBALS['export_nonce'] = '';
+check(download($admin, 'handle_export_tshirt_orders') === 'DIED: Ongeldige nonce.', 'CSV export rejects a missing nonce');
+$GLOBALS['export_nonce'] = 'avbk_export_tshirt_orders';
 check(str_contains(download($admin, 'handle_export_tshirt_orders'), 'Bestelde shirts (overzicht)') && AVBK_DB::$order_filters[1] === ['order_type' => 'tshirt'], 'T-shirt export: sends the CSV, unfiltered');
+$GLOBALS['export_nonce'] = 'avbk_export_tshirt_matrix';
 check(str_contains(download($admin, 'handle_export_tshirt_matrix'), "Logo;1;1;20,00\n"), 'Matrix export: revenue at the default price');
+
+// --- the activity payment link --------------------------------------------------------
+$GLOBALS['export_nonce'] = 'avbk_save_activity_payment_url';
+$_POST = ['activity_id' => '7', 'payment_url' => 'javascript:alert(1)'];
+check(download($admin, 'handle_save_activity_payment_url') === 'DIED: Gebruik een geldige https://-betaallink.'
+    && ($GLOBALS['die_args']['response'] ?? 0) === 400 && AVBK_DB::$payment_urls === [], 'Payment link: a non-https link is refused with a 400 and not saved');
+$_POST = [];
 
 // --- reading the Google Sheet ---------------------------------------------------------
 $url = 'https://docs.google.com/spreadsheets/d/abc123/edit#gid=5';

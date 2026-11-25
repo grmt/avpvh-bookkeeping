@@ -325,14 +325,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (status === 'reset_sent') {
                         const loginUrl = data.data.login_url || '/avpvh-login/';
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success">' +
-                            '<p><strong>E-mail verzonden!</strong> ' + escapeHtml(message) + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + escapeHtml(loginUrl) + '">inloggen</a> en bestellen.</p>' +
+                            '<p><strong>E-mail verzonden!</strong> ' + escapeHtml(message) + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + safeLink(loginUrl) + '">inloggen</a> en bestellen.</p>' +
                             '</div>';
                         scrollToCheckEmail(resultContainer);
                     } else if (status === 'already_active') {
                         const loginUrl = data.data.login_url || '/avpvh-login/';
                         const resetUrl = data.data.reset_url || '#';
                         resultContainer.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info">' +
-                            '<p>' + escapeHtml(message) + ' <a href="' + escapeHtml(loginUrl) + '">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="' + escapeHtml(resetUrl) + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>' +
+                            '<p>' + escapeHtml(message) + ' <a href="' + safeLink(loginUrl) + '">Log hier in</a> om direct te bestellen. Weet je je wachtwoord niet meer? <a href="' + safeLink(resetUrl) + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p>' +
                             '</div>';
                         scrollToCheckEmail(resultContainer);
                     } else if (status === 'not_found') {
@@ -366,9 +366,10 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function safeLink(value) {
+        return window.AVBKOrderEmailLinks.href(value, emailForm.dataset.authOrigin);
+    }
     function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+        return window.AVBKOrderEmailLinks.text(str);
     }
 });

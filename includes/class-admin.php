@@ -1637,7 +1637,7 @@ class AVBK_Admin implements AVBK_Component {
         </head>
         <body>
             <p class="avbk-preview-subject">Onderwerp: <strong><?php echo esc_html($subject); ?></strong></p>
-            <iframe id="avbk-preview-frame" title="Voorbeeld e-mail"></iframe>
+            <iframe sandbox="allow-same-origin" id="avbk-preview-frame" title="Voorbeeld e-mail"></iframe>
             <p class="avbk-preview-edit-buttons">
                 <button type="button" id="avbk-clear-qr" class="button button-small">QR-code verwijderen</button>
                 <?php if ($generic_qr_data_url !== '') : ?>
@@ -2055,7 +2055,11 @@ class AVBK_Admin implements AVBK_Component {
         }
         $activity_id = (int) ($_POST['activity_id'] ?? 0);
         if ($activity_id) {
-            AVBK_DB::save_activity_payment_url($activity_id, sanitize_text_field(wp_unslash($_POST['payment_url'] ?? '')));
+            try {
+                AVBK_DB::save_activity_payment_url($activity_id, sanitize_text_field(wp_unslash($_POST['payment_url'] ?? '')));
+            } catch (\InvalidArgumentException $e) {
+                wp_die(esc_html($e->getMessage()), '', ['response' => 400]);
+            }
         }
         wp_safe_redirect(add_query_arg(['page' => 'avbk-activity-payments', 'activity_id' => $activity_id], admin_url('admin.php')));
         exit;
@@ -2231,7 +2235,7 @@ class AVBK_Admin implements AVBK_Component {
         $settlement = self::NO_SETTLEMENT;
         if ($use_credit) {
             $wpdb->query('START TRANSACTION');
-            $settlement = self::settle_credit($member_id, $items);
+            $settlement = self::settle_credit($member_id, $items, true);
             $wpdb->query('ROLLBACK');
         }
         $open_items = self::balance_open_items($items);
@@ -2357,7 +2361,7 @@ class AVBK_Admin implements AVBK_Component {
         }
         $items = self::balance_selection_items(array_map('intval', $draft['fee_item_ids']), self::balance_allowed_member_ids($member_id));
         $wpdb->query('START TRANSACTION');
-        $settlement = $draft['apply_credit'] ? self::settle_credit($member_id, $items) : self::NO_SETTLEMENT;
+        $settlement = $draft['apply_credit'] ? self::settle_credit($member_id, $items, true) : self::NO_SETTLEMENT;
         $open = round(array_sum(wp_list_pluck(self::balance_open_items($items), 'open_after')), 2);
         if (!$items || abs($settlement['applied'] - (float) $draft['expected_credit']) > 0.005 || abs($open - (float) $draft['expected_open']) > 0.005) {
             $wpdb->query('ROLLBACK');
@@ -2489,10 +2493,10 @@ class AVBK_Admin implements AVBK_Component {
     }
 
     /** Settles the member's credit against the items in order; sets ->credit_applied and ->open_after on each. @return float the total applied. */
-    private static function apply_credit_to_items(int $member_id, array $items): float {
+    private static function apply_credit_to_items(int $member_id, array $items, bool $in_transaction = false): float {
         $total = 0.0;
         foreach ($items as $item) {
-            $applied = AVBK_DB::apply_credit_fifo($member_id, (int) $item->id, (float) $item->open_after);
+            $applied = AVBK_DB::apply_credit_fifo($member_id, (int) $item->id, (float) $item->open_after, $in_transaction);
             $item->credit_applied = $applied;
             $item->open_after = round($item->open_after - $applied, 2);
             $total = round($total + $applied, 2);
@@ -2507,12 +2511,12 @@ class AVBK_Admin implements AVBK_Component {
      *
      * @return array{applied: float, sources: object[], left: float}
      */
-    private static function settle_credit(int $member_id, array $items): array {
+    private static function settle_credit(int $member_id, array $items, bool $in_transaction = false): array {
         $before = AVBK_DB::get_credit_transactions_for_member($member_id);
         foreach ($before as $source) {
             $source->paid_before = AVBK_DB::get_allocations_for_transaction((int) $source->id);
         }
-        $applied = self::apply_credit_to_items($member_id, $items);
+        $applied = self::apply_credit_to_items($member_id, $items, $in_transaction);
         $after = [];
         foreach (AVBK_DB::get_credit_transactions_for_member($member_id) as $row) {
             $after[(int) $row->id] = (float) $row->credit;
@@ -3156,6 +3160,7 @@ class AVBK_Admin implements AVBK_Component {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
+        check_admin_referer('avbk_export_book_orders');
         $filters = self::order_export_filters('book');
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only export filter; the export checks can_manage().
         $presentation = sanitize_key(wp_unslash($_GET['presentation'] ?? 'all'));
@@ -3169,6 +3174,7 @@ class AVBK_Admin implements AVBK_Component {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
+        check_admin_referer('avbk_export_tshirt_orders');
         self::send_csv('tshirt-bestellingen', self::tshirt_orders_csv(AVBK_DB::get_orders(self::order_export_filters('tshirt'))));
     }
 
@@ -3176,6 +3182,7 @@ class AVBK_Admin implements AVBK_Component {
         if (!$this->can_manage()) {
             wp_die('Geen toegang.', 403);
         }
+        check_admin_referer('avbk_export_tshirt_matrix');
         $unit_price = (float) (get_option('avbk_tshirt_price', AVBK_Tshirt_Order::DEFAULT_PRICE) ?: AVBK_Tshirt_Order::DEFAULT_PRICE);
         self::send_csv('tshirt-inkoopmatrix', self::tshirt_matrix_csv(AVBK_DB::get_order_matrix('tshirt'), $unit_price));
     }

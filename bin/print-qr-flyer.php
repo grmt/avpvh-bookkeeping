@@ -12,6 +12,11 @@
 
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
+
 $autoloadPath = __DIR__ . '/../vendor/autoload.php';
 if (!file_exists($autoloadPath)) {
     fwrite(STDERR, "Fout: Composer autoload niet gevonden. Draai eerst 'composer install'.\n");

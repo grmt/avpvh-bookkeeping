@@ -2546,22 +2546,61 @@ class AVBK_DB {
      *     out (fee item outside the credit owner's household, amount
      *     exceeds what either side actually has).
      */
-    public static function apply_credit(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
+    public static function apply_credit(int $transaction_id, int $fee_item_id, int $member_id, float $amount, bool $in_transaction = false): int {
         $amount = round($amount, 2);
         if ($amount <= 0.005) {
             return 0;
         }
-        $available = 0.0;
-        foreach (self::get_credit_transactions_for_member($member_id) as $row) {
-            if ((int) $row->id === $transaction_id) {
-                $available = $row->credit;
-                break;
-            }
+        global $wpdb;
+        $started = $in_transaction ? $wpdb->query('SAVEPOINT avbk_apply_credit') : $wpdb->query('START TRANSACTION');
+        if ($started === false) {
+            return 0;
         }
+        try {
+            // Lock shared bank credit, including joint account holders, then the target.
+            foreach (['avb_transactions' => $transaction_id, 'avb_fee_items' => $fee_item_id] as $table => $id) {
+                if ($wpdb->query($wpdb->prepare("SELECT id FROM {$wpdb->prefix}{$table} WHERE id = %d FOR UPDATE", $id)) === false) {
+                    throw new \RuntimeException('Kan het tegoed niet vergrendelen.');
+                }
+            }
+            $allocation_id = self::apply_credit_locked($transaction_id, $fee_item_id, $member_id, $amount);
+            $committed = $in_transaction ? $wpdb->query('RELEASE SAVEPOINT avbk_apply_credit') : $wpdb->query('COMMIT');
+            if ($committed === false) {
+                throw new \RuntimeException('Kan het tegoed niet verrekenen.');
+            }
+            return $allocation_id;
+        } catch (\Throwable $e) {
+            if ($in_transaction) {
+                $wpdb->query('ROLLBACK TO SAVEPOINT avbk_apply_credit');
+            } else {
+                $wpdb->query('ROLLBACK');
+            }
+            throw $e;
+        }
+    }
+
+    private static function apply_credit_locked(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
+        global $wpdb;
+        // Locking reads see current rows even inside a preview's existing snapshot.
+        $source = $wpdb->get_row($wpdb->prepare(
+            "SELECT t.* FROM {$wpdb->prefix}avb_transactions t
+             WHERE t.id = %d AND t.direction = 'in' AND t.status = 'matched'
+               AND t.counterparty_iban != '' AND YEAR(t.transaction_date) > %d
+               AND EXISTS (SELECT 1 FROM {$wpdb->prefix}avb_known_ibans k
+                           WHERE k.iban = t.counterparty_iban AND k.member_id = %d AND k.confirmed = 1)
+             FOR UPDATE",
+            $transaction_id, (int) get_option('avbk_closed_through_year', 0), $member_id
+        ));
+        if (!$source) {
+            return 0;
+        }
+        $available = round((float) $source->amount
+            - self::locked_amount_total('avb_transaction_allocations', 'transaction_id', $transaction_id)
+            - self::locked_amount_total('avb_refunds', 'credit_transaction_id', $transaction_id), 2);
         if ($amount > $available + 0.005) {
             return 0;
         }
-        $item = self::get_fee_item($fee_item_id);
+        $item = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_fee_items WHERE id = %d FOR UPDATE", $fee_item_id));
         if (!$item || $item->status !== 'open') {
             return 0;
         }
@@ -2569,10 +2608,22 @@ class AVBK_DB {
         if (!in_array((int) $item->member_id, array_map('intval', $household_ids), true)) {
             return 0;
         }
-        if ($amount > self::get_fee_item_remaining($item) + 0.005) {
+        $paid = self::locked_amount_total('avb_transaction_allocations', 'fee_item_id', $fee_item_id);
+        if ($amount > round((float) $item->amount_due - $paid, 2) + 0.005) {
             return 0;
         }
         return self::allocate($transaction_id, $fee_item_id, $member_id, $amount);
+    }
+
+    /** Current allocation/refund amounts; caller holds the source and target row locks. */
+    private static function locked_amount_total(string $table, string $column, int $id): float {
+        global $wpdb;
+        // Table and column are fixed literals at the call sites above.
+        $amounts = $wpdb->get_col($wpdb->prepare("SELECT amount FROM {$wpdb->prefix}{$table} WHERE {$column} = %d FOR UPDATE", $id));
+        if (($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException('Kan het actuele saldo niet lezen.');
+        }
+        return round(array_sum(array_map('floatval', $amounts)), 2);
     }
 
     /**
@@ -2585,7 +2636,7 @@ class AVBK_DB {
      *     $amount if available credit or the fee item's remaining due
      *     runs out first).
      */
-    public static function apply_credit_fifo(int $member_id, int $fee_item_id, float $amount): float {
+    public static function apply_credit_fifo(int $member_id, int $fee_item_id, float $amount, bool $in_transaction = false): float {
         $amount = round($amount, 2);
         $applied = 0.0;
         foreach (self::get_credit_transactions_for_member($member_id) as $row) {
@@ -2596,7 +2647,7 @@ class AVBK_DB {
             if ($take <= 0.005) {
                 continue;
             }
-            if (self::apply_credit((int) $row->id, $fee_item_id, $member_id, $take)) {
+            if (self::apply_credit((int) $row->id, $fee_item_id, $member_id, $take, $in_transaction)) {
                 $applied = round($applied + $take, 2);
             }
         }
@@ -4057,12 +4108,14 @@ class AVBK_DB {
 
     public static function allocate(int $transaction_id, int $fee_item_id, int $member_id, float $amount): int {
         global $wpdb;
-        $wpdb->insert("{$wpdb->prefix}avb_transaction_allocations", [
+        if ($wpdb->insert("{$wpdb->prefix}avb_transaction_allocations", [
             'transaction_id' => $transaction_id,
             'fee_item_id'    => $fee_item_id,
             'member_id'      => $member_id,
             'amount'         => $amount,
-        ]);
+        ]) === false) {
+            throw new \RuntimeException('De verrekening is niet opgeslagen.');
+        }
         $allocation_id = (int) $wpdb->insert_id;
         if ($allocation_id) {
             self::audit('allocation.added', 'transaction', $transaction_id, ['fee_item_id' => $fee_item_id, 'amount' => round($amount, 2), 'allocation_id' => $allocation_id], $member_id);
@@ -5511,13 +5564,26 @@ class AVBK_DB {
             "SELECT * FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
             $activity_id
         ));
+        if ($row && !self::is_https_payment_url((string) $row->payment_url)) {
+            $row->payment_url = '';
+        }
         return $row ?: null;
+    }
+
+    public static function is_https_payment_url(string $url): bool {
+        $parts = wp_parse_url($url);
+        return filter_var($url, FILTER_VALIDATE_URL) !== false
+            && strtolower($parts['scheme'] ?? '') === 'https'
+            && !empty($parts['host']) && !isset($parts['user']) && !isset($parts['pass']);
     }
 
     /** Saves/replaces the activity's generic betaalverzoeklink; pass '' to clear it without touching the QR. The URL is reduced via strip_url_prefix() before storing, matching what's shown. */
     public static function save_activity_payment_url(int $activity_id, string $url): void {
         global $wpdb;
         $url = self::strip_url_prefix($url);
+        if ($url !== '' && !self::is_https_payment_url($url)) {
+            throw new \InvalidArgumentException('Gebruik een geldige https://-betaallink.');
+        }
         $exists = $wpdb->get_var($wpdb->prepare(
             "SELECT activity_id FROM {$wpdb->prefix}avb_activity_payment_links WHERE activity_id = %d",
             $activity_id
@@ -5611,10 +5677,9 @@ class AVBK_DB {
     /**
      * Resolves a registrant to an avm_members row: exact e-mail match wins
      * (strongest signal — directory e-mail addresses are globally unique), then
-     * an exact case-insensitive first+last name match. A single name match
-     * also gets the submitted e-mail linked as a new identity so the
-     * registrant can log in with it (OAuth or otherwise) afterwards without
-     * a separate "link your account" step.
+     * optionally an exact first+last name match for trusted callers. Public
+     * email confirmations pass false: email access does not prove a name.
+     * Existing email addresses and identities are never changed here.
      *
      * Zero or ambiguous (>1) name matches both fall through to creating a
      * brand-new visitor member — cheap to reverse (deactivate/merge later)
@@ -5625,7 +5690,7 @@ class AVBK_DB {
      * Returns ['member_id' => int, 'match_type' => 'email'|'name'|'new', 'review_note' => string].
      */
     public static function find_or_create_member_for_registration(
-        string $first_name, string $suffix, string $last_name, string $email, string $phone
+        string $first_name, string $suffix, string $last_name, string $email, string $phone, bool $allow_name_match = true
     ): array {
         // get_member_by_email('') matches any member whose own email is
         // blank (lowercase_email = '' on both sides) — a real bug for any
@@ -5638,29 +5703,14 @@ class AVBK_DB {
         }
 
         $matches = AVPVH_DB::find_members_by_name($first_name, $last_name);
-        if (count($matches) === 1) {
+        if ($allow_name_match && count($matches) === 1) {
             $member_id = (int) $matches[0]->id;
-            // The existing row may only have the placeholder e-mail (or
-            // none at all, same "no real address on file" convention as
-            // maybe_send_donation_emails()) if this member was created
-            // from an earlier registration/import without one — a fresh,
-            // real e-mail submitted now should replace it rather than be
-            // silently dropped (incident 2026-10-20: a congress registrant
-            // kept showing up with a stale @avpvh.local address afterwards).
-            // A member who already has a different real e-mail on file is
-            // left alone — that may be a deliberate choice, not a typo.
-            // find_members_by_name() doesn't select email, so re-fetch the
-            // full row rather than assume one is present on $matches[0].
-            $existing_member = AVPVH_DB::get_member($member_id);
-            $existing_email = strtolower((string) ($existing_member->email ?? ''));
-            if ($email !== '' && ($existing_email === '' || str_ends_with($existing_email, '@avpvh.local'))) {
-                AVPVH_DB::update_member_with_audit($member_id, ['email' => $email], ['%s']);
-            }
+            // A matching name never authorizes an email or identity change.
             return ['member_id' => $member_id, 'match_type' => 'name', 'review_note' => ''];
         }
 
         $review_note = '';
-        if (count($matches) > 1) {
+        if (count($matches) > 1 || (!$allow_name_match && count($matches) > 0)) {
             $review_note = 'Mogelijk duplicaat — bestaande leden met dezelfde naam: '
                 . implode(', ', array_map(fn($m) => avpvh_format_name($m, 'list'), $matches));
         }
@@ -5709,13 +5759,15 @@ class AVBK_DB {
         if ($existing) {
             return (int) $existing->id;
         }
-        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+        if ($wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'   => $member_id,
             'type'        => 'event',
             'activity_id' => $activity_id ?: null,
             'description' => $description,
             'amount_due'  => $amount,
-        ]);
+        ]) === false) {
+            throw new \RuntimeException('De bijdrage is niet opgeslagen.');
+        }
         return (int) $wpdb->insert_id;
     }
 
@@ -5770,10 +5822,31 @@ class AVBK_DB {
     /** Idempotent — reopening the same confirmation link later just re-shows the QR without resetting confirmed_at. */
     public static function confirm_congress_registration(int $id): void {
         global $wpdb;
-        $wpdb->query($wpdb->prepare(
-            "UPDATE {$wpdb->prefix}avb_congress_registrations SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s) WHERE id = %d",
-            current_time('mysql'), $id
-        ));
+        self::with_confirmation_lock('avb_congress_registrations', $id, function () use ($wpdb, $id): void {
+            $reg = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}avb_congress_registrations WHERE id = %d", $id));
+            if (!$reg || $reg->status !== 'pending_confirmation') {
+                return;
+            }
+            $match = !empty($reg->member_id)
+                ? ['member_id' => (int) $reg->member_id, 'match_type' => $reg->match_type, 'review_note' => $reg->review_note]
+                : self::find_or_create_member_for_registration($reg->first_name, $reg->suffix, $reg->last_name, $reg->email, $reg->phone, false);
+            $member_id = (int) $match['member_id'];
+            $fee_item_id = (int) ($reg->fee_item_id ?? 0);
+            if (!$fee_item_id && $member_id) {
+                $fee_item_id = AVBK_Congress::congress_fee_item($member_id);
+            }
+            if ($wpdb->update("{$wpdb->prefix}avb_congress_registrations", [
+                'status' => 'confirmed',
+                'confirmed_at' => current_time('mysql'),
+                'member_id' => $member_id ?: null,
+                'fee_item_id' => $fee_item_id ?: null,
+                'match_type' => $match['match_type'],
+                'needs_review' => $match['review_note'] !== '' ? 1 : 0,
+                'review_note' => $match['review_note'],
+            ], ['id' => $id]) === false) {
+                throw new \RuntimeException('De aanmelding is niet bevestigd.');
+            }
+        });
     }
 
     public static function mark_congress_email_result(int $id, bool $sent, string $error = ''): void {
@@ -5949,57 +6022,81 @@ class AVBK_DB {
 
     public static function confirm_order(int $id): void {
         global $wpdb;
-        $order = self::get_order($id);
-        if (!$order) {
-            return;
-        }
+        self::with_confirmation_lock('avb_orders', $id, function () use ($id, $wpdb): void {
+            $order = self::get_order($id);
+            if (!$order || $order->status === 'cancelled') {
+                return;
+            }
 
-        $member_id = (int) ($order->member_id ?? 0);
-        if ($member_id === 0 && !empty($order->email)) {
-            $matched = self::find_member_by_email($order->email);
-            if ($matched && !empty($matched->id)) {
-                $member_id = (int) $matched->id;
-            } elseif (method_exists(__CLASS__, 'find_or_create_member_for_registration')) {
-                $res = self::find_or_create_member_for_registration(
-                    $order->first_name,
-                    $order->suffix ?? '',
-                    $order->last_name,
-                    $order->email,
-                    $order->phone ?? ''
-                );
-                if (!empty($res['member_id'])) {
-                    $member_id = (int) $res['member_id'];
+            $member_id = (int) ($order->member_id ?? 0);
+            if ($member_id === 0 && !empty($order->email)) {
+                $matched = self::find_member_by_email($order->email);
+                if ($matched && !empty($matched->id)) {
+                    $member_id = (int) $matched->id;
+                } elseif (method_exists(__CLASS__, 'find_or_create_member_for_registration')) {
+                    $res = self::find_or_create_member_for_registration(
+                        $order->first_name,
+                        $order->suffix ?? '',
+                        $order->last_name,
+                        $order->email,
+                        $order->phone ?? '',
+                        false
+                    );
+                    if (!empty($res['member_id'])) {
+                        $member_id = (int) $res['member_id'];
+                    }
                 }
             }
-        }
 
-        $fee_item_id = (int) ($order->fee_item_id ?? 0);
-        if ($fee_item_id === 0 && $member_id > 0) {
-            $total_amount = (float) $order->total_amount;
-            if ($order->order_type === 'tshirt') {
-                $desc = !empty($order->items)
-                    ? implode(', ', array_map(fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", $order->items))
-                    : 'Lustrum T-shirt(s)';
-                $fee_item_id = self::create_tshirt_fee_item($member_id, (int) $order->quantity, $total_amount, $desc);
-            } else {
-                $book_title = get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!';
-                $fee_item_id = self::create_book_fee_item($member_id, (int) $order->quantity, $total_amount, $book_title);
+            $fee_item_id = (int) ($order->fee_item_id ?? 0);
+            if ($fee_item_id === 0 && $member_id > 0) {
+                $total_amount = (float) $order->total_amount;
+                if ($order->order_type === 'tshirt') {
+                    $desc = !empty($order->items)
+                        ? implode(', ', array_map(fn($it) => "{$it->quantity}x {$it->title} ({$it->variant})", $order->items))
+                        : 'Lustrum T-shirt(s)';
+                    $fee_item_id = self::create_tshirt_fee_item($member_id, (int) $order->quantity, $total_amount, $desc);
+                } else {
+                    $book_title = get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!';
+                    $fee_item_id = self::create_book_fee_item($member_id, (int) $order->quantity, $total_amount, $book_title);
+                }
             }
-        }
 
-        $wpdb->query($wpdb->prepare(
-            "UPDATE {$wpdb->prefix}avb_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, %s), member_id = COALESCE(member_id, %s), fee_item_id = COALESCE(fee_item_id, %s) WHERE id = %d",
-            current_time('mysql'),
-            $member_id ?: null,
-            $fee_item_id ?: null,
-            $id
-        ));
+            if ($wpdb->update("{$wpdb->prefix}avb_orders", [
+                'status' => 'confirmed',
+                'confirmed_at' => ($order->confirmed_at ?? null) ?: current_time('mysql'),
+                'member_id' => $member_id ?: null,
+                'fee_item_id' => $fee_item_id ?: null,
+            ], ['id' => $id]) === false) {
+                throw new \RuntimeException('De bestelling is niet bevestigd.');
+            }
 
-        if ($fee_item_id > 0 && $member_id > 0) {
-            $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => $fee_item_id]);
+            if ($fee_item_id > 0 && $member_id > 0) {
+                $wpdb->update("{$wpdb->prefix}avb_fee_items", ['member_id' => $member_id], ['id' => $fee_item_id]);
+            }
+            if ($order->status !== 'confirmed' || (int) ($order->fee_item_id ?? 0) !== $fee_item_id) {
+                self::audit('order.confirmed', 'order', $id, ['status' => [$order->status, 'confirmed'], 'fee_item_id' => $fee_item_id ?: null], $member_id ?: null);
+            }
+        });
+    }
+
+    /** Serialize token confirmation before resolving membership or creating charges. */
+    private static function with_confirmation_lock(string $table, int $id, callable $confirm): void {
+        global $wpdb;
+        if ($wpdb->query('START TRANSACTION') === false) {
+            throw new \RuntimeException('Kan de bevestiging niet starten.');
         }
-        if ($order->status !== 'confirmed' || (int) ($order->fee_item_id ?? 0) !== $fee_item_id) {
-            self::audit('order.confirmed', 'order', $id, ['status' => [$order->status, 'confirmed'], 'fee_item_id' => $fee_item_id ?: null], $member_id ?: null);
+        try {
+            if ($wpdb->query($wpdb->prepare("SELECT id FROM {$wpdb->prefix}{$table} WHERE id = %d FOR UPDATE", $id)) === false) {
+                throw new \RuntimeException('Kan de bevestiging niet vergrendelen.');
+            }
+            $confirm();
+            if ($wpdb->query('COMMIT') === false) {
+                throw new \RuntimeException('Kan de bevestiging niet opslaan.');
+            }
+        } catch (\Throwable $e) {
+            $wpdb->query('ROLLBACK');
+            throw $e;
         }
     }
 
@@ -6549,7 +6646,7 @@ class AVBK_DB {
     public static function create_book_fee_item(int $member_id, int $quantity, float $amount, string $book_title = ''): int {
         global $wpdb;
         $title = $book_title !== '' ? $book_title : (get_option('avbk_book_title', '') ?: 'Jubileumboek Doorgraven!');
-        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+        if ($wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'   => $member_id,
             'type'        => 'other',
             'year'        => (int) current_time('Y'),
@@ -6558,14 +6655,16 @@ class AVBK_DB {
             'description' => $title,
             'amount_due'  => $amount,
             'status'      => 'open',
-        ]);
+        ]) === false) {
+            throw new \RuntimeException('De bijdrage is niet opgeslagen.');
+        }
         return (int) $wpdb->insert_id;
     }
 
     public static function create_tshirt_fee_item(int $member_id, int $quantity, float $amount, string $description = ''): int {
         global $wpdb;
         $title = $description !== '' ? $description : (get_option('avbk_tshirt_title', '') ?: 'Lustrum T-shirt(s)');
-        $wpdb->insert("{$wpdb->prefix}avb_fee_items", [
+        if ($wpdb->insert("{$wpdb->prefix}avb_fee_items", [
             'member_id'   => $member_id,
             'type'        => 'other',
             'year'        => (int) current_time('Y'),
@@ -6574,7 +6673,9 @@ class AVBK_DB {
             'description' => $title,
             'amount_due'  => $amount,
             'status'      => 'open',
-        ]);
+        ]) === false) {
+            throw new \RuntimeException('De bijdrage is niet opgeslagen.');
+        }
         return (int) $wpdb->insert_id;
     }
 

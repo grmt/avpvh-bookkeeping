@@ -69,6 +69,7 @@ class AVPVH_DB {
     public static function get_activity(int $activity_id): ?object { return null; }
     public static function get_all_flags(): array { return []; }
     public static function get_activities(): array { return []; }
+    public static function get_activity_types(): array { return []; }
     public static function get_extended_household(int $id): array { return []; }
 }
 
@@ -113,6 +114,7 @@ function sanitize_text_field(string $val): string { return trim(strip_tags($val)
 function sanitize_textarea_field(string $val): string { return trim(strip_tags($val)); }
 function sanitize_key(string $val): string { return preg_replace('/[^a-z0-9_\-]/', '', strtolower($val)); }
 function wp_unslash($val) { return $val; }
+function wp_parse_url($url) { return parse_url($url); }
 function wp_kses_post(string $val): string { return strip_tags($val, '<p><br><em><strong><blockquote><i><b><span><hr>'); }
 function wpautop(string $val): string {
     $trimmed = trim($val);
@@ -199,6 +201,7 @@ function remove_action(string $tag, $callback): void {}
 function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
 function remove_filter(string $tag, $callback, int $priority = 10): bool { return true; }
 function add_shortcode(string $tag, $callback): void { $GLOBALS['shortcodes'][$tag] = $callback; }
+function wp_enqueue_script($handle, $src, $deps = [], $ver = false, $footer = false): void { $GLOBALS['scripts'][$handle] = $deps; }
 function wp_enqueue_style(string $handle, string $src, array $deps = [], $ver = false): void {}
 function selected($val, $current, bool $echo = true) {
     $res = ((string) $val === (string) $current) ? ' selected="selected"' : '';
@@ -383,6 +386,7 @@ class Mock_WPDB {
     }
 
     public function get_var(string $query) {
+        if (str_contains($query, 'GET_LOCK(') || str_contains($query, 'RELEASE_LOCK(')) return 1;
         if (str_contains($query, 'COUNT(*)') && str_contains($query, 'avb_orders')) {
             $count = 0;
             $type_match = null;

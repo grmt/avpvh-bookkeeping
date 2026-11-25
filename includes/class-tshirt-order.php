@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/functions-mail.php';
+require_once __DIR__ . '/functions-public-forms.php';
 
 /**
  * [avpvh_bk_tshirt_order] (and alias [avpvh_bk_tshirt]) — public and member ordering
@@ -115,6 +116,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     }
 
     public function enqueue_assets(): void {
+        wp_enqueue_script('avbk-order-email-links', AVBK_PLUGIN_URL . 'assets/order-email-links.js', [], avbk_asset_version('assets/order-email-links.js'));
         wp_enqueue_style(
             'avbk-book-order',
             AVBK_PLUGIN_URL . 'assets/book-order.css',
@@ -130,7 +132,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         wp_enqueue_script(
             'avbk-tshirt-order',
             AVBK_PLUGIN_URL . 'assets/tshirt-order.js',
-            [],
+            ['avbk-order-email-links'],
             avbk_asset_version('assets/tshirt-order.js'),
             true
         );
@@ -147,6 +149,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     }
 
     private function render_form(): string {
+        $auth_origin = (class_exists('AVPVH_Nav_Auth') && defined('AVPVH_Nav_Auth::AUTHELIA_URL')) ? AVPVH_Nav_Auth::AUTHELIA_URL : 'https://auth.avphilipsvanhorne.nl';
         $title               = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price               = (float) (get_option('avbk_tshirt_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
         $price_note          = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
@@ -199,7 +202,11 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         <div class="avbk-book-order avbk-tshirt-order">
             <h2><?php echo esc_html($title); ?> &mdash; Bestellen</h2>
 
-            <?php if ($error === 'missing_fields') : ?>
+            <?php if ($error === 'rate_limited') : ?>
+                <div class="avbk-book-notice avbk-book-error">Te veel aanvragen. Probeer het later opnieuw.</div>
+            <?php elseif ($error === 'email_failed') : ?>
+                <div class="avbk-book-notice avbk-book-error">De bevestigingsmail kon niet worden verstuurd. Je bestelling is nog niet bevestigd. Probeer het later opnieuw of neem contact op met de penningmeester.</div>
+            <?php elseif ($error === 'missing_fields') : ?>
                 <div class="avbk-book-notice avbk-book-error">
                     Vul alle verplichte velden in: voornaam, achternaam en een geldig e-mailadres.
                 </div>
@@ -207,6 +214,8 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                 <div class="avbk-book-notice avbk-book-error">
                     Vul een geldig e-mailadres in.
                 </div>
+            <?php elseif ($error === 'invalid_quantity') : ?>
+                <div class="avbk-book-notice avbk-book-error">Kies maximaal 99 kledingstukken per bestelling.</div>
             <?php elseif ($error === 'no_items') : ?>
                 <div class="avbk-book-notice avbk-book-error">
                     Selecteer minimaal één kledingstuk om te bestellen.
@@ -284,7 +293,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                         <p class="avbk-book-check-email-prompt">
                             Weet je niet of je al bekend bent? Vul dan eerst hier je e-mailadres in. Als dat e-mailadres bekend is, maar je bent nog nooit ingelogd, dan krijg je een mailtje met een link om een wachtwoord aan te maken:
                         </p>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form">
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form" data-auth-origin="<?php echo esc_attr($auth_origin); ?>">
                             <?php wp_nonce_field('avbk_check_tshirt_email'); ?>
                             <input type="hidden" name="action" value="avbk_check_tshirt_email">
                             <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
@@ -570,7 +579,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
         if ($order->status !== 'confirmed') {
             AVBK_DB::confirm_order((int) $order->id);
-            $order->status = 'confirmed';
+            $order = AVBK_DB::get_order_by_token($token);
         }
 
         $fee_item = $order->fee_item_id ? AVBK_DB::get_fee_item((int) $order->fee_item_id) : null;
@@ -697,7 +706,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     public function handle_order(): void {
         check_admin_referer('avbk_tshirt_order');
 
-        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/tshirt/');
+        $page_url = avbk_public_page_url($_POST['page_url'] ?? '', home_url('/tshirt/'));
 
         // Honeypot check
         if (!empty($_POST['website'])) {
@@ -720,7 +729,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
 
         // Parse line items
         $raw_items = $_POST['items'] ?? [];
-        if (!is_array($raw_items) || empty($raw_items)) {
+        if (!is_array($raw_items) || empty($raw_items) || count($raw_items) > 99) {
             wp_safe_redirect(add_query_arg('tshirt_error', 'no_items', $page_url));
             exit;
         }
@@ -748,7 +757,11 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         $total_amount   = 0.0;
 
         foreach ($raw_items as $raw_item) {
-            $qty = max(0, (int) ($raw_item['quantity'] ?? 0));
+            $qty = is_array($raw_item) ? filter_var($raw_item['quantity'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99]]) : false;
+            if ($qty === false || $total_quantity + $qty > 99) {
+                wp_safe_redirect(add_query_arg('tshirt_error', 'invalid_quantity', $page_url));
+                exit;
+            }
             if ($qty <= 0) {
                 continue;
             }
@@ -817,26 +830,15 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                 exit;
             }
 
-            // Find existing member or create visitor member
-            $match = AVBK_DB::find_or_create_member_for_registration($first_name, $suffix, $last_name, $email, $phone);
-            $member_id = (int) ($match['member_id'] ?? 0);
+            // Resolve membership only after the emailed token proves access to this address.
         }
 
-        // A logged-in member's address here is only a shipping address for
-        // this order (see the "Verzendadres" fieldset) — it must never
-        // silently overwrite their registered member address. Only save it
-        // as the registered address for a brand-new visitor, who has none
-        // yet.
-        $can_save_member_address = !$member && (($match['match_type'] ?? '') === 'new');
-        if ($can_save_member_address && $member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
-            AVBK_DB::save_member_address($member_id, [
-                'street'       => $street,
-                'house_number' => $house_number,
-                'postal_code'  => $postal_code,
-                'city'         => $city,
-                'country'      => $country,
-            ]);
+        if (!avbk_public_registration_allowed($email)) {
+            wp_safe_redirect(add_query_arg('tshirt_error', 'rate_limited', $page_url));
+            exit;
         }
+
+        // This address belongs to the order; it does not update member records.
 
         // Create fee item
         $title_opt = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
@@ -908,8 +910,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         if (!empty($mail_result['success'])) {
             wp_safe_redirect(add_query_arg('tshirt_ordered', '1', $page_url));
         } else {
-            AVBK_DB::confirm_order((int) $order_result['id']);
-            wp_safe_redirect(add_query_arg(['tshirt_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
+            wp_safe_redirect(add_query_arg('tshirt_error', 'email_failed', $page_url));
         }
         exit;
     }
@@ -1118,7 +1119,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     public function handle_check_email(): void {
         check_admin_referer('avbk_check_tshirt_email');
 
-        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/tshirt/');
+        $page_url = avbk_public_page_url($_POST['page_url'] ?? '', home_url('/tshirt/'));
         $is_ajax  = !empty($_POST['ajax']) || (defined('DOING_AJAX') && DOING_AJAX);
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
