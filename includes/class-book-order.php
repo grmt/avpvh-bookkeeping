@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/functions-mail.php';
+require_once __DIR__ . '/functions-public-forms.php';
 
 /**
  * [avpvh_bk_book_order] (and alias [avpvh_bk_book]) — public and member ordering
@@ -113,6 +114,10 @@ class AVBK_Book_Order implements AVBK_Component {
                 <div class="avbk-book-notice avbk-book-error">
                     Je bent niet gemachtigd om deze bestelling aan te passen.
                 </div>
+            <?php elseif ($error === 'rate_limited') : ?>
+                <div class="avbk-book-notice avbk-book-error">Te veel aanvragen. Probeer het later opnieuw.</div>
+            <?php elseif ($error === 'email_failed') : ?>
+                <div class="avbk-book-notice avbk-book-error">De bevestigingsmail kon niet worden verstuurd. Je bestelling is nog niet bevestigd. Probeer het later opnieuw of neem contact op met de penningmeester.</div>
             <?php elseif ($error === 'missing_fields') : ?>
                 <div class="avbk-book-notice avbk-book-error">
                     Vul alle verplichte velden in: voornaam, achternaam en een geldig e-mailadres.
@@ -123,7 +128,7 @@ class AVBK_Book_Order implements AVBK_Component {
                 </div>
             <?php elseif ($error === 'invalid_quantity') : ?>
                 <div class="avbk-book-notice avbk-book-error">
-                    Kies een geldig aantal exemplaren (minimaal 1).
+                    Kies een geldig aantal exemplaren (1 tot en met 99).
                 </div>
             <?php endif; ?>
 
@@ -472,16 +477,27 @@ class AVBK_Book_Order implements AVBK_Component {
                         .then(function(res) {
                             if (btn) btn.disabled = false;
                             if (!resBox) return;
+                            function htmlText(value) {
+                                var node = document.createElement('span');
+                                node.textContent = String(value || '');
+                                return node.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                            }
+                            function safeLink(value) {
+                                try {
+                                    var url = new URL(value || '/avpvh-login/', window.location.origin);
+                                    return url.protocol === 'https:' && url.origin === window.location.origin ? htmlText(url.href) : '/avpvh-login/';
+                                } catch (err) { return '/avpvh-login/'; }
+                            }
                             if (res.success && res.data) {
                                 var d = res.data;
                                 if (d.status === 'reset_sent') {
-                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success"><p><strong>E-mail verzonden!</strong> ' + d.message + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + (d.login_url || '/avpvh-login/') + '">inloggen</a> en bestellen.</p></div>';
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-success"><p><strong>E-mail verzonden!</strong> ' + htmlText(d.message) + ' Zodra je een wachtwoord hebt aangemaakt, kun je <a href="' + safeLink(d.login_url) + '">inloggen</a> en bestellen.</p></div>';
                                     scrollToTarget(resBox);
                                 } else if (d.status === 'already_active') {
-                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info"><p>' + d.message + ' <a href="' + d.login_url + '">Log hier in</a>. Weet je je wachtwoord niet meer? <a href="' + d.reset_url + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p></div>';
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-info"><p>' + htmlText(d.message) + ' <a href="' + safeLink(d.login_url) + '">Log hier in</a>. Weet je je wachtwoord niet meer? <a href="' + safeLink(d.reset_url) + '" target="_blank" rel="noopener">Wachtwoord opnieuw instellen</a>.</p></div>';
                                     scrollToTarget(resBox);
                                 } else if (d.status === 'not_found') {
-                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-neutral"><p>' + d.message + '</p></div>';
+                                    resBox.innerHTML = '<div class="avbk-book-notice avbk-book-notice-neutral"><p>' + htmlText(d.message) + '</p></div>';
                                     var orderEmail = document.getElementById('avbk_email');
                                     if (orderEmail) {
                                         orderEmail.value = d.email;
@@ -495,7 +511,7 @@ class AVBK_Book_Order implements AVBK_Component {
                                 }
                             } else {
                                 var msg = (res.data && res.data.message) ? res.data.message : 'Er is een fout opgetreden bij het controleren.';
-                                resBox.innerHTML = '<div class="avbk-book-notice avbk-book-error"><p>' + msg + '</p></div>';
+                                resBox.innerHTML = '<div class="avbk-book-notice avbk-book-error"><p>' + htmlText(msg) + '</p></div>';
                                 scrollToTarget(resBox);
                             }
                         }).catch(function() {
@@ -544,7 +560,7 @@ class AVBK_Book_Order implements AVBK_Component {
 
         if ($order->status !== 'confirmed') {
             AVBK_DB::confirm_book_order((int) $order->id);
-            $order->status = 'confirmed';
+            $order = AVBK_DB::get_book_order_by_token($token);
         }
 
         $fee_item = $order->fee_item_id ? AVBK_DB::get_fee_item((int) $order->fee_item_id) : null;
@@ -662,7 +678,7 @@ class AVBK_Book_Order implements AVBK_Component {
     public function handle_order(): void {
         check_admin_referer('avbk_book_order');
 
-        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/');
+        $page_url = avbk_public_page_url($_POST['page_url'] ?? '', home_url('/'));
 
         // Honeypot check
         if (!empty($_POST['website'])) {
@@ -682,7 +698,11 @@ class AVBK_Book_Order implements AVBK_Component {
         $city         = sanitize_text_field(wp_unslash($_POST['city'] ?? ''));
         $country      = sanitize_text_field(wp_unslash($_POST['country'] ?? 'Nederland')) ?: 'Nederland';
 
-        $quantity            = max(1, (int) ($_POST['quantity'] ?? 1));
+        $quantity = filter_var($_POST['quantity'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 99]]);
+        if ($quantity === false) {
+            wp_safe_redirect(add_query_arg('book_error', 'invalid_quantity', $page_url));
+            exit;
+        }
         $attend_presentation = !empty($_POST['attend_presentation']) ? 1 : 0;
         $keep_updated        = !empty($_POST['keep_updated']) ? 1 : 0;
         $notes               = sanitize_textarea_field(wp_unslash($_POST['notes'] ?? ''));
@@ -714,13 +734,16 @@ class AVBK_Book_Order implements AVBK_Component {
                 exit;
             }
 
-            // Find existing member or create visitor member
-            $match = AVBK_DB::find_or_create_member_for_registration($first_name, $suffix, $last_name, $email, $phone);
-            $member_id = (int) ($match['member_id'] ?? 0);
+            // Resolve membership only after the emailed token proves access to this address.
         }
 
-        // Save member address to avm_addresses only if logged in or a newly created visitor
-        $can_save_member_address = $member || (($match['match_type'] ?? '') === 'new');
+        if (!avbk_public_registration_allowed($email)) {
+            wp_safe_redirect(add_query_arg('book_error', 'rate_limited', $page_url));
+            exit;
+        }
+
+        // Only an authenticated member can update their address from this form.
+        $can_save_member_address = (bool) $member;
         if ($can_save_member_address && $member_id > 0 && ($street !== '' || $postal_code !== '' || $city !== '')) {
             AVBK_DB::save_member_address($member_id, [
                 'street'       => $street,
@@ -792,9 +815,7 @@ class AVBK_Book_Order implements AVBK_Component {
         if (!empty($mail_result['success'])) {
             wp_safe_redirect(add_query_arg('book_ordered', '1', $page_url));
         } else {
-            // Confirm immediately if mail fails so user is not stranded
-            AVBK_DB::confirm_book_order((int) $order_result['id']);
-            wp_safe_redirect(add_query_arg(['book_token' => $order_result['token'], 'email_failed' => '1'], $page_url));
+            wp_safe_redirect(add_query_arg('book_error', 'email_failed', $page_url));
         }
         exit;
     }
@@ -921,7 +942,7 @@ class AVBK_Book_Order implements AVBK_Component {
     public function handle_check_email(): void {
         check_admin_referer('avbk_check_book_email');
 
-        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/boek/');
+        $page_url = avbk_public_page_url($_POST['page_url'] ?? '', home_url('/boek/'));
         $is_ajax  = !empty($_POST['ajax']) || (defined('DOING_AJAX') && DOING_AJAX);
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));

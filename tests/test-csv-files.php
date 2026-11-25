@@ -21,6 +21,7 @@ function wp_remote_retrieve_body($r) { return $GLOBALS['sheet_body']; }
 interface AVBK_Component { public function register(): void; }
 function current_user_can($cap) { return !empty($GLOBALS['can_manage']); }
 function wp_die($message = '', $code = 0) { throw new RuntimeException((string) $message); }
+function check_admin_referer($action) { if (($GLOBALS['export_nonce'] ?? '') !== $action) throw new RuntimeException('Ongeldige nonce.'); }
 function sanitize_key($v) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $v)); }
 function sanitize_text_field($v) { return trim((string) $v); }
 function wp_unslash($v) { return $v; }
@@ -118,11 +119,16 @@ function download(object $admin, string $handler): string {
 }
 check(download($admin, 'handle_export_book_orders') === 'DIED: Geen toegang.', 'Export without the right: refused');
 $GLOBALS['can_manage'] = true;
+$GLOBALS['export_nonce'] = 'avbk_export_book_orders';
 $_GET = ['status' => 'all', 'payment_status' => 'open', 'presentation' => 'yes', 's' => ' Anna '];
 check(str_starts_with(download($admin, 'handle_export_book_orders'), "\xEF\xBB\xBFBestelnummer;Datum;"), 'Book export: sends the CSV');
 check(AVBK_DB::$order_filters[0] === ['order_type' => 'book', 'payment_status' => 'open', 'search' => 'Anna', 'presentation' => 'yes'], 'Book export: the list filters, "all" left out');
 $_GET = [];
+$GLOBALS['export_nonce'] = '';
+check(download($admin, 'handle_export_tshirt_orders') === 'DIED: Ongeldige nonce.', 'CSV export rejects a missing nonce');
+$GLOBALS['export_nonce'] = 'avbk_export_tshirt_orders';
 check(str_contains(download($admin, 'handle_export_tshirt_orders'), 'Bestelde shirts (overzicht)') && AVBK_DB::$order_filters[1] === ['order_type' => 'tshirt'], 'T-shirt export: sends the CSV, unfiltered');
+$GLOBALS['export_nonce'] = 'avbk_export_tshirt_matrix';
 check(str_contains(download($admin, 'handle_export_tshirt_matrix'), "Logo;1;1;20,00\n"), 'Matrix export: revenue at the default price');
 
 // --- reading the Google Sheet ---------------------------------------------------------

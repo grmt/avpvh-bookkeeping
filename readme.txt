@@ -4,7 +4,7 @@ Tags: bookkeeping, membership, payments, qr-code
 Requires at least: 7.1
 Tested up to: 7.1
 Requires PHP: 8.4
-Stable tag: 1.52.0
+Stable tag: 1.52.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,3 +22,6 @@ The plugin's interface is in Dutch.
 
 1. Copy the plugin to `wp-content/plugins/avpvh-bookkeeping/`, including `vendor/`.
 2. Activate it, together with avpvh-members for the association bookkeeping.
+3. Deny direct web access to the entire avbk-receipts directory. Nginx/OpenResty
+   require a server rule; .htaccess is only effective on Apache. The repository's
+   docs/document-storage.md includes the rule, verification and private-storage setup.

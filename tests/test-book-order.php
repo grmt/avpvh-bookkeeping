@@ -69,6 +69,7 @@ class AVPVH_DB {
     public static function get_activity(int $activity_id): ?object { return null; }
     public static function get_all_flags(): array { return []; }
     public static function get_activities(): array { return []; }
+    public static function get_activity_types(): array { return []; }
     public static function get_extended_household(int $id): array { return []; }
 }
 
@@ -383,6 +384,7 @@ class Mock_WPDB {
     }
 
     public function get_var(string $query) {
+        if (str_contains($query, 'GET_LOCK(') || str_contains($query, 'RELEASE_LOCK(')) return 1;
         if (str_contains($query, 'COUNT(*)') && str_contains($query, 'avb_orders')) {
             $count = 0;
             $type_match = null;

@@ -93,6 +93,8 @@ class Mock_Photo_Shares_WPDB {
         return 0;
     }
 
+    public function get_var(string $query) { return str_contains($query, 'GET_LOCK(') || str_contains($query, 'RELEASE_LOCK(') ? 1 : null; }
+
     public function get_row(string $query): ?object {
         if (preg_match("/WHERE id = (\d+)/", $query, $m)) {
             return $this->photo_shares[(int) $m[1]] ?? null;
@@ -106,7 +108,7 @@ class Mock_Photo_Shares_WPDB {
         }
         if (preg_match("/WHERE email = '([^']+)'/", $query, $m)) {
             foreach ($this->photo_shares as $s) {
-                if (strcasecmp($s->email, $m[1]) === 0) {
+                if (strcasecmp($s->email ?? '', $m[1]) === 0) {
                     return $s;
                 }
             }
@@ -569,6 +571,22 @@ namespace {
         assert_contains('photo_share_sent=1', $e->getMessage(), 'Guest redirected with photo_share_sent=1');
     }
     unset($_POST['avbk_photo_share_submit'], $_POST['photo_share_email']);
+
+    // Repeated, unknown and case-variant addresses all return the same public result.
+    $mails_before = count($GLOBALS['sent_mails']);
+    $shares_before = count($GLOBALS['wpdb']->photo_shares);
+    foreach (['anna@example.test', 'unknown@example.test', 'ANNA@EXAMPLE.TEST'] as $address) {
+        $_POST = ['avbk_photo_share_submit' => '1', 'photo_share_email' => $address];
+        try { $service->handle_actions(); }
+        catch (RuntimeException $e) {
+            assert_true($GLOBALS['last_redirect'] === home_url('/foto-delen/') . '?photo_share_sent=1', 'Known, unknown and cooldown requests have identical redirects');
+        }
+    }
+    assert_true(count($GLOBALS['sent_mails']) === $mails_before, 'Cooldown and unknown addresses send no extra mail');
+    assert_true(count($GLOBALS['wpdb']->photo_shares) === $shares_before, 'Cooldown and unknown addresses create no extra shares');
+    $_GET = ['photo_share_sent' => 1];
+    assert_contains('Als het e-mailadres bij ons bekend is', $service->render_shortcode(), 'Public notice does not disclose account existence');
+    $_POST = []; $_GET = [];
 
     echo "\nAll AVBK_Photo_Share tests passed cleanly!\n";
 }

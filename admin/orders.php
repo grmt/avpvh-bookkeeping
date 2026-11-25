@@ -451,8 +451,8 @@ function avbk_render_orders_tshirt_tab($page_url, $all_members): void {
 
         $stats = avbk_order_stats($all_orders);
 
-        $export_orders_url = add_query_arg(array_merge($_GET, ['action' => 'avbk_export_tshirt_orders']), admin_url('admin-post.php'));
-        $export_matrix_url = add_query_arg(['action' => 'avbk_export_tshirt_matrix'], admin_url('admin-post.php'));
+        $export_orders_url = wp_nonce_url(add_query_arg(array_merge($_GET, ['action' => 'avbk_export_tshirt_orders']), admin_url('admin-post.php')), 'avbk_export_tshirt_orders');
+        $export_matrix_url = wp_nonce_url(add_query_arg(['action' => 'avbk_export_tshirt_matrix'], admin_url('admin-post.php')), 'avbk_export_tshirt_matrix');
         ?>
 
         <div style="display: flex; gap: .75rem; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap;">
@@ -908,7 +908,7 @@ function avbk_render_orders_book_tab($page_url, $all_members): void {
 
         $stats = avbk_order_stats($all_orders);
 
-        $export_url = add_query_arg(array_merge($_GET, ['action' => 'avbk_export_book_orders']), admin_url('admin-post.php'));
+        $export_url = wp_nonce_url(add_query_arg(array_merge($_GET, ['action' => 'avbk_export_book_orders']), admin_url('admin-post.php')), 'avbk_export_book_orders');
         ?>
 
         <div style="display: flex; gap: .75rem; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap;">

@@ -321,6 +321,7 @@ class Mock_Orders_WPDB {
     }
 
     public function get_var(string $query) {
+        if (str_contains($query, 'GET_LOCK(') || str_contains($query, 'RELEASE_LOCK(')) return 1;
         if (str_contains($query, 'avb_transaction_allocations') && preg_match('/fee_item_id = (\d+)/', $query, $pm)) {
             return (string) ($this->paid[(int) $pm[1]] ?? 0);
         }
@@ -1024,7 +1025,7 @@ check(AVBK_DB::order_mail(AVBK_DB::get_order($bounced_id)) === null && AVBK_DB::
 check(AVBK_DB::resend_order_email(99999)['success'] === false, 'Resending for a missing order fails');
 
 // An order mail to an invalid address is refused, for both order types.
-$invalid = (object) ['id' => 1, 'email' => 'geen-adres', 'order_type' => 'book', 'status' => 'confirmed', 'first_name' => 'X', 'quantity' => 1, 'total_amount' => 35.0, 'confirm_token' => 't'];
+$invalid = (object) ['id' => 999999, 'email' => 'geen-adres', 'order_type' => 'book', 'status' => 'confirmed', 'first_name' => 'X', 'quantity' => 1, 'total_amount' => 35.0, 'confirm_token' => 't'];
 check(AVBK_DB::send_order_mail($invalid, AVBK_Book_Order::order_mail($invalid))['error'] === 'Ongeldig e-mailadres.', 'Order mail: invalid address refused');
 $invalid->items = [];
 check(str_contains(AVBK_Tshirt_Order::order_mail($invalid)[1], '1&times;</strong> T-shirt'), 'T-shirt mail without item lines lists the order as one line');

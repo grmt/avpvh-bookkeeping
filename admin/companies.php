@@ -253,7 +253,7 @@ function avbk_render_company_document_paid_form($company_id, $document, $form_st
 
 /** The form that updates the quarter sheet in the VAT workbook. */
 function avbk_render_company_export($company_id, $company, $year, $quarter, $form_start, $transactions): void {
-    if (AVBK_Companies::can($company_id, 'export')) : ?>
+    if (AVBK_Companies::can($company_id, 'import') && AVBK_Companies::can($company_id, 'export')) : ?>
             <section class="avbk-company-card">
                 <h3>3. Het juiste kwartaalwerkblad bijwerken</h3>
                 <p>Upload de nieuwste BTW-werkmap. Je krijgt de volledige werkmap terug met <strong><?php echo esc_html(AVBK_Company_Workbook::sheet_name($company, $year, $quarter)); ?></strong> bijgewerkt. Andere werkbladen blijven behouden. Bewaar de download als de nieuwe versie in OneDrive.</p>

@@ -199,16 +199,11 @@ assert_test($res['member_id'] === 42, 'Matched Anna Jansen by name');
 assert_test($res['match_type'] === 'name', 'Match type is name');
 assert_test(empty(AVPVH_DB::$ensured_identities), 'Unauthenticated name match DID NOT call ensure_identity on existing member');
 
-// A name match whose existing record only has the @avpvh.local placeholder
-// e-mail (no real address on file yet) gets the freshly submitted real
-// e-mail stored instead of silently keeping the stale placeholder.
+// A public name match cannot claim a member whose address is blank or a placeholder.
 AVPVH_DB::$updated_members = [];
 $res = AVBK_DB::find_or_create_member_for_registration('Bram', '', 'Bakker', 'bram@example.test', '');
-assert_test($res['member_id'] === 43, 'Matched Bram Bakker by name');
-assert_test(
-    AVPVH_DB::$updated_members === [[43, ['email' => 'bram@example.test']]],
-    'Placeholder e-mail on existing name match is replaced with the submitted real e-mail'
-);
+assert_test($res['member_id'] === 43, 'Matched fictional member by name');
+assert_test(empty(AVPVH_DB::$updated_members), 'Name match does not replace a placeholder email');
 
 // A name match whose existing record already has a different real e-mail
 // is left alone — that may be deliberate, not a stale placeholder.

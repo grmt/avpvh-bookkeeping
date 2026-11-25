@@ -12,8 +12,8 @@ require_once __DIR__ . '/functions-mail.php';
  *
  * Receipt photos are personal financial documents (same caution as bank
  * exports, see AVBK_Import) — stored outside wp-content/uploads under a
- * random filename, never a public URL, only ever served through
- * handle_view_receipt()'s ownership/capability check.
+ * random filename, served through handle_view_receipt()'s ownership/capability
+ * check. The web server must deny direct access to the storage directory.
  */
 class AVBK_Reimbursements implements AVBK_Component {
 
@@ -28,19 +28,18 @@ class AVBK_Reimbursements implements AVBK_Component {
     ];
 
     public static function receipts_dir(): string {
-        return WP_CONTENT_DIR . '/avbk-receipts';
+        return defined('AVBK_RECEIPTS_DIR') ? rtrim(AVBK_RECEIPTS_DIR, '/\\') : WP_CONTENT_DIR . '/avbk-receipts';
     }
 
     public static function ensure_receipts_dir_protected(): void {
         $dir = self::receipts_dir();
         wp_mkdir_p($dir);
         $htaccess = $dir . '/.htaccess';
-        if (!file_exists($htaccess)) {
-            self::filesystem()->put_contents(
-                $htaccess,
-                "# Block direct script execution and directory browsing\n<FilesMatch \"\\.(php|phtml|phar|pl|py|cgi|asp|js|html|htm|svg)$\">\nOrder Deny,Allow\nDeny from all\n</FilesMatch>\nOptions -Indexes\n"
-            );
-        }
+        // Refresh access rules when the directory already exists.
+        self::filesystem()->put_contents(
+            $htaccess,
+            "# Financial documents are served only through authenticated PHP handlers.\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder Deny,Allow\nDeny from all\n</IfModule>\nOptions -Indexes\n"
+        );
         $index = $dir . '/index.html';
         if (!file_exists($index)) {
             self::filesystem()->put_contents($index, '');

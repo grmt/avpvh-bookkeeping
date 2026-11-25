@@ -5,6 +5,8 @@ require_once __DIR__ . '/class-exceptions.php';
 /** Read/write OOXML parts without extracting uploaded files into a public directory. */
 class AVBK_Xlsx_Archive {
     private $archive;
+    private const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+    private const MAX_ENTRIES = 2048;
 
     public function __construct(string $path) {
         if (!class_exists('ZipArchive')) {
@@ -13,6 +15,25 @@ class AVBK_Xlsx_Archive {
         $this->archive = new \ZipArchive();
         if ($this->archive->open($path) !== true) {
             throw new AVBK_Import_Exception('Kan het xlsx-bestand niet openen.');
+        }
+        $total = 0;
+        try {
+            if ($this->archive->numFiles > self::MAX_ENTRIES) {
+                throw new AVBK_Import_Exception('De werkmap bevat te veel bestanden.');
+            }
+            for ($i = 0; $i < $this->archive->numFiles; $i++) {
+                $stat = $this->archive->statIndex($i);
+                if (!$stat || $stat['size'] < 0 || $stat['size'] > 32 * 1024 * 1024) {
+                    throw new AVBK_Import_Exception('Het werkblad is te groot of beschadigd.');
+                }
+                $total += $stat['size'];
+                if ($total > self::MAX_TOTAL_BYTES) {
+                    throw new AVBK_Import_Exception('De uitgepakte werkmap is te groot.');
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->archive->close();
+            throw $e;
         }
     }
 

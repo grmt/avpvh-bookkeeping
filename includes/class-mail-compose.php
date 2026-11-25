@@ -141,7 +141,7 @@ class AVBK_Mail_Compose implements AVBK_Component {
                         <td><input type="text" class="large-text" id="avbk-compose-subject" name="mail_subject" value="<?php echo esc_attr($draft['subject']); ?>"></td></tr>
                 </table>
                 <p class="description">Klik in de mail om tekst toe te voegen, te wijzigen of weg te halen. Wat je hier ziet, wordt verstuurd.</p>
-                <iframe id="avbk-compose-frame" title="Mail" style="width:100%;max-width:760px;height:560px;border:1px solid #8c8f94;background:#fff;display:block"></iframe>
+                <iframe sandbox="allow-same-origin" id="avbk-compose-frame" title="Mail" style="width:100%;max-width:760px;height:560px;border:1px solid #8c8f94;background:#fff;display:block"></iframe>
                 <input type="hidden" name="mail_body" id="avbk-compose-body">
                 <p class="submit">
                     <?php submit_button($draft['send_label'] ?? 'Verstuur', 'primary', 'submit', false); ?>

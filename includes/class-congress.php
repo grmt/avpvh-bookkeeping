@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/functions-mail.php';
+require_once __DIR__ . '/functions-public-forms.php';
 
 /**
  * [avpvh_bk_congress] — public (no login required) sign-up page for the
@@ -60,7 +61,14 @@ class AVBK_Congress implements AVBK_Component {
         <div class="avbk-congress">
             <h2>Aanmelden &mdash; <?php echo esc_html($label); ?></h2>
             <?php if (!empty($_GET['congress_error'])) : ?>
-                <p class="avbk-congress-notice avbk-congress-error">Vul alle velden in &mdash; voornaam, achternaam, e-mailadres en telefoonnummer zijn verplicht.</p>
+                <p class="avbk-congress-notice avbk-congress-error"><?php
+                    $error = sanitize_key(wp_unslash($_GET['congress_error']));
+                    echo esc_html(match ($error) {
+                        'rate_limited' => 'Te veel aanvragen. Probeer het later opnieuw.',
+                        'email_failed' => 'De bevestigingsmail kon niet worden verstuurd. Je aanmelding is nog niet bevestigd. Probeer het later opnieuw of neem contact op met de penningmeester.',
+                        default => 'Vul alle velden in: voornaam, achternaam, e-mailadres en telefoonnummer zijn verplicht.',
+                    });
+                ?></p>
             <?php endif; ?>
             <p>Vul onderstaand formulier in om je aan te melden. Na aanmelding ontvang je een bevestigingsmail met een link naar de QR-code om te betalen.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-congress-form">
@@ -120,6 +128,7 @@ class AVBK_Congress implements AVBK_Component {
             return ob_get_clean();
         }
         AVBK_DB::confirm_congress_registration((int) $reg->id);
+        $reg = AVBK_DB::get_congress_registration_by_token($token);
 
         $fee_item = $reg->fee_item_id ? AVBK_DB::get_fee_item((int) $reg->fee_item_id) : null;
         $remaining = $fee_item ? AVBK_DB::get_fee_item_remaining($fee_item) : 0.0;
@@ -153,8 +162,8 @@ class AVBK_Congress implements AVBK_Component {
     }
 
     /** The member's fee item for the current congress at its rate; 0 when there is no congress, rate or amount. */
-    private function congress_fee_item(int $member_id): int {
-        $activity = $this->get_current_congress_activity();
+    public static function congress_fee_item(int $member_id): int {
+        $activity = self::get_current_congress_activity();
         $member = AVPVH_DB::get_member($member_id);
         if (!$activity || !$member) {
             return 0;
@@ -171,7 +180,7 @@ class AVBK_Congress implements AVBK_Component {
     public function handle_register(): void {
         check_admin_referer('avbk_congress_register');
 
-        $page_url = esc_url_raw(wp_unslash($_POST['page_url'] ?? '')) ?: home_url('/');
+        $page_url = avbk_public_page_url($_POST['page_url'] ?? '', home_url('/'));
 
         // Honeypot — a hidden field no real visitor fills in. Silently
         // pretend success rather than telling a bot it was caught.
@@ -191,10 +200,12 @@ class AVBK_Congress implements AVBK_Component {
             exit;
         }
 
-        $match = AVBK_DB::find_or_create_member_for_registration($first_name, $suffix, $last_name, $email, $phone);
-        $member_id = $match['member_id'];
-
-        $fee_item_id = $member_id ? $this->congress_fee_item((int) $member_id) : 0;
+        if (!avbk_public_registration_allowed($email)) {
+            wp_safe_redirect(add_query_arg('congress_error', 'rate_limited', $page_url));
+            exit;
+        }
+        $member_id = 0;
+        $fee_item_id = 0;
 
         $registration = AVBK_DB::create_congress_registration([
             'member_id'   => $member_id,
@@ -204,8 +215,8 @@ class AVBK_Congress implements AVBK_Component {
             'last_name'   => $last_name,
             'email'       => $email,
             'phone'       => $phone,
-            'match_type'  => $match['match_type'],
-            'review_note' => $match['review_note'],
+            'match_type'  => 'new',
+            'review_note' => '',
         ]);
 
         $confirm_link = add_query_arg('token', $registration['token'], $page_url);
@@ -224,10 +235,7 @@ class AVBK_Congress implements AVBK_Component {
         if ($sent) {
             wp_safe_redirect(add_query_arg('registered', '1', $page_url));
         } else {
-            // No working e-mail link to send them to — confirm immediately
-            // and show the QR right here instead of stranding them.
-            AVBK_DB::confirm_congress_registration((int) $registration['id']);
-            wp_safe_redirect(add_query_arg(['token' => $registration['token'], 'email_failed' => '1'], $page_url));
+            wp_safe_redirect(add_query_arg('congress_error', 'email_failed', $page_url));
         }
         exit;
     }

@@ -22,6 +22,14 @@ class AVBK_Xlsx_Reader {
     private const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
     private const DOCUMENT_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
+    /** XLSX parts may not declare entities or contact external resources. */
+    private static function parse_xml(string $xml): \SimpleXMLElement|false {
+        if (str_contains($xml, "\0") || preg_match('/<!DOCTYPE|<!ENTITY/i', $xml)) {
+            throw new AVBK_Import_Exception('XML met documenttypen of entiteiten is niet toegestaan.');
+        }
+        return simplexml_load_string($xml, \SimpleXMLElement::class, LIBXML_NONET);
+    }
+
     public static function sheet_names(string $path): array {
         $zip = new AVBK_Xlsx_Archive($path);
         try { $xml = $zip->getFromName('xl/workbook.xml'); }
@@ -29,7 +37,7 @@ class AVBK_Xlsx_Reader {
         if ($xml === false) {
             throw new AVBK_Import_Exception('De werkmapstructuur ontbreekt.');
         }
-        $workbook = simplexml_load_string($xml);
+        $workbook = self::parse_xml($xml);
         if ($workbook === false) {
             throw new AVBK_Import_Exception('Ongeldige werkmapstructuur.');
         }
@@ -58,7 +66,7 @@ class AVBK_Xlsx_Reader {
         if ($sheet_xml === false || $sheet_xml === null) {
             throw new AVBK_Import_Exception('Het werkbladbestand ontbreekt in het xlsx-bestand.');
         }
-        $sheet = simplexml_load_string($sheet_xml);
+        $sheet = self::parse_xml($sheet_xml);
         if ($sheet === false) {
             throw new AVBK_Import_Exception('Kan het werkblad niet lezen (ongeldige XML).');
         }
@@ -96,7 +104,7 @@ class AVBK_Xlsx_Reader {
             throw new AVBK_Import_Exception('Geen werkblad gevonden in het xlsx-bestand.');
         }
 
-        $sheet = simplexml_load_string($sheet_xml);
+        $sheet = self::parse_xml($sheet_xml);
         if ($sheet === false) {
             throw new AVBK_Import_Exception('Kan het werkblad niet lezen (ongeldige XML).');
         }
@@ -225,8 +233,8 @@ class AVBK_Xlsx_Reader {
         if ($workbook_xml === false || $relationships_xml === false) {
             throw new AVBK_Import_Exception('De werkmapstructuur ontbreekt in het xlsx-bestand.');
         }
-        $workbook = simplexml_load_string($workbook_xml);
-        $relationships = simplexml_load_string($relationships_xml);
+        $workbook = self::parse_xml($workbook_xml);
+        $relationships = self::parse_xml($relationships_xml);
         if ($workbook === false || $relationships === false) {
             throw new AVBK_Import_Exception('Kan de werkmapstructuur niet lezen.');
         }
@@ -263,7 +271,7 @@ class AVBK_Xlsx_Reader {
         if ($xml === false) {
             return [];
         }
-        $sst = simplexml_load_string($xml);
+        $sst = self::parse_xml($xml);
         if ($sst === false) {
             return [];
         }
