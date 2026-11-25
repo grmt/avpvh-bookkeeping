@@ -15,6 +15,8 @@ class Credit_Test_DB {
     public ?object $item;
     public array $queries = [];
     public string $fail = '';
+    public string $last_error = '';
+    public bool $source_allowed = true;
     private array $snapshot = [];
     private array $savepoint = [];
     public function __construct() { $this->item = (object) ['id' => 10, 'member_id' => 1, 'status' => 'open', 'amount_due' => 100]; }
@@ -41,7 +43,7 @@ class Credit_Test_DB {
         return [1];
     }
     public function get_row($sql): ?object {
-        if (str_contains($sql, 'avb_transactions')) return (object) ['amount' => 100];
+        if (str_contains($sql, 'avb_transactions')) return $this->source_allowed ? (object) ['amount' => 100] : null;
         return $this->item ? clone $this->item : null;
     }
     public function get_var($sql) { return $this->paid; }
@@ -89,3 +91,15 @@ credit_check(AVBK_DB::apply_credit(1, 10, 1, 30, true) > 0, 'Preview can settle 
 credit_check(!in_array('COMMIT', $wpdb->queries, true), 'Settlement does not commit the caller transaction');
 $wpdb->query('ROLLBACK');
 credit_check($wpdb->paid === 0.0 && $wpdb->available === 100.0, 'Rolling back the preview restores its credit');
+$wpdb = new Credit_Test_DB();
+$wpdb->source_allowed = false;
+credit_check(AVBK_DB::apply_credit(1, 10, 1, 10) === 0, 'Unrecognized source cannot provide credit');
+$wpdb = new Credit_Test_DB();
+$wpdb->last_error = 'synthetic read failure';
+try { AVBK_DB::apply_credit(1, 10, 1, 10); credit_check(false, 'Expected a read failure'); }
+catch (RuntimeException $e) { credit_check($wpdb->paid === 0.0, 'Failed current-balance read leaves credit untouched'); }
+$wpdb = new Credit_Test_DB();
+$wpdb->query('START TRANSACTION');
+$wpdb->fail = 'insert';
+try { AVBK_DB::apply_credit(1, 10, 1, 10, true); } catch (RuntimeException $e) {}
+credit_check($wpdb->paid === 0.0 && end($wpdb->queries) === 'ROLLBACK TO SAVEPOINT avbk_apply_credit', 'Nested failure rolls back to its own savepoint');

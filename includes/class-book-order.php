@@ -50,6 +50,7 @@ class AVBK_Book_Order implements AVBK_Component {
     }
 
     public function enqueue_assets(): void {
+        wp_enqueue_script('avbk-order-email-links', AVBK_PLUGIN_URL . 'assets/order-email-links.js', [], avbk_asset_version('assets/order-email-links.js'));
         wp_enqueue_style(
             'avbk-book-order',
             AVBK_PLUGIN_URL . 'assets/book-order.css',
@@ -69,6 +70,7 @@ class AVBK_Book_Order implements AVBK_Component {
     }
 
     private function render_form(): string {
+        $auth_origin = (class_exists('AVPVH_Nav_Auth') && defined('AVPVH_Nav_Auth::AUTHELIA_URL')) ? AVPVH_Nav_Auth::AUTHELIA_URL : 'https://auth.avphilipsvanhorne.nl';
         $title               = get_option('avbk_book_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price               = (float) (get_option('avbk_book_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
         $price_note          = get_option('avbk_book_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
@@ -161,7 +163,7 @@ class AVBK_Book_Order implements AVBK_Component {
                         <p class="avbk-book-check-email-prompt">
                             Weet je niet of je al bekend bent? Vul dan eerst hier je e-mailadres in. Als dat e-mailadres bekend is, maar je bent nog nooit ingelogd, dan krijg je een mailtje met een link om een wachtwoord aan te maken:
                         </p>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form">
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form" data-auth-origin="<?php echo esc_attr($auth_origin); ?>">
                             <?php wp_nonce_field('avbk_check_book_email'); ?>
                             <input type="hidden" name="action" value="avbk_check_book_email">
                             <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">
@@ -477,17 +479,8 @@ class AVBK_Book_Order implements AVBK_Component {
                         .then(function(res) {
                             if (btn) btn.disabled = false;
                             if (!resBox) return;
-                            function htmlText(value) {
-                                var node = document.createElement('span');
-                                node.textContent = String(value || '');
-                                return node.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                            }
-                            function safeLink(value) {
-                                try {
-                                    var url = new URL(value || '/avpvh-login/', window.location.origin);
-                                    return url.protocol === 'https:' && url.origin === window.location.origin ? htmlText(url.href) : '/avpvh-login/';
-                                } catch (err) { return '/avpvh-login/'; }
-                            }
+                            var htmlText = window.AVBKOrderEmailLinks.text;
+                            function safeLink(value) { return window.AVBKOrderEmailLinks.href(value, form.dataset.authOrigin); }
                             if (res.success && res.data) {
                                 var d = res.data;
                                 if (d.status === 'reset_sent') {

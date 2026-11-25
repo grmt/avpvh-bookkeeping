@@ -158,7 +158,7 @@ class AVBK_Company_Report {
 
     public static function save(array $report, ?array $expected = null, bool $expect_absent = false): void {
         $company_id = (int) $report['company_id'];
-        AVBK_Companies::company($company_id, 'export');
+        AVBK_Companies::company($company_id, 'import');
         $key = self::key($company_id, (int) $report['year'], (int) $report['quarter']);
         if ($expect_absent) {
             if (!add_option($key, $report, '', false)) {

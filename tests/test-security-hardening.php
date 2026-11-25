@@ -33,6 +33,7 @@ function sanitize_email(string $email): string { return filter_var(trim($email),
 function sanitize_file_name(string $name): string { return preg_replace('/[^a-zA-Z0-9._-]/', '', $name); }
 function sanitize_key(string $key): string { return strtolower(preg_replace('/[^a-z0-9_-]/', '', $key)); }
 function esc_url_raw(string $url): string { return filter_var($url, FILTER_SANITIZE_URL) ?: ''; }
+function wp_parse_url(string $url, int $component = -1) { return parse_url($url, $component); }
 function esc_url(string $url): string { return htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); }
 function esc_attr(string $str): string { return htmlspecialchars($str, ENT_QUOTES, 'UTF-8'); }
 function esc_html(string $str): string { return htmlspecialchars($str, ENT_QUOTES, 'UTF-8'); }

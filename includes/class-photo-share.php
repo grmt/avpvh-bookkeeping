@@ -380,12 +380,7 @@ class AVBK_Photo_Share implements AVBK_Component {
 
         if (!empty($_GET['photo_share_error'])) {
             $err = sanitize_key($_GET['photo_share_error']);
-            if ($err === 'not_found') {
-                $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-error">'
-                    . 'Dit e-mailadres is niet gevonden als actief lid of geregistreerde deelnemer. '
-                    . 'Ben je wel deelnemer of lid? Neem dan even contact met ons op via <a href="mailto:info@avphilipsvanhorne.nl">info@avphilipsvanhorne.nl</a>.'
-                    . '</div>';
-            } elseif ($err === 'invalid_email') {
+            if ($err === 'invalid_email') {
                 $out .= '<div class="avbk-photo-share-alert avbk-photo-share-alert-error">'
                     . 'Voer een geldig e-mailadres in.'
                     . '</div>';

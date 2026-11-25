@@ -113,6 +113,7 @@ function sanitize_text_field(string $val): string { return trim(strip_tags($val)
 function sanitize_textarea_field(string $val): string { return trim(strip_tags($val)); }
 function sanitize_key(string $val): string { return preg_replace('/[^a-z0-9_\-]/', '', strtolower($val)); }
 function wp_unslash($val) { return $val; }
+function wp_parse_url($url) { return parse_url($url); }
 function is_email(string $val): bool { return (bool) filter_var($val, FILTER_VALIDATE_EMAIL); }
 function is_wp_error($val): bool { return $val instanceof WP_Error; }
 function wp_generate_password(int $len = 12, bool $special = false, bool $extra = false): string {

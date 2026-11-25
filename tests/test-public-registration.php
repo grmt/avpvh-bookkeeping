@@ -124,3 +124,19 @@ echo "Public registration security tests passed.\n";
 $GLOBALS['wpdb'] = new Public_Security_WPDB();
 $GLOBALS['wpdb']->lock_available = false;
 check(!avbk_public_registration_allowed('blocked@example.test'), 'Unavailable form lock leaves the request unprocessed');
+
+// Error responses keep the form usable and explain retry/quantity choices.
+foreach (['book', 'tshirt', 'congress'] as $kind) {
+    reset_test_env();
+    $controller = match ($kind) { 'book' => new AVBK_Book_Order(), 'tshirt' => new AVBK_Tshirt_Order(), 'congress' => new AVBK_Congress() };
+    foreach (['rate_limited' => 'Te veel aanvragen', 'email_failed' => 'bevestigingsmail kon niet', 'invalid_quantity' => $kind === 'book' ? '99' : 'maximaal 99'] as $error => $message) {
+        if ($kind === 'congress' && $error === 'invalid_quantity') continue;
+        $_GET = [$kind . '_error' => $error];
+        $html = $controller->render();
+        check(str_contains($html, $message), "$kind form displays an actionable response for $error");
+    }
+}
+$_GET = [];
+(new AVBK_Book_Order())->enqueue_assets();
+(new AVBK_Tshirt_Order())->enqueue_assets();
+check(($GLOBALS['scripts']['avbk-tshirt-order'] ?? []) === ['avbk-order-email-links'], 'Order forms load shared account-link formatting before the garment script');

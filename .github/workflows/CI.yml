@@ -18,6 +18,9 @@ jobs:
       - name: "Company workbook upload browser handler regression"
         run: node tests/test-company-export.cjs
 
+      - name: "Order account-link formatting"
+        run: node tests/test-order-email-links.cjs
+
       - name: "Invoice mailbox and statement extraction tests"
         run: python3 -m unittest discover -s tests -p 'test_company_*.py'
 

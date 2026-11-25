@@ -4,8 +4,8 @@ defined('ABSPATH') || exit;
 /** Only link back to this site's origin; discard supplied query strings and fragments. */
 function avbk_public_page_url($raw, string $fallback): string {
     $url = is_string($raw) ? esc_url_raw(wp_unslash($raw)) : '';
-    $parts = parse_url($url);
-    $home = parse_url(home_url('/'));
+    $parts = wp_parse_url($url);
+    $home = wp_parse_url(home_url('/'));
     if (!$parts || !$home || isset($parts['user']) || isset($parts['pass'])
         || strtolower($parts['scheme'] ?? '') !== strtolower($home['scheme'] ?? '')
         || strtolower($parts['host'] ?? '') !== strtolower($home['host'] ?? '')

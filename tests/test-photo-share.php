@@ -588,5 +588,14 @@ namespace {
     assert_contains('Als het e-mailadres bij ons bekend is', $service->render_shortcode(), 'Public notice does not disclose account existence');
     $_POST = []; $_GET = [];
 
+    $GLOBALS['transients'] = [];
+    $GLOBALS['current_user_id'] = 1;
+    $_POST = ['avbk_photo_share_submit' => '1'];
+    for ($i = 0; $i < 6; $i++) {
+        try { $service->handle_actions(); } catch (RuntimeException $e) {}
+    }
+    assert_true($GLOBALS['last_redirect'] === home_url('/foto-delen/') . '?photo_share_sent=1', 'Logged-in cooldown and IP limit use the same public response');
+    $_POST = []; $_GET = [];
+
     echo "\nAll AVBK_Photo_Share tests passed cleanly!\n";
 }

@@ -116,6 +116,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     }
 
     public function enqueue_assets(): void {
+        wp_enqueue_script('avbk-order-email-links', AVBK_PLUGIN_URL . 'assets/order-email-links.js', [], avbk_asset_version('assets/order-email-links.js'));
         wp_enqueue_style(
             'avbk-book-order',
             AVBK_PLUGIN_URL . 'assets/book-order.css',
@@ -131,7 +132,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
         wp_enqueue_script(
             'avbk-tshirt-order',
             AVBK_PLUGIN_URL . 'assets/tshirt-order.js',
-            [],
+            ['avbk-order-email-links'],
             avbk_asset_version('assets/tshirt-order.js'),
             true
         );
@@ -148,6 +149,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
     }
 
     private function render_form(): string {
+        $auth_origin = (class_exists('AVPVH_Nav_Auth') && defined('AVPVH_Nav_Auth::AUTHELIA_URL')) ? AVPVH_Nav_Auth::AUTHELIA_URL : 'https://auth.avphilipsvanhorne.nl';
         $title               = get_option('avbk_tshirt_title', self::DEFAULT_TITLE) ?: self::DEFAULT_TITLE;
         $price               = (float) (get_option('avbk_tshirt_price', self::DEFAULT_PRICE) ?: self::DEFAULT_PRICE);
         $price_note          = get_option('avbk_tshirt_price_note', self::DEFAULT_PRICE_NOTE) ?: self::DEFAULT_PRICE_NOTE;
@@ -291,7 +293,7 @@ class AVBK_Tshirt_Order implements AVBK_Component {
                         <p class="avbk-book-check-email-prompt">
                             Weet je niet of je al bekend bent? Vul dan eerst hier je e-mailadres in. Als dat e-mailadres bekend is, maar je bent nog nooit ingelogd, dan krijg je een mailtje met een link om een wachtwoord aan te maken:
                         </p>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form">
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-book-check-email-form" id="avbk-check-email-form" data-auth-origin="<?php echo esc_attr($auth_origin); ?>">
                             <?php wp_nonce_field('avbk_check_tshirt_email'); ?>
                             <input type="hidden" name="action" value="avbk_check_tshirt_email">
                             <input type="hidden" name="page_url" value="<?php echo esc_url($page_url); ?>">

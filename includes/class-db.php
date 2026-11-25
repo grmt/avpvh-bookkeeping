@@ -2552,7 +2552,8 @@ class AVBK_DB {
             return 0;
         }
         global $wpdb;
-        if ($wpdb->query($in_transaction ? 'SAVEPOINT avbk_apply_credit' : 'START TRANSACTION') === false) {
+        $started = $in_transaction ? $wpdb->query('SAVEPOINT avbk_apply_credit') : $wpdb->query('START TRANSACTION');
+        if ($started === false) {
             return 0;
         }
         try {
@@ -2563,12 +2564,17 @@ class AVBK_DB {
                 }
             }
             $allocation_id = self::apply_credit_locked($transaction_id, $fee_item_id, $member_id, $amount);
-            if ($wpdb->query($in_transaction ? 'RELEASE SAVEPOINT avbk_apply_credit' : 'COMMIT') === false) {
+            $committed = $in_transaction ? $wpdb->query('RELEASE SAVEPOINT avbk_apply_credit') : $wpdb->query('COMMIT');
+            if ($committed === false) {
                 throw new \RuntimeException('Kan het tegoed niet verrekenen.');
             }
             return $allocation_id;
         } catch (\Throwable $e) {
-            $wpdb->query($in_transaction ? 'ROLLBACK TO SAVEPOINT avbk_apply_credit' : 'ROLLBACK');
+            if ($in_transaction) {
+                $wpdb->query('ROLLBACK TO SAVEPOINT avbk_apply_credit');
+            } else {
+                $wpdb->query('ROLLBACK');
+            }
             throw $e;
         }
     }
@@ -5565,7 +5571,7 @@ class AVBK_DB {
     }
 
     public static function is_https_payment_url(string $url): bool {
-        $parts = parse_url($url);
+        $parts = wp_parse_url($url);
         return filter_var($url, FILTER_VALIDATE_URL) !== false
             && strtolower($parts['scheme'] ?? '') === 'https'
             && !empty($parts['host']) && !isset($parts['user']) && !isset($parts['pass']);
