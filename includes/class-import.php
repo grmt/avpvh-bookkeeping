@@ -1,6 +1,7 @@
 <?php
 defined('ABSPATH') || exit;
 require_once __DIR__ . '/class-exceptions.php';
+require_once __DIR__ . '/class-bank-costs.php';
 
 /**
  * Ties AVBK_Xlsx_Reader + AVBK_Matcher + AVBK_DB together: reads an
@@ -104,6 +105,7 @@ class AVBK_Import {
         }
 
         AVBK_DB::update_import_batch_counts($batch_id, $row_count, $matched_count);
+        AVBK_Bank_Costs::explain_open();
         return ['batch_id' => $batch_id, 'row_count' => $row_count, 'matched_count' => $matched_count];
     }
 

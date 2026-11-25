@@ -137,6 +137,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
     $returned = AVBK_Expenses::rank_returned_candidates(AVBK_DB::get_returned_payment_candidates($tx), (float) $tx->amount);
     $reimbursements = AVBK_Expenses::rank_reimbursements($context['reimbursements'], (float) $tx->amount, (string) $tx->counterparty_iban);
     $member_id = $tx->counterparty_iban !== '' ? AVBK_DB::find_member_id_by_iban((string) $tx->counterparty_iban) : null;
+    $suggestions = AVBK_Document_Requests::suggestions($tx, $context['members']);
     ?>
     <div class="avbk-review-row" id="tx-<?php echo esc_attr($tx->id); ?>" style="margin:1rem 0;padding:1rem;background:#fff;border:1px solid #dcdcde<?php echo $failed_here ? ';border-color:#d63638' : ''; ?>">
         <p style="margin-top:0">
@@ -145,9 +146,9 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <br><span class="description"><?php echo esc_html(AVBK_Matcher::strip_name_field((string) $tx->description)); ?></span>
         </p>
         <?php if ($member_id) : ?>
-            <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage of van tegoed? <a href="<?php echo esc_url(add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => (int) $tx->id], admin_url('admin.php'))); ?>">Koppel die bij het lid</a>.</p>
+            <p class="description">Deze rekening hoort bij een lid. Is dit een terugbetaling van een bijdrage of van tegoed? <a href="<?php echo esc_url(avbk_expense_refund_url((int) $member_id, (int) $tx->id)); ?>">Koppel die bij het lid</a>.</p>
         <?php endif; ?>
-        <?php avbk_render_expense_document_request($tx, $context['members']); ?>
+        <?php avbk_render_expense_document_request($tx, $suggestions); ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-expense-form">
             <?php wp_nonce_field('avbk_explain_expense'); ?>
             <input type="hidden" name="action" value="avbk_explain_expense">
@@ -155,7 +156,7 @@ function avbk_render_expense_form(object $tx, array $context): void {
             <?php avbk_render_expense_kind_field($field, AVBK_Expenses::KINDS, ''); ?>
             <?php avbk_render_expense_detail_fields($field, ['supplier' => (string) $tx->counterparty_name], 'of sleep het bestand op deze betaling'); ?>
             <?php avbk_render_expense_reimbursement_field($field, $reimbursements, (float) $tx->amount); ?>
-            <?php avbk_render_expense_returned_field($field, $returned, (float) $tx->amount); ?>
+            <?php avbk_render_expense_returned_field($field, $returned, (float) $tx->amount, avbk_expense_refund_links($suggestions, (int) $tx->id)); ?>
             <?php avbk_render_expense_note_field($field, ''); ?>
             <button type="submit" class="button button-primary">Verantwoorden</button>
         </form>
@@ -233,29 +234,18 @@ function avbk_render_expense_note_field(string $field, string $note): void {
  *
  * @param object[] $members Every member that can be asked.
  */
-function avbk_render_expense_document_request(object $tx, array $members): void {
+function avbk_render_expense_document_request(object $tx, array $suggestions): void {
     $request = AVBK_DB::get_document_request_for_transaction((int) $tx->id);
-    $field = 'avbk-expense-' . (int) $tx->id . '-request-member';
     ?>
         <div class="avbk-expense-request" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0">
-            <?php if (!$request) :
-                $suggestions = AVBK_Document_Requests::suggestions($tx, $members); ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
-                    <?php wp_nonce_field('avbk_request_document'); ?>
-                    <input type="hidden" name="action" value="avbk_request_document">
-                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
-                    <label for="<?php echo esc_attr($field); ?>">Bon opvragen bij</label>
-                    <select name="member_id" id="<?php echo esc_attr($field); ?>" required style="max-width:22em" data-options="avbk-expense-members">
-                        <?php if (!$suggestions) : ?><option value="">&mdash; kies een lid &mdash;</option><?php endif; ?>
-                        <?php if ($suggestions) : ?>
-                            <optgroup label="Voorstel">
-                                <?php foreach ($suggestions as $suggested) : ?><option value="<?php echo esc_attr($suggested->id); ?>"><?php echo esc_html(avpvh_format_name($suggested, 'list')); ?></option><?php endforeach; ?>
-                            </optgroup>
-                        <?php endif; ?>
-                    </select>
-                    <button type="submit" class="button button-small">Bon opvragen</button>
-                </form>
-                <span class="description">Het lid krijgt een mail en kan op de ledenpagina, onder Te doen, een foto of pdf uploaden.</span>
+            <?php if (!$request && $suggestions) : ?>
+                <?php avbk_render_expense_request_form($tx, $suggestions); ?>
+            <?php elseif (!$request) : ?>
+                <details>
+                    <summary>Bon opvragen bij een lid</summary>
+                    <p class="description">Rekening en naam horen bij geen lid. Kies het lid zelf.</p>
+                    <?php avbk_render_expense_request_form($tx, []); ?>
+                </details>
             <?php else :
                 $member = AVPVH_DB::get_member((int) $request->member_id);
                 $name = $member ? avpvh_format_name($member) : 'het lid'; ?>
@@ -308,13 +298,68 @@ function avbk_render_expense_reimbursement_field(string $field, array $reimburse
     <?php
 }
 
-/** Select of the incoming payment this transfer sent back. */
-function avbk_render_expense_returned_field(string $field, array $returned, float $amount): void {
+/**
+ * The "Bon opvragen" form: a member to choose, the suggestions first.
+ *
+ * @param object[] $suggestions From AVBK_Document_Requests::suggestions().
+ */
+function avbk_render_expense_request_form(object $tx, array $suggestions): void {
+    $field = 'avbk-expense-' . (int) $tx->id . '-request-member';
+    ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
+                    <?php wp_nonce_field('avbk_request_document'); ?>
+                    <input type="hidden" name="action" value="avbk_request_document">
+                    <input type="hidden" name="transaction_id" value="<?php echo esc_attr($tx->id); ?>">
+                    <label for="<?php echo esc_attr($field); ?>">Bon opvragen bij</label>
+                    <select name="member_id" id="<?php echo esc_attr($field); ?>" required style="max-width:22em" data-options="avbk-expense-members">
+                        <?php if (!$suggestions) : ?><option value="">&mdash; kies een lid &mdash;</option><?php endif; ?>
+                        <?php if ($suggestions) : ?>
+                            <optgroup label="Voorstel">
+                                <?php foreach ($suggestions as $suggested) : ?><option value="<?php echo esc_attr($suggested->id); ?>"><?php echo esc_html(avpvh_format_name($suggested, 'list')); ?></option><?php endforeach; ?>
+                            </optgroup>
+                        <?php endif; ?>
+                    </select>
+                    <button type="submit" class="button button-small">Bon opvragen</button>
+                </form>
+                <span class="description">Het lid krijgt een mail en kan op de ledenpagina, onder Te doen, een foto of pdf uploaden.</span>
+    <?php
+}
+
+/** Where Terugbetalen of a member is, with this outgoing payment chosen. */
+function avbk_expense_refund_url(int $member_id, int $transaction_id): string {
+    return add_query_arg(['page' => 'avbk-members', 'member_id' => $member_id, 'refund_tx' => $transaction_id], admin_url('admin.php'));
+}
+
+/**
+ * Links to Terugbetalen of the members this payment may have gone to
+ * ("Anna Jansen of Bram Jansen"), or to the Ledenoverzicht when none is
+ * known. HTML, escaped.
+ *
+ * @param object[] $members From AVBK_Document_Requests::suggestions().
+ */
+function avbk_expense_refund_links(array $members, int $transaction_id): string {
+    if (!$members) {
+        return 'bij het lid, via het <a href="' . esc_url(add_query_arg(['page' => 'avbk-members'], admin_url('admin.php'))) . '">Ledenoverzicht</a>';
+    }
+    $links = array_map(
+        static fn($member) => '<a href="' . esc_url(avbk_expense_refund_url((int) $member->id, $transaction_id)) . '">' . esc_html(avpvh_format_name($member)) . '</a>',
+        $members
+    );
+    $last = array_pop($links);
+    return 'bij ' . ($links ? implode(', ', $links) . ' of ' : '') . $last;
+}
+
+/**
+ * Select of the incoming payment this transfer sent back.
+ *
+ * @param string $refund_links From avbk_expense_refund_links().
+ */
+function avbk_render_expense_returned_field(string $field, array $returned, float $amount, string $refund_links): void {
     ?>
             <p data-kinds="returned_payment">
                 <label for="<?php echo esc_attr($field); ?>-related">Teruggestorte betaling</label><br>
                 <?php if (!$returned) : ?>
-                    <span class="description">Geen eerdere, niet-toegewezen betaling van deze rekening gevonden. Was de betaling aan een bijdrage toegewezen? Gebruik dan bij het lid Terugbetalen.</span>
+                    <span class="description">Geen eerdere, niet-toegewezen betaling van deze rekening gevonden. Was de betaling aan een bijdrage toegewezen? Gebruik dan Terugbetalen <?php echo wp_kses($refund_links, ['a' => ['href' => []]]); ?>.</span>
                 <?php else : ?>
                     <select name="related_transaction_id" id="<?php echo esc_attr($field); ?>-related" style="max-width:36em">
                         <?php foreach ($returned as $payment) : ?>

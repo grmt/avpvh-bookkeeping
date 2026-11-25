@@ -5,7 +5,6 @@
  */
 define('ABSPATH', __DIR__ . '/');
 final class Redirected extends Exception {}
-interface AVBK_Component { public function register(): void; }
 function add_action(...$args): void {}
 function check_admin_referer($action) { return true; }
 function current_user_can($cap) { return true; }
