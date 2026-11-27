@@ -500,8 +500,6 @@ function avbk_render_review_config($all_members, $duplicate_candidates): void {
 ?><script type="application/json" id="avbk-review-config"><?php echo wp_json_encode([
     'ajaxUrl'          => admin_url('admin-ajax.php'),
     'nonce'            => wp_create_nonce('avbk_review_queue'),
-    'memberDetailUrl'  => admin_url('admin.php?page=avpvh-member-detail&id='),
-    'memberBalanceUrl' => admin_url('admin.php?page=avbk-members&member_id='),
     // Source of truth for the lid-naamfilter (see wireMemberFilter() in
     // review-queue.js) — filtering rebuilds the plain option list from
     // this static array instead of hiding <option> nodes in place, since

@@ -517,13 +517,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function updateMemberEditLink() {
-            if (memberSelect.value) {
+            // A member id is a whole number; only that goes into the links.
+            // Relative to this wp-admin page, so no URL comes from page text.
+            var memberId = Number.parseInt(memberSelect.value, 10);
+            if (memberId > 0) {
                 if (memberLink) {
-                    memberLink.href = cfg.memberDetailUrl + encodeURIComponent(memberSelect.value);
+                    memberLink.href = 'admin.php?page=avpvh-member-detail&id=' + memberId;
                     memberLink.style.display = '';
                 }
                 if (memberBalanceLink) {
-                    memberBalanceLink.href = cfg.memberBalanceUrl + encodeURIComponent(memberSelect.value);
+                    memberBalanceLink.href = 'admin.php?page=avbk-members&member_id=' + memberId;
                     memberBalanceLink.style.display = '';
                 }
             } else {
