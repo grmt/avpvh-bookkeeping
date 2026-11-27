@@ -359,28 +359,44 @@ class AVBK_Reimbursements implements AVBK_Component {
     /** AJAX: OCR a just-added photo before the real submit, purely to pre-fill the amount field (and warn early on a duplicate) — the temp upload is discarded either way, the authoritative duplicate check happens again in handle_submit(). One file per call — the dropzone calls this once per photo added. */
     public function ajax_ocr_receipt(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
-        if (!is_user_logged_in() || empty($_FILES['receipt']['tmp_name']) || !is_uploaded_file($_FILES['receipt']['tmp_name'])) {
+        $tmp_path = (string) ($_FILES['receipt']['tmp_name'] ?? '');
+        if (!is_user_logged_in() || $tmp_path === '' || !is_uploaded_file($tmp_path)) {
             avbk_send_json_error();
         }
-
-        $tmp_path = $_FILES['receipt']['tmp_name'];
-        $original_name = (string) ($_FILES['receipt']['name'] ?? '');
-        $ext = self::validate_receipt_file($tmp_path, $original_name);
-        if ($ext === null) {
+        $member = avpvh_get_member_by_wp_user(get_current_user_id());
+        $read = self::read_receipt(
+            $tmp_path,
+            (string) ($_FILES['receipt']['name'] ?? ''),
+            $member ? (int) $member->id : 0,
+            self::requested_engine(wp_unslash($_POST['engine'] ?? ''))
+        );
+        if ($read === null) {
             avbk_send_json_error('Ongeldig bestand');
         }
+        wp_send_json_success($read);
+    }
 
-        $member = avpvh_get_member_by_wp_user(get_current_user_id());
-        $hash = hash_file('sha256', $tmp_path);
-        $text = AVBK_OCR::extract_text($tmp_path, 30, self::requested_engine(wp_unslash($_POST['engine'] ?? '')));
-        $amount = $text ? AVBK_OCR::guess_total($text) : null;
-        $date = $text ? AVBK_OCR::guess_date($text) : null;
-        $store = $text ? AVBK_OCR::guess_store($text) : null;
-        $duplicate = $member && AVBK_DB::find_duplicate_receipt((int) $member->id, $hash, $date, $store);
-        wp_send_json_success([
-            'amount' => $amount, 'date' => $date, 'store' => $store, 'duplicate' => (bool) $duplicate,
-            'candidates' => $text ? AVBK_OCR::candidates($text) : ['amounts' => [], 'dates' => [], 'stores' => []],
-        ]);
+    /**
+     * What the OCR finds on a receipt, for pre-filling its row: best guesses,
+     * everything to pick from, and whether the member declared it before.
+     * Null for a file that is no valid receipt.
+     *
+     * @return array{amount: ?float, date: ?string, store: ?string, duplicate: bool, candidates: array<string, array<mixed>>}|null
+     */
+    public static function read_receipt(string $path, string $original_name, int $member_id, ?string $engine): ?array {
+        if (self::validate_receipt_content($path, $original_name) === null) {
+            return null;
+        }
+        $text = (string) AVBK_OCR::extract_text($path, 30, $engine);
+        $date = $text !== '' ? AVBK_OCR::guess_date($text) : null;
+        $store = $text !== '' ? AVBK_OCR::guess_store($text) : null;
+        return [
+            'amount'     => $text !== '' ? AVBK_OCR::guess_total($text) : null,
+            'date'       => $date,
+            'store'      => $store,
+            'duplicate'  => $member_id > 0 && AVBK_DB::find_duplicate_receipt($member_id, (string) hash_file('sha256', $path), $date, $store),
+            'candidates' => AVBK_OCR::candidates($text),
+        ];
     }
 
     /**

@@ -53,6 +53,16 @@ $GLOBALS['token'] = 'fictional-token';
 $reply = ['code' => 200, 'body' => json_encode(['document' => ['text' => 'Google text']])];
 check(AVBK_OCR::extract_text($file, 30, 'google') === 'Google text' && str_contains((string) end($requests)[0], 'documentai.googleapis.com'), 'Google chosen: Google reads it, docling is skipped');
 unset($GLOBALS['token']);
+$GLOBALS['token'] = 'fictional-token';
+$reply = new WP_Error();
+check(AVBK_OCR::extract_text($file, 30, 'google') === null, 'Google unreachable: null');
+unset($GLOBALS['token']);
+$key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+openssl_pkey_export($key, $pem);
+$options['avbk_gcp_service_account_json'] = json_encode(['private_key' => $pem, 'client_email' => 'ocr@example.test']);
+$reply = ['code' => 200, 'body' => '{}'];
+$before = count($requests);
+check(AVBK_OCR::extract_text($file, 30, 'google') === null && count($requests) === $before + 1 && str_contains((string) end($requests)[0], 'oauth2.googleapis.com'), 'no Google token: null, after only the token request');
 unset($options['avbk_gcp_service_account_json']);
 
 // Suggestions to pick from.

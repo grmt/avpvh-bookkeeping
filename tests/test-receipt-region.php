@@ -1,6 +1,29 @@
 <?php
-/** Reading a selected part of a receipt, and the OCR engine a member chooses. Fictional data only. */
+/** Reading receipts and selected parts of them, the OCR engine a member chooses, and the form's assets. Fictional data only. */
 define('ABSPATH', __DIR__ . '/');
+define('AVBK_PLUGIN_URL', 'https://example.test/wp-content/plugins/avpvh-bookkeeping/');
+$GLOBALS['logged_in'] = false;
+$GLOBALS['enqueued'] = [];
+$GLOBALS['actions'] = [];
+function is_user_logged_in() { return $GLOBALS['logged_in']; }
+function check_ajax_referer($action, $field) { $GLOBALS['nonce_checked'] = $action; return true; }
+function avbk_send_json_error($data = null) { throw new RuntimeException('error: ' . (is_string($data) ? $data : '')); }
+function wp_unslash($value) { return $value; }
+function has_shortcode($content, $tag) { return str_contains((string) $content, '[' . $tag); }
+function wp_enqueue_style($handle, $src) { $GLOBALS['enqueued']['style:' . $handle] = [$src, []]; }
+function wp_enqueue_script($handle, $src, $deps = []) { $GLOBALS['enqueued'][$handle] = [$src, $deps]; }
+function avbk_asset_version($file) { return '1'; }
+function admin_url($path) { return 'https://example.test/wp-admin/' . $path; }
+function wp_create_nonce($action) { return 'nonce-' . $action; }
+function wp_json_encode($data) { return json_encode($data); }
+function add_action($hook, $callback) { $GLOBALS['actions'][$hook] = $callback; }
+final class AVBK_DB {
+    public static array $asked = [];
+    public static function find_duplicate_receipt(int $member_id, string $hash, ?string $date, ?string $store): ?object {
+        self::$asked[] = [$member_id, $date, $store];
+        return $GLOBALS['duplicate'] ? (object) ['id' => 1] : null;
+    }
+}
 function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
 function sanitize_file_name($name) { return (string) $name; }
 function wp_get_image_mime($file) { $info = @getimagesize($file); return $info['mime'] ?? false; }
@@ -12,6 +35,10 @@ final class AVBK_OCR {
         self::$calls[] = [$timeout, $engine];
         return $GLOBALS['ocr_text'];
     }
+    public static function guess_total(string $text): ?float { return str_contains($text, '11,80') ? 11.8 : null; }
+    public static function guess_date(string $text): ?string { return str_contains($text, '01-08-2026') ? '2026-08-01' : null; }
+    public static function guess_store(string $text): ?string { return strtok($text, "\n") ?: null; }
+    public static function candidates(string $text): array { return ['amounts' => $text === '' ? [] : [11.8], 'dates' => [], 'stores' => []]; }
 }
 require dirname(__DIR__) . '/includes/interface-component.php';
 require dirname(__DIR__) . '/includes/class-reimbursements.php';
@@ -43,6 +70,50 @@ try {
     check(AVBK_Reimbursements::validate_receipt_content($pdf, 'bon.pdf') === 'pdf' && AVBK_Reimbursements::validate_receipt_content($text_file, 'bon.pdf') === null, 'content check: a PDF by its signature');
     check(AVBK_Reimbursements::validate_receipt_content($pdf, 'bon.png') === null && AVBK_Reimbursements::validate_receipt_content($png, 'bon.jpg') === null, 'content check: the extension has to match the real type');
     unlink($pdf);
+
+    // A whole receipt: the best guesses, the suggestions, and a duplicate check.
+    $GLOBALS['ocr_text'] = "Bakkerij Voorbeeld\n01-08-2026\nTotaal 11,80";
+    $GLOBALS['duplicate'] = false;
+    $read = AVBK_Reimbursements::read_receipt($png, 'bon.png', 7, 'docling');
+    check($read === ['amount' => 11.8, 'date' => '2026-08-01', 'store' => 'Bakkerij Voorbeeld', 'duplicate' => false, 'candidates' => ['amounts' => [11.8], 'dates' => [], 'stores' => []]], 'a receipt: guesses and suggestions');
+    check(end(AVBK_OCR::$calls) === [30, 'docling'] && end(AVBK_DB::$asked) === [7, '2026-08-01', 'Bakkerij Voorbeeld'], 'read with the chosen engine; the duplicate check gets the member, date and shop');
+    $GLOBALS['duplicate'] = true;
+    check(AVBK_Reimbursements::read_receipt($png, 'bon.png', 7, null)['duplicate'] === true, 'a receipt declared before is flagged');
+    $asked = count(AVBK_DB::$asked);
+    check(AVBK_Reimbursements::read_receipt($png, 'bon.png', 0, null)['duplicate'] === false && count(AVBK_DB::$asked) === $asked, 'no member: no duplicate check');
+    $GLOBALS['ocr_text'] = null;
+    check(AVBK_Reimbursements::read_receipt($png, 'bon.png', 7, null) === ['amount' => null, 'date' => null, 'store' => null, 'duplicate' => true, 'candidates' => ['amounts' => [], 'dates' => [], 'stores' => []]], 'nothing read: empty guesses, no suggestions');
+    check(AVBK_Reimbursements::read_receipt($text_file, 'bon.png', 7, null) === null, 'not a valid receipt: null');
+
+    // The AJAX handlers refuse what is not a real upload by a logged-in member.
+    $handler = (new ReflectionClass(AVBK_Reimbursements::class))->newInstanceWithoutConstructor();
+    $refused = static function (callable $call): string {
+        try { $call(); } catch (RuntimeException $e) { return $e->getMessage(); }
+        return 'not refused';
+    };
+    $_FILES = ['receipt' => ['tmp_name' => $png, 'name' => 'bon.png'], 'region' => ['tmp_name' => $png]];
+    check($refused([$handler, 'ajax_ocr_receipt']) === 'error: ' && $GLOBALS['nonce_checked'] === 'avbk_ocr_receipt', 'receipt: logged out, refused after the nonce check');
+    check($refused([$handler, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'region: logged out, refused');
+    $GLOBALS['logged_in'] = true;
+    check($refused([$handler, 'ajax_ocr_receipt']) === 'error: ' && $refused([$handler, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'a file that was not uploaded is refused');
+    $_FILES = [];
+    check($refused([$handler, 'ajax_ocr_receipt']) === 'error: ' && $refused([$handler, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'no file is refused');
+
+    // The form's scripts only on a page with the form, with the engines in the page config.
+    $GLOBALS['post'] = (object) ['post_content' => 'Gewone pagina'];
+    $handler->enqueue_assets();
+    check($GLOBALS['enqueued'] === [], 'another page: nothing loaded');
+    $GLOBALS['post'] = (object) ['post_content' => '[avpvh_bk_reimbursement]'];
+    $handler->enqueue_assets();
+    check(array_keys($GLOBALS['enqueued']) === ['style:avbk-reimbursement', 'avbk-receipt-viewer', 'avbk-reimbursement'] && $GLOBALS['enqueued']['avbk-reimbursement'][1] === ['avbk-receipt-viewer'], 'the form page loads its style, the viewer, and the form script after the viewer');
+    ob_start();
+    ($GLOBALS['actions']['wp_footer'])();
+    $config = json_decode(preg_replace('#^<script[^>]*>|</script>$#', '', (string) ob_get_clean()), true);
+    check($config === ['ajaxUrl' => 'https://example.test/wp-admin/admin-ajax.php', 'nonce' => 'nonce-avbk_ocr_receipt', 'engines' => AVBK_OCR::engines()], 'the page config holds the AJAX URL, the nonce and the engines');
+    $GLOBALS['logged_in'] = false;
+    $GLOBALS['enqueued'] = [];
+    $handler->enqueue_assets();
+    check($GLOBALS['enqueued'] === [], 'logged out: nothing loaded');
 } finally {
     unlink($png);
     unlink($text_file);
