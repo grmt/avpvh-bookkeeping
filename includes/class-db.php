@@ -5256,13 +5256,45 @@ class AVBK_DB {
         $placeholders = implode(',', array_fill(0, count($household_ids), '%d'));
         // $placeholders is a generated run of %d, one per id, filled in by prepare() below; PHPCS can't see that.
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT iban, MAX(account_name) AS account_name, MAX(created_at) AS created_at, GROUP_CONCAT(DISTINCT member_id) AS holder_ids
              FROM {$wpdb->prefix}avb_known_ibans WHERE member_id IN ($placeholders)
              GROUP BY iban ORDER BY created_at DESC",
             $household_ids
         ));
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+        return self::order_household_ibans($rows ?: [], $member_id, $household_ids);
+    }
+
+    /**
+     * Parents' accounts first, so a refund goes to whoever paid: accounts
+     * of household members who are no child of another household member,
+     * the member's own first, then the children's. Newest first within
+     * each group (the order the rows come in).
+     *
+     * @param object[] $rows Each with ->holder_ids, comma-separated member ids.
+     * @param int[]    $household_ids
+     * @return object[]
+     */
+    public static function order_household_ibans(array $rows, int $member_id, array $household_ids): array {
+        $children = array_values(array_filter($household_ids, static function (int $id) use ($household_ids): bool {
+            foreach ($household_ids as $other) {
+                if ($other !== $id && AVPVH_DB::is_parent_of($other, $id)) {
+                    return true;
+                }
+            }
+            return false;
+        }));
+        $rank = static function (object $row) use ($member_id, $household_ids, $children): int {
+            $holders = array_intersect(array_map('intval', explode(',', (string) ($row->holder_ids ?? ''))), $household_ids);
+            $parents = array_diff($holders, $children);
+            if (!$parents) {
+                return 2;
+            }
+            return in_array($member_id, $parents, true) ? 0 : 1;
+        };
+        usort($rows, static fn(object $a, object $b): int => $rank($a) <=> $rank($b));
+        return $rows;
     }
 
     /**
