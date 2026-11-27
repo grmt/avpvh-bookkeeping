@@ -25,7 +25,10 @@ async function load(engines = { google: 'Google' }) {
             <div id="avbk-dropzone"><input type="file" id="avbk-receipt-input" multiple></div>
             <button type="button" id="avbk-add-manual-row">+ Regel</button>
             <p id="avbk-ocr-status" hidden></p>
-            <table id="avbk-dropzone-table" hidden><tbody id="avbk-dropzone-list"></tbody></table>
+            <table id="avbk-dropzone-table" hidden>
+                <thead><tr><th>Foto</th><th><button type="button" id="avbk-sort-date">Datum <span class="avbk-sort-indicator">↕</span></button></th></tr></thead>
+                <tbody id="avbk-dropzone-list"></tbody>
+            </table>
             <input id="avbk-amount">
             <button type="submit">Verstuur</button>
         </form>
@@ -284,6 +287,27 @@ describe('the rows', () => {
         expect(viewer.open.mock.calls[2][1].nav.index).toBe(1);
     });
 
+    it('sorts rows by date ascending and descending, keeping undated rows at the bottom', async () => {
+        await load();
+        replies.push(reply({ success: true, data: { ...found, date: '2026-08-08', store: 'Acht' } }));
+        replies.push(reply({ success: true, data: { ...found, date: null, store: 'Leeg' } }));
+        replies.push(reply({ success: true, data: { ...found, date: '2026-08-02', store: 'Twee' } }));
+        replies.push(reply({ success: true, data: { ...found, date: '2026-08-05', store: 'Vijf' } }));
+        addFiles(photo('a.jpg'), photo('b.jpg'), photo('c.jpg'), photo('d.jpg'));
+        await settle();
+
+        const sortBtn = document.getElementById('avbk-sort-date');
+        sortBtn.click();
+        expect(rows().map((r) => cell(r, '.avbk-dropzone-item-store').value)).toEqual(['Twee', 'Vijf', 'Acht', 'Leeg']);
+        expect(sortBtn.querySelector('.avbk-sort-indicator').textContent).toBe('↑');
+        expect(sortBtn.closest('th').getAttribute('aria-sort')).toBe('ascending');
+
+        sortBtn.click();
+        expect(rows().map((r) => cell(r, '.avbk-dropzone-item-store').value)).toEqual(['Acht', 'Vijf', 'Twee', 'Leeg']);
+        expect(sortBtn.querySelector('.avbk-sort-indicator').textContent).toBe('↓');
+        expect(sortBtn.closest('th').getAttribute('aria-sort')).toBe('descending');
+    });
+
     it('removes a row and frees its photo', async () => {
         await load();
         addFiles(photo());
@@ -355,7 +379,10 @@ describe('automatic server-side drafts', () => {
                 <div id="avbk-dropzone"><input type="file" id="avbk-receipt-input" multiple></div>
                 <button type="button" id="avbk-add-manual-row">+ Regel</button>
                 <p id="avbk-ocr-status" hidden></p>
-                <table id="avbk-dropzone-table" hidden><tbody id="avbk-dropzone-list"></tbody></table>
+                <table id="avbk-dropzone-table" hidden>
+                <thead><tr><th>Foto</th><th><button type="button" id="avbk-sort-date">Datum <span class="avbk-sort-indicator">↕</span></button></th></tr></thead>
+                <tbody id="avbk-dropzone-list"></tbody>
+            </table>
                 <input id="avbk-amount" value="${draft?.amount ?? ''}">
                 <textarea id="avbk-member-note"></textarea>
                 <button type="submit">Declareren</button>

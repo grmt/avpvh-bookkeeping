@@ -82,6 +82,30 @@
     white-space: nowrap;
 }
 
+.avbk-dropzone-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.avbk-dropzone-sort:hover,
+.avbk-dropzone-sort:focus-visible {
+    color: #2271b1;
+    text-decoration: underline;
+}
+
+.avbk-sort-indicator {
+    font-size: .95em;
+    opacity: .75;
+}
+
 .avbk-dropzone-item-photo {
     width: 48px;
     height: 48px;

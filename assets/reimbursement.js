@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const listEl = document.getElementById('avbk-dropzone-list');
     const tableEl = document.getElementById('avbk-dropzone-table');
     const addManualRowBtn = document.getElementById('avbk-add-manual-row');
+    const sortDateBtn = document.getElementById('avbk-sort-date');
     const form = document.getElementById('avbk-reimbursement-form');
     const submitButton = form?.querySelector('button[type="submit"]');
     const draftIdInput = document.getElementById('avbk-draft-id');
@@ -199,6 +200,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let listCount = 0;
     let viewingEntry = null;
     let activeEntry = null;
+    let dateSortDir = null;
 
 
 
@@ -915,8 +917,37 @@ document.addEventListener('DOMContentLoaded', function () {
         addFiles(fileInput.files);
     });
 
+    function sortByDate() {
+        dateSortDir = dateSortDir === 'asc' ? 'desc' : 'asc';
+        const dir = dateSortDir === 'asc' ? 1 : -1;
+        entries.sort(function (a, b) {
+            const da = a.date || '';
+            const db = b.date || '';
+            if (da === db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return da < db ? -dir : dir;
+        });
+        if (sortDateBtn) {
+            const indicator = sortDateBtn.querySelector('.avbk-sort-indicator');
+            if (indicator) {
+                indicator.textContent = dateSortDir === 'asc' ? '↑' : '↓';
+            }
+            const th = sortDateBtn.closest('th');
+            if (th) {
+                th.setAttribute('aria-sort', dateSortDir === 'asc' ? 'ascending' : 'descending');
+            }
+        }
+        syncFileInput();
+        renderList();
+    }
+
     if (addManualRowBtn) {
         addManualRowBtn.addEventListener('click', addManualRow);
+    }
+
+    if (sortDateBtn) {
+        sortDateBtn.addEventListener('click', sortByDate);
     }
 
     if (draftsEnabled) {

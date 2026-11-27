@@ -214,7 +214,7 @@ class AVBK_Reimbursements implements AVBK_Component {
                     </div>
                     <button type="button" class="button" id="avbk-add-manual-row">+ Regel toevoegen zonder bonnetje</button>
                     <table class="avbk-dropzone-table" id="avbk-dropzone-table" hidden>
-                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th class="avbk-dropzone-amount-head">Bedrag</th><th></th></tr></thead>
+                        <thead><tr><th>Foto</th><th><button type="button" class="avbk-dropzone-sort" id="avbk-sort-date" title="Sorteer op datum">Datum <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th><th>Winkel</th><th>Omschrijving</th><th class="avbk-dropzone-amount-head">Bedrag</th><th></th></tr></thead>
                         <tbody id="avbk-dropzone-list"></tbody>
                     </table>
                 </p>
