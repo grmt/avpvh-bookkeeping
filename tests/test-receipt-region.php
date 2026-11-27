@@ -17,6 +17,10 @@ function admin_url($path) { return 'https://example.test/wp-admin/' . $path; }
 function wp_create_nonce($action) { return 'nonce-' . $action; }
 function wp_json_encode($data) { return json_encode($data); }
 function add_action($hook, $callback) { $GLOBALS['actions'][$hook] = $callback; }
+function add_shortcode($tag, $callback) { $GLOBALS['shortcodes'][$tag] = $callback; }
+function wp_send_json_success($data) { throw new RuntimeException('success: ' . json_encode($data)); }
+function get_current_user_id() { return 5; }
+function avpvh_get_member_by_wp_user($user_id) { return $user_id === 5 ? (object) ['id' => 7] : null; }
 final class AVBK_DB {
     public static array $asked = [];
     public static function find_duplicate_receipt(int $member_id, string $hash, ?string $date, ?string $store): ?object {
@@ -42,6 +46,11 @@ final class AVBK_OCR {
 }
 require dirname(__DIR__) . '/includes/interface-component.php';
 require dirname(__DIR__) . '/includes/class-reimbursements.php';
+
+/** The handlers as they run after a real upload: the test says which file was uploaded. */
+final class Test_Reimbursements extends AVBK_Reimbursements {
+    protected function uploaded_path(string $field): string { return $GLOBALS['uploaded'][$field] ?? ''; }
+}
 
 $failures = 0;
 function check(bool $ok, string $label): void { global $failures; echo ($ok ? 'PASS' : 'FAIL') . ": $label\n"; if (!$ok) $failures++; }
@@ -98,6 +107,24 @@ try {
     check($refused([$handler, 'ajax_ocr_receipt']) === 'error: ' && $refused([$handler, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'a file that was not uploaded is refused');
     $_FILES = [];
     check($refused([$handler, 'ajax_ocr_receipt']) === 'error: ' && $refused([$handler, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'no file is refused');
+
+    // After a real upload: the handlers answer with what was read.
+    $after_upload = (new ReflectionClass(Test_Reimbursements::class))->newInstanceWithoutConstructor();
+    $GLOBALS['uploaded'] = ['receipt' => $png, 'region' => $png];
+    $_FILES = ['receipt' => ['name' => 'bon.png']];
+    $_POST = ['engine' => 'google'];
+    $GLOBALS['ocr_text'] = "Bakkerij Voorbeeld\nTotaal 11,80";
+    $GLOBALS['duplicate'] = false;
+    $answer = $refused([$after_upload, 'ajax_ocr_receipt']);
+    check(str_starts_with($answer, 'success: ') && json_decode(substr($answer, 9), true)['amount'] === 11.8 && end(AVBK_OCR::$calls) === [30, 'google'] && end(AVBK_DB::$asked)[0] === 7, 'receipt uploaded: the guesses, read with the chosen engine, checked for this member');
+    check($refused([$after_upload, 'ajax_ocr_region']) === 'success: {"text":"Bakkerij Voorbeeld Totaal 11,80"}', 'part uploaded: its text');
+    $GLOBALS['uploaded'] = ['receipt' => $text_file, 'region' => $text_file];
+    check($refused([$after_upload, 'ajax_ocr_receipt']) === 'error: Ongeldig bestand' && $refused([$after_upload, 'ajax_ocr_region']) === 'error: Ongeldig fragment', 'an upload that is no receipt image is refused');
+    $_POST = [];
+
+    // The shortcode and both AJAX actions are registered.
+    $after_upload->register();
+    check(isset($GLOBALS['shortcodes']['avpvh_bk_reimbursement'], $GLOBALS['actions']['wp_ajax_avbk_ocr_receipt'], $GLOBALS['actions']['wp_ajax_avbk_ocr_region']), 'the form and both OCR actions are registered');
 
     // The form's scripts only on a page with the form, with the engines in the page config.
     $GLOBALS['post'] = (object) ['post_content' => 'Gewone pagina'];

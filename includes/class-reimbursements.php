@@ -69,13 +69,7 @@ class AVBK_Reimbursements implements AVBK_Component {
 
     /** The file starts with the PDF signature. */
     private static function is_pdf(string $path): bool {
-        $handle = @fopen($path, 'rb');
-        if (!$handle) {
-            return false;
-        }
-        $signature = fread($handle, 5);
-        fclose($handle);
-        return $signature === '%PDF-';
+        return file_get_contents($path, false, null, 0, 5) === '%PDF-';
     }
 
     /** The file's real image type allows this extension. */
@@ -359,8 +353,8 @@ class AVBK_Reimbursements implements AVBK_Component {
     /** AJAX: OCR a just-added photo before the real submit, purely to pre-fill the amount field (and warn early on a duplicate) — the temp upload is discarded either way, the authoritative duplicate check happens again in handle_submit(). One file per call — the dropzone calls this once per photo added. */
     public function ajax_ocr_receipt(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
-        $tmp_path = (string) ($_FILES['receipt']['tmp_name'] ?? '');
-        if (!is_user_logged_in() || $tmp_path === '' || !is_uploaded_file($tmp_path)) {
+        $tmp_path = $this->uploaded_path('receipt');
+        if (!is_user_logged_in() || $tmp_path === '') {
             avbk_send_json_error();
         }
         $member = avpvh_get_member_by_wp_user(get_current_user_id());
@@ -374,6 +368,12 @@ class AVBK_Reimbursements implements AVBK_Component {
             avbk_send_json_error('Ongeldig bestand');
         }
         wp_send_json_success($read);
+    }
+
+    /** The temporary path of the file uploaded in this request as $field, or '' when there is none. */
+    protected function uploaded_path(string $field): string {
+        $tmp_path = (string) ($_FILES[$field]['tmp_name'] ?? '');
+        return $tmp_path !== '' && is_uploaded_file($tmp_path) ? $tmp_path : '';
     }
 
     /**
@@ -406,8 +406,8 @@ class AVBK_Reimbursements implements AVBK_Component {
      */
     public function ajax_ocr_region(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
-        $tmp_path = (string) ($_FILES['region']['tmp_name'] ?? '');
-        if (!is_user_logged_in() || $tmp_path === '' || !is_uploaded_file($tmp_path)) {
+        $tmp_path = $this->uploaded_path('region');
+        if (!is_user_logged_in() || $tmp_path === '') {
             avbk_send_json_error('Ongeldig fragment');
         }
         $read = self::read_region($tmp_path, self::requested_engine(wp_unslash($_POST['engine'] ?? '')));

@@ -72,5 +72,11 @@ check($candidates['dates'] === ['2026-08-01', '2026-08-02'], 'dates in order of 
 check($candidates['stores'] === ['Bakkerij Voorbeeld', 'Dorpsstraat 1', 'Brood 3,50', 'Taart 8,30', 'Totaal 11,80'], 'the first five text lines as shop candidates');
 check(AVBK_OCR::candidates('') === ['amounts' => [], 'dates' => [], 'stores' => []], 'no text: no suggestions');
 
+// The best guesses that pre-fill a row.
+$receipt = "Bakkerij Voorbeeld\nDorpsstraat 1\n01-08-2026 10:12\nBrood 3,50\nTaart 8,30\nTotaal 11,80";
+check(AVBK_OCR::guess_total($receipt) === 11.8 && AVBK_OCR::guess_total("Brood 3,50\nTaart 8,30") === 8.3 && AVBK_OCR::guess_total('geen bedrag') === null, 'total: the Totaal line, else the largest amount');
+check(AVBK_OCR::guess_store($receipt) === 'Bakkerij Voorbeeld' && AVBK_OCR::guess_store("12\n--") === null, 'shop: the first line with text');
+check(AVBK_OCR::guess_date($receipt) === '2026-08-01' && AVBK_OCR::guess_date('2026-08-03') === '2026-08-03' && AVBK_OCR::guess_date('31-02-2026') === null, 'date: the first valid date');
+
 unlink($file);
 exit($failures ? 1 : 0);
