@@ -73,6 +73,10 @@ final class Test_Reimbursement_Wpdb {
             if (str_contains((string) $query, "SHOW COLUMNS") && str_contains((string) $query, "LIKE 'status'")) {
                 return (object) ['Field' => 'status', 'Type' => $this->status_enum];
             }
+            if (str_contains((string) $query, "COALESCE(SUM(amount), 0) AS total") && str_contains((string) $query, "status = 'pending'")) {
+                $pending = array_filter($this->reimbursements, static fn($r) => $r->status === 'pending');
+                return (object) ['cnt' => count($pending), 'total' => array_sum(array_map(static fn($r) => (float) $r->amount, $pending))];
+            }
             return null;
         }
         [$sql, $args] = $query;
@@ -205,9 +209,11 @@ check(AVBK_DB::attach_member_receipt_photo($draft_id, $rid2, 7, ['receipt_path' 
 // 5. Delete one draft receipt and submit the draft -> pending; member can still update pending receipt.
 $deleted = AVBK_DB::delete_draft_receipt($draft_id, $rid2, 7);
 check($deleted !== null && $deleted->receipt_path === 'attached.jpg' && AVBK_DB::delete_draft_receipt($draft_id, $rid2, 7) === null, 'delete_draft_receipt returns deleted row once');
+check(AVBK_DB::get_pending_reimbursements_summary() === ['count' => 0, 'amount' => 0.0], 'drafts are excluded from pending reimbursements summary');
 check(AVBK_DB::submit_draft_reimbursement($draft_id, 7, [
     'activity_id' => 9, 'member_note' => 'klaar', 'amount' => 14.0, 'ocr_amount' => 12.5, 'iban' => 'NL00TEST0000000002',
 ]), 'submit_draft_reimbursement promotes draft to pending');
+check(AVBK_DB::get_pending_reimbursements_summary() === ['count' => 1, 'amount' => 14.0], 'submitted declaration is counted in pending reimbursements summary');
 check($wpdb->reimbursements[$draft_id]->status === 'pending' && count(AVBK_DB::get_reimbursements_for_member(7)) === 1, 'submitted declaration now appears in member history');
 check(AVBK_DB::update_member_receipt($draft_id, $rid1, 7, ['store' => 'Aangepast'], 'pending'), 'member can update a receipt on their pending declaration');
 check(AVBK_DB::update_member_receipt($draft_id, $rid1, 7, [], 'pending'), 'empty pending receipt update is a safe no-op');

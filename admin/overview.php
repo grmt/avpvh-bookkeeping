@@ -38,6 +38,7 @@ $total_credit = round(array_sum(array_map(fn($m) => AVBK_DB::get_total_credit_fo
 $total_donations = AVBK_DB::get_total_donations();
 $outgoing = AVBK_DB::get_outgoing_summary($current_book_year);
 $waiting_messages = AVBK_DB::count_open_disputes();
+$pending_reimbursements = AVBK_DB::get_pending_reimbursements_summary();
 ?>
 <div class="wrap">
     <h1>AV-PvH Boekhouding &mdash; Overzicht</h1>
@@ -74,6 +75,10 @@ $waiting_messages = AVBK_DB::count_open_disputes();
         <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-disputes'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
             <span class="avbk-stat-value"><?php echo esc_html($waiting_messages); ?></span>
             <span class="avbk-stat-label">Berichten wachten op jou</span>
+        </a>
+        <a class="avbk-stat-tile" href="<?php echo esc_url(add_query_arg(['page' => 'avbk-reimbursements'], admin_url('admin.php'))); ?>" style="color:inherit;text-decoration:none">
+            <span class="avbk-stat-value"><?php echo esc_html($pending_reimbursements['count']); ?></span>
+            <span class="avbk-stat-label">Declaraties wachten op betaling<?php echo $pending_reimbursements['count'] ? esc_html(' (€ ' . number_format($pending_reimbursements['amount'], 2, ',', '.') . ')') : ''; ?></span>
         </a>
     </div>
 

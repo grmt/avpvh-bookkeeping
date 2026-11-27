@@ -3688,6 +3688,18 @@ class AVBK_DB {
         );
     }
 
+    /** Count and total amount of submitted declarations waiting for payment (excludes drafts). */
+    public static function get_pending_reimbursements_summary(): array {
+        global $wpdb;
+        $row = $wpdb->get_row(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total FROM {$wpdb->prefix}avb_reimbursements WHERE status = 'pending'"
+        );
+        return [
+            'count'  => (int) ($row->cnt ?? 0),
+            'amount' => round((float) ($row->total ?? 0), 2),
+        ];
+    }
+
     public static function mark_reimbursement_paid(int $id, int $paid_by): void {
         global $wpdb;
         $wpdb->update(
