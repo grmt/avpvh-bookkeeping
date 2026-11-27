@@ -225,8 +225,77 @@
     border-left-color: #d63638;
 }
 
-.avbk-balance-declare-link {
-    margin-top: 1rem;
+.avbk-balance-reimbursements {
+    margin-top: 2rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.avbk-balance-reimbursements-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.avbk-balance-reimbursements-head h3 {
+    margin: 0;
+}
+
+.avbk-balance-declare-btn {
+    display: inline-block;
+    padding: .6rem 1.15rem;
+    border-radius: 4px;
+    background: #2271b1;
+    color: #fff;
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    line-height: 1.3;
+}
+
+.avbk-balance-declare-btn:hover,
+.avbk-balance-declare-btn:focus-visible {
+    background: #135e96;
+    color: #fff;
+    text-decoration: none;
+}
+
+.avbk-balance-reimbursements-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: .85rem;
+    font-size: .9rem;
+}
+
+.avbk-balance-reimbursements-table th,
+.avbk-balance-reimbursements-table td {
+    padding: .45rem .5rem;
+    border-bottom: 1px solid #e5e5e5;
+    text-align: left;
+}
+
+.avbk-balance-reimbursements-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.avbk-balance-reimbursements-empty {
+    margin: .6rem 0 0;
+    color: #646970;
+    font-size: .9rem;
+}
+
+.avbk-status-pending {
+    background: #fff3cd;
+    color: #8a6d1a;
+}
+
+.avbk-status-draft {
+    background: #e5f1fb;
+    color: #2271b1;
 }
 
 /* A button only so it can take keyboard focus (which shows the tooltip);

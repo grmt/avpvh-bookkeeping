@@ -1360,6 +1360,70 @@ class AVBK_Reimbursements implements AVBK_Component {
         <?php
     }
 
+    /**
+     * On the member page ("Financiële zaken"): a prominent Declaraties section
+     * with a clear button to declare (or resume a draft) plus any unfinished
+     * declarations (draft for the member themselves, and pending ones).
+     */
+    public static function render_member_summary(object $own_member, object $target_member): void {
+        $target_id = (int) $target_member->id;
+        $is_own = (int) $own_member->id === $target_id;
+        $draft = $is_own ? AVBK_DB::get_draft_reimbursement($target_id) : null;
+        $pending = array_values(array_filter(
+            AVBK_DB::get_reimbursements_for_member($target_id),
+            static fn($r) => $r->status === 'pending'
+        ));
+        if (!$is_own && !$pending) {
+            return;
+        }
+        $declare_url = home_url('/leden/beheer/declareren/');
+        ?>
+        <section class="avbk-balance-reimbursements">
+            <div class="avbk-balance-reimbursements-head">
+                <h3>Declaraties</h3>
+                <?php if ($is_own) : ?>
+                    <a class="avbk-balance-declare-btn" href="<?php echo esc_url($declare_url); ?>">
+                        <?php echo $draft ? 'Verder met concept &rarr;' : 'Bonnetje declareren &rarr;'; ?>
+                    </a>
+                <?php endif; ?>
+            </div>
+            <?php if ($draft || $pending) : ?>
+                <table class="avbk-balance-reimbursements-table">
+                    <thead><tr><th>Datum</th><th>Omschrijving</th><th class="avbk-cell-nowrap">Bedrag</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                    <?php if ($draft) :
+                        $draft_count = count(AVBK_DB::get_reimbursement_receipts((int) $draft->id));
+                        $draft_label = $draft_count > 0 ? sprintf('%d %s', $draft_count, $draft_count === 1 ? 'bonnetje' : 'bonnetjes') : 'Nog geen bonnetjes';
+                        ?>
+                        <tr>
+                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($draft->created_at))); ?></td>
+                            <td><?php echo esc_html($draft->description ?: $draft_label); ?></td>
+                            <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $draft->amount, 2, ',', '.')); ?></td>
+                            <td><span class="avbk-status-badge avbk-status-draft">Concept</span></td>
+                            <td><a href="<?php echo esc_url($declare_url); ?>">verdergaan &rarr;</a></td>
+                        </tr>
+                    <?php endif; ?>
+                    <?php foreach ($pending as $r) :
+                        $rec_count = count(AVBK_DB::get_reimbursement_receipts((int) $r->id));
+                        $fallback_label = $rec_count > 0 ? sprintf('%d %s', $rec_count, $rec_count === 1 ? 'bonnetje' : 'bonnetjes') : '—';
+                        ?>
+                        <tr>
+                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($r->created_at))); ?></td>
+                            <td><?php echo esc_html($r->description ?: $fallback_label); ?></td>
+                            <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?></td>
+                            <td><span class="avbk-status-badge avbk-status-pending">In behandeling</span></td>
+                            <td><?php if ($is_own) : ?><a href="<?php echo esc_url($declare_url . '#declareren'); ?>">bekijken &rarr;</a><?php endif; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php elseif ($is_own) : ?>
+                <p class="avbk-balance-reimbursements-empty">Je hebt op dit moment geen openstaande declaraties.</p>
+            <?php endif; ?>
+        </section>
+        <?php
+    }
+
     /** "Gezien" on the member page's declaratie notice. */
     public function handle_seen(): void {
         check_admin_referer('avbk_reimbursement_seen');

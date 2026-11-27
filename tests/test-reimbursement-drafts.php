@@ -33,6 +33,9 @@ function add_query_arg($arg1, $arg2 = null, $arg3 = null) {
 }
 function wp_create_nonce($action) { return 'nonce-' . $action; }
 function wp_nonce_url($url, $action) { return htmlspecialchars($url . '&_wpnonce=' . $action, ENT_QUOTES, 'UTF-8'); }
+function wp_date($format, $timestamp = null) { return date($format, $timestamp ?? time()); }
+function esc_html($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+function esc_url($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 function wp_unslash($value) { return $value; }
 function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
 function sanitize_file_name($name) { return (string) $name; }
@@ -59,6 +62,9 @@ final class AVBK_OCR {
 final class AVBK_DB {
     public static array $remembered = [];
     public static function get_reimbursement(int $id): ?object { return $GLOBALS['drafts'][$id] ?? null; }
+    public static function get_reimbursements_for_member(int $member_id): array {
+        return array_values(array_filter($GLOBALS['drafts'], fn($d) => (int) $d->member_id === $member_id && $d->status !== 'draft'));
+    }
     public static function get_draft_reimbursement(int $member_id): ?object {
         foreach ($GLOBALS['drafts'] as $d) {
             if ((int) $d->member_id === $member_id && $d->status === 'draft') return $d;
@@ -72,6 +78,7 @@ final class AVBK_DB {
         $GLOBALS['drafts'][$id] = (object) [
             'id' => $id, 'member_id' => $member_id, 'activity_id' => null, 'description' => '',
             'member_note' => '', 'amount' => 0.0, 'ocr_amount' => null, 'iban' => $default_iban, 'status' => 'draft',
+            'created_at' => '2026-11-27 19:00:00',
         ];
         return $id;
     }
@@ -280,13 +287,24 @@ try {
     [$kind] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
     check($kind === 'error', 'attaching refuses a row that already has a photo');
 
-    // 6. Discarding a second draft deletes both DB rows and stored files on disk.
+    // 6. Member page summary shows own draft + pending declarations, and hides private draft from another viewer.
     $_POST = ['iban' => 'NL00TEST0000000001'];
     [, $d2] = run_handler([$handler, 'ajax_draft_ensure']);
     $_POST = ['draft_id' => $d2['draft_id']];
     [, $a2] = run_handler([$handler, 'ajax_draft_add_receipt']);
     $file2 = AVBK_RECEIPTS_DIR . '/' . $GLOBALS['receipts'][$a2['receipt_id']]->receipt_path;
     check(file_exists($file2), 'second draft stored its receipt file');
+
+    ob_start();
+    AVBK_Reimbursements::render_member_summary((object) ['id' => 7], (object) ['id' => 7]);
+    $own_html = (string) ob_get_clean();
+    check(str_contains($own_html, 'Verder met concept') && str_contains($own_html, 'In behandeling') && str_contains($own_html, 'Concept'), 'member summary shows own draft and pending declarations');
+
+    ob_start();
+    AVBK_Reimbursements::render_member_summary((object) ['id' => 99], (object) ['id' => 7]);
+    $admin_html = (string) ob_get_clean();
+    check(!str_contains($admin_html, 'Concept') && str_contains($admin_html, 'In behandeling'), 'member summary hides private draft from another viewer while showing pending');
+
     $_POST = ['draft_id' => $d2['draft_id']];
     [$kind] = run_handler([$handler, 'ajax_draft_discard']);
     check($kind === 'success' && !isset($GLOBALS['drafts'][$d2['draft_id']]) && !file_exists($file2), 'discarding a draft deletes its rows and receipt files');
