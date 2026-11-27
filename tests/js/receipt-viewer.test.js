@@ -53,11 +53,13 @@ describe('the viewer', () => {
     const canvas = () => dialog().querySelector('.avbk-receipt-viewer-canvas');
     const hint = () => dialog().querySelector('.avbk-receipt-viewer-hint');
     const field = () => dialog().querySelector('.avbk-receipt-viewer-text');
+    const valueInput = (name) => dialog().querySelector(`.avbk-receipt-viewer-field-input[data-field="${name}"]`);
+    const readingNote = () => dialog().querySelector('.avbk-receipt-viewer-reading');
 
-    function open(engines = { google: 'Google' }) {
+    function open(engines = { google: 'Google' }, extra = {}) {
         read = vi.fn(() => Promise.resolve('Datum 01-08-2026 Totaal 11,80'));
         apply = vi.fn();
-        viewer.open('blob:receipt', { read, apply, engines });
+        viewer.open('blob:receipt', { read, apply, engines, ...extra });
     }
 
     async function select(x1, y1, x2, y2) {
@@ -113,14 +115,102 @@ describe('the viewer', () => {
 
         button('→ Datum').click();
         expect(apply).toHaveBeenLastCalledWith('date', '2026-08-01');
+        expect(valueInput('date').value).toBe('01-08-2026');
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
         button('→ Bedrag').click();
         expect(apply).toHaveBeenLastCalledWith('amount', 11.8);
+        expect(valueInput('amount').value).toBe('11,80');
         field().value = 'Bakkerij  Voorbeeld';
         field().dispatchEvent(new Event('input'));
         expect(button('→ Datum').disabled).toBe(true);
         button('→ Winkel').click();
         expect(apply).toHaveBeenLastCalledWith('store', 'Bakkerij Voorbeeld');
+        expect(valueInput('store').value).toBe('Bakkerij Voorbeeld');
         expect(hint().textContent).toContain('winkel');
+    });
+
+    it('shows the scanned values, flags missing ones, and fills candidate lists', () => {
+        open({ google: 'Google' }, {
+            values: { date: '2026-08-02', store: 'Supermarkt', amount: null },
+            candidates: {
+                dates: ['2026-08-02', 'bad-date'],
+                stores: ['Supermarkt', 'Dorpsstraat 1'],
+                amounts: [69.33, 2.6],
+            },
+        });
+        expect(valueInput('date').value).toBe('02-08-2026');
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
+        expect(valueInput('store').value).toBe('Supermarkt');
+        expect(valueInput('amount').value).toBe('');
+        expect(valueInput('amount').classList.contains('avbk-receipt-viewer-field-empty')).toBe(true);
+        expect([...dialog().querySelectorAll('datalist')].map((l) => [...l.options].map((o) => o.value))).toEqual([
+            ['02-08-2026'], ['Supermarkt', 'Dorpsstraat 1'], ['69,33', '2,60'],
+        ]);
+    });
+
+    it('lets the user edit date, store and amount directly inside the viewer', () => {
+        open();
+        const dateIn = valueInput('date');
+        dateIn.value = '4-8-26';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-04');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('04-08-2026');
+
+        dateIn.value = 'gisteren';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(true);
+        expect(apply).toHaveBeenLastCalledWith('date', '');
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('gisteren');
+
+        const storeIn = valueInput('store');
+        storeIn.value = 'Markt';
+        storeIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('store', 'Markt');
+
+        const amountIn = valueInput('amount');
+        amountIn.value = '1.234,5';
+        amountIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('amount', 1234.5);
+        amountIn.dispatchEvent(new Event('blur'));
+        expect(amountIn.value).toBe('1234,50');
+
+        amountIn.value = 'abc';
+        amountIn.dispatchEvent(new Event('input'));
+        expect(amountIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(true);
+        expect(apply).toHaveBeenLastCalledWith('amount', null);
+        amountIn.dispatchEvent(new Event('blur'));
+        expect(amountIn.value).toBe('abc');
+    });
+
+    it('updates live when background reading finishes, keeping a focused field', () => {
+        const onClose = vi.fn();
+        open({ google: 'Google' }, {
+            values: { date: '', store: '', amount: null },
+            reading: true,
+            onClose,
+        });
+        expect(readingNote().hidden).toBe(false);
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
+
+        valueInput('store').focus();
+        valueInput('store').value = 'Eigen winkel';
+        viewer.update({
+            values: { date: '2026-08-02', store: 'Gescande winkel', amount: 69.33 },
+            candidates: { dates: ['2026-08-02'], stores: ['Gescande winkel'], amounts: [69.33] },
+            reading: false,
+        });
+        expect(readingNote().hidden).toBe(true);
+        expect(valueInput('date').value).toBe('02-08-2026');
+        expect(valueInput('store').value).toBe('Eigen winkel');
+        expect(valueInput('amount').value).toBe('69,33');
+
+        dialog().close();
+        expect(onClose).toHaveBeenCalledTimes(1);
+        viewer.update({ values: { date: '2026-09-01' }, reading: false });
+        expect(valueInput('date').value).toBe('02-08-2026');
     });
 
     it('ignores a click without a real selection', async () => {

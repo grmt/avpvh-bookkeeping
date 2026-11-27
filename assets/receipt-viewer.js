@@ -6,7 +6,12 @@
  * window.AVBKReceiptText: parsing the read text (also used by the tests).
  * window.AVBKReceiptViewer.open(src, options): options.read(blob, engine)
  * returns a promise of the text; options.apply(field, value) takes over a
- * value; options.engines (code => name) offers a choice when there are two.
+ * value; options.engines (code => name) offers a choice when there are two;
+ * options.values ({ date, store, amount }), options.candidates and
+ * options.reading show what was read so far and allow direct edits;
+ * options.onClose() runs when the dialog closes.
+ * window.AVBKReceiptViewer.update(info): refreshes values, candidates and
+ * reading state while the dialog is open.
  */
 (function () {
     /** First valid date as yyyy-mm-dd: dd-mm-yyyy, dd.mm.yy, dd/mm/yyyy or yyyy-mm-dd. */
@@ -54,13 +59,42 @@
         return String(text || '').replaceAll(/\s+/g, ' ').trim().slice(0, 100);
     }
 
+    /** "2026-08-01" -> "01-08-2026". */
+    function formatDate(isoValue) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoValue || '');
+        return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+    }
+
+    /** 11.8 -> "11,80". */
+    function formatAmount(n) {
+        return n === null || n === undefined ? '' : n.toFixed(2).replace('.', ',');
+    }
+
+    /** Parses a typed date (dd-mm-jjjj or yyyy-mm-dd) -> yyyy-mm-dd, or null. */
+    function parseInputDate(text) {
+        var value = String(text || '').trim();
+        var looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value);
+        return looksLikeDate ? date(value) : null;
+    }
+
+    /** Parses a typed amount ("11,8", "11.80", "1.234,56"); null when invalid or empty. */
+    function parseInputAmount(text) {
+        var value = String(text || '').replaceAll(/[\s€]/g, '');
+        if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(value)) {
+            value = value.replaceAll('.', '');
+        }
+        if (!/^\d+(?:[.,]\d+)?$/.test(value)) return null;
+        var n = Number.parseFloat(value.replace(',', '.'));
+        return Number.isNaN(n) ? null : Math.round(n * 100) / 100;
+    }
+
     window.AVBKReceiptText = Object.freeze({ date: date, amount: amount, line: line });
 
     if (typeof document === 'undefined' || !document.createElement) return;
 
     var dialog = null;
     var ui = {};
-    var state = { scale: 1, mode: 'select', options: null, start: null };
+    var state = { scale: 1, mode: 'select', options: null, start: null, reading: false };
 
     function el(tag, className, text) {
         var node = document.createElement(tag);
@@ -80,35 +114,73 @@
         return b;
     }
 
-    function build() {
-        dialog = el('dialog', 'avbk-receipt-viewer');
-        dialog.setAttribute('aria-label', 'Bonnetje bekijken');
+    function buildField(field, labelText, ariaLabel, inputMode, extraClass) {
+        var wrap = el('label', 'avbk-receipt-viewer-field');
+        wrap.appendChild(el('span', 'avbk-receipt-viewer-field-label', labelText));
+        var input = el('input', 'avbk-receipt-viewer-field-input' + (extraClass ? ' ' + extraClass : ''));
+        input.type = 'text';
+        input.dataset.field = field;
+        input.placeholder = 'niet gevonden';
+        input.setAttribute('aria-label', ariaLabel);
+        if (inputMode) input.inputMode = inputMode;
+        var list = el('datalist');
+        list.id = 'avbk-viewer-suggest-' + field;
+        input.setAttribute('list', list.id);
+        wrap.appendChild(input);
+        wrap.appendChild(list);
+        ui.fields[field] = input;
+        ui.lists[field] = list;
+        return wrap;
+    }
 
-        var bar = el('div', 'avbk-receipt-viewer-bar');
-        bar.appendChild(button('−', 'Kleiner', function () { zoom(state.scale / 1.25); }));
-        bar.appendChild(button('+', 'Groter', function () { zoom(state.scale * 1.25); }));
-        bar.appendChild(button('Passend', 'Passend in het venster', fit));
-        ui.selectMode = button('Selecteren', 'Sleep over een stuk om het te lezen', function () { setMode('select'); });
-        ui.moveMode = button('Verschuiven', 'Sleep om de foto te verschuiven', function () { setMode('move'); });
-        bar.appendChild(ui.selectMode);
-        bar.appendChild(ui.moveMode);
-        var close = button('×', 'Sluiten', function () { dialog.close(); }, 'avbk-receipt-viewer-close');
-        bar.appendChild(close);
-        dialog.appendChild(bar);
+    function wireFieldInputs() {
+        ui.fields.date.addEventListener('input', function () {
+            var raw = ui.fields.date.value;
+            var parsed = parseInputDate(raw);
+            ui.fields.date.classList.toggle('avbk-receipt-viewer-field-invalid', !parsed && raw.trim() !== '');
+            updateEmpty(ui.fields.date);
+            if (state.options) state.options.apply('date', parsed || '');
+        });
+        ui.fields.date.addEventListener('blur', function () {
+            var parsed = parseInputDate(ui.fields.date.value);
+            if (parsed) ui.fields.date.value = formatDate(parsed);
+        });
+        ui.fields.store.addEventListener('input', function () {
+            updateEmpty(ui.fields.store);
+            if (state.options) state.options.apply('store', ui.fields.store.value);
+        });
+        ui.fields.amount.addEventListener('input', function () {
+            var raw = ui.fields.amount.value;
+            var parsed = parseInputAmount(raw);
+            ui.fields.amount.classList.toggle('avbk-receipt-viewer-field-invalid', parsed === null && raw.trim() !== '');
+            updateEmpty(ui.fields.amount);
+            if (state.options) state.options.apply('amount', parsed);
+        });
+        ui.fields.amount.addEventListener('blur', function () {
+            var parsed = parseInputAmount(ui.fields.amount.value);
+            if (parsed !== null) ui.fields.amount.value = formatAmount(parsed);
+        });
+    }
 
-        ui.stage = el('div', 'avbk-receipt-viewer-stage');
-        ui.canvas = el('div', 'avbk-receipt-viewer-canvas');
-        ui.img = el('img', 'avbk-receipt-viewer-image');
-        ui.img.alt = 'Bonnetje';
-        ui.img.draggable = false;
-        ui.box = el('div', 'avbk-receipt-viewer-selection');
-        ui.box.hidden = true;
-        ui.canvas.appendChild(ui.img);
-        ui.canvas.appendChild(ui.box);
-        ui.stage.appendChild(ui.canvas);
-        dialog.appendChild(ui.stage);
+    function buildValues() {
+        var section = el('div', 'avbk-receipt-viewer-values');
+        section.appendChild(el('h3', 'avbk-receipt-viewer-heading', 'Gelezen van dit bonnetje'));
+        ui.reading = el('p', 'avbk-receipt-viewer-reading', 'Bonnetje wordt nog gelezen…');
+        ui.reading.hidden = true;
+        section.appendChild(ui.reading);
+        ui.fields = {};
+        ui.lists = {};
+        var grid = el('div', 'avbk-receipt-viewer-fields');
+        grid.appendChild(buildField('date', 'Datum', 'Datum (dd-mm-jjjj)', 'numeric', ''));
+        grid.appendChild(buildField('store', 'Winkel', 'Winkel', '', ''));
+        grid.appendChild(buildField('amount', 'Bedrag (€)', 'Bedrag', 'decimal', 'avbk-receipt-viewer-field-amount'));
+        wireFieldInputs();
+        section.appendChild(grid);
+        return section;
+    }
 
-        var panel = el('div', 'avbk-receipt-viewer-panel');
+    function buildOcr() {
+        var section = el('div', 'avbk-receipt-viewer-ocr');
         ui.hint = el('p', 'avbk-receipt-viewer-hint', 'Sleep over de datum, de winkel of het bedrag om het over te nemen.');
         ui.text = el('input', 'avbk-receipt-viewer-text');
         ui.text.type = 'text';
@@ -125,11 +197,47 @@
         ui.engine = el('select');
         ui.engineWrap.appendChild(ui.engine);
         ui.engineWrap.hidden = true;
-        panel.appendChild(ui.engineWrap);
-        panel.appendChild(ui.hint);
-        panel.appendChild(ui.text);
-        panel.appendChild(ui.actions);
-        dialog.appendChild(panel);
+        section.appendChild(ui.engineWrap);
+        section.appendChild(ui.hint);
+        section.appendChild(ui.text);
+        section.appendChild(ui.actions);
+        return section;
+    }
+
+    function build() {
+        dialog = el('dialog', 'avbk-receipt-viewer');
+        dialog.setAttribute('aria-label', 'Bonnetje bekijken');
+
+        var bar = el('div', 'avbk-receipt-viewer-bar');
+        bar.appendChild(button('−', 'Kleiner', function () { zoom(state.scale / 1.25); }));
+        bar.appendChild(button('+', 'Groter', function () { zoom(state.scale * 1.25); }));
+        bar.appendChild(button('Passend', 'Passend in het venster', fit));
+        ui.selectMode = button('Selecteren', 'Sleep over een stuk om het te lezen', function () { setMode('select'); });
+        ui.moveMode = button('Verschuiven', 'Sleep om de foto te verschuiven', function () { setMode('move'); });
+        bar.appendChild(ui.selectMode);
+        bar.appendChild(ui.moveMode);
+        var close = button('×', 'Sluiten', function () { dialog.close(); }, 'avbk-receipt-viewer-close');
+        bar.appendChild(close);
+        dialog.appendChild(bar);
+
+        var body = el('div', 'avbk-receipt-viewer-body');
+        ui.stage = el('div', 'avbk-receipt-viewer-stage');
+        ui.canvas = el('div', 'avbk-receipt-viewer-canvas');
+        ui.img = el('img', 'avbk-receipt-viewer-image');
+        ui.img.alt = 'Bonnetje';
+        ui.img.draggable = false;
+        ui.box = el('div', 'avbk-receipt-viewer-selection');
+        ui.box.hidden = true;
+        ui.canvas.appendChild(ui.img);
+        ui.canvas.appendChild(ui.box);
+        ui.stage.appendChild(ui.canvas);
+        body.appendChild(ui.stage);
+
+        var panel = el('div', 'avbk-receipt-viewer-panel');
+        panel.appendChild(buildValues());
+        panel.appendChild(buildOcr());
+        body.appendChild(panel);
+        dialog.appendChild(body);
 
         ui.canvas.addEventListener('pointerdown', down);
         ui.canvas.addEventListener('pointermove', move);
@@ -144,8 +252,11 @@
             if (e.target === dialog) dialog.close();
         });
         dialog.addEventListener('close', function () {
+            var onClose = state.options && state.options.onClose;
             state.options = null;
+            state.reading = false;
             ui.img.removeAttribute('src');
+            if (onClose) onClose();
         });
         document.body.appendChild(dialog);
     }
@@ -276,9 +387,57 @@
         ui.copy.disabled = value.trim() === '';
     }
 
+    function updateEmpty(input) {
+        input.classList.toggle('avbk-receipt-viewer-field-empty', !state.reading && input.value.trim() === '');
+    }
+
+    function setFieldDisplay(field, value) {
+        var input = ui.fields[field];
+        if (!input) return;
+        if (field === 'date') {
+            input.value = formatDate(value);
+        } else if (field === 'amount') {
+            input.value = formatAmount(value);
+        } else {
+            input.value = value || '';
+        }
+        input.classList.remove('avbk-receipt-viewer-field-invalid');
+        updateEmpty(input);
+    }
+
+    function fillList(list, values) {
+        list.textContent = '';
+        (values || []).forEach(function (value) {
+            if (!value) return;
+            var option = el('option');
+            option.value = value;
+            list.appendChild(option);
+        });
+    }
+
+    function applyState(info, keepFocused) {
+        state.reading = Boolean(info.reading);
+        ui.reading.hidden = !state.reading;
+        var values = info.values || {};
+        ['date', 'store', 'amount'].forEach(function (field) {
+            if (keepFocused && document.activeElement === ui.fields[field]) {
+                updateEmpty(ui.fields[field]);
+                return;
+            }
+            if (!keepFocused || field in values) {
+                setFieldDisplay(field, values[field]);
+            }
+        });
+        var candidates = info.candidates || {};
+        fillList(ui.lists.date, (candidates.dates || []).map(formatDate));
+        fillList(ui.lists.store, candidates.stores);
+        fillList(ui.lists.amount, (candidates.amounts || []).map(formatAmount));
+    }
+
     function take(field, value) {
         if (value === null || value === '' || !state.options) return;
         state.options.apply(field, value);
+        setFieldDisplay(field, value);
         var label = { date: 'datum', store: 'winkel', amount: 'bedrag' }[field];
         showStatus('Overgenomen als ' + label + '. Sleep over een volgend stuk, of sluit.', false);
     }
@@ -294,12 +453,17 @@
         }
     }
 
+    function update(info) {
+        if (!dialog || !dialog.open || !info) return;
+        applyState(info, true);
+    }
+
     function open(src, options) {
         if (!dialog) build();
         state.options = options;
         state.scale = 1;
         var engines = options.engines || {};
-        ui.engine.innerHTML = '';
+        ui.engine.textContent = '';
         Object.keys(engines).forEach(function (code) {
             var option = el('option', '', engines[code]);
             option.value = code;
@@ -308,6 +472,7 @@
         ui.engineWrap.hidden = ui.engine.options.length < 2;
         ui.box.hidden = true;
         ui.text.value = '';
+        applyState(options, false);
         showStatus('Sleep over de datum, de winkel of het bedrag om het over te nemen.', false);
         updateActions();
         setMode('select');
@@ -317,5 +482,5 @@
         if (ui.img.complete && ui.img.naturalWidth) fit();
     }
 
-    window.AVBKReceiptViewer = Object.freeze({ open: open });
+    window.AVBKReceiptViewer = Object.freeze({ open: open, update: update });
 })();

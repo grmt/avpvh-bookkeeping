@@ -55,7 +55,7 @@ beforeEach(async () => {
     browserStandIns();
     replies = [];
     vi.stubGlobal('fetch', vi.fn(() => replies.shift() ?? reply({ success: true, data: found })));
-    viewer = { open: vi.fn() };
+    viewer = { open: vi.fn(), update: vi.fn() };
     window.AVBKReceiptText = { date: (value) => (value === '4-8-26' ? '2026-08-04' : null) };
     window.AVBKReceiptViewer = viewer;
     const listen = vi.spyOn(document, 'addEventListener');
@@ -215,6 +215,9 @@ describe('the rows', () => {
         cell(rows()[0], '.avbk-dropzone-item-zoom').click();
         const [src, options] = viewer.open.mock.calls[0];
         expect(src).toBe('blob:receipt');
+        expect(options.values).toEqual({ date: '2026-08-01', store: 'Bakkerij Voorbeeld', amount: 11.8 });
+        expect(options.candidates).toEqual(found.candidates);
+        expect(options.reading).toBe(false);
         options.apply('amount', 7.5);
         expect(cell(rows()[0], '.avbk-dropzone-item-amount').value).toBe('7,50');
         options.apply('store', 'Markt');
@@ -227,6 +230,32 @@ describe('the rows', () => {
         await expect(options.read(new Blob(['png']), '')).rejects.toThrow('Ongeldig fragment');
         fetch.mockImplementationOnce(() => reply(null));
         await expect(options.read(new Blob(['png']), '')).rejects.toThrow('Typ het over');
+        options.onClose();
+    });
+
+    it('updates an open viewer when reading finishes, and stops once closed', async () => {
+        await load();
+        let finishFirst;
+        replies.push(new Promise((resolve) => { finishFirst = resolve; }));
+        addFiles(photo());
+        cell(rows()[0], '.avbk-dropzone-item-zoom').click();
+        const [, options] = viewer.open.mock.calls[0];
+        expect(options.reading).toBe(true);
+        expect(options.values).toEqual({ date: '', store: '', amount: null });
+
+        finishFirst({ json: () => Promise.resolve({ success: true, data: found }) });
+        await settle();
+        expect(viewer.update).toHaveBeenCalledWith({
+            values: { date: '2026-08-01', store: 'Bakkerij Voorbeeld', amount: 11.8 },
+            candidates: found.candidates,
+            reading: false,
+        });
+
+        options.onClose();
+        viewer.update.mockClear();
+        cell(rows()[0], '.avbk-dropzone-item-retry').click();
+        await settle();
+        expect(viewer.update).not.toHaveBeenCalled();
     });
 
     it('removes a row and frees its photo', async () => {

@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const entries = [];
     let lastSuggestedSum = null;
     let listCount = 0;
+    let viewingEntry = null;
 
 
 
@@ -166,10 +167,27 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function viewerState(entry) {
+        return {
+            values: {
+                date: entry.date || '',
+                store: entry.store || '',
+                amount: entry.amount
+            },
+            candidates: entry.candidates || null,
+            reading: entry.status === 'reading'
+        };
+    }
+
     function openViewer(entry) {
+        viewingEntry = entry;
+        const current = viewerState(entry);
         window.AVBKReceiptViewer.open(avbkPhotoUrl(entry), {
             read: readRegion,
             engines: engines,
+            values: current.values,
+            candidates: current.candidates,
+            reading: current.reading,
             apply: function (field, value) {
                 entry[field] = value;
                 entry[field + 'Edited'] = true;
@@ -177,6 +195,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     updateAmountSuggestion();
                 }
                 renderList();
+            },
+            onClose: function () {
+                if (viewingEntry === entry) {
+                    viewingEntry = null;
+                }
             }
         });
     }
@@ -470,6 +493,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 updateSubmitState();
                 updateStatusText();
                 renderList();
+                if (viewingEntry === entry && window.AVBKReceiptViewer?.update) {
+                    window.AVBKReceiptViewer.update(viewerState(entry));
+                }
             });
     }
 
