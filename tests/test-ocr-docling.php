@@ -76,7 +76,7 @@ check(AVBK_OCR::candidates('') === ['amounts' => [], 'dates' => [], 'stores' => 
 $receipt = "Bakkerij Voorbeeld\nDorpsstraat 1\n01-08-2026 10:12\nBrood 3,50\nTaart 8,30\nTotaal 11,80";
 check(AVBK_OCR::guess_total($receipt) === 11.8 && AVBK_OCR::guess_total("Brood 3,50\nTaart 8,30") === 8.3 && AVBK_OCR::guess_total('geen bedrag') === null, 'total: the Totaal line, else the largest amount');
 check(AVBK_OCR::guess_store($receipt) === 'Bakkerij Voorbeeld' && AVBK_OCR::guess_store("12\n--") === null, 'shop: the first line with text');
-check(AVBK_OCR::guess_date($receipt) === '2026-08-01' && AVBK_OCR::guess_date('2026-08-03') === '2026-08-03' && AVBK_OCR::guess_date('31-02-2026') === null, 'date: the first valid date');
+check(AVBK_OCR::guess_date($receipt) === '2026-08-01' && AVBK_OCR::guess_date('2026-08-03') === '2026-08-03' && AVBK_OCR::guess_date('03.08 2026 07:29') === '2026-08-03' && AVBK_OCR::guess_date('Tel. 26 10 35 35') === null && AVBK_OCR::guess_date('31-02-2026') === null, 'date: the first valid date, also when OCR drops a separator before a 4-digit year');
 
 unlink($file);
 exit($failures ? 1 : 0);

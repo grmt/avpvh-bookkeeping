@@ -39,17 +39,22 @@
         return raw.length === 2 ? year + (year < 70 ? 2000 : 1900) : year;
     }
 
-    /** First valid date as yyyy-mm-dd: dd-mm-yyyy, dd.mm.yy, dd/mm/yyyy, dd mmm yy or yyyy-mm-dd. */
+    /** First valid date as yyyy-mm-dd: dd-mm-yyyy, dd.mm.yy, dd/mm/yyyy, dd.mm yyyy, dd mmm yy or yyyy-mm-dd. */
     function date(text) {
         var value = String(text || '');
         var m = value.match(/(?:^|\D)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/);
         if (m) {
             return iso(+m[1], +m[2], +m[3]);
         }
-        var re = /(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/g;
-        while ((m = re.exec(value))) {
-            var found = iso(expandYear(m[3]), +m[2], +m[1]);
-            if (found) return found;
+        var patterns = [
+            /(?:^|\D)(\d{1,2})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{4}|\d{2})(?!\d)/g,
+            /(?:^|\D)(\d{1,2})[\s./-]+(\d{1,2})[\s./-]+((?:19|20)\d{2})(?!\d)/g
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            while ((m = patterns[i].exec(value))) {
+                var found = iso(expandYear(m[3]), +m[2], +m[1]);
+                if (found) return found;
+            }
         }
         var named = /(?:^|\D)(\d{1,2})[\s./-]+([a-zA-Z\u00C0-\u017F]{3,10})\.?[\s,./-]+(\d{4}|\d{2})(?!\d)/g;
         while ((m = named.exec(value))) {
@@ -97,10 +102,11 @@
         return n === null || n === undefined ? '' : n.toFixed(2).replace('.', ',');
     }
 
-    /** Parses a typed date (dd-mm-jjjj, dd mmm jj, or yyyy-mm-dd) -> yyyy-mm-dd, or null. */
+    /** Parses a typed date (dd-mm-jjjj, dd.mm jjjj, dd mmm jj, or yyyy-mm-dd) -> yyyy-mm-dd, or null. */
     function parseInputDate(text) {
         var value = String(text || '').trim();
-        var looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value)
+        var looksLikeDate = /^\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*(\d{2}|\d{4})$/.test(value)
+            || /^\d{1,2}[\s./-]+\d{1,2}[\s./-]+(?:19|20)\d{2}$/.test(value)
             || /^\d{4}-\d{2}-\d{2}$/.test(value)
             || /^\d{1,2}[\s./-]+[a-zA-Z\u00C0-\u017F]{3,10}\.?[\s,./-]+(\d{2}|\d{4})$/.test(value);
         return looksLikeDate ? date(value) : null;

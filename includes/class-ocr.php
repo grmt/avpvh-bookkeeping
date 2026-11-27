@@ -218,15 +218,13 @@ class AVBK_OCR {
      * paper receipt that don't hash-match byte-for-byte.
      */
     public static function guess_date(string $text): ?string {
-        if (preg_match('/(?<!\d)(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4}|\d{2})(?!\d)/', $text, $m)) {
-            $day = (int) $m[1];
-            $month = (int) $m[2];
-            $year = (int) $m[3];
-            if ($year < 100) {
-                $year += $year < 70 ? 2000 : 1900;
-            }
-            if (checkdate($month, $day, $year)) {
-                return sprintf('%04d-%02d-%02d', $year, $month, $day);
+        foreach ([
+            '/(?<!\d)(\d{1,2})\s*[.\-\/]\s*(\d{1,2})\s*[.\-\/]\s*(\d{4}|\d{2})(?!\d)/',
+            '/(?<!\d)(\d{1,2})[\s.\-\/]+(\d{1,2})[\s.\-\/]+((?:19|20)\d{2})(?!\d)/',
+        ] as $pattern) {
+            $found = self::first_dmy_date($text, $pattern);
+            if ($found !== null) {
+                return $found;
             }
         }
         if (preg_match('/(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/', $text, $m)) {
@@ -235,6 +233,22 @@ class AVBK_OCR {
             $day = (int) $m[3];
             if (checkdate($month, $day, $year)) {
                 return sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
+        return null;
+    }
+
+    private static function first_dmy_date(string $text, string $pattern): ?string {
+        if (!preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
+            return null;
+        }
+        foreach ($matches as $m) {
+            $year = (int) $m[3];
+            if ($year < 100) {
+                $year += $year < 70 ? 2000 : 1900;
+            }
+            if (checkdate((int) $m[2], (int) $m[1], $year)) {
+                return sprintf('%04d-%02d-%02d', $year, (int) $m[2], (int) $m[1]);
             }
         }
         return null;

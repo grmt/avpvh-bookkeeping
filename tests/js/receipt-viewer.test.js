@@ -17,6 +17,11 @@ describe('reading the selected text', () => {
         expect(text.date('01-08-2026')).toBe('2026-08-01');
         expect(text.date('Datum: 4/8/26 14:02')).toBe('2026-08-04');
         expect(text.date('02.08.2026')).toBe('2026-08-02');
+        expect(text.date('03.08 2026')).toBe('2026-08-03');
+        expect(text.date('03 08 2026')).toBe('2026-08-03');
+        expect(text.date('03. 08. 26')).toBe('2026-08-03');
+        expect(text.date('Tel. 26 10 35 35')).toBeNull();
+        expect(text.date('Artikel 12.05 10')).toBeNull();
         expect(text.date('2026-08-03')).toBe('2026-08-03');
         expect(text.date('31-02-2026 then 01-03-2026')).toBe('2026-03-01');
         expect(text.date('05-06-85')).toBe('1985-06-05');
