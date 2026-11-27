@@ -21,6 +21,9 @@ jobs:
       - name: "Order account-link formatting"
         run: node tests/test-order-email-links.cjs
 
+      - name: "Receipt viewer text parsing"
+        run: node tests/test-receipt-viewer.cjs
+
       - name: "Invoice mailbox and statement extraction tests"
         run: python3 -m unittest discover -s tests -p 'test_company_*.py'
 

@@ -247,3 +247,253 @@ tr.avbk-dropzone-item-duplicate {
     vertical-align: top;
     margin-right: 1.5rem;
 }
+
+/* Amounts: right-aligned, two decimals (set by the script). */
+.avbk-dropzone-table .avbk-dropzone-amount-head,
+.avbk-dropzone-item-amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Date as dd-mm-jjjj text with a calendar button; the date input only serves the picker. */
+.avbk-dropzone-item-date-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+}
+
+.avbk-dropzone-item-date-wrap .avbk-dropzone-item-date {
+    min-width: 7.5em;
+    font-variant-numeric: tabular-nums;
+}
+
+.avbk-dropzone-item-date-pick {
+    flex: none;
+    padding: .2rem .35rem;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.avbk-dropzone-item-date-picker {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.avbk-dropzone-item-invalid {
+    border-color: #b32d2e;
+    outline-color: #b32d2e;
+}
+
+/* The thumbnail opens the viewer. */
+.avbk-dropzone-item-zoom {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    border-radius: 3px;
+}
+
+.avbk-dropzone-item-zoom:focus-visible {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+/* Reading progress, per row and overall. */
+tr.avbk-dropzone-item-reading .avbk-dropzone-item-photo {
+    opacity: .55;
+}
+
+.avbk-dropzone-item-progress {
+    display: block;
+    margin-bottom: .25rem;
+    font-size: .75em;
+    white-space: nowrap;
+}
+
+.avbk-dropzone-item-progress-reading {
+    color: #555;
+}
+
+.avbk-dropzone-item-progress-reading::before,
+.avbk-reimbursement-ocr-status-busy::before {
+    content: "";
+    display: inline-block;
+    width: .8em;
+    height: .8em;
+    margin-right: .35em;
+    vertical-align: -.1em;
+    border: 2px solid #c3c4c7;
+    border-top-color: #2271b1;
+    border-radius: 50%;
+    animation: avbk-spin .8s linear infinite;
+}
+
+.avbk-dropzone-item-progress-ok {
+    color: #00752e;
+    font-weight: 600;
+}
+
+.avbk-dropzone-item-progress-none {
+    color: #8a6100;
+}
+
+@keyframes avbk-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .avbk-dropzone-item-progress-reading::before,
+    .avbk-reimbursement-ocr-status-busy::before {
+        animation-duration: 2.4s;
+    }
+}
+
+/* Receipt viewer. */
+.avbk-receipt-viewer {
+    width: min(96vw, 1100px);
+    height: min(94vh, 900px);
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+}
+
+.avbk-receipt-viewer[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.avbk-receipt-viewer::backdrop {
+    background: rgba(0, 0, 0, .6);
+}
+
+.avbk-receipt-viewer-bar,
+.avbk-receipt-viewer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem;
+}
+
+.avbk-receipt-viewer-bar {
+    padding: .5rem .75rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.avbk-receipt-viewer-button {
+    padding: .3rem .7rem;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    background: #fff;
+    color: #1d2327;
+    cursor: pointer;
+    font-size: .9em;
+}
+
+.avbk-receipt-viewer-button[aria-pressed="true"] {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.avbk-receipt-viewer-button:disabled {
+    opacity: .45;
+    cursor: default;
+}
+
+.avbk-receipt-viewer-close {
+    margin-left: auto;
+    font-size: 1.2em;
+    line-height: 1;
+}
+
+.avbk-receipt-viewer-stage {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: #2c3338;
+}
+
+.avbk-receipt-viewer-canvas {
+    position: relative;
+    display: inline-block;
+    min-width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    text-align: center;
+    cursor: crosshair;
+    touch-action: none;
+    user-select: none;
+}
+
+.avbk-receipt-viewer-canvas.avbk-receipt-viewer-moving {
+    cursor: grab;
+}
+
+.avbk-receipt-viewer-image {
+    display: inline-block;
+    max-width: none;
+    height: auto;
+    vertical-align: top;
+}
+
+.avbk-receipt-viewer-selection {
+    position: absolute;
+    border: 2px solid #f0b849;
+    background: rgba(240, 184, 73, .18);
+    pointer-events: none;
+}
+
+.avbk-receipt-viewer-panel {
+    padding: .6rem .75rem .75rem;
+    border-top: 1px solid #ddd;
+}
+
+.avbk-receipt-viewer-hint {
+    margin: 0 0 .4rem;
+    font-size: .9em;
+    color: #555;
+}
+
+.avbk-receipt-viewer-hint-error {
+    color: #b32d2e;
+    font-weight: 600;
+}
+
+.avbk-receipt-viewer-text {
+    box-sizing: border-box;
+    width: 100%;
+    margin-bottom: .4rem;
+    padding: .35rem .45rem;
+}
+
+.avbk-dropzone-item-retry {
+    display: block;
+    margin-bottom: .25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #2271b1;
+    font-size: .75em;
+    text-decoration: underline;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.avbk-receipt-viewer-engine {
+    display: block;
+    margin-bottom: .4rem;
+    font-size: .9em;
+}

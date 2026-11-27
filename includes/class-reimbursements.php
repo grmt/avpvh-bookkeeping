@@ -94,6 +94,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         add_shortcode('avpvh_bk_reimbursement', [$this, 'render']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_ajax_avbk_ocr_receipt', [$this, 'ajax_ocr_receipt']);
+        add_action('wp_ajax_avbk_ocr_region', [$this, 'ajax_ocr_region']);
         add_action('admin_post_avbk_submit_reimbursement', [$this, 'handle_submit']);
         add_action('admin_post_avbk_update_reimbursement', [$this, 'handle_update']);
         add_action('admin_post_avbk_update_receipt', [$this, 'handle_update_receipt']);
@@ -130,11 +131,13 @@ class AVBK_Reimbursements implements AVBK_Component {
             return;
         }
         wp_enqueue_style('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.css', [], avbk_asset_version('assets/reimbursement.css'));
-        wp_enqueue_script('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.js', [], avbk_asset_version('assets/reimbursement.js'), true);
+        wp_enqueue_script('avbk-receipt-viewer', AVBK_PLUGIN_URL . 'assets/receipt-viewer.js', [], avbk_asset_version('assets/receipt-viewer.js'), true);
+        wp_enqueue_script('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.js', ['avbk-receipt-viewer'], avbk_asset_version('assets/reimbursement.js'), true);
 
         $config = wp_json_encode([
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('avbk_ocr_receipt'),
+            'engines' => AVBK_OCR::engines(),
         ]);
         add_action('wp_footer', function () use ($config) {
             echo '<script type="application/json" id="avbk-reimbursement-config">' . $config . '</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_json_encode() output containing only an admin-ajax URL and a nonce, same CSP-safe pattern as class-fee-popup.php.
@@ -196,7 +199,7 @@ class AVBK_Reimbursements implements AVBK_Component {
                     </div>
                     <button type="button" class="button" id="avbk-add-manual-row">+ Regel toevoegen zonder bonnetje</button>
                     <table class="avbk-dropzone-table" id="avbk-dropzone-table" hidden>
-                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th>Bedrag</th><th></th></tr></thead>
+                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th class="avbk-dropzone-amount-head">Bedrag</th><th></th></tr></thead>
                         <tbody id="avbk-dropzone-list"></tbody>
                     </table>
                 </p>
@@ -372,12 +375,45 @@ class AVBK_Reimbursements implements AVBK_Component {
 
         $member = avpvh_get_member_by_wp_user(get_current_user_id());
         $hash = hash_file('sha256', $tmp_path);
-        $text = AVBK_OCR::extract_text($tmp_path);
+        $text = AVBK_OCR::extract_text($tmp_path, 30, self::requested_engine());
         $amount = $text ? AVBK_OCR::guess_total($text) : null;
         $date = $text ? AVBK_OCR::guess_date($text) : null;
         $store = $text ? AVBK_OCR::guess_store($text) : null;
         $duplicate = $member && AVBK_DB::find_duplicate_receipt((int) $member->id, $hash, $date, $store);
-        wp_send_json_success(['amount' => $amount, 'date' => $date, 'store' => $store, 'duplicate' => (bool) $duplicate]);
+        wp_send_json_success([
+            'amount' => $amount, 'date' => $date, 'store' => $store, 'duplicate' => (bool) $duplicate,
+            'candidates' => $text ? AVBK_OCR::candidates($text) : ['amounts' => [], 'dates' => [], 'stores' => []],
+        ]);
+    }
+
+    /**
+     * AJAX: read the part of a receipt photo the member selected in the
+     * viewer (a PNG the browser cropped), so a date, shop or amount can be
+     * taken over. Only the text comes back; nothing is stored.
+     */
+    public function ajax_ocr_region(): void {
+        check_ajax_referer('avbk_ocr_receipt', 'nonce');
+        $tmp_path = (string) ($_FILES['region']['tmp_name'] ?? '');
+        if (!is_user_logged_in() || $tmp_path === '' || self::validate_receipt_file($tmp_path, 'region.png') !== 'png') {
+            avbk_send_json_error('Ongeldig fragment');
+        }
+        $text = self::region_text((string) AVBK_OCR::extract_text($tmp_path, 20, self::requested_engine()));
+        if ($text === '') {
+            avbk_send_json_error('In dit stuk is geen tekst gevonden. Selecteer ruimer, of typ het over.');
+        }
+        wp_send_json_success(['text' => $text]);
+    }
+
+    /** The engine the member chose for this read, or null for the default (also for an unknown one). */
+    private static function requested_engine(): ?string {
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- both AJAX callers verify the nonce first.
+        $engine = sanitize_key(wp_unslash($_POST['engine'] ?? ''));
+        return isset(AVBK_OCR::engines()[$engine]) ? $engine : null;
+    }
+
+    /** The OCR text of a selected part, on one line and at most 200 characters. */
+    public static function region_text(string $text): string {
+        return mb_substr(trim((string) preg_replace('/\s+/u', ' ', $text)), 0, 200);
     }
 
     /**

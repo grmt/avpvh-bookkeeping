@@ -23,11 +23,25 @@ class AVBK_OCR {
 
     /** Whether a docling service or a Google service account is configured, so OCR can be tried at all. */
     public static function available(): bool {
+        return self::engines() !== [];
+    }
+
+    /**
+     * The configured OCR engines, the default first: code => name shown to
+     * the member when they choose another one for a receipt.
+     *
+     * @return array<string, string>
+     */
+    public static function engines(): array {
+        $engines = [];
         if (self::docling_url() !== null) {
-            return true;
+            $engines['docling'] = 'Docling (eigen server)';
         }
         $key = json_decode((string) get_option('avbk_gcp_service_account_json', ''), true);
-        return is_array($key) && !empty($key['private_key']) && !empty($key['client_email']);
+        if (is_array($key) && !empty($key['private_key']) && !empty($key['client_email'])) {
+            $engines['google'] = 'Google';
+        }
+        return $engines;
     }
 
     /**
@@ -121,15 +135,16 @@ class AVBK_OCR {
     /**
      * Raw OCR text for an image or PDF on disk, or null on any failure
      * (network, auth, quota — always non-fatal, caller falls back to
-     * manual entry). Docling when configured, else Google. $timeout is
+     * manual entry). Docling when configured, else Google; $engine
+     * ('docling' or 'google', see engines()) picks one. $timeout is
      * for docling, which runs on CPU and can take a while on a scan.
      */
-    public static function extract_text(string $file_path, int $timeout = 30): ?string {
-        if (!file_exists($file_path)) {
+    public static function extract_text(string $file_path, int $timeout = 30, ?string $engine = null): ?string {
+        if (!file_exists($file_path) || ($engine !== null && !isset(self::engines()[$engine]))) {
             return null;
         }
         $docling = self::docling_url();
-        if ($docling !== null) {
+        if ($docling !== null && $engine !== 'google') {
             return self::docling_text($docling, $file_path, $timeout);
         }
         $token = self::get_access_token();
@@ -224,6 +239,34 @@ class AVBK_OCR {
             }
         }
         return null;
+    }
+
+    /**
+     * Everything that could be the amount, date or shop, for the member
+     * to pick from when the best guess is wrong: amounts largest first,
+     * dates and shop lines in the order they appear.
+     *
+     * @return array{amounts: float[], dates: string[], stores: string[]}
+     */
+    public static function candidates(string $text): array {
+        $amounts = [];
+        if (preg_match_all('/(?<!\d)(\d{1,4}[.,]\d{2})(?!\d)/', $text, $matches)) {
+            $amounts = array_values(array_unique(array_map([self::class, 'to_float'], $matches[1]), SORT_REGULAR));
+            rsort($amounts);
+        }
+        $dates = [];
+        $stores = [];
+        foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+            $date = self::guess_date($line);
+            if ($date !== null && !in_array($date, $dates, true)) {
+                $dates[] = $date;
+            }
+            $line = trim($line);
+            if (count($stores) < 5 && preg_match('/[a-zA-Z]{3,}/', $line) && !in_array($line, $stores, true)) {
+                $stores[] = mb_substr($line, 0, 100);
+            }
+        }
+        return ['amounts' => array_slice($amounts, 0, 8), 'dates' => array_slice($dates, 0, 5), 'stores' => $stores];
     }
 
     /**
