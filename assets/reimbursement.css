@@ -115,6 +115,10 @@ tr.avbk-dropzone-item-duplicate {
     background: #fbeaea;
 }
 
+tr.avbk-dropzone-item-active {
+    background: #f0f6fc;
+}
+
 .avbk-dropzone-item-warning {
     display: block;
     font-size: .75em;

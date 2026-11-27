@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastSuggestedSum = null;
     let listCount = 0;
     let viewingEntry = null;
+    let activeEntry = null;
 
 
 
@@ -181,8 +182,24 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
+    function focusRow(entry) {
+        const index = entries.indexOf(entry);
+        if (index < 0 || !listEl) return;
+        const row = listEl.children[index];
+        if (!row) return;
+        const target = row.querySelector('.avbk-dropzone-item-zoom') || row.querySelector('input');
+        if (target) {
+            target.focus({ preventScroll: true });
+        }
+        if (row.scrollIntoView) {
+            row.scrollIntoView({ block: 'center' });
+        }
+    }
+
     function openViewer(entry) {
         viewingEntry = entry;
+        activeEntry = entry;
+        renderList();
         const current = viewerState(entry);
         window.AVBKReceiptViewer.open(avbkPhotoUrl(entry), {
             read: readRegion,
@@ -202,6 +219,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (viewingEntry === entry) {
                     viewingEntry = null;
                 }
+                focusRow(entry);
             }
         });
     }
@@ -418,6 +436,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (entry.url) {
                 URL.revokeObjectURL(entry.url);
             }
+            if (activeEntry === entry) {
+                activeEntry = null;
+            }
             entries.splice(index, 1);
             syncFileInput();
             updateSubmitState();
@@ -430,22 +451,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderList() {
         if (!listEl) return;
-        listEl.innerHTML = '';
         if (tableEl) {
             tableEl.hidden = entries.length === 0;
         }
+        const fragment = document.createDocumentFragment();
         entries.forEach(function (entry, index) {
             const tr = document.createElement('tr');
             tr.classList.toggle('avbk-dropzone-item-duplicate', entry.status === 'duplicate');
             tr.classList.toggle('avbk-dropzone-item-reading', entry.status === 'reading');
+            tr.classList.toggle('avbk-dropzone-item-active', entry === activeEntry);
             tr.appendChild(photoCell(entry));
             tr.appendChild(dateCell(entry));
             tr.appendChild(textCell(entry, 'store', 'Winkel', entry.candidates?.stores));
             tr.appendChild(textCell(entry, 'description', 'Omschrijving (optioneel)', null));
             tr.appendChild(amountCell(entry));
             tr.appendChild(actionCell(entry, index));
-            listEl.appendChild(tr);
+            fragment.appendChild(tr);
         });
+        listEl.replaceChildren(fragment);
     }
 
     function addManualRow() {

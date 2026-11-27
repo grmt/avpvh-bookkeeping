@@ -230,7 +230,12 @@ describe('the rows', () => {
         await expect(options.read(new Blob(['png']), '')).rejects.toThrow('Ongeldig fragment');
         fetch.mockImplementationOnce(() => reply(null));
         await expect(options.read(new Blob(['png']), '')).rejects.toThrow('Typ het over');
+        const scrollSpy = vi.fn();
+        rows()[0].scrollIntoView = scrollSpy;
         options.onClose();
+        expect(rows()[0].classList.contains('avbk-dropzone-item-active')).toBe(true);
+        expect(document.activeElement).toBe(cell(rows()[0], '.avbk-dropzone-item-zoom'));
+        expect(scrollSpy).toHaveBeenCalledWith({ block: 'center' });
     });
 
     it('updates an open viewer when reading finishes, and stops once closed', async () => {
@@ -262,6 +267,7 @@ describe('the rows', () => {
         await load();
         addFiles(photo());
         await settle();
+        cell(rows()[0], '.avbk-dropzone-item-zoom').click();
         cell(rows()[0], '.avbk-dropzone-item-remove').click();
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:receipt');
         expect(rows()).toHaveLength(0);
