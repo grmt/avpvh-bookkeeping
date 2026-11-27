@@ -517,13 +517,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function updateMemberEditLink() {
-            if (memberSelect.value) {
+            // A member id is a whole number; only that goes into the links.
+            var memberId = Number.parseInt(memberSelect.value, 10);
+            if (memberId > 0) {
                 if (memberLink) {
-                    memberLink.href = cfg.memberDetailUrl + encodeURIComponent(memberSelect.value);
+                    memberLink.href = cfg.memberDetailUrl + memberId;
                     memberLink.style.display = '';
                 }
                 if (memberBalanceLink) {
-                    memberBalanceLink.href = cfg.memberBalanceUrl + encodeURIComponent(memberSelect.value);
+                    memberBalanceLink.href = cfg.memberBalanceUrl + memberId;
                     memberBalanceLink.style.display = '';
                 }
             } else {
