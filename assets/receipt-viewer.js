@@ -16,7 +16,7 @@
         if (m) {
             return iso(+m[1], +m[2], +m[3]);
         }
-        var re = /(?:^|\D)(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4}|\d{2})(?!\d)/g;
+        var re = /(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/g;
         while ((m = re.exec(value))) {
             var year = +m[3];
             if (m[3].length === 2) {
@@ -36,22 +36,22 @@
 
     /** The amount in the text: the last one with cents, else a lone whole number. */
     function amount(text) {
-        var value = String(text || '').replace(/(\d)\s+([.,]\d{2})(?!\d)/g, '$1$2');
-        var withCents = value.match(/\d{1,3}(?:\.\d{3})+,\d{2}(?!\d)|\d+[.,]\d{2}(?!\d)/g);
+        var value = String(text || '').replaceAll(/(\d)\s+([.,]\d{2})(?!\d)/g, '$1$2');
+        var withCents = value.match(/\d{1,3}(?:\.\d{3})+,\d{2}(?!\d)|\d{1,3}(?:,\d{3})+\.\d{2}(?!\d)|\d+[.,]\d{2}(?!\d)/g);
         var raw = withCents ? withCents[withCents.length - 1] : null;
         if (!raw) {
             var whole = value.trim().match(/^(?:€\s*)?(\d{1,5})(?:\s*€|,-)?$/);
             raw = whole ? whole[1] : null;
         }
         if (!raw) return null;
-        var normal = /,\d{2}$/.test(raw) ? raw.replace(/\./g, '').replace(',', '.') : raw.replace(/,(?=\d{3})/g, '');
-        var n = parseFloat(normal);
-        return isNaN(n) ? null : Math.round(n * 100) / 100;
+        var normal = /,\d{2}$/.test(raw) ? raw.replaceAll('.', '').replace(',', '.') : raw.replaceAll(/,(?=\d{3})/g, '');
+        var n = Number.parseFloat(normal);
+        return Number.isNaN(n) ? null : Math.round(n * 100) / 100;
     }
 
     /** The read text on one line, for a shop name. */
     function line(text) {
-        return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+        return String(text || '').replaceAll(/\s+/g, ' ').trim().slice(0, 100);
     }
 
     window.AVBKReceiptText = Object.freeze({ date: date, amount: amount, line: line });

@@ -38,6 +38,11 @@ try {
     $calls = count(AVBK_OCR::$calls);
     check(AVBK_Reimbursements::read_region($text_file, null) === ['text' => '', 'error' => 'Ongeldig fragment'] && count(AVBK_OCR::$calls) === $calls, 'not a PNG: refused before any OCR');
     check(AVBK_Reimbursements::validate_receipt_content($png, 'bon.png') === 'png' && AVBK_Reimbursements::validate_receipt_content($png, 'bon.svg') === null, 'content check: real bytes and an allowed extension');
+    $pdf = tempnam(sys_get_temp_dir(), 'avbk-region');
+    file_put_contents($pdf, "%PDF-1.4 fictional");
+    check(AVBK_Reimbursements::validate_receipt_content($pdf, 'bon.pdf') === 'pdf' && AVBK_Reimbursements::validate_receipt_content($text_file, 'bon.pdf') === null, 'content check: a PDF by its signature');
+    check(AVBK_Reimbursements::validate_receipt_content($pdf, 'bon.png') === null && AVBK_Reimbursements::validate_receipt_content($png, 'bon.jpg') === null, 'content check: the extension has to match the real type');
+    unlink($pdf);
 } finally {
     unlink($png);
     unlink($text_file);

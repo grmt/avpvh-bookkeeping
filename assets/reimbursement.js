@@ -1,39 +1,89 @@
+/** "11,8", "11.80" and "1.234,56" all read; null when it isn't a number. */
+function avbkParseAmount(text) {
+    let value = String(text || '').replaceAll(/[\s€]/g, '');
+    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(value)) {
+        value = value.replaceAll('.', '');
+    }
+    const n = Number.parseFloat(value.replace(',', '.'));
+    return Number.isNaN(n) ? null : Math.round(n * 100) / 100;
+}
+
+/** 11.8 -> "11,80". */
+function avbkFormatAmount(n) {
+    return n === null || n === undefined ? '' : n.toFixed(2).replace('.', ',');
+}
+
+/** "2026-08-01" -> "01-08-2026". */
+function avbkFormatDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+}
+
+/** dd-mm-jjjj (also with / or ., or a two-digit year) -> yyyy-mm-dd, or null. */
+function avbkParseDate(text) {
+    const value = String(text || '').trim();
+    const looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value);
+    return looksLikeDate ? window.AVBKReceiptText.date(value) : null;
+}
+
+/** An element with a class and, optionally, text. */
+function avbkElement(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+}
+
+function avbkButton(className, text, label) {
+    const button = avbkElement('button', className, text);
+    button.type = 'button';
+    if (label) {
+        button.setAttribute('aria-label', label);
+        button.title = label;
+    }
+    return button;
+}
+
+/** What the progress label of a row says, and its modifier class. */
+function avbkProgress(entry) {
+    if (entry.status === 'reading') return { kind: 'reading', text: 'lezen…' };
+    if (entry.read === 'ok') return { kind: 'ok', text: '✓ gelezen' };
+    return { kind: 'none', text: 'niets gelezen – vul zelf in' };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-    var fileInput = document.getElementById('avbk-receipt-input');
-    var configEl = document.getElementById('avbk-reimbursement-config');
-    var statusEl = document.getElementById('avbk-ocr-status');
-    var amountInput = document.getElementById('avbk-amount');
-    var dropzone = document.getElementById('avbk-dropzone');
-    var listEl = document.getElementById('avbk-dropzone-list');
-    var tableEl = document.getElementById('avbk-dropzone-table');
-    var addManualRowBtn = document.getElementById('avbk-add-manual-row');
-    var form = document.getElementById('avbk-reimbursement-form');
-    var submitButton = form ? form.querySelector('button[type="submit"]') : null;
+    const fileInput = document.getElementById('avbk-receipt-input');
+    const configEl = document.getElementById('avbk-reimbursement-config');
+    const statusEl = document.getElementById('avbk-ocr-status');
+    const amountInput = document.getElementById('avbk-amount');
+    const dropzone = document.getElementById('avbk-dropzone');
+    const listEl = document.getElementById('avbk-dropzone-list');
+    const tableEl = document.getElementById('avbk-dropzone-table');
+    const addManualRowBtn = document.getElementById('avbk-add-manual-row');
+    const form = document.getElementById('avbk-reimbursement-form');
+    const submitButton = form?.querySelector('button[type="submit"]');
     if (!fileInput || !configEl || !statusEl || !amountInput) return;
 
-    var cfg = JSON.parse(configEl.textContent);
+    const cfg = JSON.parse(configEl.textContent);
+    const engines = cfg.engines || {};
+    const engineCodes = Object.keys(engines);
 
     document.querySelectorAll('.avbk-iban-select').forEach(function (select) {
-        var target = document.getElementById(select.dataset.target);
+        const target = document.getElementById(select.dataset.target);
         if (!target) return;
         select.addEventListener('change', function () {
-            if (select.value !== '') {
-                target.value = select.value;
-                target.hidden = true;
-                target.required = false;
-            } else {
-                target.value = '';
-                target.hidden = false;
-                target.required = true;
-                target.focus();
-            }
+            const chosen = select.value !== '';
+            target.value = chosen ? select.value : '';
+            target.hidden = chosen;
+            target.required = !chosen;
+            if (!chosen) target.focus();
         });
     });
 
     document.querySelectorAll('.avbk-reimbursement-edit-toggle').forEach(function (link) {
         link.addEventListener('click', function (e) {
             e.preventDefault();
-            var row = document.getElementById(link.dataset.target);
+            const row = document.getElementById(link.dataset.target);
             if (row) {
                 row.hidden = !row.hidden;
             }
@@ -44,36 +94,23 @@ document.addEventListener('DOMContentLoaded', function () {
     // OCR pre-fills amount/store/date) or a manually-added line with no
     // photo at all (file null, member types everything). status is only
     // meaningful for file-based entries: 'reading'|'ok'|'duplicate'.
-    var entries = [];
-    var lastSuggestedSum = null;
+    const entries = [];
+    let lastSuggestedSum = null;
+    let listCount = 0;
 
-    /** "11,8", "11.80" and "1.234,56" all read; null when it isn't a number. */
-    function parseAmount(text) {
-        var value = String(text || '').replace(/[\s€]/g, '');
-        if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(value)) {
-            value = value.replace(/\./g, '');
-        }
-        var n = parseFloat(value.replace(',', '.'));
-        return isNaN(n) ? null : Math.round(n * 100) / 100;
-    }
-
-    /** 11.8 -> "11,80". */
-    function formatAmount(n) {
-        return n === null || n === undefined ? '' : n.toFixed(2).replace('.', ',');
-    }
-
-    /** "2026-08-01" -> "01-08-2026". */
-    function formatDate(iso) {
-        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
-        return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
-    }
-
-    /** dd-mm-jjjj (also with / or ., or a two-digit year) -> yyyy-mm-dd, or null. */
-    function parseDate(text) {
-        var value = String(text || '').trim();
-        return /^\d{1,2}[.\-\/]\d{1,2}[.\-\/](\d{2}|\d{4})$/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value)
-            ? window.AVBKReceiptText.date(value)
-            : null;
+    function newEntry(file) {
+        return {
+            file: file,
+            status: file ? 'reading' : 'ok',
+            amount: null,
+            amountEdited: false,
+            store: file ? null : '',
+            storeEdited: false,
+            description: '',
+            descriptionEdited: false,
+            date: '',
+            dateEdited: false
+        };
     }
 
     function photoUrl(entry) {
@@ -85,7 +122,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     /** Reads one selected part of a receipt photo; resolves with its text. */
     function readRegion(blob, engine) {
-        var body = new FormData();
+        const body = new FormData();
         if (engine) {
             body.append('engine', engine);
         }
@@ -95,10 +132,10 @@ document.addEventListener('DOMContentLoaded', function () {
         return fetch(cfg.ajaxUrl, { method: 'POST', body: body })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (data && data.success && data.data && data.data.text) {
+                if (data?.success && data.data?.text) {
                     return data.data.text;
                 }
-                throw new Error(data && typeof data.data === 'string' ? data.data : 'Dit stuk kon niet worden gelezen. Typ het over.');
+                throw new Error(typeof data?.data === 'string' ? data.data : 'Dit stuk kon niet worden gelezen. Typ het over.');
             });
     }
 
@@ -118,7 +155,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function syncFileInput() {
-        var dt = new DataTransfer();
+        const dt = new DataTransfer();
         entries.forEach(function (entry) {
             if (entry.file) {
                 dt.items.add(entry.file);
@@ -129,13 +166,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateSubmitState() {
         if (!submitButton) return;
-        var hasDuplicate = entries.some(function (e) { return e.status === 'duplicate'; });
+        const hasDuplicate = entries.some(function (e) { return e.status === 'duplicate'; });
         submitButton.disabled = entries.length === 0 || hasDuplicate;
     }
 
     function updateAmountSuggestion() {
-        var sum = 0;
-        var any = false;
+        let sum = 0;
+        let any = false;
         entries.forEach(function (e) {
             if (e.amount) {
                 sum = Math.round((sum + e.amount) * 100) / 100;
@@ -144,33 +181,207 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         if (!any) return;
         if (!amountInput.value || amountInput.value === lastSuggestedSum) {
-            amountInput.value = formatAmount(sum);
+            amountInput.value = avbkFormatAmount(sum);
             lastSuggestedSum = amountInput.value;
         }
     }
 
+    /** "Klaar: 3 bonnetjes gelezen, bij 1 niets gevonden. " (empty without scanned receipts). */
+    function doneText(scanned) {
+        if (!scanned.length) return '';
+        const unread = scanned.filter(function (e) { return e.read !== 'ok'; }).length;
+        const count = scanned.length === 1 ? '1 bonnetje' : scanned.length + ' bonnetjes';
+        const missing = unread ? ', bij ' + unread + ' niets gevonden' : '';
+        return 'Klaar: ' + count + ' gelezen' + missing + '. ';
+    }
+
     function updateStatusText() {
-        var scanned = entries.filter(function (e) { return e.file; });
-        var reading = scanned.filter(function (e) { return e.status === 'reading'; }).length;
+        const scanned = entries.filter(function (e) { return e.file; });
+        const reading = scanned.filter(function (e) { return e.status === 'reading'; }).length;
         statusEl.setAttribute('aria-live', 'polite');
         statusEl.classList.toggle('avbk-reimbursement-ocr-status-busy', reading > 0);
+        const duplicate = entries.some(function (e) { return e.status === 'duplicate'; });
+        statusEl.classList.toggle('avbk-reimbursement-ocr-status-error', !reading && duplicate);
         if (reading) {
             statusEl.textContent = 'Bonnetjes worden gelezen: ' + (scanned.length - reading) + ' van ' + scanned.length + ' klaar…';
-            statusEl.classList.remove('avbk-reimbursement-ocr-status-error');
-        } else if (entries.some(function (e) { return e.status === 'duplicate'; })) {
+        } else if (duplicate) {
             statusEl.textContent = 'Eén of meer bonnetjes lijken al eerder gedeclareerd te zijn — verwijder ze om verder te gaan.';
-            statusEl.classList.add('avbk-reimbursement-ocr-status-error');
         } else if (entries.length) {
-            var unread = scanned.filter(function (e) { return e.read !== 'ok'; }).length;
-            statusEl.textContent = (scanned.length ? 'Klaar: ' + scanned.length + (scanned.length === 1 ? ' bonnetje' : ' bonnetjes') + ' gelezen'
-                + (unread ? ', bij ' + unread + ' niets gevonden' : '') + '. ' : '')
-                + 'Controleer datum, winkel en bedrag; klik op een foto om hem groot te bekijken.';
-            statusEl.classList.remove('avbk-reimbursement-ocr-status-error');
-        } else {
-            statusEl.hidden = true;
-            return;
+            statusEl.textContent = doneText(scanned) + 'Controleer datum, winkel en bedrag; klik op een foto om hem groot te bekijken.';
         }
-        statusEl.hidden = false;
+        statusEl.hidden = entries.length === 0;
+    }
+
+    /** A <datalist> of suggestions for one field, or null when there is nothing to suggest. */
+    function suggestions(input, values) {
+        if (!values?.length) return null;
+        const list = document.createElement('datalist');
+        listCount++;
+        list.id = 'avbk-suggest-' + listCount;
+        values.forEach(function (value) {
+            const option = document.createElement('option');
+            option.value = value;
+            list.appendChild(option);
+        });
+        input.setAttribute('list', list.id);
+        return list;
+    }
+
+    function photoCell(entry) {
+        const cell = document.createElement('td');
+        if (!entry.file) {
+            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', 'geen foto'));
+        } else if (entry.file.type.startsWith('image/') && window.AVBKReceiptViewer) {
+            const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + entry.file.name + ' groot bekijken');
+            zoom.title = 'Bekijk groot; sleep over datum, winkel of bedrag om het over te nemen';
+            const img = avbkElement('img', 'avbk-dropzone-item-photo');
+            img.src = photoUrl(entry);
+            img.alt = '';
+            zoom.appendChild(img);
+            zoom.addEventListener('click', function () { openViewer(entry); });
+            cell.appendChild(zoom);
+        } else {
+            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', /pdf$/i.test(entry.file.name) ? 'pdf' : 'bestand'));
+        }
+        return cell;
+    }
+
+    // A text field, so the date reads dd-mm-jjjj whatever the browser's
+    // language; the server gets yyyy-mm-dd in the hidden date[]. The
+    // calendar button opens the browser's own date picker.
+    function dateCell(entry) {
+        const cell = document.createElement('td');
+        const wrap = avbkElement('span', 'avbk-dropzone-item-date-wrap');
+        const input = avbkElement('input', 'avbk-dropzone-item-date');
+        input.type = 'text';
+        input.inputMode = 'numeric';
+        input.placeholder = 'dd-mm-jjjj';
+        input.setAttribute('aria-label', 'Datum (dd-mm-jjjj)');
+        input.value = avbkFormatDate(entry.date);
+        const hidden = avbkElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'date[]';
+        hidden.value = entry.date || '';
+        const picker = avbkElement('input', 'avbk-dropzone-item-date-picker');
+        picker.type = 'date';
+        picker.tabIndex = -1;
+        picker.setAttribute('aria-hidden', 'true');
+        const pick = avbkButton('avbk-dropzone-item-date-pick', '📅', 'Kies een datum');
+
+        function setDate(iso, fromTyping) {
+            entry.date = iso || '';
+            entry.dateEdited = true;
+            hidden.value = entry.date;
+            input.classList.toggle('avbk-dropzone-item-invalid', !iso && input.value.trim() !== '');
+            if (!fromTyping) {
+                input.value = avbkFormatDate(entry.date);
+            }
+        }
+        input.addEventListener('input', function () { setDate(avbkParseDate(input.value), true); });
+        input.addEventListener('blur', function () {
+            if (entry.date) {
+                input.value = avbkFormatDate(entry.date);
+            }
+        });
+        picker.addEventListener('change', function () { setDate(picker.value, false); });
+        pick.addEventListener('click', function () {
+            picker.value = entry.date || '';
+            try {
+                picker.showPicker();
+            } catch (error) { // showPicker() missing or refused: the picker still opens on a click.
+                picker.focus();
+                picker.click();
+            }
+        });
+
+        const list = suggestions(input, (entry.candidates?.dates || []).map(avbkFormatDate));
+        if (list) wrap.appendChild(list);
+        [input, pick, picker, hidden].forEach(function (node) { wrap.appendChild(node); });
+        cell.appendChild(wrap);
+        return cell;
+    }
+
+    /** A plain text field for store or description, with optional suggestions. */
+    function textCell(entry, field, placeholder, values) {
+        const cell = document.createElement('td');
+        const input = avbkElement('input', 'avbk-dropzone-item-' + field);
+        input.type = 'text';
+        input.name = field + '[]';
+        input.placeholder = placeholder;
+        input.value = entry[field] || '';
+        input.addEventListener('input', function () {
+            entry[field] = input.value;
+            entry[field + 'Edited'] = true;
+        });
+        cell.appendChild(input);
+        const list = suggestions(input, values);
+        if (list) cell.appendChild(list);
+        return cell;
+    }
+
+    function amountCell(entry) {
+        const cell = document.createElement('td');
+        const input = avbkElement('input', 'avbk-dropzone-item-amount');
+        input.type = 'text';
+        input.name = 'amount[]';
+        input.placeholder = '0,00';
+        input.inputMode = 'decimal';
+        input.value = avbkFormatAmount(entry.amount);
+        input.addEventListener('input', function () {
+            entry.amount = avbkParseAmount(input.value);
+            entry.amountEdited = true;
+            updateAmountSuggestion();
+        });
+        input.addEventListener('blur', function () {
+            if (entry.amount !== null) {
+                input.value = avbkFormatAmount(entry.amount);
+            }
+        });
+        cell.appendChild(input);
+        const list = suggestions(input, (entry.candidates?.amounts || []).map(avbkFormatAmount));
+        if (list) cell.appendChild(list);
+        return cell;
+    }
+
+    /** Progress and "opnieuw lezen" for a scanned receipt. */
+    function appendProgress(cell, entry) {
+        const progress = avbkProgress(entry);
+        cell.appendChild(avbkElement('span', 'avbk-dropzone-item-progress avbk-dropzone-item-progress-' + progress.kind, progress.text));
+        if (entry.status === 'reading') return;
+        const engine = nextEngine(entry);
+        const retry = avbkButton('avbk-dropzone-item-retry', '↻ opnieuw lezen' + (engine ? ' met ' + engines[engine] : ''));
+        retry.title = 'Leest dit bonnetje opnieuw; wat je zelf hebt ingevuld blijft staan.';
+        retry.addEventListener('click', function () { readEntry(entry, engine); });
+        cell.appendChild(retry);
+    }
+
+    function actionCell(entry, index) {
+        const cell = document.createElement('td');
+        const hasReceipt = avbkElement('input');
+        hasReceipt.type = 'hidden';
+        hasReceipt.name = 'has_receipt[]';
+        hasReceipt.value = entry.file ? '1' : '0';
+        cell.appendChild(hasReceipt);
+
+        if (entry.status === 'duplicate') {
+            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-warning', 'al eerder gedeclareerd'));
+        } else if (entry.file) {
+            appendProgress(cell, entry);
+        }
+
+        const remove = avbkButton('avbk-dropzone-item-remove', '×', 'Verwijderen');
+        remove.addEventListener('click', function () {
+            if (entry.url) {
+                URL.revokeObjectURL(entry.url);
+            }
+            entries.splice(index, 1);
+            syncFileInput();
+            updateSubmitState();
+            updateStatusText();
+            renderList();
+        });
+        cell.appendChild(remove);
+        return cell;
     }
 
     function renderList() {
@@ -180,238 +391,54 @@ document.addEventListener('DOMContentLoaded', function () {
             tableEl.hidden = entries.length === 0;
         }
         entries.forEach(function (entry, index) {
-            var tr = document.createElement('tr');
-            if (entry.status === 'duplicate') {
-                tr.classList.add('avbk-dropzone-item-duplicate');
-            }
+            const tr = document.createElement('tr');
+            tr.classList.toggle('avbk-dropzone-item-duplicate', entry.status === 'duplicate');
             tr.classList.toggle('avbk-dropzone-item-reading', entry.status === 'reading');
-
-            var photoCell = document.createElement('td');
-            if (entry.file && /^image\//.test(entry.file.type) && window.AVBKReceiptViewer) {
-                var zoom = document.createElement('button');
-                zoom.type = 'button';
-                zoom.className = 'avbk-dropzone-item-zoom';
-                zoom.title = 'Bekijk groot; sleep over datum, winkel of bedrag om het over te nemen';
-                zoom.setAttribute('aria-label', 'Bonnetje ' + entry.file.name + ' groot bekijken');
-                var img = document.createElement('img');
-                img.src = photoUrl(entry);
-                img.alt = '';
-                img.className = 'avbk-dropzone-item-photo';
-                zoom.appendChild(img);
-                zoom.addEventListener('click', function () { openViewer(entry); });
-                photoCell.appendChild(zoom);
-            } else if (entry.file) {
-                var fileLabel = document.createElement('span');
-                fileLabel.className = 'avbk-dropzone-item-no-photo';
-                fileLabel.textContent = /pdf$/i.test(entry.file.name) ? 'pdf' : 'bestand';
-                photoCell.appendChild(fileLabel);
-            } else {
-                var noPhoto = document.createElement('span');
-                noPhoto.className = 'avbk-dropzone-item-no-photo';
-                noPhoto.textContent = 'geen foto';
-                photoCell.appendChild(noPhoto);
-            }
-            tr.appendChild(photoCell);
-
-            var dateCell = document.createElement('td');
-            // A text field, so the date reads dd-mm-jjjj whatever the browser's
-            // language; the server gets yyyy-mm-dd in the hidden date[].
-            var dateWrap = document.createElement('span');
-            dateWrap.className = 'avbk-dropzone-item-date-wrap';
-            var dateInput = document.createElement('input');
-            dateInput.type = 'text';
-            dateInput.inputMode = 'numeric';
-            dateInput.className = 'avbk-dropzone-item-date';
-            dateInput.placeholder = 'dd-mm-jjjj';
-            dateInput.setAttribute('aria-label', 'Datum (dd-mm-jjjj)');
-            dateInput.value = formatDate(entry.date);
-            var dateValue = document.createElement('input');
-            dateValue.type = 'hidden';
-            dateValue.name = 'date[]';
-            dateValue.value = entry.date || '';
-            var datePicker = document.createElement('input');
-            datePicker.type = 'date';
-            datePicker.className = 'avbk-dropzone-item-date-picker';
-            datePicker.tabIndex = -1;
-            datePicker.setAttribute('aria-hidden', 'true');
-            var datePick = document.createElement('button');
-            datePick.type = 'button';
-            datePick.className = 'avbk-dropzone-item-date-pick';
-            datePick.setAttribute('aria-label', 'Kies een datum');
-            datePick.title = 'Kies een datum';
-            datePick.textContent = '📅';
-            function setDate(iso, fromTyping) {
-                entry.date = iso || '';
-                entry.dateEdited = true;
-                dateValue.value = entry.date;
-                dateInput.classList.toggle('avbk-dropzone-item-invalid', !iso && dateInput.value.trim() !== '');
-                if (!fromTyping) {
-                    dateInput.value = formatDate(entry.date);
-                }
-            }
-            dateInput.addEventListener('input', function () { setDate(parseDate(dateInput.value), true); });
-            dateInput.addEventListener('blur', function () {
-                if (entry.date) {
-                    dateInput.value = formatDate(entry.date);
-                }
-            });
-            datePicker.addEventListener('change', function () { setDate(datePicker.value, false); });
-            datePick.addEventListener('click', function () {
-                datePicker.value = entry.date || '';
-                if (typeof datePicker.showPicker === 'function') {
-                    try { datePicker.showPicker(); return; } catch (err) { /* falls through */ }
-                }
-                datePicker.focus();
-                datePicker.click();
-            });
-            var c = entry.candidates || {};
-            var dateList = suggestions(dateInput, (c.dates || []).map(formatDate));
-            if (dateList) dateWrap.appendChild(dateList);
-            dateWrap.appendChild(dateInput);
-            dateWrap.appendChild(datePick);
-            dateWrap.appendChild(datePicker);
-            dateWrap.appendChild(dateValue);
-            dateCell.appendChild(dateWrap);
-            tr.appendChild(dateCell);
-
-            var storeCell = document.createElement('td');
-            var storeInput = document.createElement('input');
-            storeInput.type = 'text';
-            storeInput.name = 'store[]';
-            storeInput.className = 'avbk-dropzone-item-store';
-            storeInput.placeholder = 'Winkel';
-            storeInput.value = entry.store || '';
-            storeInput.addEventListener('input', function () {
-                entry.store = storeInput.value;
-                entry.storeEdited = true;
-            });
-            storeCell.appendChild(storeInput);
-            var storeList = suggestions(storeInput, c.stores);
-            if (storeList) storeCell.appendChild(storeList);
-            tr.appendChild(storeCell);
-
-            var descriptionCell = document.createElement('td');
-            var descriptionInput = document.createElement('input');
-            descriptionInput.type = 'text';
-            descriptionInput.name = 'description[]';
-            descriptionInput.className = 'avbk-dropzone-item-description';
-            descriptionInput.placeholder = 'Omschrijving (optioneel)';
-            descriptionInput.value = entry.description || '';
-            descriptionInput.addEventListener('input', function () {
-                entry.description = descriptionInput.value;
-                entry.descriptionEdited = true;
-            });
-            descriptionCell.appendChild(descriptionInput);
-            tr.appendChild(descriptionCell);
-
-            var amountCell = document.createElement('td');
-            var amountRowInput = document.createElement('input');
-            amountRowInput.type = 'text';
-            amountRowInput.name = 'amount[]';
-            amountRowInput.className = 'avbk-dropzone-item-amount';
-            amountRowInput.placeholder = '0,00';
-            amountRowInput.inputMode = 'decimal';
-            amountRowInput.value = formatAmount(entry.amount);
-            amountRowInput.addEventListener('input', function () {
-                entry.amount = parseAmount(amountRowInput.value);
-                entry.amountEdited = true;
-                updateAmountSuggestion();
-            });
-            amountRowInput.addEventListener('blur', function () {
-                if (entry.amount !== null) {
-                    amountRowInput.value = formatAmount(entry.amount);
-                }
-            });
-            amountCell.appendChild(amountRowInput);
-            var amountList = suggestions(amountRowInput, (c.amounts || []).map(formatAmount));
-            if (amountList) amountCell.appendChild(amountList);
-            tr.appendChild(amountCell);
-
-            var actionCell = document.createElement('td');
-            var hasReceiptInput = document.createElement('input');
-            hasReceiptInput.type = 'hidden';
-            hasReceiptInput.name = 'has_receipt[]';
-            hasReceiptInput.value = entry.file ? '1' : '0';
-            actionCell.appendChild(hasReceiptInput);
-
-            if (entry.file && entry.status !== 'duplicate') {
-                var progress = document.createElement('span');
-                progress.className = 'avbk-dropzone-item-progress avbk-dropzone-item-progress-' + (entry.status === 'reading' ? 'reading' : entry.read);
-                progress.textContent = entry.status === 'reading' ? 'lezen…' : (entry.read === 'ok' ? '✓ gelezen' : 'niets gelezen – vul zelf in');
-                actionCell.appendChild(progress);
-                if (entry.status !== 'reading') {
-                    var engine = nextEngine(entry);
-                    var retry = document.createElement('button');
-                    retry.type = 'button';
-                    retry.className = 'avbk-dropzone-item-retry';
-                    retry.textContent = '↻ opnieuw lezen' + (engine ? ' met ' + engines[engine] : '');
-                    retry.title = 'Leest dit bonnetje opnieuw; wat je zelf hebt ingevuld blijft staan.';
-                    retry.addEventListener('click', function () { readEntry(entry, engine); });
-                    actionCell.appendChild(retry);
-                }
-            }
-            if (entry.status === 'duplicate') {
-                var warn = document.createElement('span');
-                warn.className = 'avbk-dropzone-item-warning';
-                warn.textContent = 'al eerder gedeclareerd';
-                actionCell.appendChild(warn);
-            }
-
-            var remove = document.createElement('button');
-            remove.type = 'button';
-            remove.className = 'avbk-dropzone-item-remove';
-            remove.setAttribute('aria-label', 'Verwijderen');
-            remove.textContent = '×';
-            remove.addEventListener('click', function () {
-                if (entry.url) {
-                    URL.revokeObjectURL(entry.url);
-                }
-                entries.splice(index, 1);
-                syncFileInput();
-                updateSubmitState();
-                updateStatusText();
-                renderList();
-            });
-            actionCell.appendChild(remove);
-            tr.appendChild(actionCell);
-
+            tr.appendChild(photoCell(entry));
+            tr.appendChild(dateCell(entry));
+            tr.appendChild(textCell(entry, 'store', 'Winkel', entry.candidates?.stores));
+            tr.appendChild(textCell(entry, 'description', 'Omschrijving (optioneel)', null));
+            tr.appendChild(amountCell(entry));
+            tr.appendChild(actionCell(entry, index));
             listEl.appendChild(tr);
         });
     }
 
     function addManualRow() {
-        entries.push({
-            file: null,
-            status: 'ok',
-            amount: null,
-            amountEdited: false,
-            store: '',
-            storeEdited: false,
-            description: '',
-            descriptionEdited: false,
-            date: '',
-            dateEdited: false
-        });
+        entries.push(newEntry(null));
         updateSubmitState();
         updateStatusText();
         renderList();
     }
 
-    var engines = cfg.engines || {};
-    var engineCodes = Object.keys(engines);
-
     /** The engine to try next for a receipt: the other one when there are two, else the same. */
     function nextEngine(entry) {
         if (engineCodes.length < 2) return '';
-        var current = entry.engine || engineCodes[0];
+        const current = entry.engine || engineCodes[0];
         return engineCodes[(engineCodes.indexOf(current) + 1) % engineCodes.length];
     }
 
-    /** Reads a receipt (again); a value the member typed is never overwritten. */
+    /** Takes over what the OCR found; a value the member typed is never overwritten. */
+    function applyFound(entry, found) {
+        const hasAmount = found.amount !== null && found.amount !== undefined;
+        entry.read = hasAmount || found.store || found.date ? 'ok' : 'none';
+        entry.candidates = found.candidates || null;
+        if (!entry.amountEdited && hasAmount) {
+            entry.amount = found.amount;
+        }
+        if (!entry.storeEdited && found.store) {
+            entry.store = found.store;
+        }
+        if (!entry.dateEdited && found.date) {
+            entry.date = found.date;
+        }
+    }
+
+    /** Reads a receipt (again), with the given engine or the default. */
     function readEntry(entry, engine) {
         entry.status = 'reading';
         entry.engine = engine || engineCodes[0] || '';
-        var body = new FormData();
+        const body = new FormData();
         body.append('action', 'avbk_ocr_receipt');
         body.append('nonce', cfg.nonce);
         body.append('receipt', entry.file);
@@ -423,23 +450,12 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(cfg.ajaxUrl, { method: 'POST', body: body })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (data && data.success && data.data.duplicate) {
+                if (data?.success && data.data.duplicate) {
                     entry.status = 'duplicate';
                     return;
                 }
                 entry.status = 'ok';
-                var found = data && data.success ? data.data : {};
-                entry.read = found.amount !== null && found.amount !== undefined || found.store || found.date ? 'ok' : 'none';
-                entry.candidates = found.candidates || null;
-                if (!entry.amountEdited && found.amount !== null && found.amount !== undefined) {
-                    entry.amount = found.amount;
-                }
-                if (!entry.storeEdited && found.store) {
-                    entry.store = found.store;
-                }
-                if (!entry.dateEdited && found.date) {
-                    entry.date = found.date;
-                }
+                applyFound(entry, data?.success ? data.data : {});
             })
             .catch(function () {
                 entry.status = 'ok';
@@ -453,37 +469,10 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    var listCount = 0;
-    /** A <datalist> of suggestions for one field, or null when there is nothing to suggest. */
-    function suggestions(input, values) {
-        if (!values || !values.length) return null;
-        var list = document.createElement('datalist');
-        list.id = 'avbk-suggest-' + (++listCount);
-        values.forEach(function (value) {
-            var option = document.createElement('option');
-            option.value = value;
-            list.appendChild(option);
-        });
-        input.setAttribute('list', list.id);
-        return list;
-    }
-
     function addFiles(fileListArg) {
         Array.prototype.forEach.call(fileListArg, function (file) {
-            var entry = {
-                file: file,
-                status: 'reading',
-                amount: null,
-                amountEdited: false,
-                store: null,
-                storeEdited: false,
-                description: '',
-                descriptionEdited: false,
-                date: '',
-                dateEdited: false
-            };
+            const entry = newEntry(file);
             entries.push(entry);
-
             readEntry(entry, '');
         });
         syncFileInput();
@@ -506,15 +495,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         dropzone.addEventListener('drop', function (e) {
             e.preventDefault();
-            var files = e.dataTransfer && e.dataTransfer.files;
-            if (files && files.length) {
+            const files = e.dataTransfer?.files;
+            if (files?.length) {
                 addFiles(files);
             }
         });
     }
 
     fileInput.addEventListener('change', function () {
-        if (!fileInput.files || !fileInput.files.length) return;
+        if (!fileInput.files?.length) return;
         addFiles(fileInput.files);
     });
 

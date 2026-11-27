@@ -59,37 +59,32 @@ class AVBK_Reimbursements implements AVBK_Component {
     /** validate_receipt_file() without the upload check: size, extension and real bytes of a file on disk. */
     public static function validate_receipt_content(string $tmp_path, string $original_name): ?string {
         $size = filesize($tmp_path);
-        if (!$size || $size > self::MAX_BYTES) {
+        $ext = strtolower(pathinfo(sanitize_file_name($original_name), PATHINFO_EXTENSION));
+        if (!$size || $size > self::MAX_BYTES || !in_array($ext, array_merge(...array_values(self::ALLOWED_MIMES)), true)) {
             return null;
         }
-        $original_name = sanitize_file_name($original_name);
-        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        $valid = $ext === 'pdf' ? self::is_pdf($tmp_path) : self::is_image_of_type($tmp_path, $ext);
+        return $valid ? $ext : null;
+    }
 
-        $allowed_exts = [];
-        foreach (self::ALLOWED_MIMES as $exts) {
-            $allowed_exts = array_merge($allowed_exts, $exts);
+    /** The file starts with the PDF signature. */
+    private static function is_pdf(string $path): bool {
+        $handle = @fopen($path, 'rb');
+        if (!$handle) {
+            return false;
         }
-        if (!in_array($ext, $allowed_exts, true)) {
-            return null;
-        }
+        $signature = fread($handle, 5);
+        fclose($handle);
+        return $signature === '%PDF-';
+    }
 
-        if ($ext === 'pdf') {
-            $handle = @fopen($tmp_path, 'rb');
-            $sig = $handle ? fread($handle, 5) : '';
-            if ($handle) {
-                fclose($handle);
-            }
-            return $sig === '%PDF-' ? 'pdf' : null;
-        }
-
-        $mime = function_exists('wp_get_image_mime') ? wp_get_image_mime($tmp_path) : (mime_content_type($tmp_path) ?: '');
+    /** The file's real image type allows this extension. */
+    private static function is_image_of_type(string $path, string $ext): bool {
+        $mime = (string) (function_exists('wp_get_image_mime') ? wp_get_image_mime($path) : mime_content_type($path));
         if ($mime === 'image/x-ms-bmp') {
             $mime = 'image/bmp';
         }
-        if (!isset(self::ALLOWED_MIMES[$mime]) || !in_array($ext, self::ALLOWED_MIMES[$mime], true)) {
-            return null;
-        }
-        return $ext;
+        return in_array($ext, self::ALLOWED_MIMES[$mime] ?? [], true);
     }
 
     public function register(): void {

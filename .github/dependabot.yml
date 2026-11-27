@@ -16,6 +16,18 @@ updates:
     interval: weekly
   assignees:
     - grmt
+- package-ecosystem: npm
+  directory: "/"
+  groups:
+    npm:
+      update-types: [minor, patch]
+    npm-security:
+      applies-to: security-updates
+      patterns: ["*"]
+  schedule:
+    interval: weekly
+  assignees:
+    - grmt
 - package-ecosystem: composer
   directory: "/"
   groups:
