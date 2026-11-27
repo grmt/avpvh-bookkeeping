@@ -3430,33 +3430,34 @@ class AVBK_DB {
      * fixed and resubmitted, but not just re-uploaded unchanged.
      */
     public static function find_duplicate_receipt(int $member_id, string $receipt_hash, ?string $ocr_date, ?string $ocr_store, int $exclude_receipt_id = 0, bool $ignore_drafts = false): ?object {
-        global $wpdb;
         $status_clause = $ignore_drafts ? "r.status NOT IN ('withdrawn', 'draft')" : "r.status != 'withdrawn'";
         $legacy_status_clause = $ignore_drafts ? "status NOT IN ('withdrawn', 'draft')" : "status != 'withdrawn'";
-        if ($receipt_hash !== '') {
-            $by_hash = $wpdb->get_row($wpdb->prepare(
-                "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
-                 JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
-                 WHERE r.member_id = %d AND rr.receipt_hash = %s AND rr.id != %d AND {$status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
-                $member_id, $receipt_hash, $exclude_receipt_id
-            ));
-            if ($by_hash) {
-                return $by_hash;
-            }
-            // Legacy single-receipt declarations never got a child-table
-            // row (see get_reimbursement_receipts()) — check the parent's
-            // own columns too so those aren't a blind spot.
-            $by_hash_legacy = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND receipt_hash = %s AND {$legacy_status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
-                $member_id, $receipt_hash
-            ));
-            if ($by_hash_legacy) {
-                return $by_hash_legacy;
-            }
+        $found = $receipt_hash !== ''
+            ? self::find_duplicate_by_hash($member_id, $receipt_hash, $exclude_receipt_id, $status_clause, $legacy_status_clause)
+            : null;
+        if ($found === null && $ocr_date !== null && $ocr_store !== null && $ocr_store !== '') {
+            $found = self::find_duplicate_by_fields($member_id, $ocr_date, $ocr_store, $exclude_receipt_id, $status_clause, $legacy_status_clause);
         }
-        if ($ocr_date === null || $ocr_store === null || $ocr_store === '') {
-            return null;
-        }
+        return $found;
+    }
+
+    private static function find_duplicate_by_hash(int $member_id, string $receipt_hash, int $exclude_receipt_id, string $status_clause, string $legacy_status_clause): ?object {
+        global $wpdb;
+        $by_hash = $wpdb->get_row($wpdb->prepare(
+            "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
+             JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
+             WHERE r.member_id = %d AND rr.receipt_hash = %s AND rr.id != %d AND {$status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
+            $member_id, $receipt_hash, $exclude_receipt_id
+        ));
+        // Legacy single-receipt declarations never got a child-table row (see get_reimbursement_receipts()).
+        return $by_hash ?: ($wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND receipt_hash = %s AND {$legacy_status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
+            $member_id, $receipt_hash
+        )) ?: null);
+    }
+
+    private static function find_duplicate_by_fields(int $member_id, string $ocr_date, string $ocr_store, int $exclude_receipt_id, string $status_clause, string $legacy_status_clause): ?object {
+        global $wpdb;
         $by_fields = $wpdb->get_row($wpdb->prepare(
             "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
              JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
@@ -3464,15 +3465,12 @@ class AVBK_DB {
              LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
             $member_id, $ocr_date, $ocr_store, $exclude_receipt_id
         ));
-        if ($by_fields) {
-            return $by_fields;
-        }
-        return $wpdb->get_row($wpdb->prepare(
+        return $by_fields ?: ($wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_reimbursements
              WHERE member_id = %d AND ocr_date = %s AND LOWER(TRIM(ocr_store)) = LOWER(TRIM(%s)) AND {$legacy_status_clause}
              LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
             $member_id, $ocr_date, $ocr_store
-        )) ?: null;
+        )) ?: null);
     }
 
     public static function get_reimbursement(int $id): ?object {
@@ -3570,22 +3568,7 @@ class AVBK_DB {
         if (!self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, $status)) {
             return false;
         }
-        $fields = [];
-        foreach (['description', 'store', 'ocr_store'] as $text_field) {
-            if (array_key_exists($text_field, $data)) {
-                $fields[$text_field] = (string) $data[$text_field];
-            }
-        }
-        foreach (['date', 'ocr_date'] as $date_field) {
-            if (array_key_exists($date_field, $data)) {
-                $fields[$date_field] = $data[$date_field] ?: null;
-            }
-        }
-        foreach (['amount', 'ocr_amount'] as $num_field) {
-            if (array_key_exists($num_field, $data)) {
-                $fields[$num_field] = $data[$num_field] !== null ? (float) $data[$num_field] : null;
-            }
-        }
+        $fields = self::build_receipt_update_fields($data);
         if ($fields) {
             $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id, 'reimbursement_id' => $reimbursement_id]);
         }
@@ -3593,6 +3576,26 @@ class AVBK_DB {
             self::refresh_reimbursement_description_summary($reimbursement_id);
         }
         return true;
+    }
+
+    private static function build_receipt_update_fields(array $data): array {
+        $fields = [];
+        foreach (['description', 'store', 'ocr_store'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $fields[$key] = (string) $data[$key];
+            }
+        }
+        foreach (['date', 'ocr_date'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $fields[$key] = $data[$key] ?: null;
+            }
+        }
+        foreach (['amount', 'ocr_amount'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $fields[$key] = $data[$key] !== null ? (float) $data[$key] : null;
+            }
+        }
+        return $fields;
     }
 
     /** Fetches one receipt row belonging to a member's draft declaration, or null. */

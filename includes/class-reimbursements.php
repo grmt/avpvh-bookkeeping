@@ -18,6 +18,7 @@ require_once __DIR__ . '/functions-mail.php';
 class AVBK_Reimbursements implements AVBK_Component {
 
     public const MAX_BYTES = 25 * 1024 * 1024;
+    private const INVALID_FILE_ERROR = 'Ongeldig bestand';
     public const ALLOWED_MIMES = [
         'image/jpeg'      => ['jpg', 'jpeg'],
         'image/png'       => ['png'],
@@ -283,167 +284,8 @@ class AVBK_Reimbursements implements AVBK_Component {
                             <tr class="avbk-reimbursement-reason"><td colspan="5"><strong>Reden:</strong> <?php echo nl2br(esc_html((string) $r->rejection_reason)); ?> <a href="<?php echo esc_url(AVBK_Disputes::member_page_url((int) $r->member_id)); ?>">Reageren in Berichten</a></td></tr>
                         <?php endif; ?>
                         <?php if ($is_pending) :
-                            $iban_matches_known = false;
-                            foreach ($known_ibans as $known) {
-                                if ($known->iban === $r->iban) {
-                                    $iban_matches_known = true;
-                                    break;
-                                }
-                            }
-                            ?>
-                            <tr class="avbk-reimbursement-edit-row" id="avbk-edit-row-<?php echo (int) $r->id; ?>" hidden>
-                                <td colspan="5">
-                                    <?php
-                                    $own_receipts = AVBK_DB::get_reimbursement_receipts((int) $r->id);
-                                    $own_total = 0.0;
-                                    foreach ($own_receipts as $rec_item) {
-                                        if ($rec_item->amount !== null) {
-                                            $own_total += (float) $rec_item->amount;
-                                        }
-                                    }
-                                    ?>
-                                    <div class="avbk-pending-receipts" data-reimbursement-id="<?php echo (int) $r->id; ?>">
-                                        <div class="avbk-pending-toolbar">
-                                            <input type="search" class="avbk-pending-filter" placeholder="Filter op datum, winkel, omschrijving of bedrag…" aria-label="Filter bonnetjes">
-                                            <span class="avbk-pending-status" aria-live="polite"></span>
-                                        </div>
-                                        <table class="avbk-dropzone-table avbk-pending-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Foto</th>
-                                                    <th><button type="button" class="avbk-dropzone-sort" data-sort="date" title="Sorteer op datum">Datum <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
-                                                    <th><button type="button" class="avbk-dropzone-sort" data-sort="store" title="Sorteer op winkel">Winkel <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
-                                                    <th><button type="button" class="avbk-dropzone-sort" data-sort="description" title="Sorteer op omschrijving">Omschrijving <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
-                                                    <th class="avbk-dropzone-amount-head"><button type="button" class="avbk-dropzone-sort" data-sort="amount" title="Sorteer op bedrag">Bedrag <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
-                                                    <th></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                            <?php foreach ($own_receipts as $rec) :
-                                                $rec_path = trim((string) ($rec->receipt_path ?? ''));
-                                                $rec_has_photo = $rec_path !== '';
-                                                $rec_is_image = $rec_has_photo && self::receipt_is_image($rec_path);
-                                                $rec_is_pdf = $rec_has_photo && strtolower(pathinfo($rec_path, PATHINFO_EXTENSION)) === 'pdf';
-                                                $rec_view_url = $rec_has_photo ? self::receipt_view_url((int) $r->id, (int) $rec->id) : '';
-                                                $rec_date_iso = (string) ($rec->date ?? '');
-                                                $rec_date_display = preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $rec_date_iso, $dm) ? $dm[3] . '-' . $dm[2] . '-' . $dm[1] : '';
-                                                $rec_amount_display = $rec->amount !== null ? number_format((float) $rec->amount, 2, ',', '') : '';
-                                                $can_edit_rec = (int) $rec->id > 0;
-                                                ?>
-                                                <tr class="avbk-pending-row" data-receipt-id="<?php echo (int) $rec->id; ?>" data-date="<?php echo esc_attr($rec_date_iso); ?>" data-photo-url="<?php echo esc_attr($rec_is_image ? $rec_view_url : ''); ?>">
-                                                    <td>
-                                                        <?php if ($rec_is_image) : ?>
-                                                            <button type="button" class="avbk-dropzone-item-zoom avbk-pending-zoom" aria-label="Bonnetje groot bekijken" title="Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen">
-                                                                <img src="<?php echo esc_url($rec_view_url); ?>" alt="" class="avbk-dropzone-item-photo">
-                                                            </button>
-                                                        <?php elseif ($rec_has_photo) : ?>
-                                                            <a href="<?php echo esc_url($rec_view_url); ?>" target="_blank" class="avbk-dropzone-item-no-photo"><?php echo $rec_is_pdf ? 'pdf' : 'bestand'; ?></a>
-                                                        <?php elseif ($can_edit_rec) : ?>
-                                                            <label class="avbk-attach-photo" title="Foto toevoegen aan deze regel">
-                                                                <span>+ Foto</span>
-                                                                <input type="file" class="avbk-pending-attach-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" hidden>
-                                                            </label>
-                                                        <?php else : ?>
-                                                            <span class="avbk-dropzone-item-no-photo">geen foto</span>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                    <td>
-                                                        <span class="avbk-dropzone-item-date-wrap">
-                                                            <input type="text" inputmode="numeric" class="avbk-dropzone-item-date avbk-pending-input" data-field="date" value="<?php echo esc_attr($rec_date_display); ?>" placeholder="dd-mm-jjjj" aria-label="Datum (dd-mm-jjjj)"<?php echo $can_edit_rec ? '' : ' disabled'; ?>>
-                                                            <?php if ($can_edit_rec) : ?>
-                                                                <button type="button" class="avbk-dropzone-item-date-pick avbk-pending-date-pick" aria-label="Kies een datum" title="Kies een datum">📅</button>
-                                                                <input type="date" class="avbk-dropzone-item-date-picker avbk-pending-date-picker" tabindex="-1" aria-hidden="true" value="<?php echo esc_attr($rec_date_iso); ?>">
-                                                            <?php endif; ?>
-                                                        </span>
-                                                    </td>
-                                                    <td><input type="text" class="avbk-dropzone-item-store avbk-pending-input" data-field="store" value="<?php echo esc_attr((string) ($rec->store ?? '')); ?>" placeholder="Winkel" aria-label="Winkel"<?php echo $can_edit_rec ? '' : ' disabled'; ?>></td>
-                                                    <td><input type="text" class="avbk-dropzone-item-description avbk-pending-input" data-field="description" value="<?php echo esc_attr((string) ($rec->description ?? '')); ?>" placeholder="Omschrijving (optioneel)" aria-label="Omschrijving"></td>
-                                                    <td><input type="text" inputmode="decimal" class="avbk-dropzone-item-amount avbk-pending-input" data-field="amount" value="<?php echo esc_attr($rec_amount_display); ?>" placeholder="0,00" aria-label="Bedrag"<?php echo $can_edit_rec ? '' : ' disabled'; ?>></td>
-                                                    <td>
-                                                        <?php if (count($own_receipts) > 1 && $can_edit_rec) : ?>
-                                                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
-                                                                <?php wp_nonce_field('avbk_member_remove_receipt'); ?>
-                                                                <input type="hidden" name="action" value="avbk_member_remove_receipt">
-                                                                <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                                                <input type="hidden" name="receipt_id" value="<?php echo esc_attr($rec->id); ?>">
-                                                                <button type="submit" class="avbk-dropzone-item-remove" title="Verwijderen" aria-label="Verwijderen" onclick="return confirm('Dit bonnetje verwijderen?');">&times;</button>
-                                                            </form>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                            </tbody>
-                                            <tfoot>
-                                                <tr class="avbk-pending-total-row">
-                                                    <td colspan="4"><strong class="avbk-pending-count"><?php echo esc_html(sprintf('Totaal (%d %s)', count($own_receipts), count($own_receipts) === 1 ? 'regel' : 'regels')); ?></strong></td>
-                                                    <td class="avbk-dropzone-amount-head"><strong class="avbk-pending-total">&euro; <?php echo esc_html(number_format($own_total, 2, ',', '.')); ?></strong></td>
-                                                    <td></td>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-                                    </div>
-                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-reimbursement-add-receipt-form">
-                                        <?php wp_nonce_field('avbk_member_add_receipt'); ?>
-                                        <input type="hidden" name="action" value="avbk_member_add_receipt">
-                                        <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                        <label>Extra bonnetje toevoegen
-                                            <input type="file" name="receipt" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf">
-                                        </label>
-                                        <button type="submit" class="button">Toevoegen</button>
-                                    </form>
-
-                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-edit-details" id="avbk-edit-form-<?php echo (int) $r->id; ?>">
-                                        <?php wp_nonce_field('avbk_member_update_reimbursement'); ?>
-                                        <input type="hidden" name="action" value="avbk_member_update_reimbursement">
-                                        <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                        <div class="avbk-reimbursement-edit-grid">
-                                            <div class="avbk-reimbursement-edit-field">
-                                                <label for="avbk-edit-activity-<?php echo (int) $r->id; ?>">Activiteit</label>
-                                                <select name="activity_id" id="avbk-edit-activity-<?php echo (int) $r->id; ?>">
-                                                    <option value="">&mdash; geen (algemene onkosten) &mdash;</option>
-                                                    <?php foreach ($activities as $activity) : ?>
-                                                        <option value="<?php echo esc_attr($activity->id); ?>" <?php selected((int) $r->activity_id, (int) $activity->id); ?>>
-                                                            <?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                            </div>
-                                            <div class="avbk-reimbursement-edit-field">
-                                                <label for="avbk-edit-amount-<?php echo (int) $r->id; ?>">Totaal bedrag</label>
-                                                <span class="avbk-amount-prefix">&euro; <input type="text" name="amount" id="avbk-edit-amount-<?php echo (int) $r->id; ?>" value="<?php echo esc_attr(number_format((float) $r->amount, 2, ',', '')); ?>"></span>
-                                            </div>
-                                            <div class="avbk-reimbursement-edit-field">
-                                                <label for="avbk-edit-iban-<?php echo (int) $r->id; ?>">Rekeningnummer</label>
-                                                <?php if (count($known_ibans) > 1) : ?>
-                                                    <select class="avbk-iban-select" data-target="avbk-edit-iban-<?php echo (int) $r->id; ?>">
-                                                        <?php foreach ($known_ibans as $known) : ?>
-                                                            <option value="<?php echo esc_attr($known->iban); ?>" <?php selected($r->iban, $known->iban); ?>>
-                                                                <?php echo esc_html(($known->account_name ?: $known->iban) . ' (' . $known->iban . ')'); ?>
-                                                            </option>
-                                                        <?php endforeach; ?>
-                                                        <option value="" <?php selected($iban_matches_known, false); ?>>Ander rekeningnummer&hellip;</option>
-                                                    </select>
-                                                <?php endif; ?>
-                                                <input type="text" name="iban" id="avbk-edit-iban-<?php echo (int) $r->id; ?>" class="regular-text" value="<?php echo esc_attr($r->iban); ?>" <?php echo (count($known_ibans) > 1 && $iban_matches_known) ? 'hidden' : ''; ?>>
-                                            </div>
-                                            <div class="avbk-reimbursement-edit-field avbk-reimbursement-edit-field-full">
-                                                <label for="avbk-edit-note-<?php echo (int) $r->id; ?>">Toelichting voor de penningmeester</label>
-                                                <textarea name="member_note" id="avbk-edit-note-<?php echo (int) $r->id; ?>" rows="4" maxlength="2000" placeholder="Bijv.: voorgeschoten voor de hele groep, of extra uitleg bij de bonnen"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
-                                            </div>
-                                        </div>
-                                    </form>
-                                    <div class="avbk-reimbursement-edit-actions">
-                                        <button type="submit" form="avbk-edit-form-<?php echo (int) $r->id; ?>" class="button button-primary">Wijziging opslaan</button>
-                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-withdraw-form">
-                                            <?php wp_nonce_field('avbk_withdraw_reimbursement'); ?>
-                                            <input type="hidden" name="action" value="avbk_withdraw_reimbursement">
-                                            <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                            <button type="submit" class="button avbk-button-danger" onclick="return confirm('Declaratie intrekken?');">Declaratie intrekken</button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endif; ?>
+                            self::render_pending_edit_row($r, $activities, $known_ibans);
+                        endif; ?>
                     <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -451,6 +293,181 @@ class AVBK_Reimbursements implements AVBK_Component {
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    /** Renders the expandable edit panel (editable receipt table + header form + withdraw) for one pending declaration. */
+    private static function render_pending_edit_row(object $r, array $activities, array $known_ibans): void {
+        $iban_matches_known = false;
+        foreach ($known_ibans as $known) {
+            if ($known->iban === $r->iban) {
+                $iban_matches_known = true;
+                break;
+            }
+        }
+        $own_receipts = AVBK_DB::get_reimbursement_receipts((int) $r->id);
+        $own_total = 0.0;
+        foreach ($own_receipts as $rec_item) {
+            if ($rec_item->amount !== null) {
+                $own_total += (float) $rec_item->amount;
+            }
+        }
+        $can_remove = count($own_receipts) > 1;
+        $has_multiple_ibans = count($known_ibans) > 1;
+        $iban_label_for = $has_multiple_ibans ? 'avbk-edit-iban-select-' . (int) $r->id : 'avbk-edit-iban-' . (int) $r->id;
+        ?>
+        <tr class="avbk-reimbursement-edit-row" id="avbk-edit-row-<?php echo (int) $r->id; ?>" hidden>
+            <td colspan="5">
+                <div class="avbk-pending-receipts" data-reimbursement-id="<?php echo (int) $r->id; ?>">
+                    <div class="avbk-pending-toolbar">
+                        <input type="search" class="avbk-pending-filter" placeholder="Filter op datum, winkel, omschrijving of bedrag…" aria-label="Filter bonnetjes">
+                        <span class="avbk-pending-status" aria-live="polite"></span>
+                    </div>
+                    <table class="avbk-dropzone-table avbk-pending-table">
+                        <thead>
+                            <tr>
+                                <th>Foto</th>
+                                <th><button type="button" class="avbk-dropzone-sort" data-sort="date" title="Sorteer op datum">Datum <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
+                                <th><button type="button" class="avbk-dropzone-sort" data-sort="store" title="Sorteer op winkel">Winkel <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
+                                <th><button type="button" class="avbk-dropzone-sort" data-sort="description" title="Sorteer op omschrijving">Omschrijving <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
+                                <th class="avbk-dropzone-amount-head"><button type="button" class="avbk-dropzone-sort" data-sort="amount" title="Sorteer op bedrag">Bedrag <span class="avbk-sort-indicator" aria-hidden="true">↕</span></button></th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($own_receipts as $rec) :
+                            self::render_pending_receipt_row($r, $rec, $can_remove);
+                        endforeach; ?>
+                        </tbody>
+                        <tfoot>
+                            <tr class="avbk-pending-total-row">
+                                <td colspan="4"><strong class="avbk-pending-count"><?php echo esc_html(sprintf('Totaal (%d %s)', count($own_receipts), count($own_receipts) === 1 ? 'regel' : 'regels')); ?></strong></td>
+                                <td class="avbk-dropzone-amount-head"><strong class="avbk-pending-total">&euro; <?php echo esc_html(number_format($own_total, 2, ',', '.')); ?></strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-reimbursement-add-receipt-form">
+                    <?php wp_nonce_field('avbk_member_add_receipt'); ?>
+                    <input type="hidden" name="action" value="avbk_member_add_receipt">
+                    <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                    <label for="avbk-add-receipt-<?php echo (int) $r->id; ?>">Extra bonnetje toevoegen</label>
+                    <input type="file" id="avbk-add-receipt-<?php echo (int) $r->id; ?>" name="receipt" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf">
+                    <button type="submit" class="button">Toevoegen</button>
+                </form>
+
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-edit-details" id="avbk-edit-form-<?php echo (int) $r->id; ?>">
+                    <?php wp_nonce_field('avbk_member_update_reimbursement'); ?>
+                    <input type="hidden" name="action" value="avbk_member_update_reimbursement">
+                    <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                    <div class="avbk-reimbursement-edit-grid">
+                        <div class="avbk-reimbursement-edit-field">
+                            <label for="avbk-edit-activity-<?php echo (int) $r->id; ?>">Activiteit</label>
+                            <select name="activity_id" id="avbk-edit-activity-<?php echo (int) $r->id; ?>">
+                                <option value="">&mdash; geen (algemene onkosten) &mdash;</option>
+                                <?php foreach ($activities as $activity) : ?>
+                                    <option value="<?php echo esc_attr($activity->id); ?>" <?php selected((int) $r->activity_id, (int) $activity->id); ?>>
+                                        <?php echo esc_html($activity->name . ' (' . $activity->year . ')'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="avbk-reimbursement-edit-field">
+                            <label for="avbk-edit-amount-<?php echo (int) $r->id; ?>">Totaal bedrag</label>
+                            <span class="avbk-amount-prefix">&euro; <input type="text" name="amount" id="avbk-edit-amount-<?php echo (int) $r->id; ?>" value="<?php echo esc_attr(number_format((float) $r->amount, 2, ',', '')); ?>"></span>
+                        </div>
+                        <div class="avbk-reimbursement-edit-field">
+                            <label for="<?php echo esc_attr($iban_label_for); ?>">Rekeningnummer</label>
+                            <?php if ($has_multiple_ibans) : ?>
+                                <select id="avbk-edit-iban-select-<?php echo (int) $r->id; ?>" class="avbk-iban-select" data-target="avbk-edit-iban-<?php echo (int) $r->id; ?>">
+                                    <?php foreach ($known_ibans as $known) : ?>
+                                        <option value="<?php echo esc_attr($known->iban); ?>" <?php selected($r->iban, $known->iban); ?>>
+                                            <?php echo esc_html(($known->account_name ?: $known->iban) . ' (' . $known->iban . ')'); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                    <option value="" <?php selected($iban_matches_known, false); ?>>Ander rekeningnummer&hellip;</option>
+                                </select>
+                                <label class="screen-reader-text" for="avbk-edit-iban-<?php echo (int) $r->id; ?>">Ander rekeningnummer</label>
+                            <?php endif; ?>
+                            <input type="text" name="iban" id="avbk-edit-iban-<?php echo (int) $r->id; ?>" class="regular-text" value="<?php echo esc_attr($r->iban); ?>" <?php echo ($has_multiple_ibans && $iban_matches_known) ? 'hidden' : ''; ?>>
+                        </div>
+                        <div class="avbk-reimbursement-edit-field avbk-reimbursement-edit-field-full">
+                            <label for="avbk-edit-note-<?php echo (int) $r->id; ?>">Toelichting voor de penningmeester</label>
+                            <textarea name="member_note" id="avbk-edit-note-<?php echo (int) $r->id; ?>" rows="4" maxlength="2000" placeholder="Bijv.: voorgeschoten voor de hele groep, of extra uitleg bij de bonnen"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
+                        </div>
+                    </div>
+                </form>
+                <div class="avbk-reimbursement-edit-actions">
+                    <button type="submit" form="avbk-edit-form-<?php echo (int) $r->id; ?>" class="button button-primary">Wijziging opslaan</button>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-withdraw-form">
+                        <?php wp_nonce_field('avbk_withdraw_reimbursement'); ?>
+                        <input type="hidden" name="action" value="avbk_withdraw_reimbursement">
+                        <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                        <button type="submit" class="button avbk-button-danger" onclick="return confirm('Declaratie intrekken?');">Declaratie intrekken</button>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        <?php
+    }
+
+    /** Renders one editable receipt row inside a pending declaration's table. */
+    private static function render_pending_receipt_row(object $r, object $rec, bool $can_remove): void {
+        $rec_path = trim((string) ($rec->receipt_path ?? ''));
+        $rec_has_photo = $rec_path !== '';
+        $rec_is_image = $rec_has_photo && self::receipt_is_image($rec_path);
+        $rec_is_pdf = $rec_has_photo && strtolower(pathinfo($rec_path, PATHINFO_EXTENSION)) === 'pdf';
+        $rec_view_url = $rec_has_photo ? self::receipt_view_url((int) $r->id, (int) $rec->id) : '';
+        $rec_date_iso = (string) ($rec->date ?? '');
+        $rec_date_display = preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $rec_date_iso, $dm) ? $dm[3] . '-' . $dm[2] . '-' . $dm[1] : '';
+        $rec_amount_display = $rec->amount !== null ? number_format((float) $rec->amount, 2, ',', '') : '';
+        $can_edit_rec = (int) $rec->id > 0;
+        $disabled_attr = $can_edit_rec ? '' : ' disabled';
+        $picker_id = 'avbk-pending-picker-' . (int) $r->id . '-' . (int) $rec->id;
+        ?>
+        <tr class="avbk-pending-row" data-receipt-id="<?php echo (int) $rec->id; ?>" data-date="<?php echo esc_attr($rec_date_iso); ?>" data-photo-url="<?php echo esc_attr($rec_is_image ? $rec_view_url : ''); ?>">
+            <td>
+                <?php if ($rec_is_image) : ?>
+                    <button type="button" class="avbk-dropzone-item-zoom avbk-pending-zoom" aria-label="Bonnetje groot bekijken" title="Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen">
+                        <img src="<?php echo esc_url($rec_view_url); ?>" alt="" class="avbk-dropzone-item-photo">
+                    </button>
+                <?php elseif ($rec_has_photo) : ?>
+                    <a href="<?php echo esc_url($rec_view_url); ?>" target="_blank" class="avbk-dropzone-item-no-photo"><?php echo $rec_is_pdf ? 'pdf' : 'bestand'; ?></a>
+                <?php elseif ($can_edit_rec) : ?>
+                    <label class="avbk-attach-photo" title="Foto toevoegen aan deze regel">
+                        <span>+ Foto</span>
+                        <input type="file" class="avbk-pending-attach-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" hidden>
+                    </label>
+                <?php else : ?>
+                    <span class="avbk-dropzone-item-no-photo">geen foto</span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <span class="avbk-dropzone-item-date-wrap">
+                    <input type="text" inputmode="numeric" class="avbk-dropzone-item-date avbk-pending-input" data-field="date" value="<?php echo esc_attr($rec_date_display); ?>" placeholder="dd-mm-jjjj" aria-label="Datum (dd-mm-jjjj)"<?php echo $disabled_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed literal. ?>>
+                    <?php if ($can_edit_rec) : ?>
+                        <button type="button" class="avbk-dropzone-item-date-pick avbk-pending-date-pick" aria-label="Kies een datum" title="Kies een datum">📅</button>
+                        <label class="screen-reader-text" for="<?php echo esc_attr($picker_id); ?>">Kies datum</label>
+                        <input type="date" id="<?php echo esc_attr($picker_id); ?>" class="avbk-dropzone-item-date-picker avbk-pending-date-picker" tabindex="-1" aria-hidden="true" value="<?php echo esc_attr($rec_date_iso); ?>">
+                    <?php endif; ?>
+                </span>
+            </td>
+            <td><input type="text" class="avbk-dropzone-item-store avbk-pending-input" data-field="store" value="<?php echo esc_attr((string) ($rec->store ?? '')); ?>" placeholder="Winkel" aria-label="Winkel"<?php echo $disabled_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed literal. ?>></td>
+            <td><input type="text" class="avbk-dropzone-item-description avbk-pending-input" data-field="description" value="<?php echo esc_attr((string) ($rec->description ?? '')); ?>" placeholder="Omschrijving (optioneel)" aria-label="Omschrijving"></td>
+            <td><input type="text" inputmode="decimal" class="avbk-dropzone-item-amount avbk-pending-input" data-field="amount" value="<?php echo esc_attr($rec_amount_display); ?>" placeholder="0,00" aria-label="Bedrag"<?php echo $disabled_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed literal. ?>></td>
+            <td>
+                <?php if ($can_remove && $can_edit_rec) : ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
+                        <?php wp_nonce_field('avbk_member_remove_receipt'); ?>
+                        <input type="hidden" name="action" value="avbk_member_remove_receipt">
+                        <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                        <input type="hidden" name="receipt_id" value="<?php echo esc_attr($rec->id); ?>">
+                        <button type="submit" class="avbk-dropzone-item-remove" title="Verwijderen" aria-label="Verwijderen" onclick="return confirm('Dit bonnetje verwijderen?');">&times;</button>
+                    </form>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php
     }
 
     /** AJAX: OCR a just-added photo before the real submit, purely to pre-fill the amount field (and warn early on a duplicate) — the temp upload is discarded either way, the authoritative duplicate check happens again in handle_submit(). One file per call — the dropzone calls this once per photo added. */
@@ -468,7 +485,7 @@ class AVBK_Reimbursements implements AVBK_Component {
             self::requested_engine(wp_unslash($_POST['engine'] ?? ''))
         );
         if ($read === null) {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         wp_send_json_success($read);
     }
@@ -633,17 +650,17 @@ class AVBK_Reimbursements implements AVBK_Component {
         $member = $this->require_draft_member();
         $tmp_path = $this->uploaded_path('receipt');
         if ($tmp_path === '') {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         $name = (string) ($_FILES['receipt']['name'] ?? '');
         $ext = self::validate_receipt_content($tmp_path, $name);
         if ($ext === null) {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         $engine = self::requested_engine(wp_unslash($_POST['engine'] ?? ''));
         $read = self::read_receipt($tmp_path, $name, (int) $member->id, $engine);
         if ($read === null) {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         if ($read['duplicate']) {
             wp_send_json_success(['duplicate' => true]);
@@ -813,11 +830,11 @@ class AVBK_Reimbursements implements AVBK_Component {
         $name = (string) ($_FILES['receipt']['name'] ?? '');
         $ext = $tmp_path !== '' ? self::validate_receipt_content($tmp_path, $name) : null;
         if ($ext === null) {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         $read = self::read_receipt($tmp_path, $name, (int) $member->id, null);
         if ($read === null) {
-            avbk_send_json_error('Ongeldig bestand');
+            avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         if ($read['duplicate']) {
             wp_send_json_success(['duplicate' => true]);
@@ -1031,44 +1048,12 @@ class AVBK_Reimbursements implements AVBK_Component {
             wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
             exit;
         }
-        $posted_ids = (array) ($_POST['receipt_id'] ?? []);
-        $row_amounts = is_array($_POST['row_amount'] ?? null) ? $_POST['row_amount'] : null;
-        foreach ($posted_ids as $i => $raw_id) {
-            $rid = (int) $raw_id;
-            if ($rid <= 0) {
-                continue;
-            }
-            $row_update = [
-                'description' => sanitize_text_field(wp_unslash($_POST['description'][$i] ?? '')),
-                'store'       => sanitize_text_field(wp_unslash($_POST['store'][$i] ?? '')),
-                'date'        => self::parse_posted_date($_POST['date'][$i] ?? ''),
-            ];
-            if ($row_amounts !== null) {
-                $row_update['amount'] = self::parse_posted_amount($row_amounts[$i] ?? '');
-            }
-            AVBK_DB::update_draft_receipt($draft_id, $rid, (int) $member->id, $row_update);
-        }
-        $receipts = AVBK_DB::get_reimbursement_receipts($draft_id);
-        $valid = [];
-        $seen_hashes = [];
-        foreach ($receipts as $rec) {
-            $has_photo = trim((string) $rec->receipt_path) !== '';
-            if (!$has_photo && ($rec->amount === null || (float) $rec->amount <= 0)) {
-                AVBK_DB::delete_draft_receipt($draft_id, (int) $rec->id, (int) $member->id);
-                continue;
-            }
-            if ($has_photo) {
-                $hash = (string) $rec->receipt_hash;
-                if (($hash !== '' && in_array($hash, $seen_hashes, true))
-                    || AVBK_DB::find_duplicate_receipt((int) $member->id, $hash, $rec->ocr_date ?: null, $rec->ocr_store ?: null, 0, true)) {
-                    wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
-                    exit;
-                }
-                if ($hash !== '') {
-                    $seen_hashes[] = $hash;
-                }
-            }
-            $valid[] = $rec;
+        $member_id = (int) $member->id;
+        self::sync_posted_draft_rows($draft_id, $member_id);
+        $valid = self::collect_valid_draft_receipts($draft_id, $member_id);
+        if ($valid === null) {
+            wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
+            exit;
         }
         if (!$valid) {
             wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
@@ -1076,7 +1061,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         }
         $ocr_amounts = array_filter(array_map(fn($r) => $r->ocr_amount !== null ? (float) $r->ocr_amount : null, $valid), fn($v) => $v !== null);
         $member_note = self::posted_note();
-        AVBK_DB::submit_draft_reimbursement($draft_id, (int) $member->id, [
+        AVBK_DB::submit_draft_reimbursement($draft_id, $member_id, [
             'activity_id' => (int) ($_POST['activity_id'] ?? 0) ?: null,
             'member_note' => $member_note,
             'amount'      => $amount,
@@ -1084,12 +1069,64 @@ class AVBK_Reimbursements implements AVBK_Component {
             'iban'        => $iban,
         ]);
         AVBK_DB::refresh_reimbursement_description_summary($draft_id);
-        AVBK_DB::remember_iban((int) $member->id, $iban, avpvh_format_name($member));
+        AVBK_DB::remember_iban($member_id, $iban, avpvh_format_name($member));
         $descriptions = implode(', ', array_filter(array_map(fn($r) => (string) $r->description, $valid)));
         $this->notify_penningmeester($member, $amount, $descriptions, $member_note);
 
         wp_safe_redirect(add_query_arg('reimbursement_submitted', '1', $redirect_url) . '#declareren');
         exit;
+    }
+
+    private static function sync_posted_draft_rows(int $draft_id, int $member_id): void {
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- handle_submit() checked its nonce.
+        $posted_ids = (array) ($_POST['receipt_id'] ?? []);
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- handle_submit() checked its nonce.
+        $row_amounts = is_array($_POST['row_amount'] ?? null) ? $_POST['row_amount'] : null;
+        foreach ($posted_ids as $i => $raw_id) {
+            $rid = (int) $raw_id;
+            if ($rid <= 0) {
+                continue;
+            }
+            $row_update = [
+                'description' => sanitize_text_field(wp_unslash($_POST['description'][$i] ?? '')), // phpcs:ignore WordPress.Security.NonceVerification.Missing
+                'store'       => sanitize_text_field(wp_unslash($_POST['store'][$i] ?? '')), // phpcs:ignore WordPress.Security.NonceVerification.Missing
+                'date'        => self::parse_posted_date($_POST['date'][$i] ?? ''), // phpcs:ignore WordPress.Security.NonceVerification.Missing
+            ];
+            if ($row_amounts !== null) {
+                $row_update['amount'] = self::parse_posted_amount($row_amounts[$i] ?? '');
+            }
+            AVBK_DB::update_draft_receipt($draft_id, $rid, $member_id, $row_update);
+        }
+    }
+
+    /** Returns valid draft receipts (pruning empty manual rows), or null if any photo is a duplicate. */
+    private static function collect_valid_draft_receipts(int $draft_id, int $member_id): ?array {
+        $valid = [];
+        $seen_hashes = [];
+        foreach (AVBK_DB::get_reimbursement_receipts($draft_id) as $rec) {
+            $has_photo = trim((string) $rec->receipt_path) !== '';
+            if (!$has_photo && ($rec->amount === null || (float) $rec->amount <= 0)) {
+                AVBK_DB::delete_draft_receipt($draft_id, (int) $rec->id, $member_id);
+                continue;
+            }
+            if ($has_photo && !self::check_draft_receipt_unique($member_id, $rec, $seen_hashes)) {
+                return null;
+            }
+            $valid[] = $rec;
+        }
+        return $valid;
+    }
+
+    private static function check_draft_receipt_unique(int $member_id, object $rec, array &$seen_hashes): bool {
+        $hash = (string) $rec->receipt_hash;
+        if (($hash !== '' && in_array($hash, $seen_hashes, true))
+            || AVBK_DB::find_duplicate_receipt($member_id, $hash, $rec->ocr_date ?: null, $rec->ocr_store ?: null, 0, true)) {
+            return false;
+        }
+        if ($hash !== '') {
+            $seen_hashes[] = $hash;
+        }
+        return true;
     }
 
     private function notify_penningmeester(object $member, float $amount, string $descriptions, string $member_note): void {
@@ -1377,50 +1414,49 @@ class AVBK_Reimbursements implements AVBK_Component {
             return;
         }
         $declare_url = home_url('/leden/beheer/declareren/');
+        $button_label = $draft ? 'Verder met concept →' : 'Bonnetje declareren →';
         ?>
         <section class="avbk-balance-reimbursements">
             <div class="avbk-balance-reimbursements-head">
                 <h3>Declaraties</h3>
                 <?php if ($is_own) : ?>
-                    <a class="avbk-balance-declare-btn" href="<?php echo esc_url($declare_url); ?>">
-                        <?php echo $draft ? 'Verder met concept &rarr;' : 'Bonnetje declareren &rarr;'; ?>
-                    </a>
+                    <a class="avbk-balance-declare-btn" href="<?php echo esc_url($declare_url); ?>"><?php echo esc_html($button_label); ?></a>
                 <?php endif; ?>
             </div>
             <?php if ($draft || $pending) : ?>
                 <table class="avbk-balance-reimbursements-table">
                     <thead><tr><th>Datum</th><th>Omschrijving</th><th class="avbk-cell-nowrap">Bedrag</th><th>Status</th><th></th></tr></thead>
                     <tbody>
-                    <?php if ($draft) :
-                        $draft_count = count(AVBK_DB::get_reimbursement_receipts((int) $draft->id));
-                        $draft_label = $draft_count > 0 ? sprintf('%d %s', $draft_count, $draft_count === 1 ? 'bonnetje' : 'bonnetjes') : 'Nog geen bonnetjes';
-                        ?>
-                        <tr>
-                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($draft->created_at))); ?></td>
-                            <td><?php echo esc_html($draft->description ?: $draft_label); ?></td>
-                            <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $draft->amount, 2, ',', '.')); ?></td>
-                            <td><span class="avbk-status-badge avbk-status-draft">Concept</span></td>
-                            <td><a href="<?php echo esc_url($declare_url); ?>">verdergaan &rarr;</a></td>
-                        </tr>
-                    <?php endif; ?>
-                    <?php foreach ($pending as $r) :
-                        $rec_count = count(AVBK_DB::get_reimbursement_receipts((int) $r->id));
-                        $fallback_label = $rec_count > 0 ? sprintf('%d %s', $rec_count, $rec_count === 1 ? 'bonnetje' : 'bonnetjes') : '—';
-                        ?>
-                        <tr>
-                            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($r->created_at))); ?></td>
-                            <td><?php echo esc_html($r->description ?: $fallback_label); ?></td>
-                            <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?></td>
-                            <td><span class="avbk-status-badge avbk-status-pending">In behandeling</span></td>
-                            <td><?php if ($is_own) : ?><a href="<?php echo esc_url($declare_url . '#declareren'); ?>">bekijken &rarr;</a><?php endif; ?></td>
-                        </tr>
-                    <?php endforeach; ?>
+                    <?php
+                    if ($draft) {
+                        self::render_summary_row($draft, 'Nog geen bonnetjes', 'avbk-status-draft', 'Concept', $declare_url, 'verdergaan →');
+                    }
+                    foreach ($pending as $r) {
+                        self::render_summary_row($r, '—', 'avbk-status-pending', 'In behandeling', $is_own ? $declare_url . '#declareren' : '', 'bekijken →');
+                    }
+                    ?>
                     </tbody>
                 </table>
             <?php elseif ($is_own) : ?>
                 <p class="avbk-balance-reimbursements-empty">Je hebt op dit moment geen openstaande declaraties.</p>
             <?php endif; ?>
         </section>
+        <?php
+    }
+
+    private static function render_summary_row(object $row, string $empty_label, string $badge_class, string $badge_label, string $link_url, string $link_text): void {
+        $count = count(AVBK_DB::get_reimbursement_receipts((int) $row->id));
+        $noun = $count === 1 ? 'bonnetje' : 'bonnetjes';
+        $fallback = $count > 0 ? sprintf('%d %s', $count, $noun) : $empty_label;
+        $description = trim((string) ($row->description ?? '')) !== '' ? (string) $row->description : $fallback;
+        ?>
+        <tr>
+            <td><?php echo esc_html(wp_date('d-m-Y', strtotime($row->created_at))); ?></td>
+            <td><?php echo esc_html($description); ?></td>
+            <td class="avbk-cell-nowrap">&euro; <?php echo esc_html(number_format((float) $row->amount, 2, ',', '.')); ?></td>
+            <td><span class="avbk-status-badge <?php echo esc_attr($badge_class); ?>"><?php echo esc_html($badge_label); ?></span></td>
+            <td><?php if ($link_url !== '') : ?><a href="<?php echo esc_url($link_url); ?>"><?php echo esc_html($link_text); ?></a><?php endif; ?></td>
+        </tr>
         <?php
     }
 

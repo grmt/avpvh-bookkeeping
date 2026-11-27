@@ -135,6 +135,51 @@ function avbkApplyFound(entry, found) {
     }
 }
 
+function avbkPendingRowField(row, field) {
+    return row.querySelector('.avbk-pending-input[data-field="' + field + '"]');
+}
+
+function avbkPendingSortValue(row, field) {
+    if (field === 'date') return row.dataset.date || '';
+    const val = avbkPendingRowField(row, field)?.value || '';
+    if (field === 'amount') return avbkParseAmount(val);
+    return val.trim().toLowerCase();
+}
+
+function avbkComparePendingRows(a, b, field, dir) {
+    const va = avbkPendingSortValue(a, field);
+    const vb = avbkPendingSortValue(b, field);
+    const aEmpty = va === '' || va === null;
+    const bEmpty = vb === '' || vb === null;
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') {
+        return (va - vb) * dir;
+    }
+    return String(va).localeCompare(String(vb), 'nl') * dir;
+}
+
+function avbkFormatRowCount(visibleCount, totalRows) {
+    if (visibleCount < totalRows) {
+        return 'Totaal (' + visibleCount + ' van ' + totalRows + ' regels)';
+    }
+    return 'Totaal (' + totalRows + (totalRows === 1 ? ' regel)' : ' regels)');
+}
+
+function avbkSyncParentAmount(parentAmount, allSum, lastAllSum) {
+    if (!parentAmount || allSum === null) return lastAllSum;
+    const formattedAll = avbkFormatAmount(allSum);
+    if (lastAllSum === null) {
+        return parentAmount.value === formattedAll ? formattedAll : null;
+    }
+    if (parentAmount.value === lastAllSum) {
+        parentAmount.value = formattedAll;
+        return formattedAll;
+    }
+    return lastAllSum;
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     const fileInput = document.getElementById('avbk-receipt-input');
     const configEl = document.getElementById('avbk-reimbursement-config');
@@ -1012,31 +1057,6 @@ document.addEventListener('DOMContentLoaded', function () {
         sortDateBtn.addEventListener('click', sortByDate);
     }
 
-    function pendingRowField(row, field) {
-        return row.querySelector('.avbk-pending-input[data-field="' + field + '"]');
-    }
-
-    function pendingSortValue(row, field) {
-        if (field === 'date') return row.dataset.date || '';
-        const val = pendingRowField(row, field)?.value || '';
-        if (field === 'amount') return avbkParseAmount(val);
-        return val.trim().toLowerCase();
-    }
-
-    function comparePendingRows(a, b, field, dir) {
-        const va = pendingSortValue(a, field);
-        const vb = pendingSortValue(b, field);
-        const aEmpty = va === '' || va === null;
-        const bEmpty = vb === '' || vb === null;
-        if (aEmpty && bEmpty) return 0;
-        if (aEmpty) return 1;
-        if (bEmpty) return -1;
-        if (typeof va === 'number' && typeof vb === 'number') {
-            return (va - vb) * dir;
-        }
-        return String(va).localeCompare(String(vb), 'nl') * dir;
-    }
-
     function initPendingReceipts(container) {
         const reimbursementId = container.dataset.reimbursementId;
         const filterInput = container.querySelector('.avbk-pending-filter');
@@ -1068,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', function () {
             let allSum = 0;
             let anyAmount = false;
             rows.forEach(function (row) {
-                const n = avbkParseAmount(pendingRowField(row, 'amount')?.value || '');
+                const n = avbkParseAmount(avbkPendingRowField(row, 'amount')?.value || '');
                 if (n !== null) {
                     allSum = Math.round((allSum + n) * 100) / 100;
                     anyAmount = true;
@@ -1079,24 +1099,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!row.hidden) visibleCount++;
             });
             if (countEl) {
-                if (visibleCount < rows.length) {
-                    countEl.textContent = 'Totaal (' + visibleCount + ' van ' + rows.length + ' regels)';
-                } else {
-                    countEl.textContent = 'Totaal (' + rows.length + (rows.length === 1 ? ' regel)' : ' regels)');
-                }
+                countEl.textContent = avbkFormatRowCount(visibleCount, rows.length);
             }
             if (totalEl) {
                 totalEl.textContent = '€ ' + avbkFormatAmount(visibleSum);
             }
-            if (parentAmount && anyAmount) {
-                const formattedAll = avbkFormatAmount(allSum);
-                if (lastAllSum === null) {
-                    if (parentAmount.value === formattedAll) lastAllSum = formattedAll;
-                } else if (parentAmount.value === lastAllSum) {
-                    parentAmount.value = formattedAll;
-                    lastAllSum = formattedAll;
-                }
-            }
+            lastAllSum = avbkSyncParentAmount(parentAmount, anyAmount ? allSum : null, lastAllSum);
         }
 
         function applyFilter() {
@@ -1107,7 +1115,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     return;
                 }
                 const haystack = ['date', 'store', 'description', 'amount']
-                    .map(function (f) { return pendingRowField(row, f)?.value || ''; })
+                    .map(function (f) { return avbkPendingRowField(row, f)?.value || ''; })
                     .join(' ')
                     .toLowerCase();
                 row.hidden = !haystack.includes(query);
@@ -1119,13 +1127,14 @@ document.addEventListener('DOMContentLoaded', function () {
             const nextDir = sortState.field === field && sortState.dir === 'asc' ? 'desc' : 'asc';
             sortState = { field: field, dir: nextDir };
             const dir = nextDir === 'asc' ? 1 : -1;
-            const sorted = allRows().sort(function (a, b) { return comparePendingRows(a, b, field, dir); });
+            const activeArrow = nextDir === 'asc' ? '↑' : '↓';
+            const sorted = allRows().sort(function (a, b) { return avbkComparePendingRows(a, b, field, dir); });
             sorted.forEach(function (row) { tbody.appendChild(row); });
             container.querySelectorAll('.avbk-dropzone-sort').forEach(function (btn) {
                 const active = btn.dataset.sort === field;
                 const indicator = btn.querySelector('.avbk-sort-indicator');
                 if (indicator) {
-                    indicator.textContent = active ? (nextDir === 'asc' ? '↑' : '↓') : '↕';
+                    indicator.textContent = active ? activeArrow : '↕';
                 }
                 const th = btn.closest('th');
                 if (th) {
@@ -1144,13 +1153,13 @@ document.addEventListener('DOMContentLoaded', function () {
             row._dirty = false;
             pendingSaves++;
             setPendingStatus('Opslaan…', false);
-            const amt = avbkParseAmount(pendingRowField(row, 'amount')?.value || '');
+            const amt = avbkParseAmount(avbkPendingRowField(row, 'amount')?.value || '');
             postAjax('avbk_member_update_receipt', {
                 reimbursement_id: reimbursementId,
                 receipt_id: row.dataset.receiptId || '',
                 date: row.dataset.date || '',
-                store: pendingRowField(row, 'store')?.value || '',
-                description: pendingRowField(row, 'description')?.value || '',
+                store: avbkPendingRowField(row, 'store')?.value || '',
+                description: avbkPendingRowField(row, 'description')?.value || '',
                 amount: amt !== null ? String(amt) : ''
             }).then(function () {
                 pendingSaves = Math.max(0, pendingSaves - 1);
@@ -1189,8 +1198,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 engines: engines,
                 values: {
                     date: row.dataset.date || '',
-                    store: pendingRowField(row, 'store')?.value || '',
-                    amount: avbkParseAmount(pendingRowField(row, 'amount')?.value || '')
+                    store: avbkPendingRowField(row, 'store')?.value || '',
+                    amount: avbkParseAmount(avbkPendingRowField(row, 'amount')?.value || '')
                 },
                 nav: {
                     index: idx + 1,
@@ -1201,7 +1210,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     next: function () { if (nextRow) openPendingViewer(nextRow); }
                 },
                 apply: function (field, value) {
-                    const input = pendingRowField(row, field);
+                    const input = avbkPendingRowField(row, field);
                     if (!input || input.disabled) return;
                     if (field === 'date') {
                         row.dataset.date = value || '';
@@ -1257,16 +1266,16 @@ document.addEventListener('DOMContentLoaded', function () {
                         photoTd.appendChild(link);
                     }
                 }
-                const dateIn = pendingRowField(row, 'date');
+                const dateIn = avbkPendingRowField(row, 'date');
                 if (dateIn && !row.dataset.date && data.date) {
                     row.dataset.date = data.date;
                     dateIn.value = avbkFormatDate(data.date);
                 }
-                const storeIn = pendingRowField(row, 'store');
+                const storeIn = avbkPendingRowField(row, 'store');
                 if (storeIn && !storeIn.value.trim() && data.store) {
                     storeIn.value = data.store;
                 }
-                const amtIn = pendingRowField(row, 'amount');
+                const amtIn = avbkPendingRowField(row, 'amount');
                 if (amtIn && !amtIn.value.trim() && data.amount !== null && data.amount !== undefined) {
                     amtIn.value = avbkFormatAmount(data.amount);
                     updateTotals();
@@ -1279,12 +1288,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         allRows().forEach(function (row) {
-            const dateIn = pendingRowField(row, 'date');
+            const dateIn = avbkPendingRowField(row, 'date');
             const datePick = row.querySelector('.avbk-pending-date-pick');
             const datePicker = row.querySelector('.avbk-pending-date-picker');
-            const storeIn = pendingRowField(row, 'store');
-            const descIn = pendingRowField(row, 'description');
-            const amtIn = pendingRowField(row, 'amount');
+            const storeIn = avbkPendingRowField(row, 'store');
+            const descIn = avbkPendingRowField(row, 'description');
+            const amtIn = avbkPendingRowField(row, 'amount');
             const zoomBtn = row.querySelector('.avbk-pending-zoom');
             const attachIn = row.querySelector('.avbk-pending-attach-input');
 
