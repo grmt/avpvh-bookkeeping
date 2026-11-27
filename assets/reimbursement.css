@@ -308,6 +308,53 @@ tr.avbk-dropzone-item-active {
     padding: 1rem;
 }
 
+.avbk-pending-receipts {
+    margin-bottom: 1rem;
+}
+
+.avbk-pending-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .4rem;
+}
+
+.avbk-pending-filter {
+    width: 100%;
+    max-width: 340px;
+    padding: .35rem .5rem;
+    box-sizing: border-box;
+}
+
+.avbk-pending-status {
+    font-size: .85em;
+    color: #00752e;
+    font-weight: 600;
+}
+
+.avbk-pending-table {
+    background: #fff;
+}
+
+.avbk-pending-table th,
+.avbk-pending-table td {
+    background: #fff;
+    padding: .35rem .45rem;
+}
+
+.avbk-pending-table tr.avbk-dropzone-item-active td {
+    background: #f0f6fc;
+}
+
+.avbk-pending-total-row td {
+    border-top: 2px solid #c3c4c7;
+    border-bottom: 0;
+    background: #f6f7f7;
+    font-variant-numeric: tabular-nums;
+}
+
 .avbk-reimbursement-edit-form {
     display: inline-block;
     vertical-align: top;

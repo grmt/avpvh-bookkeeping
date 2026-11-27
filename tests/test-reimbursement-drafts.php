@@ -83,10 +83,19 @@ final class AVBK_DB {
     public static function get_reimbursement_receipts(int $reimbursement_id): array {
         return array_values(array_filter($GLOBALS['receipts'], fn($r) => (int) $r->reimbursement_id === $reimbursement_id));
     }
-    public static function get_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
-        $d = $GLOBALS['drafts'][$draft_id] ?? null;
+    public static function get_member_receipt(int $reimbursement_id, int $receipt_id, int $member_id, string $status): ?object {
+        $d = $GLOBALS['drafts'][$reimbursement_id] ?? null;
         $r = $GLOBALS['receipts'][$receipt_id] ?? null;
-        return ($d && $r && (int) $d->member_id === $member_id && $d->status === 'draft' && (int) $r->reimbursement_id === $draft_id) ? $r : null;
+        return ($d && $r && (int) $d->member_id === $member_id && $d->status === $status && (int) $r->reimbursement_id === $reimbursement_id) ? $r : null;
+    }
+    public static function update_member_receipt(int $reimbursement_id, int $receipt_id, int $member_id, array $data, string $status = 'pending'): bool {
+        $r = self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, $status);
+        if (!$r) return false;
+        foreach ($data as $k => $v) $r->$k = $v;
+        return true;
+    }
+    public static function get_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
+        return self::get_member_receipt($draft_id, $receipt_id, $member_id, 'draft');
     }
     public static function update_draft_reimbursement(int $id, int $member_id, array $data): bool {
         $d = $GLOBALS['drafts'][$id] ?? null;
@@ -95,10 +104,7 @@ final class AVBK_DB {
         return true;
     }
     public static function update_draft_receipt(int $draft_id, int $receipt_id, int $member_id, array $data): bool {
-        $r = self::get_draft_receipt($draft_id, $receipt_id, $member_id);
-        if (!$r) return false;
-        foreach ($data as $k => $v) $r->$k = $v;
-        return true;
+        return self::update_member_receipt($draft_id, $receipt_id, $member_id, $data, 'draft');
     }
     public static function delete_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
         $r = self::get_draft_receipt($draft_id, $receipt_id, $member_id);
@@ -238,6 +244,15 @@ try {
     check($kind === 'redirect' && str_contains($url, 'reimbursement_submitted=1'), 'submitting a draft redirects with submitted notice');
     check($GLOBALS['drafts'][$draft_id]->status === 'pending' && $GLOBALS['receipts'][$receipt_id]->store === 'Markt Centrum' && $GLOBALS['receipts'][$receipt_id]->amount === 12.34 && !isset($GLOBALS['receipts'][$m1['receipt_id']]), 'submitting promotes draft to pending, syncs final edits, and drops empty manual rows');
     check(count($GLOBALS['mails']) === 1, 'penningmeester is emailed only on submit, never during draft saves');
+
+    // 5b. Editing a receipt on a still-pending declaration via AJAX works for the owner and rejects non-owners / paid ones.
+    $_POST = ['reimbursement_id' => $draft_id, 'receipt_id' => $receipt_id, 'date' => '2026-08-06', 'store' => 'Bakkerij', 'description' => 'brood', 'amount' => '15,50'];
+    [$kind] = run_handler([$handler, 'ajax_member_update_receipt']);
+    check($kind === 'success' && $GLOBALS['receipts'][$receipt_id]->store === 'Bakkerij' && $GLOBALS['receipts'][$receipt_id]->amount === 15.5, 'member can update a receipt on their own pending declaration');
+    $GLOBALS['member_id'] = 99;
+    [$kind] = run_handler([$handler, 'ajax_member_update_receipt']);
+    check($kind === 'error', 'another member cannot update someone else\'s pending receipt');
+    $GLOBALS['member_id'] = 7;
 
     // 6. Discarding a second draft deletes both DB rows and stored files on disk.
     $_POST = ['iban' => 'NL00TEST0000000001'];

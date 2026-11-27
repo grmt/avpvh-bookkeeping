@@ -950,6 +950,287 @@ document.addEventListener('DOMContentLoaded', function () {
         sortDateBtn.addEventListener('click', sortByDate);
     }
 
+    function pendingRowField(row, field) {
+        return row.querySelector('.avbk-pending-input[data-field="' + field + '"]');
+    }
+
+    function pendingSortValue(row, field) {
+        if (field === 'date') return row.dataset.date || '';
+        const val = pendingRowField(row, field)?.value || '';
+        if (field === 'amount') return avbkParseAmount(val);
+        return val.trim().toLowerCase();
+    }
+
+    function comparePendingRows(a, b, field, dir) {
+        const va = pendingSortValue(a, field);
+        const vb = pendingSortValue(b, field);
+        const aEmpty = va === '' || va === null;
+        const bEmpty = vb === '' || vb === null;
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') {
+            return (va - vb) * dir;
+        }
+        return String(va).localeCompare(String(vb), 'nl') * dir;
+    }
+
+    function initPendingReceipts(container) {
+        const reimbursementId = container.dataset.reimbursementId;
+        const filterInput = container.querySelector('.avbk-pending-filter');
+        const pendingStatus = container.querySelector('.avbk-pending-status');
+        const tbody = container.querySelector('tbody');
+        const totalEl = container.querySelector('.avbk-pending-total');
+        const countEl = container.querySelector('.avbk-pending-count');
+        const parentAmount = container.closest('td')?.querySelector('form input[name="amount"]');
+        if (!reimbursementId || !tbody) return;
+
+        let sortState = { field: null, dir: 'asc' };
+        let pendingSaves = 0;
+        let lastAllSum = null;
+
+        function allRows() {
+            return Array.prototype.slice.call(tbody.querySelectorAll('tr.avbk-pending-row'));
+        }
+
+        function setPendingStatus(text, isError) {
+            if (!pendingStatus) return;
+            pendingStatus.textContent = text;
+            pendingStatus.classList.toggle('avbk-draft-status-error', Boolean(isError));
+        }
+
+        function updateTotals() {
+            const rows = allRows();
+            let visibleCount = 0;
+            let visibleSum = 0;
+            let allSum = 0;
+            let anyAmount = false;
+            rows.forEach(function (row) {
+                const n = avbkParseAmount(pendingRowField(row, 'amount')?.value || '');
+                if (n !== null) {
+                    allSum = Math.round((allSum + n) * 100) / 100;
+                    anyAmount = true;
+                    if (!row.hidden) {
+                        visibleSum = Math.round((visibleSum + n) * 100) / 100;
+                    }
+                }
+                if (!row.hidden) visibleCount++;
+            });
+            if (countEl) {
+                if (visibleCount < rows.length) {
+                    countEl.textContent = 'Totaal (' + visibleCount + ' van ' + rows.length + ' regels)';
+                } else {
+                    countEl.textContent = 'Totaal (' + rows.length + (rows.length === 1 ? ' regel)' : ' regels)');
+                }
+            }
+            if (totalEl) {
+                totalEl.textContent = '€ ' + avbkFormatAmount(visibleSum);
+            }
+            if (parentAmount && anyAmount) {
+                const formattedAll = avbkFormatAmount(allSum);
+                if (lastAllSum === null) {
+                    if (parentAmount.value === formattedAll) lastAllSum = formattedAll;
+                } else if (parentAmount.value === lastAllSum) {
+                    parentAmount.value = formattedAll;
+                    lastAllSum = formattedAll;
+                }
+            }
+        }
+
+        function applyFilter() {
+            const query = (filterInput?.value || '').trim().toLowerCase();
+            allRows().forEach(function (row) {
+                if (!query) {
+                    row.hidden = false;
+                    return;
+                }
+                const haystack = ['date', 'store', 'description', 'amount']
+                    .map(function (f) { return pendingRowField(row, f)?.value || ''; })
+                    .join(' ')
+                    .toLowerCase();
+                row.hidden = !haystack.includes(query);
+            });
+            updateTotals();
+        }
+
+        function sortRows(field) {
+            const nextDir = sortState.field === field && sortState.dir === 'asc' ? 'desc' : 'asc';
+            sortState = { field: field, dir: nextDir };
+            const dir = nextDir === 'asc' ? 1 : -1;
+            const sorted = allRows().sort(function (a, b) { return comparePendingRows(a, b, field, dir); });
+            sorted.forEach(function (row) { tbody.appendChild(row); });
+            container.querySelectorAll('.avbk-dropzone-sort').forEach(function (btn) {
+                const active = btn.dataset.sort === field;
+                const indicator = btn.querySelector('.avbk-sort-indicator');
+                if (indicator) {
+                    indicator.textContent = active ? (nextDir === 'asc' ? '↑' : '↓') : '↕';
+                }
+                const th = btn.closest('th');
+                if (th) {
+                    if (active) {
+                        th.setAttribute('aria-sort', nextDir === 'asc' ? 'ascending' : 'descending');
+                    } else {
+                        th.removeAttribute('aria-sort');
+                    }
+                }
+            });
+        }
+
+        function saveRowNow(row) {
+            clearTimeout(row._saveTimer);
+            row._saveTimer = null;
+            row._dirty = false;
+            pendingSaves++;
+            setPendingStatus('Opslaan…', false);
+            const amt = avbkParseAmount(pendingRowField(row, 'amount')?.value || '');
+            postAjax('avbk_member_update_receipt', {
+                reimbursement_id: reimbursementId,
+                receipt_id: row.dataset.receiptId || '',
+                date: row.dataset.date || '',
+                store: pendingRowField(row, 'store')?.value || '',
+                description: pendingRowField(row, 'description')?.value || '',
+                amount: amt !== null ? String(amt) : ''
+            }).then(function () {
+                pendingSaves = Math.max(0, pendingSaves - 1);
+                if (pendingSaves === 0) setPendingStatus('✓ Opgeslagen', false);
+            }, function () {
+                pendingSaves = Math.max(0, pendingSaves - 1);
+                setPendingStatus('Opslaan mislukt', true);
+            });
+        }
+
+        function scheduleRowSave(row, immediate) {
+            row._dirty = true;
+            clearTimeout(row._saveTimer);
+            if (immediate) {
+                saveRowNow(row);
+            } else {
+                row._saveTimer = setTimeout(function () { saveRowNow(row); }, 400);
+            }
+        }
+
+        function openPendingViewer(row) {
+            if (!window.AVBKReceiptViewer || !row.dataset.photoUrl) return;
+            const visible = allRows().filter(function (r) { return !r.hidden; });
+            const idx = visible.indexOf(row);
+            const findAdj = function (step) {
+                for (let i = idx + step; i >= 0 && i < visible.length; i += step) {
+                    if (visible[i].dataset.photoUrl) return visible[i];
+                }
+                return null;
+            };
+            const prevRow = idx >= 0 ? findAdj(-1) : null;
+            const nextRow = idx >= 0 ? findAdj(1) : null;
+            allRows().forEach(function (r) { r.classList.toggle('avbk-dropzone-item-active', r === row); });
+            window.AVBKReceiptViewer.open(row.dataset.photoUrl, {
+                read: readRegion,
+                engines: engines,
+                values: {
+                    date: row.dataset.date || '',
+                    store: pendingRowField(row, 'store')?.value || '',
+                    amount: avbkParseAmount(pendingRowField(row, 'amount')?.value || '')
+                },
+                nav: {
+                    index: idx + 1,
+                    total: visible.length,
+                    hasPrev: Boolean(prevRow),
+                    hasNext: Boolean(nextRow),
+                    prev: function () { if (prevRow) openPendingViewer(prevRow); },
+                    next: function () { if (nextRow) openPendingViewer(nextRow); }
+                },
+                apply: function (field, value) {
+                    const input = pendingRowField(row, field);
+                    if (!input || input.disabled) return;
+                    if (field === 'date') {
+                        row.dataset.date = value || '';
+                        input.value = avbkFormatDate(value);
+                        input.classList.remove('avbk-dropzone-item-invalid');
+                    } else if (field === 'amount') {
+                        input.value = avbkFormatAmount(value);
+                        updateTotals();
+                    } else {
+                        input.value = value || '';
+                    }
+                    scheduleRowSave(row, true);
+                },
+                onClose: function () {
+                    const zoom = row.querySelector('.avbk-pending-zoom');
+                    if (zoom) zoom.focus({ preventScroll: true });
+                    if (row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+                }
+            });
+        }
+
+        allRows().forEach(function (row) {
+            const dateIn = pendingRowField(row, 'date');
+            const datePick = row.querySelector('.avbk-pending-date-pick');
+            const datePicker = row.querySelector('.avbk-pending-date-picker');
+            const storeIn = pendingRowField(row, 'store');
+            const descIn = pendingRowField(row, 'description');
+            const amtIn = pendingRowField(row, 'amount');
+            const zoomBtn = row.querySelector('.avbk-pending-zoom');
+
+            if (dateIn && !dateIn.disabled) {
+                dateIn.addEventListener('input', function () {
+                    const parsed = avbkParseDate(dateIn.value);
+                    row.dataset.date = parsed || '';
+                    dateIn.classList.toggle('avbk-dropzone-item-invalid', !parsed && dateIn.value.trim() !== '');
+                    scheduleRowSave(row, false);
+                });
+                dateIn.addEventListener('blur', function () {
+                    if (row.dataset.date) dateIn.value = avbkFormatDate(row.dataset.date);
+                    if (row._dirty) saveRowNow(row);
+                });
+            }
+            if (datePick && datePicker && dateIn) {
+                datePick.addEventListener('click', function () {
+                    datePicker.value = row.dataset.date || '';
+                    try {
+                        datePicker.showPicker();
+                    } catch (error) { // showPicker() missing or refused: click still opens picker.
+                        datePicker.focus();
+                        datePicker.click();
+                    }
+                });
+                datePicker.addEventListener('change', function () {
+                    row.dataset.date = datePicker.value || '';
+                    dateIn.value = avbkFormatDate(row.dataset.date);
+                    dateIn.classList.remove('avbk-dropzone-item-invalid');
+                    scheduleRowSave(row, true);
+                });
+            }
+            [storeIn, descIn].forEach(function (input) {
+                if (!input || input.disabled) return;
+                input.addEventListener('input', function () { scheduleRowSave(row, false); });
+                input.addEventListener('blur', function () { if (row._dirty) saveRowNow(row); });
+            });
+            if (amtIn && !amtIn.disabled) {
+                amtIn.addEventListener('input', function () {
+                    updateTotals();
+                    scheduleRowSave(row, false);
+                });
+                amtIn.addEventListener('blur', function () {
+                    const n = avbkParseAmount(amtIn.value);
+                    if (n !== null) amtIn.value = avbkFormatAmount(n);
+                    if (row._dirty) saveRowNow(row);
+                });
+            }
+            if (zoomBtn) {
+                zoomBtn.addEventListener('click', function () { openPendingViewer(row); });
+            }
+        });
+
+        container.querySelectorAll('.avbk-dropzone-sort').forEach(function (btn) {
+            btn.addEventListener('click', function () { sortRows(btn.dataset.sort); });
+        });
+        if (filterInput) {
+            filterInput.addEventListener('input', applyFilter);
+        }
+        updateTotals();
+    }
+
+    document.querySelectorAll('.avbk-pending-receipts').forEach(initPendingReceipts);
+
     if (draftsEnabled) {
         [activityInput, amountInput, ibanInput, noteInput].forEach(function (field) {
             if (!field) return;

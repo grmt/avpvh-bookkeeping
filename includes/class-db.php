@@ -3552,22 +3552,22 @@ class AVBK_DB {
         return $updated !== false;
     }
 
-    /** Fetches one receipt row belonging to a member's draft declaration, or null. */
-    public static function get_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
+    /** Fetches one receipt row belonging to a member's reimbursement in the given status ('draft' or 'pending'). */
+    public static function get_member_receipt(int $reimbursement_id, int $receipt_id, int $member_id, string $status): ?object {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare(
             "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
              JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
-             WHERE r.id = %d AND rr.id = %d AND r.member_id = %d AND r.status = 'draft'
+             WHERE r.id = %d AND rr.id = %d AND r.member_id = %d AND r.status = %s
              LIMIT 1",
-            $draft_id, $receipt_id, $member_id
+            $reimbursement_id, $receipt_id, $member_id, $status
         )) ?: null;
     }
 
-    /** Updates fields of one receipt row inside a member's draft declaration. */
-    public static function update_draft_receipt(int $draft_id, int $receipt_id, int $member_id, array $data): bool {
+    /** Updates fields of one receipt row inside a member's draft or pending reimbursement. */
+    public static function update_member_receipt(int $reimbursement_id, int $receipt_id, int $member_id, array $data, string $status = 'pending'): bool {
         global $wpdb;
-        if (!self::get_draft_receipt($draft_id, $receipt_id, $member_id)) {
+        if (!self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, $status)) {
             return false;
         }
         $fields = [];
@@ -3587,12 +3587,22 @@ class AVBK_DB {
             }
         }
         if ($fields) {
-            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id, 'reimbursement_id' => $draft_id]);
+            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id, 'reimbursement_id' => $reimbursement_id]);
         }
         if (array_key_exists('description', $fields)) {
-            self::refresh_reimbursement_description_summary($draft_id);
+            self::refresh_reimbursement_description_summary($reimbursement_id);
         }
         return true;
+    }
+
+    /** Fetches one receipt row belonging to a member's draft declaration, or null. */
+    public static function get_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
+        return self::get_member_receipt($draft_id, $receipt_id, $member_id, 'draft');
+    }
+
+    /** Updates fields of one receipt row inside a member's draft declaration. */
+    public static function update_draft_receipt(int $draft_id, int $receipt_id, int $member_id, array $data): bool {
+        return self::update_member_receipt($draft_id, $receipt_id, $member_id, $data, 'draft');
     }
 
     /** Deletes one receipt row from a member's draft declaration; returns the deleted row so the caller can unlink its file. */

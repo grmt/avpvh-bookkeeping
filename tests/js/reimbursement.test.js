@@ -517,3 +517,128 @@ describe('automatic server-side drafts', () => {
         expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
     });
 });
+
+describe('pending declaration receipt table', () => {
+    function loadPendingTable() {
+        document.body.innerHTML = `
+            <form id="avbk-reimbursement-form">
+                <div id="avbk-dropzone"><input type="file" id="avbk-receipt-input" multiple></div>
+                <p id="avbk-ocr-status" hidden></p>
+                <table id="avbk-dropzone-table" hidden><tbody id="avbk-dropzone-list"></tbody></table>
+                <input id="avbk-amount">
+            </form>
+            <table><tbody><tr class="avbk-reimbursement-edit-row"><td>
+                <div class="avbk-pending-receipts" data-reimbursement-id="7">
+                    <div class="avbk-pending-toolbar">
+                        <input type="search" class="avbk-pending-filter">
+                        <span class="avbk-pending-status"></span>
+                    </div>
+                    <table class="avbk-pending-table">
+                        <thead><tr>
+                            <th>Foto</th>
+                            <th><button type="button" class="avbk-dropzone-sort" data-sort="date">Datum <span class="avbk-sort-indicator">↕</span></button></th>
+                            <th><button type="button" class="avbk-dropzone-sort" data-sort="store">Winkel <span class="avbk-sort-indicator">↕</span></button></th>
+                            <th><button type="button" class="avbk-dropzone-sort" data-sort="description">Omschrijving <span class="avbk-sort-indicator">↕</span></button></th>
+                            <th><button type="button" class="avbk-dropzone-sort" data-sort="amount">Bedrag <span class="avbk-sort-indicator">↕</span></button></th>
+                            <th></th>
+                        </tr></thead>
+                        <tbody>
+                            <tr class="avbk-pending-row" data-receipt-id="11" data-date="2026-08-08" data-photo-url="/photo/11">
+                                <td><button type="button" class="avbk-pending-zoom"><img src="/photo/11"></button></td>
+                                <td>
+                                    <input class="avbk-pending-input" data-field="date" value="08-08-2026">
+                                    <button type="button" class="avbk-pending-date-pick">📅</button>
+                                    <input type="date" class="avbk-pending-date-picker" value="2026-08-08">
+                                </td>
+                                <td><input class="avbk-pending-input" data-field="store" value="Bakker"></td>
+                                <td><input class="avbk-pending-input" data-field="description" value="brood"></td>
+                                <td><input class="avbk-pending-input" data-field="amount" value="53,80"></td>
+                                <td></td>
+                            </tr>
+                            <tr class="avbk-pending-row" data-receipt-id="12" data-date="" data-photo-url="">
+                                <td><span>geen foto</span></td>
+                                <td><input class="avbk-pending-input" data-field="date" value=""></td>
+                                <td><input class="avbk-pending-input" data-field="store" value="Kantine"></td>
+                                <td><input class="avbk-pending-input" data-field="description" value=""></td>
+                                <td><input class="avbk-pending-input" data-field="amount" value="10,00"></td>
+                                <td></td>
+                            </tr>
+                            <tr class="avbk-pending-row" data-receipt-id="13" data-date="2026-08-02" data-photo-url="/photo/13">
+                                <td><button type="button" class="avbk-pending-zoom"><img src="/photo/13"></button></td>
+                                <td><input class="avbk-pending-input" data-field="date" value="02-08-2026"></td>
+                                <td><input class="avbk-pending-input" data-field="store" value="Aldi"></td>
+                                <td><input class="avbk-pending-input" data-field="description" value="appels"></td>
+                                <td><input class="avbk-pending-input" data-field="amount" value="20,20"></td>
+                                <td></td>
+                            </tr>
+                        </tbody>
+                        <tfoot><tr>
+                            <td colspan="4"><strong class="avbk-pending-count"></strong></td>
+                            <td><strong class="avbk-pending-total"></strong></td>
+                            <td></td>
+                        </tr></tfoot>
+                    </table>
+                </div>
+                <form><input name="amount" value="84,00"></form>
+            </td></tr></tbody></table>
+            <script type="application/json" id="avbk-reimbursement-config">${JSON.stringify({ ajaxUrl: '/wp-admin/admin-ajax.php', nonce: 'n', engines: { google: 'Google' } })}</script>`;
+        Object.defineProperty(document.getElementById('avbk-receipt-input'), 'files', { writable: true, value: [] });
+        start();
+    }
+
+    it('sorts by date, store and amount, filters with live totals, and saves row edits', async () => {
+        loadPendingTable();
+        const pendingRows = () => [...document.querySelectorAll('.avbk-pending-row')];
+        const stores = () => pendingRows().map((r) => r.querySelector('[data-field="store"]').value);
+
+        expect(document.querySelector('.avbk-pending-count').textContent).toBe('Totaal (3 regels)');
+        expect(document.querySelector('.avbk-pending-total').textContent).toBe('€ 84,00');
+
+        // Sort by date asc -> undated row stays at bottom.
+        document.querySelector('.avbk-dropzone-sort[data-sort="date"]').click();
+        expect(stores()).toEqual(['Aldi', 'Bakker', 'Kantine']);
+        // Sort by amount desc.
+        const amtSort = document.querySelector('.avbk-dropzone-sort[data-sort="amount"]');
+        amtSort.click();
+        expect(stores()).toEqual(['Kantine', 'Aldi', 'Bakker']);
+        amtSort.click();
+        expect(stores()).toEqual(['Bakker', 'Aldi', 'Kantine']);
+        // Sort by store asc.
+        document.querySelector('.avbk-dropzone-sort[data-sort="store"]').click();
+        expect(stores()).toEqual(['Aldi', 'Bakker', 'Kantine']);
+
+        // Filter by text -> updates count and visible total.
+        const filter = document.querySelector('.avbk-pending-filter');
+        type(filter, 'bakker');
+        expect(pendingRows().filter((r) => !r.hidden)).toHaveLength(1);
+        expect(document.querySelector('.avbk-pending-count').textContent).toBe('Totaal (1 van 3 regels)');
+        expect(document.querySelector('.avbk-pending-total').textContent).toBe('€ 53,80');
+        type(filter, '');
+        expect(document.querySelector('.avbk-pending-total').textContent).toBe('€ 84,00');
+
+        // Edit amount -> live total + parent declaration amount update, and blur saves via AJAX.
+        replies.push(reply({ success: true, data: { saved: true } }));
+        const bakkerRow = pendingRows().find((r) => r.dataset.receiptId === '11');
+        const amtIn = bakkerRow.querySelector('[data-field="amount"]');
+        type(amtIn, '60,00');
+        amtIn.dispatchEvent(new Event('blur'));
+        await settle();
+        expect(document.querySelector('.avbk-pending-total').textContent).toBe('€ 90,20');
+        expect(document.querySelector('form input[name="amount"]').value).toBe('90,20');
+        expect(sent(0)).toMatchObject({ action: 'avbk_member_update_receipt', reimbursement_id: '7', receipt_id: '11', amount: '60' });
+
+        // Open photo in viewer -> navigate and apply an edit directly.
+        replies.push(reply({ success: true, data: { saved: true } }));
+        bakkerRow.querySelector('.avbk-pending-zoom').click();
+        const [src, options] = viewer.open.mock.calls[0];
+        expect(src).toBe('/photo/11');
+        expect([options.nav.index, options.nav.total, options.nav.hasPrev, options.nav.hasNext]).toEqual([2, 3, true, false]);
+        options.apply('store', 'Bakkerij');
+        await settle();
+        expect(bakkerRow.querySelector('[data-field="store"]').value).toBe('Bakkerij');
+        expect(sent(1)).toMatchObject({ action: 'avbk_member_update_receipt', receipt_id: '11', store: 'Bakkerij' });
+        options.nav.prev();
+        expect(viewer.open.mock.calls[1][0]).toBe('/photo/13');
+        options.onClose();
+    });
+});
