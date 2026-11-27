@@ -1278,6 +1278,18 @@ class AVBK_DB {
         if (version_compare($version, '1.57', '<') && self::install_reimbursement_note_schema()) {
             update_option('avbk_db_version', '1.57');
         }
+        if (version_compare($version, '1.58', '<') && self::install_reimbursement_draft_schema()) {
+            update_option('avbk_db_version', '1.58');
+        }
+    }
+
+    /** Declaraties: allow saving an in-progress declaration as a 'draft' before submitting. */
+    private static function install_reimbursement_draft_schema(): bool {
+        global $wpdb;
+        $table = "{$wpdb->prefix}avb_reimbursements";
+        $wpdb->query("ALTER TABLE $table MODIFY COLUMN status ENUM('draft','pending','paid','rejected','withdrawn') NOT NULL DEFAULT 'pending'"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed DDL.
+        $col = $wpdb->get_row("SHOW COLUMNS FROM $table LIKE 'status'"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
+        return $col && str_contains((string) ($col->Type ?? ''), "'draft'");
     }
 
     /**
@@ -3261,6 +3273,7 @@ class AVBK_DB {
     /** Creates the parent row only — the caller adds one or more receipts via add_reimbursement_receipt(). */
     public static function create_reimbursement(array $data): int {
         global $wpdb;
+        $status = ($data['status'] ?? 'pending') === 'draft' ? 'draft' : 'pending';
         $wpdb->insert("{$wpdb->prefix}avb_reimbursements", [
             'member_id'   => (int) $data['member_id'],
             'activity_id' => $data['activity_id'] ?: null,
@@ -3269,6 +3282,7 @@ class AVBK_DB {
             'amount'      => (float) $data['amount'],
             'ocr_amount'  => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
             'iban'        => strtoupper(str_replace(' ', '', (string) $data['iban'])),
+            'status'      => $status,
         ]);
         return (int) $wpdb->insert_id;
     }
@@ -3415,14 +3429,16 @@ class AVBK_DB {
      * the penningmeester actually looked at it and said no, so it can be
      * fixed and resubmitted, but not just re-uploaded unchanged.
      */
-    public static function find_duplicate_receipt(int $member_id, string $receipt_hash, ?string $ocr_date, ?string $ocr_store): ?object {
+    public static function find_duplicate_receipt(int $member_id, string $receipt_hash, ?string $ocr_date, ?string $ocr_store, int $exclude_receipt_id = 0, bool $ignore_drafts = false): ?object {
         global $wpdb;
+        $status_clause = $ignore_drafts ? "r.status NOT IN ('withdrawn', 'draft')" : "r.status != 'withdrawn'";
+        $legacy_status_clause = $ignore_drafts ? "status NOT IN ('withdrawn', 'draft')" : "status != 'withdrawn'";
         if ($receipt_hash !== '') {
             $by_hash = $wpdb->get_row($wpdb->prepare(
                 "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
                  JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
-                 WHERE r.member_id = %d AND rr.receipt_hash = %s AND r.status != 'withdrawn' LIMIT 1",
-                $member_id, $receipt_hash
+                 WHERE r.member_id = %d AND rr.receipt_hash = %s AND rr.id != %d AND {$status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
+                $member_id, $receipt_hash, $exclude_receipt_id
             ));
             if ($by_hash) {
                 return $by_hash;
@@ -3431,7 +3447,7 @@ class AVBK_DB {
             // row (see get_reimbursement_receipts()) — check the parent's
             // own columns too so those aren't a blind spot.
             $by_hash_legacy = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND receipt_hash = %s AND status != 'withdrawn' LIMIT 1",
+                "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND receipt_hash = %s AND {$legacy_status_clause} LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
                 $member_id, $receipt_hash
             ));
             if ($by_hash_legacy) {
@@ -3444,17 +3460,17 @@ class AVBK_DB {
         $by_fields = $wpdb->get_row($wpdb->prepare(
             "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
              JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
-             WHERE r.member_id = %d AND rr.ocr_date = %s AND LOWER(TRIM(rr.ocr_store)) = LOWER(TRIM(%s)) AND r.status != 'withdrawn'
-             LIMIT 1",
-            $member_id, $ocr_date, $ocr_store
+             WHERE r.member_id = %d AND rr.ocr_date = %s AND LOWER(TRIM(rr.ocr_store)) = LOWER(TRIM(%s)) AND rr.id != %d AND {$status_clause}
+             LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
+            $member_id, $ocr_date, $ocr_store, $exclude_receipt_id
         ));
         if ($by_fields) {
             return $by_fields;
         }
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}avb_reimbursements
-             WHERE member_id = %d AND ocr_date = %s AND LOWER(TRIM(ocr_store)) = LOWER(TRIM(%s)) AND status != 'withdrawn'
-             LIMIT 1",
+             WHERE member_id = %d AND ocr_date = %s AND LOWER(TRIM(ocr_store)) = LOWER(TRIM(%s)) AND {$legacy_status_clause}
+             LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- fixed status filter.
             $member_id, $ocr_date, $ocr_store
         )) ?: null;
     }
@@ -3477,9 +3493,151 @@ class AVBK_DB {
     public static function get_reimbursements_for_member(int $member_id): array {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d ORDER BY created_at DESC",
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND status != 'draft' ORDER BY created_at DESC",
             $member_id
         )) ?: [];
+    }
+
+    /** The member's currently open draft declaration, if any. */
+    public static function get_draft_reimbursement(int $member_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}avb_reimbursements WHERE member_id = %d AND status = 'draft' ORDER BY id DESC LIMIT 1",
+            $member_id
+        )) ?: null;
+    }
+
+    /** Returns the member's open draft ID, creating an empty draft row when none exists yet. */
+    public static function get_or_create_draft_reimbursement(int $member_id, string $default_iban = ''): int {
+        $existing = self::get_draft_reimbursement($member_id);
+        if ($existing) {
+            return (int) $existing->id;
+        }
+        return self::create_reimbursement([
+            'member_id'   => $member_id,
+            'activity_id' => null,
+            'description' => '',
+            'member_note' => '',
+            'amount'      => 0.0,
+            'ocr_amount'  => null,
+            'iban'        => $default_iban,
+            'status'      => 'draft',
+        ]);
+    }
+
+    /** Saves header fields of a member's draft declaration (ownership + draft status guarded). */
+    public static function update_draft_reimbursement(int $id, int $member_id, array $data): bool {
+        global $wpdb;
+        $fields = [];
+        if (array_key_exists('activity_id', $data)) {
+            $fields['activity_id'] = $data['activity_id'] ?: null;
+        }
+        if (array_key_exists('member_note', $data)) {
+            $fields['member_note'] = (string) $data['member_note'];
+        }
+        if (array_key_exists('amount', $data)) {
+            $fields['amount'] = max(0.0, (float) $data['amount']);
+        }
+        if (array_key_exists('iban', $data)) {
+            $fields['iban'] = strtoupper(str_replace(' ', '', (string) $data['iban']));
+        }
+        if (!$fields) {
+            return false;
+        }
+        $updated = $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            $fields,
+            ['id' => $id, 'member_id' => $member_id, 'status' => 'draft']
+        );
+        return $updated !== false;
+    }
+
+    /** Fetches one receipt row belonging to a member's draft declaration, or null. */
+    public static function get_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT rr.* FROM {$wpdb->prefix}avb_reimbursement_receipts rr
+             JOIN {$wpdb->prefix}avb_reimbursements r ON r.id = rr.reimbursement_id
+             WHERE r.id = %d AND rr.id = %d AND r.member_id = %d AND r.status = 'draft'
+             LIMIT 1",
+            $draft_id, $receipt_id, $member_id
+        )) ?: null;
+    }
+
+    /** Updates fields of one receipt row inside a member's draft declaration. */
+    public static function update_draft_receipt(int $draft_id, int $receipt_id, int $member_id, array $data): bool {
+        global $wpdb;
+        if (!self::get_draft_receipt($draft_id, $receipt_id, $member_id)) {
+            return false;
+        }
+        $fields = [];
+        foreach (['description', 'store', 'ocr_store'] as $text_field) {
+            if (array_key_exists($text_field, $data)) {
+                $fields[$text_field] = (string) $data[$text_field];
+            }
+        }
+        foreach (['date', 'ocr_date'] as $date_field) {
+            if (array_key_exists($date_field, $data)) {
+                $fields[$date_field] = $data[$date_field] ?: null;
+            }
+        }
+        foreach (['amount', 'ocr_amount'] as $num_field) {
+            if (array_key_exists($num_field, $data)) {
+                $fields[$num_field] = $data[$num_field] !== null ? (float) $data[$num_field] : null;
+            }
+        }
+        if ($fields) {
+            $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id, 'reimbursement_id' => $draft_id]);
+        }
+        if (array_key_exists('description', $fields)) {
+            self::refresh_reimbursement_description_summary($draft_id);
+        }
+        return true;
+    }
+
+    /** Deletes one receipt row from a member's draft declaration; returns the deleted row so the caller can unlink its file. */
+    public static function delete_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
+        global $wpdb;
+        $receipt = self::get_draft_receipt($draft_id, $receipt_id, $member_id);
+        if (!$receipt) {
+            return null;
+        }
+        $wpdb->delete("{$wpdb->prefix}avb_reimbursement_receipts", ['id' => $receipt_id, 'reimbursement_id' => $draft_id]);
+        self::refresh_reimbursement_description_summary($draft_id);
+        return $receipt;
+    }
+
+    /** Deletes a member's draft declaration and all its receipt rows; returns the receipt paths for disk cleanup. */
+    public static function delete_draft_reimbursement(int $draft_id, int $member_id): array {
+        global $wpdb;
+        $draft = self::get_reimbursement($draft_id);
+        if (!$draft || (int) $draft->member_id !== $member_id || $draft->status !== 'draft') {
+            return [];
+        }
+        $receipts = self::get_reimbursement_receipts($draft_id);
+        $paths = array_values(array_filter(wp_list_pluck($receipts, 'receipt_path')));
+        $wpdb->delete("{$wpdb->prefix}avb_reimbursement_receipts", ['reimbursement_id' => $draft_id]);
+        $wpdb->delete("{$wpdb->prefix}avb_reimbursements", ['id' => $draft_id, 'member_id' => $member_id, 'status' => 'draft']);
+        return $paths;
+    }
+
+    /** Promotes a member's draft declaration to 'pending' when submitted. */
+    public static function submit_draft_reimbursement(int $draft_id, int $member_id, array $data): bool {
+        global $wpdb;
+        $updated = $wpdb->update(
+            "{$wpdb->prefix}avb_reimbursements",
+            [
+                'activity_id' => $data['activity_id'] ?: null,
+                'member_note' => (string) ($data['member_note'] ?? ''),
+                'amount'      => (float) $data['amount'],
+                'ocr_amount'  => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
+                'iban'        => strtoupper(str_replace(' ', '', (string) $data['iban'])),
+                'status'      => 'pending',
+                'created_at'  => current_time('mysql'),
+            ],
+            ['id' => $draft_id, 'member_id' => $member_id, 'status' => 'draft']
+        );
+        return (bool) $updated;
     }
 
     public static function count_pending_reimbursements(): int {

@@ -199,6 +199,44 @@ tr.avbk-dropzone-item-active {
     border-left-color: #b32d2e;
 }
 
+.avbk-draft-bar[hidden] {
+    display: none;
+}
+
+.avbk-draft-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .75rem;
+    padding: .5rem .75rem;
+    background: #f0f6fc;
+    border-left: 4px solid #2271b1;
+    font-size: .9em;
+    color: #1d2327;
+}
+
+.avbk-draft-status-error {
+    color: #b32d2e;
+    font-weight: 600;
+}
+
+.avbk-draft-discard {
+    padding: .2rem .55rem;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    background: #fff;
+    color: #b32d2e;
+    cursor: pointer;
+    font-size: .9em;
+}
+
+.avbk-draft-discard:hover {
+    border-color: #b32d2e;
+    background: #fbeaea;
+}
+
 .avbk-reimbursement-table {
     width: 100%;
     border-collapse: collapse;

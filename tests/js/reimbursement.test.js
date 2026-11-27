@@ -318,3 +318,150 @@ describe('the rest of the form', () => {
         expect(() => start()).not.toThrow();
     });
 });
+
+describe('automatic server-side drafts', () => {
+    async function loadDraftForm({ draft = null, engines = { docling: 'Docling', google: 'Google' } } = {}) {
+        document.body.innerHTML = `
+            <form id="avbk-reimbursement-form">
+                <input type="hidden" name="draft_id" id="avbk-draft-id" value="${draft ? draft.id : ''}">
+                <div class="avbk-draft-bar" id="avbk-draft-bar" ${draft ? '' : 'hidden'}>
+                    <span id="avbk-draft-status"></span>
+                    <button type="button" id="avbk-draft-discard">Concept wissen</button>
+                </div>
+                <select id="avbk-activity"><option value="">geen</option><option value="9">Kamp</option></select>
+                <select class="avbk-iban-select" data-target="avbk-iban"><option value="">anders</option><option value="NL00TEST0000000001">opgeslagen</option></select>
+                <input id="avbk-iban" value="NL00TEST0000000001" hidden>
+                <div id="avbk-dropzone"><input type="file" id="avbk-receipt-input" multiple></div>
+                <button type="button" id="avbk-add-manual-row">+ Regel</button>
+                <p id="avbk-ocr-status" hidden></p>
+                <table id="avbk-dropzone-table" hidden><tbody id="avbk-dropzone-list"></tbody></table>
+                <input id="avbk-amount" value="${draft?.amount ?? ''}">
+                <textarea id="avbk-member-note"></textarea>
+                <button type="submit">Declareren</button>
+            </form>
+            ${draft ? `<script type="application/json" id="avbk-reimbursement-draft">${JSON.stringify(draft)}</script>` : ''}
+            <script type="application/json" id="avbk-reimbursement-config">${JSON.stringify({ ajaxUrl: '/wp-admin/admin-ajax.php', nonce: 'n', engines })}</script>`;
+        Object.defineProperty(document.getElementById('avbk-receipt-input'), 'files', { writable: true, value: [] });
+        start();
+    }
+
+    it('creates a draft on upload, saves edits and retries, and removes rows on the server', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadDraftForm();
+            replies.push(reply({ success: true, data: { draft_id: 42 } }));
+            replies.push(reply({
+                success: true,
+                data: {
+                    ...found,
+                    draft_id: 42,
+                    receipt_id: 101,
+                    photo_url: '/wp-admin/admin-post.php?action=avbk_view_receipt&id=42&receipt=101',
+                    is_image: true,
+                    is_pdf: false,
+                },
+            }));
+            addFiles(photo());
+            await vi.advanceTimersByTimeAsync(10);
+
+            expect(sent(0)).toEqual({ action: 'avbk_draft_ensure', nonce: 'n', iban: 'NL00TEST0000000001' });
+            expect(sent(1)).toMatchObject({ action: 'avbk_draft_add_receipt', draft_id: '42' });
+            expect(document.getElementById('avbk-draft-id').value).toBe('42');
+            expect(document.getElementById('avbk-draft-bar').hidden).toBe(false);
+            expect(cell(rows()[0], 'input[name="receipt_id[]"]').value).toBe('101');
+            expect(document.getElementById('avbk-receipt-input').files).toHaveLength(0);
+
+            // Editing via viewer saves immediately.
+            replies.push(reply({ success: true, data: { saved: true } }));
+            cell(rows()[0], '.avbk-dropzone-item-zoom').click();
+            viewer.open.mock.calls[0][1].apply('store', 'Supermarkt');
+            await vi.advanceTimersByTimeAsync(10);
+            expect(sent(2)).toMatchObject({ action: 'avbk_draft_save_receipt', draft_id: '42', receipt_id: '101', store: 'Supermarkt' });
+
+            // Typing in table row + header saves after debounce.
+            replies.push(reply({ success: true, data: { saved: true } }));
+            replies.push(reply({ success: true, data: { draft_id: 42 } }));
+            type(cell(rows()[0], '.avbk-dropzone-item-description'), 'brood');
+            document.getElementById('avbk-activity').value = '9';
+            document.getElementById('avbk-activity').dispatchEvent(new Event('change'));
+            await vi.advanceTimersByTimeAsync(450);
+            const actions = fetch.mock.calls.slice(3).map((_, idx) => sent(3 + idx).action);
+            expect(actions).toContain('avbk_draft_save_receipt');
+            expect(actions).toContain('avbk_draft_save');
+
+            // Retry uses avbk_draft_retry_receipt against the stored receipt_id.
+            const beforeRetry = fetch.mock.calls.length;
+            replies.push(reply({ success: true, data: { ...found, amount: 15.0 } }));
+            replies.push(reply({ success: true, data: { saved: true } }));
+            cell(rows()[0], '.avbk-dropzone-item-retry').click();
+            await vi.advanceTimersByTimeAsync(10);
+            expect(sent(beforeRetry)).toMatchObject({ action: 'avbk_draft_retry_receipt', draft_id: '42', receipt_id: '101', engine: 'google' });
+
+            // Removing the row calls avbk_draft_remove_receipt.
+            const beforeRemove = fetch.mock.calls.length;
+            replies.push(reply({ success: true, data: { removed: true } }));
+            cell(rows()[0], '.avbk-dropzone-item-remove').click();
+            await vi.advanceTimersByTimeAsync(10);
+            expect(sent(beforeRemove)).toEqual({ action: 'avbk_draft_remove_receipt', nonce: 'n', draft_id: '42', receipt_id: '101' });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('hydrates a saved draft on page load and lets the member discard it', async () => {
+        await loadDraftForm({
+            draft: {
+                id: 55,
+                receipts: [
+                    { id: 201, hasReceipt: true, isImage: true, isPdf: false, photoUrl: '/receipt/201', date: '2026-08-03', store: 'Bakker', description: 'brood', amount: 31.7 },
+                    { id: 202, hasReceipt: true, isImage: false, isPdf: true, photoUrl: '/receipt/202', date: '', store: '', description: '', amount: null },
+                    { id: 203, hasReceipt: false, isImage: false, isPdf: false, photoUrl: '', date: '', store: 'Koffie', description: '', amount: 4.3 },
+                ],
+            },
+        });
+        expect(rows()).toHaveLength(3);
+        expect(document.getElementById('avbk-amount').value).toBe('36,00');
+        expect(cell(rows()[0], '.avbk-dropzone-item-photo').getAttribute('src')).toBe('/receipt/201');
+        expect(rows()[1].cells[0].textContent).toBe('pdf');
+        expect(rows()[2].cells[0].textContent).toBe('geen foto');
+        expect(cell(rows()[0], '.avbk-dropzone-item-progress').textContent).toBe('✓ gelezen');
+        expect(cell(rows()[1], '.avbk-dropzone-item-progress').textContent).toBe('niets gelezen – vul zelf in');
+
+        // Opening the restored image uses its server URL.
+        cell(rows()[0], '.avbk-dropzone-item-zoom').click();
+        expect(viewer.open.mock.calls[0][0]).toBe('/receipt/201');
+
+        // Discarding can be cancelled or confirmed.
+        vi.stubGlobal('confirm', vi.fn(() => false));
+        document.getElementById('avbk-draft-discard').click();
+        expect(rows()).toHaveLength(3);
+
+        confirm.mockReturnValue(true);
+        replies.push(reply({ success: true, data: { discarded: true } }));
+        document.getElementById('avbk-draft-discard').click();
+        await settle();
+        expect(sent(0)).toEqual({ action: 'avbk_draft_discard', nonce: 'n', draft_id: '55' });
+        expect(rows()).toHaveLength(0);
+        expect(document.getElementById('avbk-draft-id').value).toBe('');
+        expect(document.getElementById('avbk-draft-bar').hidden).toBe(true);
+    });
+
+    it('adds manual rows to the draft, flushes early edits, and shows save errors', async () => {
+        await loadDraftForm();
+        let finishManual;
+        replies.push(reply({ success: true, data: { draft_id: 77 } }));
+        replies.push(new Promise((resolve) => { finishManual = resolve; }));
+        document.getElementById('avbk-add-manual-row').click();
+        await settle();
+
+        // Edit before receipt_id arrives -> marked dirty and flushed once manual row is created.
+        type(cell(rows()[0], '.avbk-dropzone-item-store'), 'Kantine');
+        replies.push(reply({ success: false, data: 'Fout' }));
+        finishManual({ json: () => Promise.resolve({ success: true, data: { draft_id: 77, receipt_id: 301 } }) });
+        await settle();
+
+        expect(sent(1)).toMatchObject({ action: 'avbk_draft_add_manual', draft_id: '77' });
+        expect(sent(2)).toMatchObject({ action: 'avbk_draft_save_receipt', draft_id: '77', receipt_id: '301', store: 'Kantine' });
+        expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+    });
+});

@@ -57,6 +57,11 @@ function avbkProgress(entry) {
 function avbkNewEntry(file) {
     return {
         file: file,
+        receiptId: null,
+        hasReceipt: Boolean(file),
+        isImage: Boolean(file?.type.startsWith('image/')),
+        isPdf: Boolean(file && /pdf$/i.test(file.name)),
+        photoUrl: '',
         status: file ? 'reading' : 'ok',
         amount: null,
         amountEdited: false,
@@ -65,15 +70,44 @@ function avbkNewEntry(file) {
         description: '',
         descriptionEdited: false,
         date: '',
-        dateEdited: false
+        dateEdited: false,
+        dirty: false,
+        saveTimer: null
+    };
+}
+
+function avbkEntryFromDraft(raw) {
+    const amount = raw.amount === null || raw.amount === undefined ? null : Number(raw.amount);
+    const hasRead = amount !== null || Boolean(raw.store) || Boolean(raw.date);
+    return {
+        file: null,
+        receiptId: raw.id || null,
+        hasReceipt: Boolean(raw.hasReceipt),
+        isImage: Boolean(raw.isImage),
+        isPdf: Boolean(raw.isPdf),
+        photoUrl: raw.photoUrl || '',
+        status: 'ok',
+        read: hasRead ? 'ok' : 'none',
+        amount: amount,
+        amountEdited: amount !== null,
+        store: raw.store || '',
+        storeEdited: Boolean(raw.store),
+        description: raw.description || '',
+        descriptionEdited: Boolean(raw.description),
+        date: raw.date || '',
+        dateEdited: Boolean(raw.date),
+        dirty: false,
+        saveTimer: null
     };
 }
 
 function avbkPhotoUrl(entry) {
-    if (!entry.url) {
+    if (entry.url) return entry.url;
+    if (entry.file) {
         entry.url = URL.createObjectURL(entry.file);
+        return entry.url;
     }
-    return entry.url;
+    return entry.photoUrl || '';
 }
 
 /** "Klaar: 3 bonnetjes gelezen, bij 1 niets gevonden. " (empty without scanned receipts). */
@@ -112,11 +146,24 @@ document.addEventListener('DOMContentLoaded', function () {
     const addManualRowBtn = document.getElementById('avbk-add-manual-row');
     const form = document.getElementById('avbk-reimbursement-form');
     const submitButton = form?.querySelector('button[type="submit"]');
+    const draftIdInput = document.getElementById('avbk-draft-id');
+    const draftBar = document.getElementById('avbk-draft-bar');
+    const draftStatusEl = document.getElementById('avbk-draft-status');
+    const draftDiscardBtn = document.getElementById('avbk-draft-discard');
+    const draftDataEl = document.getElementById('avbk-reimbursement-draft');
+    const activityInput = document.getElementById('avbk-activity');
+    const ibanInput = document.getElementById('avbk-iban');
+    const noteInput = document.getElementById('avbk-member-note');
     if (!fileInput || !configEl || !statusEl || !amountInput) return;
 
     const cfg = JSON.parse(configEl.textContent);
     const engines = cfg.engines || {};
     const engineCodes = Object.keys(engines);
+    const draftsEnabled = Boolean(draftIdInput);
+    let draftId = draftIdInput?.value ? Number.parseInt(draftIdInput.value, 10) : null;
+    let ensurePromise = null;
+    let savesInFlight = 0;
+    let draftSaveTimer = null;
 
     document.querySelectorAll('.avbk-iban-select').forEach(function (select) {
         const target = document.getElementById(select.dataset.target);
@@ -127,6 +174,9 @@ document.addEventListener('DOMContentLoaded', function () {
             target.hidden = chosen;
             target.required = !chosen;
             if (!chosen) target.focus();
+            if (target === ibanInput) {
+                scheduleDraftSave();
+            }
         });
     });
 
@@ -151,6 +201,125 @@ document.addEventListener('DOMContentLoaded', function () {
     let activeEntry = null;
 
 
+
+    function setDraftId(id) {
+        draftId = id || null;
+        if (draftIdInput) {
+            draftIdInput.value = draftId ? String(draftId) : '';
+        }
+        if (draftBar) {
+            draftBar.hidden = !draftId;
+        }
+    }
+
+    function setDraftStatus(text, isError) {
+        if (!draftStatusEl) return;
+        draftStatusEl.textContent = text;
+        draftStatusEl.classList.toggle('avbk-draft-status-error', Boolean(isError));
+    }
+
+    function postAjax(action, fields) {
+        const body = new FormData();
+        body.append('action', action);
+        body.append('nonce', cfg.nonce);
+        Object.keys(fields || {}).forEach(function (key) {
+            const value = fields[key];
+            if (value !== undefined && value !== null) {
+                body.append(key, value);
+            }
+        });
+        return fetch(cfg.ajaxUrl, { method: 'POST', body: body })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data?.success) return data.data;
+                throw new Error(typeof data?.data === 'string' ? data.data : 'Opslaan mislukt');
+            });
+    }
+
+    function beginSave() {
+        savesInFlight++;
+        setDraftStatus('Concept wordt opgeslagen…', false);
+    }
+
+    function finishSave(ok) {
+        savesInFlight = Math.max(0, savesInFlight - 1);
+        if (!ok) {
+            setDraftStatus('Kon concept niet opslaan — laat dit tabblad open', true);
+        } else if (savesInFlight === 0 && draftId) {
+            setDraftStatus('✓ Concept automatisch opgeslagen — je kunt later verdergaan', false);
+        }
+    }
+
+    function ensureDraft() {
+        if (!draftsEnabled) return Promise.resolve(null);
+        if (draftId) return Promise.resolve(draftId);
+        if (ensurePromise) return ensurePromise;
+        ensurePromise = postAjax('avbk_draft_ensure', { iban: ibanInput?.value || '' })
+            .then(function (data) {
+                setDraftId(data.draft_id);
+                return draftId;
+            })
+            .finally(function () {
+                ensurePromise = null;
+            });
+        return ensurePromise;
+    }
+
+    function saveDraftHeader() {
+        if (!draftsEnabled || !draftId) return;
+        beginSave();
+        postAjax('avbk_draft_save', {
+            draft_id: String(draftId),
+            activity_id: activityInput?.value || '',
+            amount: amountInput.value || '',
+            iban: ibanInput?.value || '',
+            member_note: noteInput?.value || ''
+        }).then(function () {
+            finishSave(true);
+        }, function () {
+            finishSave(false);
+        });
+    }
+
+    function scheduleDraftSave() {
+        if (!draftsEnabled || !draftId) return;
+        clearTimeout(draftSaveTimer);
+        draftSaveTimer = setTimeout(saveDraftHeader, 400);
+    }
+
+    function saveReceiptNow(entry) {
+        if (!draftsEnabled || !draftId || !entry.receiptId) {
+            entry.dirty = true;
+            return;
+        }
+        clearTimeout(entry.saveTimer);
+        entry.saveTimer = null;
+        entry.dirty = false;
+        beginSave();
+        postAjax('avbk_draft_save_receipt', {
+            draft_id: String(draftId),
+            receipt_id: String(entry.receiptId),
+            date: entry.date || '',
+            store: entry.store || '',
+            description: entry.description || '',
+            amount: entry.amount !== null && entry.amount !== undefined ? String(entry.amount) : ''
+        }).then(function () {
+            finishSave(true);
+        }, function () {
+            finishSave(false);
+        });
+    }
+
+    function scheduleReceiptSave(entry, immediate) {
+        if (!draftsEnabled) return;
+        entry.dirty = true;
+        clearTimeout(entry.saveTimer);
+        if (immediate) {
+            saveReceiptNow(entry);
+        } else {
+            entry.saveTimer = setTimeout(function () { saveReceiptNow(entry); }, 400);
+        }
+    }
 
     /** Reads one selected part of a receipt photo; resolves with its text. */
     function readRegion(blob, engine) {
@@ -214,6 +383,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (field === 'amount') {
                     updateAmountSuggestion();
                 }
+                scheduleReceiptSave(entry, true);
                 renderList();
             },
             onClose: function () {
@@ -228,7 +398,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function syncFileInput() {
         const dt = new DataTransfer();
         entries.forEach(function (entry) {
-            if (entry.file) {
+            if (entry.file && !entry.receiptId) {
                 dt.items.add(entry.file);
             }
         });
@@ -241,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function () {
         submitButton.disabled = entries.length === 0 || hasDuplicate;
     }
 
-    function updateAmountSuggestion() {
+    function sumEntryAmounts() {
         let sum = 0;
         let any = false;
         entries.forEach(function (e) {
@@ -250,16 +420,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 any = true;
             }
         });
-        if (!any) return;
+        return any ? sum : null;
+    }
+
+    function updateAmountSuggestion() {
+        const sum = sumEntryAmounts();
+        if (sum === null) return;
         if (!amountInput.value || amountInput.value === lastSuggestedSum) {
             amountInput.value = avbkFormatAmount(sum);
             lastSuggestedSum = amountInput.value;
+            scheduleDraftSave();
         }
     }
 
 
     function updateStatusText() {
-        const scanned = entries.filter(function (e) { return e.file; });
+        const scanned = entries.filter(function (e) { return e.hasReceipt; });
         const reading = scanned.filter(function (e) { return e.status === 'reading'; }).length;
         statusEl.setAttribute('aria-live', 'polite');
         statusEl.classList.toggle('avbk-reimbursement-ocr-status-busy', reading > 0);
@@ -292,10 +468,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function photoCell(entry) {
         const cell = document.createElement('td');
-        if (!entry.file) {
+        if (!entry.hasReceipt) {
             cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', 'geen foto'));
-        } else if (entry.file.type.startsWith('image/') && window.AVBKReceiptViewer) {
-            const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + entry.file.name + ' groot bekijken');
+        } else if (entry.isImage && window.AVBKReceiptViewer) {
+            const labelName = entry.file?.name || entry.store || 'bonnetje';
+            const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + labelName + ' groot bekijken');
             zoom.title = 'Bekijk groot; sleep over datum, winkel of bedrag om het over te nemen';
             const img = avbkElement('img', 'avbk-dropzone-item-photo');
             img.src = avbkPhotoUrl(entry);
@@ -304,7 +481,7 @@ document.addEventListener('DOMContentLoaded', function () {
             zoom.addEventListener('click', function () { openViewer(entry); });
             cell.appendChild(zoom);
         } else {
-            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', /pdf$/i.test(entry.file.name) ? 'pdf' : 'bestand'));
+            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', entry.isPdf ? 'pdf' : 'bestand'));
         }
         return cell;
     }
@@ -339,6 +516,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!fromTyping) {
                 input.value = avbkFormatDate(entry.date);
             }
+            scheduleReceiptSave(entry, !fromTyping);
         }
         input.addEventListener('input', function () { setDate(avbkParseDate(input.value), true); });
         input.addEventListener('blur', function () {
@@ -375,6 +553,7 @@ document.addEventListener('DOMContentLoaded', function () {
         input.addEventListener('input', function () {
             entry[field] = input.value;
             entry[field + 'Edited'] = true;
+            scheduleReceiptSave(entry, false);
         });
         cell.appendChild(input);
         const list = suggestions(input, values);
@@ -386,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const cell = document.createElement('td');
         const input = avbkElement('input', 'avbk-dropzone-item-amount');
         input.type = 'text';
-        input.name = 'amount[]';
+        input.name = 'row_amount[]';
         input.placeholder = '0,00';
         input.inputMode = 'decimal';
         input.value = avbkFormatAmount(entry.amount);
@@ -394,6 +573,7 @@ document.addEventListener('DOMContentLoaded', function () {
             entry.amount = avbkParseAmount(input.value);
             entry.amountEdited = true;
             updateAmountSuggestion();
+            scheduleReceiptSave(entry, false);
         });
         input.addEventListener('blur', function () {
             if (entry.amount !== null) {
@@ -423,22 +603,36 @@ document.addEventListener('DOMContentLoaded', function () {
         const hasReceipt = avbkElement('input');
         hasReceipt.type = 'hidden';
         hasReceipt.name = 'has_receipt[]';
-        hasReceipt.value = entry.file ? '1' : '0';
+        hasReceipt.value = entry.hasReceipt ? '1' : '0';
         cell.appendChild(hasReceipt);
+
+        if (draftsEnabled) {
+            const receiptIdField = avbkElement('input');
+            receiptIdField.type = 'hidden';
+            receiptIdField.name = 'receipt_id[]';
+            receiptIdField.value = entry.receiptId ? String(entry.receiptId) : '';
+            cell.appendChild(receiptIdField);
+        }
 
         if (entry.status === 'duplicate') {
             cell.appendChild(avbkElement('span', 'avbk-dropzone-item-warning', 'al eerder gedeclareerd'));
-        } else if (entry.file) {
+        } else if (entry.hasReceipt) {
             appendProgress(cell, entry);
         }
 
         const remove = avbkButton('avbk-dropzone-item-remove', '×', 'Verwijderen');
         remove.addEventListener('click', function () {
+            clearTimeout(entry.saveTimer);
             if (entry.url) {
                 URL.revokeObjectURL(entry.url);
             }
             if (activeEntry === entry) {
                 activeEntry = null;
+            }
+            if (draftsEnabled && draftId && entry.receiptId) {
+                beginSave();
+                postAjax('avbk_draft_remove_receipt', { draft_id: String(draftId), receipt_id: String(entry.receiptId) })
+                    .then(function () { finishSave(true); }, function () { finishSave(false); });
             }
             entries.splice(index, 1);
             syncFileInput();
@@ -473,10 +667,29 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function addManualRow() {
-        entries.push(avbkNewEntry(null));
+        const entry = avbkNewEntry(null);
+        entries.push(entry);
         updateSubmitState();
         updateStatusText();
         renderList();
+        if (draftsEnabled) {
+            beginSave();
+            ensureDraft()
+                .then(function (id) {
+                    return postAjax('avbk_draft_add_manual', { draft_id: String(id), iban: ibanInput?.value || '' });
+                })
+                .then(function (data) {
+                    setDraftId(data.draft_id);
+                    entry.receiptId = data.receipt_id;
+                    renderList();
+                    if (entry.dirty) {
+                        saveReceiptNow(entry);
+                    }
+                    finishSave(true);
+                }, function () {
+                    finishSave(false);
+                });
+        }
     }
 
     /** The engine to try next for a receipt: the other one when there are two, else the same. */
@@ -486,11 +699,24 @@ document.addEventListener('DOMContentLoaded', function () {
         return engineCodes[(engineCodes.indexOf(current) + 1) % engineCodes.length];
     }
 
-
-    /** Reads a receipt (again), with the given engine or the default. */
-    function readEntry(entry, engine) {
-        entry.status = 'reading';
-        entry.engine = engine || engineCodes[0] || '';
+    function sendReceiptRequest(entry, engine) {
+        if (draftsEnabled && entry.receiptId && draftId) {
+            return postAjax('avbk_draft_retry_receipt', {
+                draft_id: String(draftId),
+                receipt_id: String(entry.receiptId),
+                engine: engine || undefined
+            });
+        }
+        if (draftsEnabled && entry.file) {
+            return ensureDraft().then(function (id) {
+                return postAjax('avbk_draft_add_receipt', {
+                    draft_id: String(id),
+                    iban: ibanInput?.value || '',
+                    receipt: entry.file,
+                    engine: engine || undefined
+                });
+            });
+        }
         const body = new FormData();
         body.append('action', 'avbk_ocr_receipt');
         body.append('nonce', cfg.nonce);
@@ -498,21 +724,49 @@ document.addEventListener('DOMContentLoaded', function () {
         if (engine) {
             body.append('engine', engine);
         }
+        return fetch(cfg.ajaxUrl, { method: 'POST', body: body })
+            .then(function (r) { return r.json(); })
+            .then(function (data) { return data?.success ? data.data : {}; });
+    }
+
+    /** Reads a receipt (again), with the given engine or the default. */
+    function readEntry(entry, engine) {
+        const isRetry = Boolean(draftsEnabled && entry.receiptId && draftId);
+        entry.status = 'reading';
+        entry.engine = engine || engineCodes[0] || '';
+        if (draftsEnabled) {
+            beginSave();
+        }
         updateStatusText();
         renderList();
-        fetch(cfg.ajaxUrl, { method: 'POST', body: body })
-            .then(function (r) { return r.json(); })
+        sendReceiptRequest(entry, engine)
             .then(function (data) {
-                if (data?.success && data.data.duplicate) {
+                if (data?.duplicate) {
                     entry.status = 'duplicate';
+                    if (draftsEnabled) finishSave(true);
                     return;
                 }
+                if (draftsEnabled && data?.receipt_id) {
+                    setDraftId(data.draft_id);
+                    entry.receiptId = data.receipt_id;
+                    entry.photoUrl = data.photo_url || entry.photoUrl;
+                    entry.isImage = Boolean(data.is_image);
+                    entry.isPdf = Boolean(data.is_pdf);
+                    syncFileInput();
+                }
                 entry.status = 'ok';
-                avbkApplyFound(entry, data?.success ? data.data : {});
+                avbkApplyFound(entry, data || {});
+                if (draftsEnabled) {
+                    finishSave(true);
+                    if (entry.dirty || isRetry) {
+                        saveReceiptNow(entry);
+                    }
+                }
             })
             .catch(function () {
                 entry.status = 'ok';
                 entry.read = 'none';
+                if (draftsEnabled) finishSave(false);
             })
             .finally(function () {
                 updateAmountSuggestion();
@@ -523,6 +777,57 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.AVBKReceiptViewer.update(viewerState(entry));
                 }
             });
+    }
+
+    function discardDraft() {
+        if (!draftId || !window.confirm('Concept en bijbehorende bonnetjes verwijderen?')) return;
+        const idToDiscard = draftId;
+        beginSave();
+        postAjax('avbk_draft_discard', { draft_id: String(idToDiscard) })
+            .then(function () {
+                entries.forEach(function (entry) {
+                    clearTimeout(entry.saveTimer);
+                    if (entry.url) URL.revokeObjectURL(entry.url);
+                });
+                entries.length = 0;
+                activeEntry = null;
+                viewingEntry = null;
+                lastSuggestedSum = null;
+                setDraftId(null);
+                if (activityInput) activityInput.value = '';
+                amountInput.value = '';
+                if (noteInput) noteInput.value = '';
+                syncFileInput();
+                updateSubmitState();
+                updateStatusText();
+                renderList();
+                finishSave(true);
+            }, function () {
+                finishSave(false);
+            });
+    }
+
+    function hydrateDraft() {
+        if (!draftDataEl) return;
+        const data = JSON.parse(draftDataEl.textContent);
+        if (!data?.id) return;
+        setDraftId(data.id);
+        (data.receipts || []).forEach(function (raw) {
+            entries.push(avbkEntryFromDraft(raw));
+        });
+        const sum = sumEntryAmounts();
+        if (sum !== null) {
+            const formatted = avbkFormatAmount(sum);
+            if (!amountInput.value) {
+                amountInput.value = formatted;
+            }
+            if (amountInput.value === formatted) {
+                lastSuggestedSum = formatted;
+            }
+        }
+        updateSubmitState();
+        updateStatusText();
+        renderList();
     }
 
     function addFiles(fileListArg) {
@@ -565,5 +870,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (addManualRowBtn) {
         addManualRowBtn.addEventListener('click', addManualRow);
+    }
+
+    if (draftsEnabled) {
+        [activityInput, amountInput, ibanInput, noteInput].forEach(function (field) {
+            if (!field) return;
+            field.addEventListener('input', scheduleDraftSave);
+            field.addEventListener('change', scheduleDraftSave);
+        });
+        if (draftDiscardBtn) {
+            draftDiscardBtn.addEventListener('click', discardDraft);
+        }
+        hydrateDraft();
     }
 });
