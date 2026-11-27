@@ -51,6 +51,53 @@ function avbkProgress(entry) {
     return { kind: 'none', text: 'niets gelezen – vul zelf in' };
 }
 
+function avbkNewEntry(file) {
+    return {
+        file: file,
+        status: file ? 'reading' : 'ok',
+        amount: null,
+        amountEdited: false,
+        store: file ? null : '',
+        storeEdited: false,
+        description: '',
+        descriptionEdited: false,
+        date: '',
+        dateEdited: false
+    };
+}
+
+function avbkPhotoUrl(entry) {
+    if (!entry.url) {
+        entry.url = URL.createObjectURL(entry.file);
+    }
+    return entry.url;
+}
+
+/** "Klaar: 3 bonnetjes gelezen, bij 1 niets gevonden. " (empty without scanned receipts). */
+function avbkDoneText(scanned) {
+    if (!scanned.length) return '';
+    const unread = scanned.filter(function (e) { return e.read !== 'ok'; }).length;
+    const count = scanned.length === 1 ? '1 bonnetje' : scanned.length + ' bonnetjes';
+    const missing = unread ? ', bij ' + unread + ' niets gevonden' : '';
+    return 'Klaar: ' + count + ' gelezen' + missing + '. ';
+}
+
+/** Takes over what the OCR found; a value the member typed is never overwritten. */
+function avbkApplyFound(entry, found) {
+    const hasAmount = found.amount !== null && found.amount !== undefined;
+    entry.read = hasAmount || found.store || found.date ? 'ok' : 'none';
+    entry.candidates = found.candidates || null;
+    if (!entry.amountEdited && hasAmount) {
+        entry.amount = found.amount;
+    }
+    if (!entry.storeEdited && found.store) {
+        entry.store = found.store;
+    }
+    if (!entry.dateEdited && found.date) {
+        entry.date = found.date;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     const fileInput = document.getElementById('avbk-receipt-input');
     const configEl = document.getElementById('avbk-reimbursement-config');
@@ -98,27 +145,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastSuggestedSum = null;
     let listCount = 0;
 
-    function newEntry(file) {
-        return {
-            file: file,
-            status: file ? 'reading' : 'ok',
-            amount: null,
-            amountEdited: false,
-            store: file ? null : '',
-            storeEdited: false,
-            description: '',
-            descriptionEdited: false,
-            date: '',
-            dateEdited: false
-        };
-    }
 
-    function photoUrl(entry) {
-        if (!entry.url) {
-            entry.url = URL.createObjectURL(entry.file);
-        }
-        return entry.url;
-    }
 
     /** Reads one selected part of a receipt photo; resolves with its text. */
     function readRegion(blob, engine) {
@@ -140,7 +167,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function openViewer(entry) {
-        window.AVBKReceiptViewer.open(photoUrl(entry), {
+        window.AVBKReceiptViewer.open(avbkPhotoUrl(entry), {
             read: readRegion,
             engines: engines,
             apply: function (field, value) {
@@ -186,14 +213,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    /** "Klaar: 3 bonnetjes gelezen, bij 1 niets gevonden. " (empty without scanned receipts). */
-    function doneText(scanned) {
-        if (!scanned.length) return '';
-        const unread = scanned.filter(function (e) { return e.read !== 'ok'; }).length;
-        const count = scanned.length === 1 ? '1 bonnetje' : scanned.length + ' bonnetjes';
-        const missing = unread ? ', bij ' + unread + ' niets gevonden' : '';
-        return 'Klaar: ' + count + ' gelezen' + missing + '. ';
-    }
 
     function updateStatusText() {
         const scanned = entries.filter(function (e) { return e.file; });
@@ -207,7 +226,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (duplicate) {
             statusEl.textContent = 'Eén of meer bonnetjes lijken al eerder gedeclareerd te zijn — verwijder ze om verder te gaan.';
         } else if (entries.length) {
-            statusEl.textContent = doneText(scanned) + 'Controleer datum, winkel en bedrag; klik op een foto om hem groot te bekijken.';
+            statusEl.textContent = avbkDoneText(scanned) + 'Controleer datum, winkel en bedrag; klik op een foto om hem groot te bekijken.';
         }
         statusEl.hidden = entries.length === 0;
     }
@@ -235,7 +254,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + entry.file.name + ' groot bekijken');
             zoom.title = 'Bekijk groot; sleep over datum, winkel of bedrag om het over te nemen';
             const img = avbkElement('img', 'avbk-dropzone-item-photo');
-            img.src = photoUrl(entry);
+            img.src = avbkPhotoUrl(entry);
             img.alt = '';
             zoom.appendChild(img);
             zoom.addEventListener('click', function () { openViewer(entry); });
@@ -405,7 +424,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function addManualRow() {
-        entries.push(newEntry(null));
+        entries.push(avbkNewEntry(null));
         updateSubmitState();
         updateStatusText();
         renderList();
@@ -418,21 +437,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return engineCodes[(engineCodes.indexOf(current) + 1) % engineCodes.length];
     }
 
-    /** Takes over what the OCR found; a value the member typed is never overwritten. */
-    function applyFound(entry, found) {
-        const hasAmount = found.amount !== null && found.amount !== undefined;
-        entry.read = hasAmount || found.store || found.date ? 'ok' : 'none';
-        entry.candidates = found.candidates || null;
-        if (!entry.amountEdited && hasAmount) {
-            entry.amount = found.amount;
-        }
-        if (!entry.storeEdited && found.store) {
-            entry.store = found.store;
-        }
-        if (!entry.dateEdited && found.date) {
-            entry.date = found.date;
-        }
-    }
 
     /** Reads a receipt (again), with the given engine or the default. */
     function readEntry(entry, engine) {
@@ -455,7 +459,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     return;
                 }
                 entry.status = 'ok';
-                applyFound(entry, data?.success ? data.data : {});
+                avbkApplyFound(entry, data?.success ? data.data : {});
             })
             .catch(function () {
                 entry.status = 'ok';
@@ -471,7 +475,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function addFiles(fileListArg) {
         Array.prototype.forEach.call(fileListArg, function (file) {
-            const entry = newEntry(file);
+            const entry = avbkNewEntry(file);
             entries.push(entry);
             readEntry(entry, '');
         });
