@@ -534,6 +534,44 @@ tr.avbk-dropzone-item-reading .avbk-dropzone-item-photo {
     font-variant-numeric: tabular-nums;
 }
 
+.avbk-receipt-viewer-date-wrap {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: .25rem;
+}
+
+.avbk-receipt-viewer-date-wrap .avbk-receipt-viewer-field-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.avbk-receipt-viewer-date-pick {
+    flex: none;
+    padding: .3rem .5rem;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    line-height: 1;
+    font-size: 1rem;
+}
+
+.avbk-receipt-viewer-date-pick:hover {
+    background: #f6f7f7;
+    border-color: #2271b1;
+}
+
+.avbk-receipt-viewer-date-picker {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .avbk-receipt-viewer-field-empty {
     border-color: #dba617;
     background: #fcf9e8;

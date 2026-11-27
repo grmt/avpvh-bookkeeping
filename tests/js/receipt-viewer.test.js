@@ -20,6 +20,11 @@ describe('reading the selected text', () => {
         expect(text.date('2026-08-03')).toBe('2026-08-03');
         expect(text.date('31-02-2026 then 01-03-2026')).toBe('2026-03-01');
         expect(text.date('05-06-85')).toBe('1985-06-05');
+        expect(text.date('1 aug 26')).toBe('2026-08-01');
+        expect(text.date('Datum: 2 août 2026')).toBe('2026-08-02');
+        expect(text.date('15 mrt. 2026')).toBe('2026-03-15');
+        expect(text.date('12 foo 26')).toBeNull();
+        expect(text.date('31 feb 26')).toBeNull();
         expect(text.date('Bon 1234567')).toBeNull();
         expect(text.date('2026-13-01')).toBeNull();
     });
@@ -158,12 +163,34 @@ describe('the viewer', () => {
         dateIn.dispatchEvent(new Event('blur'));
         expect(dateIn.value).toBe('04-08-2026');
 
+        dateIn.value = '1 aug 26';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-01');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('01-08-2026');
+
         dateIn.value = 'gisteren';
         dateIn.dispatchEvent(new Event('input'));
         expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(true);
         expect(apply).toHaveBeenLastCalledWith('date', '');
         dateIn.dispatchEvent(new Event('blur'));
         expect(dateIn.value).toBe('gisteren');
+
+        const picker = dialog().querySelector('.avbk-receipt-viewer-date-picker');
+        const pickBtn = dialog().querySelector('.avbk-receipt-viewer-date-pick');
+        picker.showPicker = vi.fn();
+        pickBtn.click();
+        expect(picker.showPicker).toHaveBeenCalled();
+        picker.showPicker = () => { throw new Error('not allowed'); };
+        const click = vi.spyOn(picker, 'click');
+        pickBtn.click();
+        expect(click).toHaveBeenCalled();
+        picker.value = '2026-08-05';
+        picker.dispatchEvent(new Event('change'));
+        expect(dateIn.value).toBe('05-08-2026');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-05');
 
         const storeIn = valueInput('store');
         storeIn.value = 'Markt';

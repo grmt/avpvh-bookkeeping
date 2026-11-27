@@ -19,10 +19,12 @@ function avbkFormatDate(iso) {
     return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
 }
 
-/** dd-mm-jjjj (also with / or ., or a two-digit year) -> yyyy-mm-dd, or null. */
+/** dd-mm-jjjj (also with / or ., a two-digit year, or a month name) -> yyyy-mm-dd, or null. */
 function avbkParseDate(text) {
     const value = String(text || '').trim();
-    const looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value)
+        || /^\d{4}-\d{2}-\d{2}$/.test(value)
+        || /^\d{1,2}[\s./-]+[a-zA-Z\u00C0-\u017F]{3,10}\.?[\s,./-]+(\d{2}|\d{4})$/.test(value);
     return looksLikeDate ? window.AVBKReceiptText.date(value) : null;
 }
 

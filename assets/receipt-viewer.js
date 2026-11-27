@@ -14,7 +14,32 @@
  * reading state while the dialog is open.
  */
 (function () {
-    /** First valid date as yyyy-mm-dd: dd-mm-yyyy, dd.mm.yy, dd/mm/yyyy or yyyy-mm-dd. */
+    var MONTHS = {
+        jan: 1, januari: 1, january: 1, janv: 1, janvier: 1,
+        feb: 2, februari: 2, february: 2, fev: 2, fevr: 2, fevrier: 2,
+        mrt: 3, maa: 3, maart: 3, mar: 3, march: 3, mars: 3, marz: 3,
+        apr: 4, april: 4, avr: 4, avril: 4,
+        mei: 5, may: 5, mai: 5,
+        jun: 6, juni: 6, june: 6, juin: 6,
+        jul: 7, juli: 7, july: 7, juil: 7, juillet: 7,
+        aug: 8, augustus: 8, august: 8, aout: 8,
+        sep: 9, sept: 9, september: 9, septembre: 9,
+        okt: 10, oktober: 10, oct: 10, october: 10, octobre: 10,
+        nov: 11, november: 11, novembre: 11,
+        dec: 12, december: 12, decembre: 12, dez: 12, dezember: 12
+    };
+
+    function monthNumber(word) {
+        var clean = word.toLowerCase().normalize('NFD').replaceAll(/[\u0300-\u036f]/g, '');
+        return MONTHS[clean] || null;
+    }
+
+    function expandYear(raw) {
+        var year = +raw;
+        return raw.length === 2 ? year + (year < 70 ? 2000 : 1900) : year;
+    }
+
+    /** First valid date as yyyy-mm-dd: dd-mm-yyyy, dd.mm.yy, dd/mm/yyyy, dd mmm yy or yyyy-mm-dd. */
     function date(text) {
         var value = String(text || '');
         var m = value.match(/(?:^|\D)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/);
@@ -23,12 +48,14 @@
         }
         var re = /(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/g;
         while ((m = re.exec(value))) {
-            var year = +m[3];
-            if (m[3].length === 2) {
-                year += year < 70 ? 2000 : 1900;
-            }
-            var found = iso(year, +m[2], +m[1]);
+            var found = iso(expandYear(m[3]), +m[2], +m[1]);
             if (found) return found;
+        }
+        var named = /(?:^|\D)(\d{1,2})[\s./-]+([a-zA-Z\u00C0-\u017F]{3,10})\.?[\s,./-]+(\d{4}|\d{2})(?!\d)/g;
+        while ((m = named.exec(value))) {
+            var month = monthNumber(m[2]);
+            var foundNamed = month ? iso(expandYear(m[3]), month, +m[1]) : null;
+            if (foundNamed) return foundNamed;
         }
         return null;
     }
@@ -70,10 +97,12 @@
         return n === null || n === undefined ? '' : n.toFixed(2).replace('.', ',');
     }
 
-    /** Parses a typed date (dd-mm-jjjj or yyyy-mm-dd) -> yyyy-mm-dd, or null. */
+    /** Parses a typed date (dd-mm-jjjj, dd mmm jj, or yyyy-mm-dd) -> yyyy-mm-dd, or null. */
     function parseInputDate(text) {
         var value = String(text || '').trim();
-        var looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value);
+        var looksLikeDate = /^\d{1,2}[./-]\d{1,2}[./-](\d{2}|\d{4})$/.test(value)
+            || /^\d{4}-\d{2}-\d{2}$/.test(value)
+            || /^\d{1,2}[\s./-]+[a-zA-Z\u00C0-\u017F]{3,10}\.?[\s,./-]+(\d{2}|\d{4})$/.test(value);
         return looksLikeDate ? date(value) : null;
     }
 
@@ -114,23 +143,51 @@
         return b;
     }
 
-    function buildField(field, labelText, ariaLabel, inputMode, extraClass) {
-        var wrap = el('label', 'avbk-receipt-viewer-field');
-        wrap.appendChild(el('span', 'avbk-receipt-viewer-field-label', labelText));
+    function buildField(field, labelText, ariaLabel, placeholder, inputMode, extraClass) {
+        var wrap = el('div', 'avbk-receipt-viewer-field');
+        var id = 'avbk-viewer-field-' + field;
+        var label = el('label', 'avbk-receipt-viewer-field-label', labelText);
+        label.htmlFor = id;
+        wrap.appendChild(label);
         var input = el('input', 'avbk-receipt-viewer-field-input' + (extraClass ? ' ' + extraClass : ''));
+        input.id = id;
         input.type = 'text';
         input.dataset.field = field;
-        input.placeholder = 'niet gevonden';
+        input.placeholder = placeholder;
         input.setAttribute('aria-label', ariaLabel);
         if (inputMode) input.inputMode = inputMode;
         var list = el('datalist');
         list.id = 'avbk-viewer-suggest-' + field;
         input.setAttribute('list', list.id);
-        wrap.appendChild(input);
+        if (field === 'date') {
+            var row = el('span', 'avbk-receipt-viewer-date-wrap');
+            var picker = el('input', 'avbk-receipt-viewer-date-picker');
+            picker.type = 'date';
+            picker.tabIndex = -1;
+            picker.setAttribute('aria-hidden', 'true');
+            var pick = button('📅', 'Kies een datum', openDatePicker, 'avbk-receipt-viewer-date-pick');
+            row.appendChild(input);
+            row.appendChild(pick);
+            row.appendChild(picker);
+            wrap.appendChild(row);
+            ui.datePicker = picker;
+        } else {
+            wrap.appendChild(input);
+        }
         wrap.appendChild(list);
         ui.fields[field] = input;
         ui.lists[field] = list;
         return wrap;
+    }
+
+    function openDatePicker() {
+        ui.datePicker.value = parseInputDate(ui.fields.date.value) || '';
+        try {
+            ui.datePicker.showPicker();
+        } catch (error) { // showPicker() missing or refused: the picker still opens on a click.
+            ui.datePicker.focus();
+            ui.datePicker.click();
+        }
     }
 
     function wireFieldInputs() {
@@ -144,6 +201,11 @@
         ui.fields.date.addEventListener('blur', function () {
             var parsed = parseInputDate(ui.fields.date.value);
             if (parsed) ui.fields.date.value = formatDate(parsed);
+        });
+        ui.datePicker.addEventListener('change', function () {
+            var picked = ui.datePicker.value || '';
+            setFieldDisplay('date', picked);
+            if (state.options) state.options.apply('date', picked);
         });
         ui.fields.store.addEventListener('input', function () {
             updateEmpty(ui.fields.store);
@@ -171,9 +233,9 @@
         ui.fields = {};
         ui.lists = {};
         var grid = el('div', 'avbk-receipt-viewer-fields');
-        grid.appendChild(buildField('date', 'Datum', 'Datum (dd-mm-jjjj)', 'numeric', ''));
-        grid.appendChild(buildField('store', 'Winkel', 'Winkel', '', ''));
-        grid.appendChild(buildField('amount', 'Bedrag (€)', 'Bedrag', 'decimal', 'avbk-receipt-viewer-field-amount'));
+        grid.appendChild(buildField('date', 'Datum', 'Datum (dd-mm-jjjj)', 'dd-mm-jjjj', 'numeric', ''));
+        grid.appendChild(buildField('store', 'Winkel', 'Winkel', 'niet gevonden', '', ''));
+        grid.appendChild(buildField('amount', 'Bedrag (€)', 'Bedrag', '0,00', 'decimal', 'avbk-receipt-viewer-field-amount'));
         wireFieldInputs();
         section.appendChild(grid);
         return section;
