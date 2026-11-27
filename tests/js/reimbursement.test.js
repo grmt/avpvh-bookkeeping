@@ -361,11 +361,13 @@ describe('automatic server-side drafts', () => {
                     is_pdf: false,
                 },
             }));
+            replies.push(reply({ success: true, data: { draft_id: 42 } }));
             addFiles(photo());
             await vi.advanceTimersByTimeAsync(10);
 
             expect(sent(0)).toEqual({ action: 'avbk_draft_ensure', nonce: 'n', iban: 'NL00TEST0000000001' });
             expect(sent(1)).toMatchObject({ action: 'avbk_draft_add_receipt', draft_id: '42' });
+            expect(sent(2)).toMatchObject({ action: 'avbk_draft_save', draft_id: '42', amount: '11,80' });
             expect(document.getElementById('avbk-draft-id').value).toBe('42');
             expect(document.getElementById('avbk-draft-bar').hidden).toBe(false);
             expect(cell(rows()[0], 'input[name="receipt_id[]"]').value).toBe('101');
@@ -376,16 +378,18 @@ describe('automatic server-side drafts', () => {
             cell(rows()[0], '.avbk-dropzone-item-zoom').click();
             viewer.open.mock.calls[0][1].apply('store', 'Supermarkt');
             await vi.advanceTimersByTimeAsync(10);
-            expect(sent(2)).toMatchObject({ action: 'avbk_draft_save_receipt', draft_id: '42', receipt_id: '101', store: 'Supermarkt' });
+            expect(sent(3)).toMatchObject({ action: 'avbk_draft_save_receipt', draft_id: '42', receipt_id: '101', store: 'Supermarkt' });
 
-            // Typing in table row + header saves after debounce.
+            // Leaving a table cell or changing a header field flushes immediately without waiting for debounce.
             replies.push(reply({ success: true, data: { saved: true } }));
             replies.push(reply({ success: true, data: { draft_id: 42 } }));
-            type(cell(rows()[0], '.avbk-dropzone-item-description'), 'brood');
+            const descIn = cell(rows()[0], '.avbk-dropzone-item-description');
+            type(descIn, 'brood');
+            descIn.dispatchEvent(new Event('blur'));
             document.getElementById('avbk-activity').value = '9';
             document.getElementById('avbk-activity').dispatchEvent(new Event('change'));
-            await vi.advanceTimersByTimeAsync(450);
-            const actions = fetch.mock.calls.slice(3).map((_, idx) => sent(3 + idx).action);
+            await vi.advanceTimersByTimeAsync(10);
+            const actions = fetch.mock.calls.slice(4).map((_, idx) => sent(4 + idx).action);
             expect(actions).toContain('avbk_draft_save_receipt');
             expect(actions).toContain('avbk_draft_save');
 

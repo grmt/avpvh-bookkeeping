@@ -175,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function () {
             target.required = !chosen;
             if (!chosen) target.focus();
             if (target === ibanInput) {
-                scheduleDraftSave();
+                saveDraftHeader();
             }
         });
     });
@@ -267,6 +267,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function saveDraftHeader() {
         if (!draftsEnabled || !draftId) return;
+        clearTimeout(draftSaveTimer);
+        draftSaveTimer = null;
         beginSave();
         postAjax('avbk_draft_save', {
             draft_id: String(draftId),
@@ -381,7 +383,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 entry[field] = value;
                 entry[field + 'Edited'] = true;
                 if (field === 'amount') {
-                    updateAmountSuggestion();
+                    updateAmountSuggestion(true);
                 }
                 scheduleReceiptSave(entry, true);
                 renderList();
@@ -423,13 +425,17 @@ document.addEventListener('DOMContentLoaded', function () {
         return any ? sum : null;
     }
 
-    function updateAmountSuggestion() {
+    function updateAmountSuggestion(immediate) {
         const sum = sumEntryAmounts();
         if (sum === null) return;
         if (!amountInput.value || amountInput.value === lastSuggestedSum) {
             amountInput.value = avbkFormatAmount(sum);
             lastSuggestedSum = amountInput.value;
-            scheduleDraftSave();
+            if (immediate) {
+                saveDraftHeader();
+            } else {
+                scheduleDraftSave();
+            }
         }
     }
 
@@ -523,6 +529,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (entry.date) {
                 input.value = avbkFormatDate(entry.date);
             }
+            if (entry.dirty) {
+                saveReceiptNow(entry);
+            }
         });
         picker.addEventListener('change', function () { setDate(picker.value, false); });
         pick.addEventListener('click', function () {
@@ -555,6 +564,11 @@ document.addEventListener('DOMContentLoaded', function () {
             entry[field + 'Edited'] = true;
             scheduleReceiptSave(entry, false);
         });
+        input.addEventListener('blur', function () {
+            if (entry.dirty) {
+                saveReceiptNow(entry);
+            }
+        });
         cell.appendChild(input);
         const list = suggestions(input, values);
         if (list) cell.appendChild(list);
@@ -578,6 +592,9 @@ document.addEventListener('DOMContentLoaded', function () {
         input.addEventListener('blur', function () {
             if (entry.amount !== null) {
                 input.value = avbkFormatAmount(entry.amount);
+            }
+            if (entry.dirty) {
+                saveReceiptNow(entry);
             }
         });
         cell.appendChild(input);
@@ -769,7 +786,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (draftsEnabled) finishSave(false);
             })
             .finally(function () {
-                updateAmountSuggestion();
+                updateAmountSuggestion(true);
                 updateSubmitState();
                 updateStatusText();
                 renderList();
@@ -876,7 +893,7 @@ document.addEventListener('DOMContentLoaded', function () {
         [activityInput, amountInput, ibanInput, noteInput].forEach(function (field) {
             if (!field) return;
             field.addEventListener('input', scheduleDraftSave);
-            field.addEventListener('change', scheduleDraftSave);
+            field.addEventListener('change', saveDraftHeader);
         });
         if (draftDiscardBtn) {
             draftDiscardBtn.addEventListener('click', discardDraft);
