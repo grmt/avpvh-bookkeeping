@@ -517,6 +517,15 @@ class AVBK_Reimbursements implements AVBK_Component {
         if (self::validate_receipt_content($path, $original_name) === null) {
             return null;
         }
+        return self::extract_receipt_data($path, $member_id, $engine);
+    }
+
+    /**
+     * Runs OCR and duplicate detection on an already-validated receipt file.
+     *
+     * @return array{amount: ?float, date: ?string, store: ?string, duplicate: bool, candidates: array<string, array<mixed>>}
+     */
+    private static function extract_receipt_data(string $path, int $member_id, ?string $engine): array {
         $text = (string) AVBK_OCR::extract_text($path, 30, $engine);
         $date = $text !== '' ? AVBK_OCR::guess_date($text) : null;
         $store = $text !== '' ? AVBK_OCR::guess_store($text) : null;
@@ -668,10 +677,7 @@ class AVBK_Reimbursements implements AVBK_Component {
             avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
         $engine = self::requested_engine(wp_unslash($_POST['engine'] ?? ''));
-        $read = self::read_receipt($tmp_path, $name, (int) $member->id, $engine);
-        if ($read === null) {
-            avbk_send_json_error(self::INVALID_FILE_ERROR);
-        }
+        $read = self::extract_receipt_data($tmp_path, (int) $member->id, $engine);
         if ($read['duplicate']) {
             wp_send_json_success(['duplicate' => true]);
         }
@@ -842,10 +848,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         if ($ext === null) {
             avbk_send_json_error(self::INVALID_FILE_ERROR);
         }
-        $read = self::read_receipt($tmp_path, $name, (int) $member->id, null);
-        if ($read === null) {
-            avbk_send_json_error(self::INVALID_FILE_ERROR);
-        }
+        $read = self::extract_receipt_data($tmp_path, (int) $member->id, null);
         if ($read['duplicate']) {
             wp_send_json_success(['duplicate' => true]);
         }
@@ -938,7 +941,8 @@ class AVBK_Reimbursements implements AVBK_Component {
         $iban = strtoupper(str_replace(' ', '', sanitize_text_field(wp_unslash($_POST['iban'] ?? ''))));
         $draft_id = (int) ($_POST['draft_id'] ?? 0);
         if ($draft_id > 0) {
-            $this->handle_submit_draft($draft_id, $member, $amount, $iban, $redirect_url);
+            $notice = $this->handle_submit_draft($draft_id, $member, $amount, $iban);
+            wp_safe_redirect(add_query_arg($notice, '1', $redirect_url) . '#declareren');
             return;
         }
 
@@ -1048,26 +1052,22 @@ class AVBK_Reimbursements implements AVBK_Component {
         $this->notify_penningmeester($member, $amount, implode(', ', array_filter(array_column($analyzed, 'description'))), $member_note);
 
         wp_safe_redirect(add_query_arg('reimbursement_submitted', '1', $redirect_url) . '#declareren');
-        exit;
     }
 
     /** Submits an already-saved draft declaration after syncing the final posted row values. */
-    private function handle_submit_draft(int $draft_id, ?object $member, float $amount, string $iban, string $redirect_url): void {
+    private function handle_submit_draft(int $draft_id, ?object $member, float $amount, string $iban): string {
         $draft = $member ? AVBK_DB::get_reimbursement($draft_id) : null;
         if (!$draft || (int) $draft->member_id !== (int) $member->id || $draft->status !== 'draft' || $amount <= 0 || $iban === '') {
-            wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
-            exit;
+            return 'reimbursement_error';
         }
         $member_id = (int) $member->id;
         self::sync_posted_draft_rows($draft_id, $member_id);
         $valid = self::collect_valid_draft_receipts($draft_id, $member_id);
         if ($valid === null) {
-            wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
-            exit;
+            return 'reimbursement_duplicate';
         }
         if (!$valid) {
-            wp_safe_redirect(add_query_arg('reimbursement_error', '1', $redirect_url) . '#declareren');
-            exit;
+            return 'reimbursement_error';
         }
         $ocr_amounts = array_filter(array_map(fn($r) => $r->ocr_amount !== null ? (float) $r->ocr_amount : null, $valid), fn($v) => $v !== null);
         $member_note = self::posted_note();
@@ -1083,8 +1083,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         $descriptions = implode(', ', array_filter(array_map(fn($r) => (string) $r->description, $valid)));
         $this->notify_penningmeester($member, $amount, $descriptions, $member_note);
 
-        wp_safe_redirect(add_query_arg('reimbursement_submitted', '1', $redirect_url) . '#declareren');
-        exit;
+        return 'reimbursement_submitted';
     }
 
     private static function sync_posted_draft_rows(int $draft_id, int $member_id): void {
@@ -1253,35 +1252,33 @@ class AVBK_Reimbursements implements AVBK_Component {
         $owns_pending = $member && $reimbursement
             && (int) $reimbursement->member_id === (int) $member->id
             && $reimbursement->status === 'pending';
-        $tmp_path = $_FILES['receipt']['tmp_name'] ?? '';
-
-        if (!$owns_pending || !$tmp_path || !is_uploaded_file($tmp_path)) {
+        $tmp_path = $this->uploaded_path('receipt');
+        if (!$owns_pending || $tmp_path === '') {
             wp_safe_redirect($redirect_url . '#declareren');
-            exit;
+            return;
         }
 
-        $seen_hashes = [];
         $name = (string) ($_FILES['receipt']['name'] ?? '');
-        $info = $this->analyze_uploaded_receipt($tmp_path, $name, $seen_hashes, (int) $member->id);
-        if ($info === null) {
+        $ext = self::validate_receipt_content($tmp_path, $name);
+        $read = $ext !== null ? self::extract_receipt_data($tmp_path, (int) $member->id, null) : null;
+        if ($read === null || $read['duplicate']) {
             wp_safe_redirect(add_query_arg('reimbursement_duplicate', '1', $redirect_url) . '#declareren');
-            exit;
+            return;
         }
-        $random_name = $this->store_receipt_file($tmp_path, $info['ext']);
+        $random_name = $this->store_receipt_file($tmp_path, $ext);
         AVBK_DB::add_reimbursement_receipt($id, [
             'receipt_path' => $random_name,
-            'receipt_hash' => $info['hash'],
+            'receipt_hash' => (string) hash_file('sha256', $tmp_path),
             'description'  => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
-            'date'         => $info['ocr_date'],
-            'store'        => (string) ($info['ocr_store'] ?? ''),
-            'amount'       => $info['ocr_amount'],
-            'ocr_amount'   => $info['ocr_amount'],
-            'ocr_date'     => $info['ocr_date'],
-            'ocr_store'    => $info['ocr_store'],
+            'date'         => $read['date'],
+            'store'        => (string) ($read['store'] ?? ''),
+            'amount'       => $read['amount'],
+            'ocr_amount'   => $read['amount'],
+            'ocr_date'     => $read['date'],
+            'ocr_store'    => (string) ($read['store'] ?? ''),
         ]);
         AVBK_DB::refresh_reimbursement_description_summary($id);
         wp_safe_redirect($redirect_url . '#declareren');
-        exit;
     }
 
     /** The declarant removing one wrongly-attached receipt from their own still-pending declaration — refuses to remove the last one (withdraw the whole declaration instead, see handle_withdraw()). */

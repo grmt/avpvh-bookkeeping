@@ -21,7 +21,7 @@ function check_admin_referer($action) { return true; }
 function avbk_send_json_error($data = null) { throw new RuntimeException('error: ' . (is_string($data) ? $data : '')); }
 function wp_send_json_success($data) { throw new RuntimeException('success: ' . json_encode($data)); }
 function wp_die($msg) { throw new RuntimeException('die: ' . $msg); }
-function wp_safe_redirect($url) { $GLOBALS['redirect'] = $url; throw new RuntimeException('redirect: ' . $url); }
+function wp_safe_redirect($url) { $GLOBALS['redirect'] = $url; }
 function wp_get_referer() { return 'https://example.test/leden/beheer/declareren/'; }
 function home_url($path = '') { return 'https://example.test' . $path; }
 function admin_url($path = '') { return 'https://example.test/wp-admin/' . $path; }
@@ -205,10 +205,13 @@ final class Test_Draft_Reimbursements extends AVBK_Reimbursements {
 $failures = 0;
 function check(bool $ok, string $label): void { global $failures; echo ($ok ? 'PASS' : 'FAIL') . ": $label\n"; if (!$ok) $failures++; }
 function run_handler(callable $fn): array {
-    try { $fn(); return ['ok', null]; } catch (RuntimeException $e) {
+    $GLOBALS['redirect'] = null;
+    try {
+        $fn();
+        return $GLOBALS['redirect'] !== null ? ['redirect', $GLOBALS['redirect']] : ['ok', null];
+    } catch (RuntimeException $e) {
         if (str_starts_with($e->getMessage(), 'success: ')) return ['success', json_decode(substr($e->getMessage(), 9), true)];
         if (str_starts_with($e->getMessage(), 'error: ')) return ['error', substr($e->getMessage(), 7)];
-        if (str_starts_with($e->getMessage(), 'redirect: ')) return ['redirect', substr($e->getMessage(), 10)];
         return ['other', $e->getMessage()];
     }
 }
@@ -488,6 +491,20 @@ try {
     ];
     [$kind, $manual_url] = run_handler([$handler, 'handle_submit']);
     check($kind === 'redirect' && str_contains($manual_url, 'reimbursement_submitted=1'), 'non-draft handle_submit accepts manual lines via row_amount[]');
+
+    // Member adding an extra receipt to a pending declaration (success, duplicate, and missing upload).
+    $GLOBALS['uploaded'] = ['receipt' => $png];
+    $_FILES = ['receipt' => ['name' => 'extra.png']];
+    $_POST = ['id' => $draft_id, 'description' => 'extra bon'];
+    [$kind, $add_url] = run_handler([$handler, 'handle_member_add_receipt']);
+    check($kind === 'redirect' && !str_contains($add_url, 'reimbursement_duplicate=1'), 'handle_member_add_receipt stores receipt with OCR store and amount');
+    $GLOBALS['duplicate'] = true;
+    [$kind, $add_dup_url] = run_handler([$handler, 'handle_member_add_receipt']);
+    check($kind === 'redirect' && str_contains($add_dup_url, 'reimbursement_duplicate=1'), 'handle_member_add_receipt flags duplicate receipt');
+    $GLOBALS['duplicate'] = false;
+    $GLOBALS['uploaded'] = [];
+    [$kind, $add_empty_url] = run_handler([$handler, 'handle_member_add_receipt']);
+    check($kind === 'redirect' && !str_contains($add_empty_url, 'reimbursement_duplicate=1'), 'handle_member_add_receipt redirects cleanly without an upload');
 } finally {
     if (file_exists($png)) unlink($png);
     if (is_dir(AVBK_RECEIPTS_DIR)) {
