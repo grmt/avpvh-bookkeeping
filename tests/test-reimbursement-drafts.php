@@ -42,6 +42,14 @@ function wp_nonce_field($action) { echo '<input type="hidden" name="_wpnonce" va
 function selected($a, $b) { if ((string) $a === (string) $b) echo 'selected="selected"'; }
 function wp_json_encode($data) { return json_encode($data); }
 function add_action($hook, $cb) { $GLOBALS['footer_hooks'][$hook][] = $cb; }
+function add_shortcode($tag, $cb) { $GLOBALS['shortcodes'][$tag] = $cb; }
+$GLOBALS['wp_filesystem'] = new class {
+    public function put_contents(string $path, string $contents): bool { return file_put_contents($path, $contents) !== false; }
+    public function move(string $src, string $dst): bool { return copy($src, $dst); }
+    public function delete(string $path): bool { return file_exists($path) ? unlink($path) : false; }
+    public function get_contents(string $path): string { return (string) file_get_contents($path); }
+};
+$GLOBALS['known_ibans'] = null;
 final class AVPVH_DB {
     public static function get_activities(): array { return [(object) ['id' => 9, 'name' => 'Zomerkamp', 'year' => 2026]]; }
 }
@@ -94,6 +102,11 @@ final class AVBK_DB {
     public static function add_reimbursement_receipt(int $reimbursement_id, array $data): int {
         $id = ++$GLOBALS['next_id'];
         $GLOBALS['receipts'][$id] = (object) (['id' => $id, 'reimbursement_id' => $reimbursement_id] + $data);
+        return $id;
+    }
+    public static function create_reimbursement(array $data): int {
+        $id = ++$GLOBALS['next_id'];
+        $GLOBALS['drafts'][$id] = (object) (['id' => $id, 'status' => 'pending', 'created_at' => '2026-11-27 19:00:00'] + $data);
         return $id;
     }
     public static function get_reimbursement_receipts(int $reimbursement_id): array {
@@ -168,6 +181,9 @@ final class AVBK_DB {
     public static function remember_iban(int $member_id, string $iban, string $name): void { self::$remembered[] = [$member_id, $iban]; }
     public static function log_mail(array $data): void {}
     public static function get_known_ibans_for_member(int $member_id): array {
+        if (is_array($GLOBALS['known_ibans'])) {
+            return $GLOBALS['known_ibans'];
+        }
         return [
             (object) ['iban' => 'NL00TEST0000000001', 'account_name' => 'Piet Jansen'],
             (object) ['iban' => 'NL00TEST0000000002', 'account_name' => 'Anna Jansen'],
@@ -184,16 +200,6 @@ require dirname(__DIR__) . '/includes/class-reimbursements.php';
 
 final class Test_Draft_Reimbursements extends AVBK_Reimbursements {
     protected function uploaded_path(string $field): string { return $GLOBALS['uploaded'][$field] ?? ''; }
-    protected function store_receipt_file(string $tmp_path, string $validated_ext): string {
-        wp_mkdir_p(self::receipts_dir());
-        $name = wp_generate_password() . '.' . $validated_ext;
-        copy($tmp_path, self::receipts_dir() . '/' . $name);
-        return $name;
-    }
-    protected function delete_receipt_file(string $filename): void {
-        $path = self::receipts_dir() . '/' . basename($filename);
-        if ($filename !== '' && file_exists($path)) unlink($path);
-    }
 }
 
 $failures = 0;
@@ -371,10 +377,123 @@ try {
     $_POST = ['draft_id' => $d2['draft_id']];
     [$kind] = run_handler([$handler, 'ajax_draft_discard']);
     check($kind === 'success' && !isset($GLOBALS['drafts'][$d2['draft_id']]) && !file_exists($file2), 'discarding a draft deletes its rows and receipt files');
+
+    // 9. Hook registration, render/summary edge cases, thousands parsing, invalid files, missing retry file, in-draft duplicate, and non-draft manual submit.
+    $GLOBALS['footer_hooks'] = [];
+    $GLOBALS['shortcodes'] = [];
+    $handler->register();
+    check(isset($GLOBALS['shortcodes']['avpvh_bk_reimbursement'], $GLOBALS['footer_hooks']['wp_ajax_avbk_draft_ensure'], $GLOBALS['footer_hooks']['wp_ajax_avbk_member_attach_receipt_photo']), 'register() hooks shortcode and all draft/member AJAX endpoints');
+
+    $GLOBALS['logged_in'] = false;
+    check($handler->render() === '', 'render() returns empty string when logged out');
+    $GLOBALS['logged_in'] = true;
+    $GLOBALS['current_user'] = 999;
+    check($handler->render() === '', 'render() returns empty string when user has no member');
+    [$kind] = run_handler([$handler, 'ajax_draft_ensure']);
+    check($kind === 'error', 'draft endpoint refuses logged-in user without member');
+    $GLOBALS['current_user'] = 5;
+
+    // Single-IBAN render + legacy receipt (id=0, no photo) renders "geen foto".
+    $GLOBALS['known_ibans'] = [(object) ['iban' => 'NL00TEST0000000001', 'account_name' => 'Piet Jansen']];
+    $GLOBALS['receipts'][0] = (object) [
+        'id' => 0, 'reimbursement_id' => $draft_id, 'receipt_path' => '', 'receipt_hash' => '',
+        'description' => 'oud', 'date' => null, 'store' => '', 'amount' => 3.0, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+    ];
+    $single_html = $handler->render();
+    check(str_contains($single_html, 'geen foto') && !str_contains($single_html, 'avbk-iban-select'), 'render() handles single-IBAN members and legacy id=0 receipts');
+    unset($GLOBALS['receipts'][0]);
+    $GLOBALS['known_ibans'] = null;
+
+    // Member summary empty state (owner) and hidden state (non-owner with no pending).
+    ob_start();
+    AVBK_Reimbursements::render_member_summary((object) ['id' => 88], (object) ['id' => 88]);
+    $empty_own = (string) ob_get_clean();
+    check(str_contains($empty_own, 'geen openstaande declaraties'), 'member summary shows empty message for owner without draft or pending');
+    ob_start();
+    AVBK_Reimbursements::render_member_summary((object) ['id' => 99], (object) ['id' => 88]);
+    $empty_other = (string) ob_get_clean();
+    check($empty_other === '', 'member summary renders nothing for non-owner when member has no pending declarations');
+
+    // Invalid file extension on draft_add_receipt and attach_receipt_photo, plus duplicate on attach_receipt_photo.
+    $_POST = ['iban' => 'NL00TEST0000000001'];
+    [, $d3] = run_handler([$handler, 'ajax_draft_ensure']);
+    $d3_id = $d3['draft_id'];
+    $GLOBALS['uploaded'] = ['receipt' => $png];
+    $_FILES = ['receipt' => ['name' => 'not-a-receipt.txt']];
+    $_POST = ['draft_id' => $d3_id];
+    [$kind] = run_handler([$handler, 'ajax_draft_add_receipt']);
+    check($kind === 'error', 'draft_add_receipt refuses invalid file extension');
+
+    // Add valid photo, delete file from disk, and retry -> missing file error.
+    $_FILES = ['receipt' => ['name' => 'bon.png']];
+    [$kind, $r3] = run_handler([$handler, 'ajax_draft_add_receipt']);
+    $r3_id = $r3['receipt_id'];
+    unlink(AVBK_RECEIPTS_DIR . '/' . $GLOBALS['receipts'][$r3_id]->receipt_path);
+    $_POST = ['draft_id' => $d3_id, 'receipt_id' => $r3_id];
+    [$kind] = run_handler([$handler, 'ajax_draft_retry_receipt']);
+    check($kind === 'error', 'draft_retry_receipt reports error when stored file is missing on disk');
+
+    // Thousands separator amount format (1.234,56) via draft_save_receipt.
+    $_POST = ['draft_id' => $d3_id, 'receipt_id' => $r3_id, 'date' => '2026-08-10', 'store' => 'Groot', 'description' => 'tent', 'amount' => '1.234,56'];
+    [$kind] = run_handler([$handler, 'ajax_draft_save_receipt']);
+    check($kind === 'success' && $GLOBALS['receipts'][$r3_id]->amount === 1234.56, 'parse_posted_amount parses Dutch thousands format');
+
+    // Attach photo invalid file and duplicate on a manual draft row.
+    $_POST = ['draft_id' => $d3_id];
+    [, $m3] = run_handler([$handler, 'ajax_draft_add_manual']);
+    $_POST = ['reimbursement_id' => $d3_id, 'receipt_id' => $m3['receipt_id']];
+    $_FILES = ['receipt' => ['name' => 'bad.txt']];
+    [$kind] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
+    check($kind === 'error', 'attach photo refuses invalid file');
+    $_FILES = ['receipt' => ['name' => 'bon.png']];
+    $GLOBALS['duplicate'] = true;
+    [$kind, $dup_attach] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
+    check($kind === 'success' && $dup_attach === ['duplicate' => true], 'attach photo returns duplicate flag without storing');
+    $GLOBALS['duplicate'] = false;
+
+    // Duplicate hash within the same draft blocks draft submission; draft with only empty manual rows redirects with error.
+    $same_hash = $GLOBALS['receipts'][$r3_id]->receipt_hash;
+    AVBK_DB::add_reimbursement_receipt($d3_id, [
+        'receipt_path' => 'dup.png', 'receipt_hash' => $same_hash, 'description' => '', 'date' => null,
+        'store' => '', 'amount' => 5.0, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+    ]);
+    $_POST = ['draft_id' => $d3_id, 'amount' => '10,00', 'iban' => 'NL00TEST0000000001', 'receipt_id' => [0]];
+    [$kind, $in_draft_dup_url] = run_handler([$handler, 'handle_submit']);
+    check($kind === 'redirect' && str_contains($in_draft_dup_url, 'reimbursement_duplicate=1'), 'two receipts with same hash in one draft block submission');
+
+    // Discard d3, create empty-manual-only draft d4 -> submit redirects with reimbursement_error.
+    $_POST = ['draft_id' => $d3_id];
+    run_handler([$handler, 'ajax_draft_discard']);
+    $_POST = ['iban' => 'NL00TEST0000000001'];
+    [, $d4] = run_handler([$handler, 'ajax_draft_ensure']);
+    $_POST = ['draft_id' => $d4['draft_id']];
+    run_handler([$handler, 'ajax_draft_add_manual']);
+    $_POST = ['draft_id' => $d4['draft_id'], 'amount' => '10,00', 'iban' => 'NL00TEST0000000001'];
+    [$kind, $empty_valid_url] = run_handler([$handler, 'handle_submit']);
+    check($kind === 'redirect' && str_contains($empty_valid_url, 'reimbursement_error=1'), 'submitting a draft with only empty manual rows redirects with error');
+    $_POST = ['draft_id' => $d4['draft_id']];
+    run_handler([$handler, 'ajax_draft_discard']);
+
+    // Non-draft handle_submit with a manual line uses row_amount[] without colliding with scalar amount.
+    $_FILES = [];
+    $_POST = [
+        'has_receipt' => ['0'],
+        'date'        => ['2026-08-12'],
+        'store'       => ['Kantine'],
+        'description' => ['koffie'],
+        'row_amount'  => ['19,95'],
+        'amount'      => '19,95',
+        'iban'        => 'NL00TEST0000000001',
+        'member_note' => 'handmatig',
+    ];
+    [$kind, $manual_url] = run_handler([$handler, 'handle_submit']);
+    check($kind === 'redirect' && str_contains($manual_url, 'reimbursement_submitted=1'), 'non-draft handle_submit accepts manual lines via row_amount[]');
 } finally {
     if (file_exists($png)) unlink($png);
     if (is_dir(AVBK_RECEIPTS_DIR)) {
-        foreach (glob(AVBK_RECEIPTS_DIR . '/*') ?: [] as $f) unlink($f);
+        foreach (array_merge(glob(AVBK_RECEIPTS_DIR . '/*') ?: [], glob(AVBK_RECEIPTS_DIR . '/.*') ?: []) as $f) {
+            if (is_file($f)) unlink($f);
+        }
         rmdir(AVBK_RECEIPTS_DIR);
     }
 }

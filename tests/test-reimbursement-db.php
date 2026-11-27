@@ -210,6 +210,15 @@ check(AVBK_DB::submit_draft_reimbursement($draft_id, 7, [
 ]), 'submit_draft_reimbursement promotes draft to pending');
 check($wpdb->reimbursements[$draft_id]->status === 'pending' && count(AVBK_DB::get_reimbursements_for_member(7)) === 1, 'submitted declaration now appears in member history');
 check(AVBK_DB::update_member_receipt($draft_id, $rid1, 7, ['store' => 'Aangepast'], 'pending'), 'member can update a receipt on their pending declaration');
+check(AVBK_DB::update_member_receipt($draft_id, $rid1, 7, [], 'pending'), 'empty pending receipt update is a safe no-op');
+$rid3 = AVBK_DB::add_reimbursement_receipt($draft_id, [
+    'receipt_path' => '', 'receipt_hash' => '', 'description' => '', 'date' => null,
+    'store' => '', 'amount' => null, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+]);
+check(AVBK_DB::attach_member_receipt_photo($draft_id, $rid3, 7, [
+    'receipt_path' => 'pending-photo.jpg', 'receipt_hash' => 'hash3', 'ocr_date' => '2026-08-05', 'ocr_store' => 'Pending Winkel', 'ocr_amount' => 7.5,
+]), 'attach_member_receipt_photo works on a pending declaration and fills empty store');
+check($wpdb->receipts[$rid3]->store === 'Pending Winkel' && $wpdb->receipts[$rid3]->date === '2026-08-05' && $wpdb->receipts[$rid3]->amount === 7.5, 'pending attach fills empty store, date, and amount');
 check(AVBK_DB::find_duplicate_receipt(7, 'hash1', null, null, 0, true) !== null, 'submitted receipt now blocks duplicates even with ignore_drafts=true');
 
 // 6. Legacy parent-row duplicate check + discarding a second draft.

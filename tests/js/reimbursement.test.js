@@ -571,6 +571,91 @@ describe('automatic server-side drafts', () => {
         document.getElementById('avbk-draft-discard').click();
         await settle();
         expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+
+        // Successful discard revokes blob URLs created for freshly added files.
+        replies.push(reply({ success: true, data: { discarded: true } }));
+        document.getElementById('avbk-draft-discard').click();
+        await settle();
+        expect(URL.revokeObjectURL).toHaveBeenCalled();
+    });
+
+    it('covers draft header errors, debounced saves, IBAN selector, blur flushes, and remove/manual failures', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadDraftForm({
+                draft: {
+                    id: 95,
+                    receipts: [
+                        { id: 501, hasReceipt: true, isImage: true, isPdf: false, photoUrl: '/p/501', date: '2026-08-05', store: 'Bakker', description: '', amount: 5.0 },
+                        { id: 502, hasReceipt: true, isImage: true, isPdf: false, photoUrl: '/p/502', date: '2026-08-05', store: 'Slager', description: '', amount: 7.0 },
+                    ],
+                },
+            });
+            // Inject an IBAN selector pointing at #avbk-iban and change it (exercises saveDraftHeader error too).
+            const form = document.getElementById('avbk-reimbursement-form');
+            const ibanSelect = document.createElement('select');
+            ibanSelect.className = 'avbk-iban-select';
+            ibanSelect.dataset.target = 'avbk-iban';
+            ibanSelect.innerHTML = '<option value="NL00TEST0000000001">A</option><option value="NL00TEST0000000002">B</option>';
+            form.appendChild(ibanSelect);
+            // Re-run DOMContentLoaded listener to bind the injected IBAN select cleanly.
+            start();
+
+            replies.push(Promise.reject(new Error('offline')));
+            ibanSelect.value = 'NL00TEST0000000002';
+            ibanSelect.dispatchEvent(new Event('change'));
+            await vi.advanceTimersByTimeAsync(10);
+            expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+
+            // Debounced header save via input on #avbk-member-note.
+            replies.push(reply({ success: true, data: { draft_id: 95 } }));
+            const note = document.getElementById('avbk-member-note');
+            note.value = 'toelichting';
+            note.dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(450);
+            expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+            // Sort two rows with identical dates (da === db -> 0).
+            document.getElementById('avbk-sort-date').click();
+
+            // Blur on date and amount inputs flushes dirty state immediately.
+            replies.push(reply({ success: true, data: { saved: true } }));
+            const dateIn = cell(rows()[0], '.avbk-dropzone-item-date');
+            type(dateIn, '06-08-2026');
+            dateIn.dispatchEvent(new Event('blur'));
+            await vi.advanceTimersByTimeAsync(10);
+
+            replies.push(reply({ success: true, data: { saved: true } }));
+            const amtIn = cell(rows()[0], '.avbk-dropzone-item-amount');
+            type(amtIn, '9,50');
+            amtIn.dispatchEvent(new Event('blur'));
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Debounced receipt save via timer.
+            replies.push(reply({ success: true, data: { saved: true } }));
+            type(cell(rows()[0], '.avbk-dropzone-item-store'), 'Winkel X');
+            await vi.advanceTimersByTimeAsync(450);
+
+            // Remove receipt failure sets error status.
+            replies.push(Promise.reject(new Error('offline')));
+            cell(rows()[1], '.avbk-dropzone-item-remove').click();
+            await vi.advanceTimersByTimeAsync(10);
+            expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+
+            // Manual row add failure + blur while receiptId is still missing.
+            let failManual;
+            replies.push(new Promise((_, reject) => { failManual = reject; }));
+            document.getElementById('avbk-add-manual-row').click();
+            await vi.advanceTimersByTimeAsync(10);
+            const manualStore = cell(rows().at(-1), '.avbk-dropzone-item-store');
+            type(manualStore, 'Nog geen id');
+            manualStore.dispatchEvent(new Event('blur'));
+            failManual(new Error('offline'));
+            await vi.advanceTimersByTimeAsync(10);
+            expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -779,5 +864,57 @@ describe('pending declaration receipt table', () => {
         expect(kantineRow.cells[0].textContent).toBe('pdf');
         expect(kantineRow.querySelector('[data-field="store"]').value).toBe('PDF Winkel');
         expect(kantineRow.querySelector('[data-field="amount"]').value).toBe('15,00');
+    });
+
+    it('covers pending store/description saves, nav.next, empty-pair sort, custom parent total, and clicking newly attached photo', async () => {
+        vi.useFakeTimers();
+        try {
+            loadPendingTable();
+            const pendingRows = () => [...document.querySelectorAll('.avbk-pending-row')];
+            const row11 = pendingRows().find((r) => r.dataset.receiptId === '11');
+            const row12 = pendingRows().find((r) => r.dataset.receiptId === '12');
+            const row13 = pendingRows().find((r) => r.dataset.receiptId === '13');
+
+            // Make two rows have empty descriptions and sort by description (hits aEmpty && bEmpty).
+            row11.querySelector('[data-field="description"]').value = '';
+            row12.querySelector('[data-field="description"]').value = '';
+            document.querySelector('.avbk-dropzone-sort[data-sort="description"]').click();
+
+            // Store input + blur saves immediately; description input saves after 400ms debounce.
+            replies.push(reply({ success: true, data: { saved: true } }));
+            const storeIn = row11.querySelector('[data-field="store"]');
+            type(storeIn, 'Nieuwe Bakker');
+            storeIn.dispatchEvent(new Event('blur'));
+            await vi.advanceTimersByTimeAsync(10);
+
+            replies.push(reply({ success: true, data: { saved: true } }));
+            const descIn = row11.querySelector('[data-field="description"]');
+            type(descIn, 'broodjes');
+            await vi.advanceTimersByTimeAsync(450);
+
+            // Manually edit parent amount away from the sum, then edit a row amount -> parent custom total is preserved.
+            const parentAmt = document.querySelector('form input[name="amount"]');
+            parentAmt.value = '150,00';
+            type(row11.querySelector('[data-field="amount"]'), '55,00');
+            expect(parentAmt.value).toBe('150,00');
+
+            // Viewer nav.next() from row13 -> row11 (after sorting by description, row13 is first).
+            row13.querySelector('.avbk-pending-zoom').click();
+            const opts13 = viewer.open.mock.calls.at(-1)[1];
+            expect(opts13.nav.hasNext).toBe(true);
+            opts13.nav.next();
+            expect(viewer.open.mock.calls.at(-1)[0]).toBe('/photo/11');
+
+            // Attach image photo to row12, then click its newly created zoom button.
+            const attachIn = row12.querySelector('.avbk-pending-attach-input');
+            Object.defineProperty(attachIn, 'files', { writable: true, value: [photo('extra.jpg')] });
+            replies.push(reply({ success: true, data: { photo_url: '/photo/12-new', is_image: true, is_pdf: false, date: '', store: '', amount: null, duplicate: false } }));
+            attachIn.dispatchEvent(new Event('change'));
+            await vi.advanceTimersByTimeAsync(10);
+            row12.querySelector('.avbk-pending-zoom').click();
+            expect(viewer.open.mock.calls.at(-1)[0]).toBe('/photo/12-new');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

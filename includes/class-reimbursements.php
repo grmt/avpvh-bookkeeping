@@ -312,8 +312,6 @@ class AVBK_Reimbursements implements AVBK_Component {
             }
         }
         $can_remove = count($own_receipts) > 1;
-        $has_multiple_ibans = count($known_ibans) > 1;
-        $iban_label_for = $has_multiple_ibans ? 'avbk-edit-iban-select-' . (int) $r->id : 'avbk-edit-iban-' . (int) $r->id;
         ?>
         <tr class="avbk-reimbursement-edit-row" id="avbk-edit-row-<?php echo (int) $r->id; ?>" hidden>
             <td colspan="5">
@@ -376,21 +374,7 @@ class AVBK_Reimbursements implements AVBK_Component {
                             <label for="avbk-edit-amount-<?php echo (int) $r->id; ?>">Totaal bedrag</label>
                             <span class="avbk-amount-prefix">&euro; <input type="text" name="amount" id="avbk-edit-amount-<?php echo (int) $r->id; ?>" value="<?php echo esc_attr(number_format((float) $r->amount, 2, ',', '')); ?>"></span>
                         </div>
-                        <div class="avbk-reimbursement-edit-field">
-                            <label for="<?php echo esc_attr($iban_label_for); ?>">Rekeningnummer</label>
-                            <?php if ($has_multiple_ibans) : ?>
-                                <select id="avbk-edit-iban-select-<?php echo (int) $r->id; ?>" class="avbk-iban-select" data-target="avbk-edit-iban-<?php echo (int) $r->id; ?>">
-                                    <?php foreach ($known_ibans as $known) : ?>
-                                        <option value="<?php echo esc_attr($known->iban); ?>" <?php selected($r->iban, $known->iban); ?>>
-                                            <?php echo esc_html(($known->account_name ?: $known->iban) . ' (' . $known->iban . ')'); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                    <option value="" <?php selected($iban_matches_known, false); ?>>Ander rekeningnummer&hellip;</option>
-                                </select>
-                                <label class="screen-reader-text" for="avbk-edit-iban-<?php echo (int) $r->id; ?>">Ander rekeningnummer</label>
-                            <?php endif; ?>
-                            <input type="text" name="iban" id="avbk-edit-iban-<?php echo (int) $r->id; ?>" class="regular-text" value="<?php echo esc_attr($r->iban); ?>" <?php echo ($has_multiple_ibans && $iban_matches_known) ? 'hidden' : ''; ?>>
-                        </div>
+                        <?php self::render_pending_iban_field($r, $known_ibans, $iban_matches_known); ?>
                         <div class="avbk-reimbursement-edit-field avbk-reimbursement-edit-field-full">
                             <label for="avbk-edit-note-<?php echo (int) $r->id; ?>">Toelichting voor de penningmeester</label>
                             <textarea name="member_note" id="avbk-edit-note-<?php echo (int) $r->id; ?>" rows="4" maxlength="2000" placeholder="Bijv.: voorgeschoten voor de hele groep, of extra uitleg bij de bonnen"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
@@ -411,6 +395,29 @@ class AVBK_Reimbursements implements AVBK_Component {
         <?php
     }
 
+    /** Renders the IBAN selector / text field inside a pending declaration's edit panel. */
+    private static function render_pending_iban_field(object $r, array $known_ibans, bool $iban_matches_known): void {
+        $has_multiple_ibans = count($known_ibans) > 1;
+        $iban_label_for = $has_multiple_ibans ? 'avbk-edit-iban-select-' . (int) $r->id : 'avbk-edit-iban-' . (int) $r->id;
+        ?>
+        <div class="avbk-reimbursement-edit-field">
+            <label for="<?php echo esc_attr($iban_label_for); ?>">Rekeningnummer</label>
+            <?php if ($has_multiple_ibans) : ?>
+                <select id="avbk-edit-iban-select-<?php echo (int) $r->id; ?>" class="avbk-iban-select" data-target="avbk-edit-iban-<?php echo (int) $r->id; ?>">
+                    <?php foreach ($known_ibans as $known) : ?>
+                        <option value="<?php echo esc_attr($known->iban); ?>" <?php selected($r->iban, $known->iban); ?>>
+                            <?php echo esc_html(($known->account_name ?: $known->iban) . ' (' . $known->iban . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                    <option value="" <?php selected($iban_matches_known, false); ?>>Ander rekeningnummer&hellip;</option>
+                </select>
+                <label class="screen-reader-text" for="avbk-edit-iban-<?php echo (int) $r->id; ?>">Ander rekeningnummer</label>
+            <?php endif; ?>
+            <input type="text" name="iban" id="avbk-edit-iban-<?php echo (int) $r->id; ?>" class="regular-text" value="<?php echo esc_attr($r->iban); ?>" <?php echo ($has_multiple_ibans && $iban_matches_known) ? 'hidden' : ''; ?>>
+        </div>
+        <?php
+    }
+
     /** Renders one editable receipt row inside a pending declaration's table. */
     private static function render_pending_receipt_row(object $r, object $rec, bool $can_remove): void {
         $rec_path = trim((string) ($rec->receipt_path ?? ''));
@@ -426,22 +433,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         $picker_id = 'avbk-pending-picker-' . (int) $r->id . '-' . (int) $rec->id;
         ?>
         <tr class="avbk-pending-row" data-receipt-id="<?php echo (int) $rec->id; ?>" data-date="<?php echo esc_attr($rec_date_iso); ?>" data-photo-url="<?php echo esc_attr($rec_is_image ? $rec_view_url : ''); ?>">
-            <td>
-                <?php if ($rec_is_image) : ?>
-                    <button type="button" class="avbk-dropzone-item-zoom avbk-pending-zoom" aria-label="Bonnetje groot bekijken" title="Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen">
-                        <img src="<?php echo esc_url($rec_view_url); ?>" alt="" class="avbk-dropzone-item-photo">
-                    </button>
-                <?php elseif ($rec_has_photo) : ?>
-                    <a href="<?php echo esc_url($rec_view_url); ?>" target="_blank" class="avbk-dropzone-item-no-photo"><?php echo $rec_is_pdf ? 'pdf' : 'bestand'; ?></a>
-                <?php elseif ($can_edit_rec) : ?>
-                    <label class="avbk-attach-photo" title="Foto toevoegen aan deze regel">
-                        <span>+ Foto</span>
-                        <input type="file" class="avbk-pending-attach-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" hidden>
-                    </label>
-                <?php else : ?>
-                    <span class="avbk-dropzone-item-no-photo">geen foto</span>
-                <?php endif; ?>
-            </td>
+            <td><?php self::render_pending_photo_cell($rec_is_image, $rec_has_photo, $rec_is_pdf, $can_edit_rec, $rec_view_url); ?></td>
             <td>
                 <span class="avbk-dropzone-item-date-wrap">
                     <input type="text" inputmode="numeric" class="avbk-dropzone-item-date avbk-pending-input" data-field="date" value="<?php echo esc_attr($rec_date_display); ?>" placeholder="dd-mm-jjjj" aria-label="Datum (dd-mm-jjjj)"<?php echo $disabled_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed literal. ?>>
@@ -468,6 +460,24 @@ class AVBK_Reimbursements implements AVBK_Component {
             </td>
         </tr>
         <?php
+    }
+
+    /** Renders the thumbnail / file link / "+ Foto" button cell for one pending receipt row. */
+    private static function render_pending_photo_cell(bool $rec_is_image, bool $rec_has_photo, bool $rec_is_pdf, bool $can_edit_rec, string $rec_view_url): void {
+        if ($rec_is_image) : ?>
+            <button type="button" class="avbk-dropzone-item-zoom avbk-pending-zoom" aria-label="Bonnetje groot bekijken" title="Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen">
+                <img src="<?php echo esc_url($rec_view_url); ?>" alt="" class="avbk-dropzone-item-photo">
+            </button>
+        <?php elseif ($rec_has_photo) : ?>
+            <a href="<?php echo esc_url($rec_view_url); ?>" target="_blank" class="avbk-dropzone-item-no-photo"><?php echo $rec_is_pdf ? 'pdf' : 'bestand'; ?></a>
+        <?php elseif ($can_edit_rec) : ?>
+            <label class="avbk-attach-photo" title="Foto toevoegen aan deze regel">
+                <span>+ Foto</span>
+                <input type="file" class="avbk-pending-attach-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" hidden>
+            </label>
+        <?php else : ?>
+            <span class="avbk-dropzone-item-no-photo">geen foto</span>
+        <?php endif;
     }
 
     /** AJAX: OCR a just-added photo before the real submit, purely to pre-fill the amount field (and warn early on a duplicate) — the temp upload is discarded either way, the authoritative duplicate check happens again in handle_submit(). One file per call — the dropzone calls this once per photo added. */
