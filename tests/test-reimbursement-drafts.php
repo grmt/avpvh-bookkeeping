@@ -31,7 +31,8 @@ function add_query_arg($arg1, $arg2 = null, $arg3 = null) {
     }
     return $arg3 . '?' . http_build_query([$arg1 => $arg2]);
 }
-function wp_nonce_url($url, $action) { return $url . '&_wpnonce=' . $action; }
+function wp_create_nonce($action) { return 'nonce-' . $action; }
+function wp_nonce_url($url, $action) { return htmlspecialchars($url . '&_wpnonce=' . $action, ENT_QUOTES, 'UTF-8'); }
 function wp_unslash($value) { return $value; }
 function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
 function sanitize_file_name($name) { return (string) $name; }
@@ -216,9 +217,9 @@ try {
     [$kind] = run_handler([$handler, 'ajax_draft_remove_receipt']);
     check($kind === 'success' && !isset($GLOBALS['receipts'][$m2['receipt_id']]), 'removing a receipt deletes it from the draft');
 
-    // 4. Client serialization.
+    // 4. Client serialization (photoUrl must use raw '&', never HTML-escaped '&amp;').
     $client = AVBK_Reimbursements::receipt_to_client($draft_id, $GLOBALS['receipts'][$receipt_id]);
-    check($client['id'] === $receipt_id && $client['hasReceipt'] === true && $client['isImage'] === true && $client['store'] === 'Markt', 'receipt_to_client formats a draft receipt for the browser');
+    check($client['id'] === $receipt_id && $client['hasReceipt'] === true && $client['isImage'] === true && $client['store'] === 'Markt' && str_contains($client['photoUrl'], '&id=' . $draft_id . '&receipt=' . $receipt_id) && !str_contains($client['photoUrl'], '&amp;'), 'receipt_to_client formats a draft receipt with an unescaped URL for the browser');
 
     // 5. Submitting the draft syncs posted values, strips empty manual rows, promotes draft -> pending, and emails treasurer.
     $_POST = [

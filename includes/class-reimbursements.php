@@ -252,12 +252,15 @@ class AVBK_Reimbursements implements AVBK_Component {
 
                 <p><button type="submit" class="button button-primary">Declareren</button></p>
             </form>
-            <?php if ($draft) : ?>
-                <script type="application/json" id="avbk-reimbursement-draft"><?php echo wp_json_encode([
+            <?php if ($draft) :
+                $draft_json = wp_json_encode([
                     'id'       => (int) $draft->id,
                     'receipts' => array_map(fn($rec) => self::receipt_to_client((int) $draft->id, $rec), $draft_receipts),
-                ]); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON payload inside application/json script tag. ?></script>
-            <?php endif; ?>
+                ]);
+                add_action('wp_footer', static function () use ($draft_json) {
+                    echo '<script type="application/json" id="avbk-reimbursement-draft">' . $draft_json . '</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON payload inside application/json script tag, emitted in wp_footer so wpautop/wptexturize never alters it.
+                });
+            endif; ?>
 
             <?php if ($requests) : ?>
                 <h3>Eerdere declaraties</h3>
@@ -473,11 +476,14 @@ class AVBK_Reimbursements implements AVBK_Component {
         return mb_substr(trim((string) preg_replace('/\s+/u', ' ', $text)), 0, 200);
     }
 
+    /** Raw URL (not HTML-escaped — used in JSON/JS img.src, unlike wp_nonce_url() which calls esc_html()). */
     private static function receipt_view_url(int $reimbursement_id, int $receipt_id): string {
-        return wp_nonce_url(
-            add_query_arg(['action' => 'avbk_view_receipt', 'id' => $reimbursement_id, 'receipt' => $receipt_id], admin_url('admin-post.php')),
-            'avbk_view_receipt'
-        );
+        return add_query_arg([
+            'action'   => 'avbk_view_receipt',
+            'id'       => $reimbursement_id,
+            'receipt'  => $receipt_id,
+            '_wpnonce' => wp_create_nonce('avbk_view_receipt'),
+        ], admin_url('admin-post.php'));
     }
 
     private static function receipt_is_image(string $path): bool {
