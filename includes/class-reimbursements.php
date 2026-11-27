@@ -53,9 +53,11 @@ class AVBK_Reimbursements implements AVBK_Component {
      * @return string|null Normalized extension on success, null on failure.
      */
     public static function validate_receipt_file(string $tmp_path, string $original_name): ?string {
-        if (!is_uploaded_file($tmp_path)) {
-            return null;
-        }
+        return is_uploaded_file($tmp_path) ? self::validate_receipt_content($tmp_path, $original_name) : null;
+    }
+
+    /** validate_receipt_file() without the upload check: size, extension and real bytes of a file on disk. */
+    public static function validate_receipt_content(string $tmp_path, string $original_name): ?string {
         $size = filesize($tmp_path);
         if (!$size || $size > self::MAX_BYTES) {
             return null;
@@ -375,7 +377,7 @@ class AVBK_Reimbursements implements AVBK_Component {
 
         $member = avpvh_get_member_by_wp_user(get_current_user_id());
         $hash = hash_file('sha256', $tmp_path);
-        $text = AVBK_OCR::extract_text($tmp_path, 30, self::requested_engine());
+        $text = AVBK_OCR::extract_text($tmp_path, 30, self::requested_engine(wp_unslash($_POST['engine'] ?? '')));
         $amount = $text ? AVBK_OCR::guess_total($text) : null;
         $date = $text ? AVBK_OCR::guess_date($text) : null;
         $store = $text ? AVBK_OCR::guess_store($text) : null;
@@ -394,20 +396,34 @@ class AVBK_Reimbursements implements AVBK_Component {
     public function ajax_ocr_region(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
         $tmp_path = (string) ($_FILES['region']['tmp_name'] ?? '');
-        if (!is_user_logged_in() || $tmp_path === '' || self::validate_receipt_file($tmp_path, 'region.png') !== 'png') {
+        if (!is_user_logged_in() || $tmp_path === '' || !is_uploaded_file($tmp_path)) {
             avbk_send_json_error('Ongeldig fragment');
         }
-        $text = self::region_text((string) AVBK_OCR::extract_text($tmp_path, 20, self::requested_engine()));
-        if ($text === '') {
-            avbk_send_json_error('In dit stuk is geen tekst gevonden. Selecteer ruimer, of typ het over.');
+        $read = self::read_region($tmp_path, self::requested_engine(wp_unslash($_POST['engine'] ?? '')));
+        if ($read['error'] !== '') {
+            avbk_send_json_error($read['error']);
         }
-        wp_send_json_success(['text' => $text]);
+        wp_send_json_success(['text' => $read['text']]);
     }
 
-    /** The engine the member chose for this read, or null for the default (also for an unknown one). */
-    private static function requested_engine(): ?string {
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- both AJAX callers verify the nonce first.
-        $engine = sanitize_key(wp_unslash($_POST['engine'] ?? ''));
+    /**
+     * Reads a cropped part of a receipt (a PNG): its text, or why not.
+     *
+     * @return array{text: string, error: string}
+     */
+    public static function read_region(string $path, ?string $engine): array {
+        if (self::validate_receipt_content($path, 'region.png') !== 'png') {
+            return ['text' => '', 'error' => 'Ongeldig fragment'];
+        }
+        $text = self::region_text((string) AVBK_OCR::extract_text($path, 20, $engine));
+        return $text === ''
+            ? ['text' => '', 'error' => 'In dit stuk is geen tekst gevonden. Selecteer ruimer, of typ het over.']
+            : ['text' => $text, 'error' => ''];
+    }
+
+    /** The engine the member chose (a posted value), or null for the default (also for an unknown one). */
+    public static function requested_engine($posted): ?string {
+        $engine = sanitize_key(is_string($posted) ? $posted : '');
         return isset(AVBK_OCR::engines()[$engine]) ? $engine : null;
     }
 
