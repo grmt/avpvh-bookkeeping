@@ -509,7 +509,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (entry.isImage && window.AVBKReceiptViewer) {
             const labelName = entry.file?.name || entry.store || 'bonnetje';
             const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + labelName + ' groot bekijken');
-            zoom.title = 'Bekijk groot; sleep over datum, winkel of bedrag om het over te nemen';
+            zoom.title = 'Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen';
             const img = avbkElement('img', 'avbk-dropzone-item-photo');
             img.src = avbkPhotoUrl(entry);
             img.alt = '';

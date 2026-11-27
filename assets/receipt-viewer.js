@@ -251,7 +251,7 @@
 
     function buildOcr() {
         var section = el('div', 'avbk-receipt-viewer-ocr');
-        ui.hint = el('p', 'avbk-receipt-viewer-hint', 'Sleep over de datum, de winkel of het bedrag om het over te nemen.');
+        ui.hint = el('p', 'avbk-receipt-viewer-hint', 'Maak een selectie op de foto rond de datum, winkel of het bedrag om dat stukje uit te lezen.');
         ui.text = el('input', 'avbk-receipt-viewer-text');
         ui.text.type = 'text';
         ui.text.setAttribute('aria-label', 'Gelezen tekst');
@@ -282,8 +282,8 @@
         bar.appendChild(button('−', 'Kleiner', function () { zoom(state.scale / 1.25); }));
         bar.appendChild(button('+', 'Groter', function () { zoom(state.scale * 1.25); }));
         bar.appendChild(button('Passend', 'Passend in het venster', fit));
-        ui.selectMode = button('Selecteren', 'Sleep over een stuk om het te lezen', function () { setMode('select'); });
-        ui.moveMode = button('Verschuiven', 'Sleep om de foto te verschuiven', function () { setMode('move'); });
+        ui.selectMode = button('Selecteren', 'Maak een selectie op de foto om dat stukje uit te lezen', function () { setMode('select'); });
+        ui.moveMode = button('Verschuiven', 'Verplaats de ingezoomde foto', function () { setMode('move'); });
         bar.appendChild(ui.selectMode);
         bar.appendChild(ui.moveMode);
         var barEnd = el('div', 'avbk-receipt-viewer-bar-end');
@@ -480,10 +480,19 @@
 
     function updateActions() {
         var value = ui.text.value;
-        ui.toDate.disabled = !date(value);
-        ui.toAmount.disabled = amount(value) === null;
+        var hasText = value.trim() !== '';
+        var parsedDate = date(value);
+        var parsedAmount = amount(value);
+        ui.toDate.disabled = !parsedDate;
+        ui.toDate.title = parsedDate
+            ? 'Overnemen als datum (' + formatDate(parsedDate) + ')'
+            : (hasText ? 'Geen datum herkend (bijv. 08-08-2026 of 8 aug 26)' : 'Maak eerst een selectie op de foto');
+        ui.toAmount.disabled = parsedAmount === null;
+        ui.toAmount.title = parsedAmount !== null
+            ? 'Overnemen als bedrag (€ ' + formatAmount(parsedAmount) + ')'
+            : (hasText ? 'Geen bedrag herkend (bijv. 53,80)' : 'Maak eerst een selectie op de foto');
         ui.toStore.disabled = line(value) === '';
-        ui.copy.disabled = value.trim() === '';
+        ui.copy.disabled = !hasText;
     }
 
     function updateEmpty(input) {
@@ -551,7 +560,7 @@
         state.options.apply(field, value);
         setFieldDisplay(field, value);
         var label = { date: 'datum', store: 'winkel', amount: 'bedrag' }[field];
-        showStatus('Overgenomen als ' + label + '. Sleep over een volgend stuk, of sluit.', false);
+        showStatus('Overgenomen als ' + label + '. Maak een nieuwe selectie, ga naar het volgende bonnetje of sluit.', false);
     }
 
     function copy() {
@@ -585,7 +594,7 @@
         ui.box.hidden = true;
         ui.text.value = '';
         applyState(options, false);
-        showStatus('Sleep over de datum, de winkel of het bedrag om het over te nemen.', false);
+        showStatus('Maak een selectie op de foto rond de datum, winkel of het bedrag om dat stukje uit te lezen.', false);
         updateActions();
         setMode('select');
         ui.stage.scrollLeft = 0;
