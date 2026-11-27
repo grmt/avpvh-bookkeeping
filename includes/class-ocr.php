@@ -20,6 +20,7 @@ class AVBK_OCR {
     const LOCATION     = 'eu';
     const PROCESSOR_ID = '86330dffb1e6f725';
     const TOKEN_TRANSIENT = 'avbk_gcp_access_token';
+    const LINE_BREAK = '/\r\n|\r|\n/';
 
     /** Whether a docling service or a Google service account is configured, so OCR can be tried at all. */
     public static function available(): bool {
@@ -144,20 +145,21 @@ class AVBK_OCR {
             return null;
         }
         $docling = self::docling_url();
-        if ($docling !== null && $engine !== 'google') {
-            return self::docling_text($docling, $file_path, $timeout);
-        }
+        return $docling !== null && $engine !== 'google'
+            ? self::docling_text($docling, $file_path, $timeout)
+            : self::google_text($file_path);
+    }
+
+    /** Text of an image or PDF via Google Document AI, or null on any failure. */
+    private static function google_text(string $file_path): ?string {
         $token = self::get_access_token();
         if (!$token) {
             return null;
         }
-
-        $mime = mime_content_type($file_path) ?: 'image/jpeg';
         $endpoint = sprintf(
             'https://%s-documentai.googleapis.com/v1/projects/%s/locations/%s/processors/%s:process',
             self::LOCATION, self::PROJECT_ID, self::LOCATION, self::PROCESSOR_ID
         );
-
         $response = wp_remote_post($endpoint, [
             'headers' => [
                 'Authorization' => "Bearer $token",
@@ -166,15 +168,12 @@ class AVBK_OCR {
             'body'    => wp_json_encode([
                 'rawDocument' => [
                     'content'  => base64_encode(file_get_contents($file_path)),
-                    'mimeType' => $mime,
+                    'mimeType' => mime_content_type($file_path) ?: 'image/jpeg',
                 ],
             ]),
             'timeout' => 30,
         ]);
-        if (is_wp_error($response)) {
-            return null;
-        }
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $body = is_wp_error($response) ? null : json_decode(wp_remote_retrieve_body($response), true);
         return $body['document']['text'] ?? null;
     }
 
@@ -187,7 +186,7 @@ class AVBK_OCR {
      */
     public static function guess_total(string $text): ?float {
         $amount_pattern = '/(?<!\d)(\d{1,4}[.,]\d{2})(?!\d)/';
-        $lines = preg_split('/\r\n|\r|\n/', $text) ?: [];
+        $lines = preg_split(self::LINE_BREAK, $text) ?: [];
 
         foreach ($lines as $line) {
             if (preg_match('/totaal|total|te betalen|verschuldigd/i', $line) && preg_match($amount_pattern, $line, $m)) {
@@ -256,7 +255,7 @@ class AVBK_OCR {
         }
         $dates = [];
         $stores = [];
-        foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+        foreach (preg_split(self::LINE_BREAK, $text) ?: [] as $line) {
             $date = self::guess_date($line);
             if ($date !== null && !in_array($date, $dates, true)) {
                 $dates[] = $date;
@@ -276,7 +275,7 @@ class AVBK_OCR {
      * guess_date()'s docblock for why it's good enough here).
      */
     public static function guess_store(string $text): ?string {
-        $lines = preg_split('/\r\n|\r|\n/', $text) ?: [];
+        $lines = preg_split(self::LINE_BREAK, $text) ?: [];
         foreach ($lines as $line) {
             $line = trim($line);
             if ($line !== '' && preg_match('/[a-zA-Z]{3,}/', $line)) {
