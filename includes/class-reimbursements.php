@@ -95,6 +95,7 @@ class AVBK_Reimbursements implements AVBK_Component {
         add_action('wp_ajax_avbk_draft_remove_receipt', [$this, 'ajax_draft_remove_receipt']);
         add_action('wp_ajax_avbk_draft_discard', [$this, 'ajax_draft_discard']);
         add_action('wp_ajax_avbk_member_update_receipt', [$this, 'ajax_member_update_receipt']);
+        add_action('wp_ajax_avbk_member_attach_receipt_photo', [$this, 'ajax_member_attach_receipt_photo']);
         add_action('admin_post_avbk_submit_reimbursement', [$this, 'handle_submit']);
         add_action('admin_post_avbk_update_reimbursement', [$this, 'handle_update']);
         add_action('admin_post_avbk_update_receipt', [$this, 'handle_update_receipt']);
@@ -337,6 +338,11 @@ class AVBK_Reimbursements implements AVBK_Component {
                                                             </button>
                                                         <?php elseif ($rec_has_photo) : ?>
                                                             <a href="<?php echo esc_url($rec_view_url); ?>" target="_blank" class="avbk-dropzone-item-no-photo"><?php echo $rec_is_pdf ? 'pdf' : 'bestand'; ?></a>
+                                                        <?php elseif ($can_edit_rec) : ?>
+                                                            <label class="avbk-attach-photo" title="Foto toevoegen aan deze regel">
+                                                                <span>+ Foto</span>
+                                                                <input type="file" class="avbk-pending-attach-input" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment" hidden>
+                                                            </label>
                                                         <?php else : ?>
                                                             <span class="avbk-dropzone-item-no-photo">geen foto</span>
                                                         <?php endif; ?>
@@ -793,6 +799,44 @@ class AVBK_Reimbursements implements AVBK_Component {
             avbk_send_json_error('Declaratie niet gevonden');
         }
         wp_send_json_success(['saved' => true]);
+    }
+
+    /** AJAX: attaches a photo/PDF to an existing photo-less row of a member's draft or pending declaration. */
+    public function ajax_member_attach_receipt_photo(): void {
+        $member = $this->require_draft_member();
+        $reimbursement_id = (int) ($_POST['reimbursement_id'] ?? 0);
+        $receipt_id = (int) ($_POST['receipt_id'] ?? 0);
+        $existing = AVBK_DB::get_member_receipt($reimbursement_id, $receipt_id, (int) $member->id, 'draft')
+            ?? AVBK_DB::get_member_receipt($reimbursement_id, $receipt_id, (int) $member->id, 'pending');
+        if (!$existing || trim((string) ($existing->receipt_path ?? '')) !== '') {
+            avbk_send_json_error('Regel niet gevonden');
+        }
+        $tmp_path = $this->uploaded_path('receipt');
+        $name = (string) ($_FILES['receipt']['name'] ?? '');
+        $ext = $tmp_path !== '' ? self::validate_receipt_content($tmp_path, $name) : null;
+        if ($ext === null) {
+            avbk_send_json_error('Ongeldig bestand');
+        }
+        $read = self::read_receipt($tmp_path, $name, (int) $member->id, null);
+        if ($read === null) {
+            avbk_send_json_error('Ongeldig bestand');
+        }
+        if ($read['duplicate']) {
+            wp_send_json_success(['duplicate' => true]);
+        }
+        $stored = $this->store_receipt_file($tmp_path, $ext);
+        AVBK_DB::attach_member_receipt_photo($reimbursement_id, $receipt_id, (int) $member->id, [
+            'receipt_path' => $stored,
+            'receipt_hash' => (string) hash_file('sha256', $tmp_path),
+            'ocr_amount'   => $read['amount'],
+            'ocr_date'     => $read['date'],
+            'ocr_store'    => (string) ($read['store'] ?? ''),
+        ]);
+        wp_send_json_success($read + [
+            'photo_url' => self::receipt_view_url($reimbursement_id, $receipt_id),
+            'is_image'  => self::receipt_is_image($stored),
+            'is_pdf'    => strtolower($ext) === 'pdf',
+        ]);
     }
 
     /** Safely removes one stored receipt file from the private receipts directory. */

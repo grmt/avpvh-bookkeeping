@@ -504,10 +504,72 @@ document.addEventListener('DOMContentLoaded', function () {
         return list;
     }
 
+    function attachDraftPhoto(entry, file) {
+        if (!draftsEnabled || !draftId || !entry.receiptId || !file) return;
+        entry.status = 'reading';
+        entry.hasReceipt = true;
+        entry.file = file;
+        entry.isImage = Boolean(file.type.startsWith('image/'));
+        entry.isPdf = /pdf$/i.test(file.name);
+        beginSave();
+        updateStatusText();
+        renderList();
+        postAjax('avbk_member_attach_receipt_photo', {
+            reimbursement_id: String(draftId),
+            receipt_id: String(entry.receiptId),
+            receipt: file
+        }).then(function (data) {
+            if (data?.duplicate) {
+                entry.hasReceipt = false;
+                entry.file = null;
+                entry.isImage = false;
+                entry.isPdf = false;
+                entry.status = 'ok';
+                finishSave(false);
+                setDraftStatus('Dit bonnetje lijkt al eerder gedeclareerd te zijn.', true);
+                return;
+            }
+            entry.photoUrl = data.photo_url || '';
+            entry.isImage = Boolean(data.is_image);
+            entry.isPdf = Boolean(data.is_pdf);
+            entry.status = 'ok';
+            avbkApplyFound(entry, data || {});
+            finishSave(true);
+        }, function () {
+            entry.hasReceipt = false;
+            entry.file = null;
+            entry.isImage = false;
+            entry.isPdf = false;
+            entry.status = 'ok';
+            finishSave(false);
+        }).finally(function () {
+            updateAmountSuggestion(true);
+            updateSubmitState();
+            updateStatusText();
+            renderList();
+        });
+    }
+
     function photoCell(entry) {
         const cell = document.createElement('td');
         if (!entry.hasReceipt) {
-            cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', 'geen foto'));
+            if (draftsEnabled && draftId && entry.receiptId) {
+                const label = avbkElement('label', 'avbk-attach-photo');
+                label.title = 'Foto toevoegen aan deze regel';
+                label.appendChild(avbkElement('span', '', '+ Foto'));
+                const picker = avbkElement('input', 'avbk-draft-attach-input');
+                picker.type = 'file';
+                picker.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf';
+                picker.hidden = true;
+                picker.addEventListener('change', function () {
+                    const chosen = picker.files?.[0];
+                    if (chosen) attachDraftPhoto(entry, chosen);
+                });
+                label.appendChild(picker);
+                cell.appendChild(label);
+            } else {
+                cell.appendChild(avbkElement('span', 'avbk-dropzone-item-no-photo', 'geen foto'));
+            }
         } else if (entry.isImage && window.AVBKReceiptViewer) {
             const labelName = entry.file?.name || entry.store || 'bonnetje';
             const zoom = avbkButton('avbk-dropzone-item-zoom', '', 'Bonnetje ' + labelName + ' groot bekijken');
@@ -1161,6 +1223,61 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
+        function attachPendingPhoto(row, file) {
+            if (!file) return;
+            pendingSaves++;
+            setPendingStatus('Foto uploaden…', false);
+            postAjax('avbk_member_attach_receipt_photo', {
+                reimbursement_id: reimbursementId,
+                receipt_id: row.dataset.receiptId || '',
+                receipt: file
+            }).then(function (data) {
+                pendingSaves = Math.max(0, pendingSaves - 1);
+                if (data?.duplicate) {
+                    setPendingStatus('Dit bonnetje lijkt al eerder gedeclareerd te zijn.', true);
+                    return;
+                }
+                const photoTd = row.cells[0];
+                if (photoTd) {
+                    photoTd.textContent = '';
+                    if (data.is_image) {
+                        row.dataset.photoUrl = data.photo_url || '';
+                        const zoom = avbkButton('avbk-dropzone-item-zoom avbk-pending-zoom', '', 'Bonnetje groot bekijken');
+                        zoom.title = 'Bekijk groot om te controleren of een stukje op de foto opnieuw uit te lezen';
+                        const img = avbkElement('img', 'avbk-dropzone-item-photo');
+                        img.src = data.photo_url || '';
+                        img.alt = '';
+                        zoom.appendChild(img);
+                        zoom.addEventListener('click', function () { openPendingViewer(row); });
+                        photoTd.appendChild(zoom);
+                    } else {
+                        const link = avbkElement('a', 'avbk-dropzone-item-no-photo', data.is_pdf ? 'pdf' : 'bestand');
+                        link.href = data.photo_url || '';
+                        link.target = '_blank';
+                        photoTd.appendChild(link);
+                    }
+                }
+                const dateIn = pendingRowField(row, 'date');
+                if (dateIn && !row.dataset.date && data.date) {
+                    row.dataset.date = data.date;
+                    dateIn.value = avbkFormatDate(data.date);
+                }
+                const storeIn = pendingRowField(row, 'store');
+                if (storeIn && !storeIn.value.trim() && data.store) {
+                    storeIn.value = data.store;
+                }
+                const amtIn = pendingRowField(row, 'amount');
+                if (amtIn && !amtIn.value.trim() && data.amount !== null && data.amount !== undefined) {
+                    amtIn.value = avbkFormatAmount(data.amount);
+                    updateTotals();
+                }
+                if (pendingSaves === 0) setPendingStatus('✓ Foto toegevoegd', false);
+            }, function () {
+                pendingSaves = Math.max(0, pendingSaves - 1);
+                setPendingStatus('Foto toevoegen mislukt', true);
+            });
+        }
+
         allRows().forEach(function (row) {
             const dateIn = pendingRowField(row, 'date');
             const datePick = row.querySelector('.avbk-pending-date-pick');
@@ -1169,6 +1286,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const descIn = pendingRowField(row, 'description');
             const amtIn = pendingRowField(row, 'amount');
             const zoomBtn = row.querySelector('.avbk-pending-zoom');
+            const attachIn = row.querySelector('.avbk-pending-attach-input');
 
             if (dateIn && !dateIn.disabled) {
                 dateIn.addEventListener('input', function () {
@@ -1217,6 +1335,12 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (zoomBtn) {
                 zoomBtn.addEventListener('click', function () { openPendingViewer(row); });
+            }
+            if (attachIn) {
+                attachIn.addEventListener('change', function () {
+                    const chosen = attachIn.files?.[0];
+                    if (chosen) attachPendingPhoto(row, chosen);
+                });
             }
         });
 

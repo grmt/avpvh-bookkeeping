@@ -475,7 +475,7 @@ describe('automatic server-side drafts', () => {
         expect(document.getElementById('avbk-amount').value).toBe('36,00');
         expect(cell(rows()[0], '.avbk-dropzone-item-photo').getAttribute('src')).toBe('/receipt/201');
         expect(rows()[1].cells[0].textContent).toBe('pdf');
-        expect(rows()[2].cells[0].textContent).toBe('geen foto');
+        expect(rows()[2].cells[0].textContent).toBe('+ Foto');
         expect(cell(rows()[0], '.avbk-dropzone-item-progress').textContent).toBe('✓ gelezen');
         expect(cell(rows()[1], '.avbk-dropzone-item-progress').textContent).toBe('niets gelezen – vul zelf in');
 
@@ -556,7 +556,7 @@ describe('pending declaration receipt table', () => {
                                 <td></td>
                             </tr>
                             <tr class="avbk-pending-row" data-receipt-id="12" data-date="" data-photo-url="">
-                                <td><span>geen foto</span></td>
+                                <td><label class="avbk-attach-photo"><span>+ Foto</span><input type="file" class="avbk-pending-attach-input" hidden></label></td>
                                 <td><input class="avbk-pending-input" data-field="date" value=""></td>
                                 <td><input class="avbk-pending-input" data-field="store" value="Kantine"></td>
                                 <td><input class="avbk-pending-input" data-field="description" value=""></td>
@@ -640,5 +640,21 @@ describe('pending declaration receipt table', () => {
         options.nav.prev();
         expect(viewer.open.mock.calls[1][0]).toBe('/photo/13');
         options.onClose();
+
+        // Attach a photo to the photo-less row -> replaces "+ Foto" with clickable thumbnail and fills empty date.
+        const kantineRow = pendingRows().find((r) => r.dataset.receiptId === '12');
+        const attachIn = kantineRow.querySelector('.avbk-pending-attach-input');
+        Object.defineProperty(attachIn, 'files', { writable: true, value: [photo('kantine.jpg')] });
+        replies.push(reply({
+            success: true,
+            data: { photo_url: '/photo/12', is_image: true, is_pdf: false, date: '2026-08-04', store: 'OCR Winkel', amount: 99, duplicate: false },
+        }));
+        attachIn.dispatchEvent(new Event('change'));
+        await settle();
+        expect(kantineRow.dataset.photoUrl).toBe('/photo/12');
+        expect(kantineRow.querySelector('.avbk-pending-zoom img').getAttribute('src')).toBe('/photo/12');
+        expect(kantineRow.querySelector('[data-field="date"]').value).toBe('04-08-2026');
+        expect(kantineRow.querySelector('[data-field="store"]').value).toBe('Kantine');
+        expect(kantineRow.querySelector('[data-field="amount"]').value).toBe('10,00');
     });
 });

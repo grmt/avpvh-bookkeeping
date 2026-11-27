@@ -106,6 +106,17 @@ final class AVBK_DB {
     public static function update_draft_receipt(int $draft_id, int $receipt_id, int $member_id, array $data): bool {
         return self::update_member_receipt($draft_id, $receipt_id, $member_id, $data, 'draft');
     }
+    public static function attach_member_receipt_photo(int $reimbursement_id, int $receipt_id, int $member_id, array $data): bool {
+        $r = self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, 'draft')
+            ?? self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, 'pending');
+        if (!$r || trim((string) ($r->receipt_path ?? '')) !== '') return false;
+        $r->receipt_path = (string) $data['receipt_path'];
+        $r->receipt_hash = (string) ($data['receipt_hash'] ?? '');
+        if (empty($r->date) && !empty($data['ocr_date'])) $r->date = $data['ocr_date'];
+        if (trim((string) ($r->store ?? '')) === '' && !empty($data['ocr_store'])) $r->store = (string) $data['ocr_store'];
+        if ($r->amount === null && $data['ocr_amount'] !== null) $r->amount = (float) $data['ocr_amount'];
+        return true;
+    }
     public static function delete_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
         $r = self::get_draft_receipt($draft_id, $receipt_id, $member_id);
         if (!$r) return null;
@@ -253,6 +264,21 @@ try {
     [$kind] = run_handler([$handler, 'ajax_member_update_receipt']);
     check($kind === 'error', 'another member cannot update someone else\'s pending receipt');
     $GLOBALS['member_id'] = 7;
+
+    // 5c. Attaching a photo to a photo-less row on a pending declaration keeps existing text and fills empty fields.
+    $manual_pending_id = AVBK_DB::add_reimbursement_receipt($draft_id, [
+        'receipt_path' => '', 'receipt_hash' => '', 'description' => 'eigen omschrijving',
+        'date' => null, 'store' => 'Eigen Winkel', 'amount' => null, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+    ]);
+    $GLOBALS['ocr_text'] = "Gescande Winkel\n03.08 2026\nTotaal 22,50";
+    $GLOBALS['uploaded'] = ['receipt' => $png];
+    $_FILES = ['receipt' => ['name' => 'bon.png']];
+    $_POST = ['reimbursement_id' => $draft_id, 'receipt_id' => $manual_pending_id];
+    [$kind, $attached] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
+    check($kind === 'success' && $attached['is_image'] === true && $GLOBALS['receipts'][$manual_pending_id]->store === 'Eigen Winkel' && $GLOBALS['receipts'][$manual_pending_id]->date === '2026-08-03' && $GLOBALS['receipts'][$manual_pending_id]->amount === 22.5, 'attaching a photo stores it, fills empty fields, and keeps existing values');
+    // Cannot overwrite an already-attached photo.
+    [$kind] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
+    check($kind === 'error', 'attaching refuses a row that already has a photo');
 
     // 6. Discarding a second draft deletes both DB rows and stored files on disk.
     $_POST = ['iban' => 'NL00TEST0000000001'];

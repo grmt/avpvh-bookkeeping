@@ -120,6 +120,23 @@
     font-style: italic;
 }
 
+.avbk-attach-photo {
+    display: inline-block;
+    padding: .25rem .45rem;
+    border: 1px dashed #2271b1;
+    border-radius: 3px;
+    background: #f0f6fc;
+    color: #2271b1;
+    font-size: .8em;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.avbk-attach-photo:hover {
+    background: #e5f1fa;
+}
+
 .avbk-dropzone-item-date,
 .avbk-dropzone-item-store,
 .avbk-dropzone-item-description,

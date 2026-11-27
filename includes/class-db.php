@@ -3605,6 +3605,34 @@ class AVBK_DB {
         return self::update_member_receipt($draft_id, $receipt_id, $member_id, $data, 'draft');
     }
 
+    /** Attaches a stored receipt file to an existing photo-less row on a member's draft or pending declaration. */
+    public static function attach_member_receipt_photo(int $reimbursement_id, int $receipt_id, int $member_id, array $data): bool {
+        global $wpdb;
+        $receipt = self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, 'draft')
+            ?? self::get_member_receipt($reimbursement_id, $receipt_id, $member_id, 'pending');
+        if (!$receipt || trim((string) ($receipt->receipt_path ?? '')) !== '') {
+            return false;
+        }
+        $fields = [
+            'receipt_path' => (string) $data['receipt_path'],
+            'receipt_hash' => (string) ($data['receipt_hash'] ?? ''),
+            'ocr_amount'   => $data['ocr_amount'] !== null ? (float) $data['ocr_amount'] : null,
+            'ocr_date'     => $data['ocr_date'] ?: null,
+            'ocr_store'    => (string) ($data['ocr_store'] ?? ''),
+        ];
+        if (empty($receipt->date) && !empty($data['ocr_date'])) {
+            $fields['date'] = $data['ocr_date'];
+        }
+        if (trim((string) ($receipt->store ?? '')) === '' && !empty($data['ocr_store'])) {
+            $fields['store'] = (string) $data['ocr_store'];
+        }
+        if ($receipt->amount === null && $data['ocr_amount'] !== null) {
+            $fields['amount'] = (float) $data['ocr_amount'];
+        }
+        $wpdb->update("{$wpdb->prefix}avb_reimbursement_receipts", $fields, ['id' => $receipt_id, 'reimbursement_id' => $reimbursement_id]);
+        return true;
+    }
+
     /** Deletes one receipt row from a member's draft declaration; returns the deleted row so the caller can unlink its file. */
     public static function delete_draft_receipt(int $draft_id, int $receipt_id, int $member_id): ?object {
         global $wpdb;
