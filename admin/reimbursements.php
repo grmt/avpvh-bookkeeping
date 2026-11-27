@@ -80,7 +80,7 @@ function avbk_render_reimbursement_card(object $r, array $activities): void {
                     <?php if (trim((string) ($r->member_note ?? '')) !== '') : ?>
                         <tr><th>Toelichting van het lid</th><td><?php echo nl2br(esc_html((string) $r->member_note)); ?></td></tr>
                     <?php endif; ?>
-                    <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?><?php echo $r->ocr_amount ? ' (OCR herkende totaal € ' . esc_html(number_format((float) $r->ocr_amount, 2, ',', '.')) . ')' : ''; ?></td></tr>
+                    <tr><th>Bedrag</th><td>&euro; <?php echo esc_html(number_format((float) $r->amount, 2, ',', '.')); ?></td></tr>
                     <tr><th>Rekeningnummer</th><td><?php echo esc_html($r->iban); ?><?php echo $iban_account_name ? ' &mdash; ' . esc_html($iban_account_name) : ''; ?><?php echo count($known_ibans) > 1 ? ' <span class="description">(meerdere rekeningen bekend bij dit lid &mdash; zie &ldquo;aanpassen&rdquo; hieronder)</span>' : ''; ?></td></tr>
                     <tr><th>Bonnetje(s)</th><td>
                         <?php avbk_render_reimbursement_receipts($receipts, $window_start, $window_end, $r, $member_name); ?>

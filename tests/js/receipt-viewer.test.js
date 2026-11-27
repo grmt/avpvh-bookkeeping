@@ -17,9 +17,19 @@ describe('reading the selected text', () => {
         expect(text.date('01-08-2026')).toBe('2026-08-01');
         expect(text.date('Datum: 4/8/26 14:02')).toBe('2026-08-04');
         expect(text.date('02.08.2026')).toBe('2026-08-02');
+        expect(text.date('03.08 2026')).toBe('2026-08-03');
+        expect(text.date('03 08 2026')).toBe('2026-08-03');
+        expect(text.date('03. 08. 26')).toBe('2026-08-03');
+        expect(text.date('Tel. 26 10 35 35')).toBeNull();
+        expect(text.date('Artikel 12.05 10')).toBeNull();
         expect(text.date('2026-08-03')).toBe('2026-08-03');
         expect(text.date('31-02-2026 then 01-03-2026')).toBe('2026-03-01');
         expect(text.date('05-06-85')).toBe('1985-06-05');
+        expect(text.date('1 aug 26')).toBe('2026-08-01');
+        expect(text.date('Datum: 2 août 2026')).toBe('2026-08-02');
+        expect(text.date('15 mrt. 2026')).toBe('2026-03-15');
+        expect(text.date('12 foo 26')).toBeNull();
+        expect(text.date('31 feb 26')).toBeNull();
         expect(text.date('Bon 1234567')).toBeNull();
         expect(text.date('2026-13-01')).toBeNull();
     });
@@ -53,11 +63,13 @@ describe('the viewer', () => {
     const canvas = () => dialog().querySelector('.avbk-receipt-viewer-canvas');
     const hint = () => dialog().querySelector('.avbk-receipt-viewer-hint');
     const field = () => dialog().querySelector('.avbk-receipt-viewer-text');
+    const valueInput = (name) => dialog().querySelector(`.avbk-receipt-viewer-field-input[data-field="${name}"]`);
+    const readingNote = () => dialog().querySelector('.avbk-receipt-viewer-reading');
 
-    function open(engines = { google: 'Google' }) {
+    function open(engines = { google: 'Google' }, extra = {}) {
         read = vi.fn(() => Promise.resolve('Datum 01-08-2026 Totaal 11,80'));
         apply = vi.fn();
-        viewer.open('blob:receipt', { read, apply, engines });
+        viewer.open('blob:receipt', { read, apply, engines, ...extra });
     }
 
     async function select(x1, y1, x2, y2) {
@@ -113,14 +125,124 @@ describe('the viewer', () => {
 
         button('→ Datum').click();
         expect(apply).toHaveBeenLastCalledWith('date', '2026-08-01');
+        expect(valueInput('date').value).toBe('01-08-2026');
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
         button('→ Bedrag').click();
         expect(apply).toHaveBeenLastCalledWith('amount', 11.8);
+        expect(valueInput('amount').value).toBe('11,80');
         field().value = 'Bakkerij  Voorbeeld';
         field().dispatchEvent(new Event('input'));
         expect(button('→ Datum').disabled).toBe(true);
         button('→ Winkel').click();
         expect(apply).toHaveBeenLastCalledWith('store', 'Bakkerij Voorbeeld');
+        expect(valueInput('store').value).toBe('Bakkerij Voorbeeld');
         expect(hint().textContent).toContain('winkel');
+    });
+
+    it('shows the scanned values, flags missing ones, and fills candidate lists', () => {
+        open({ google: 'Google' }, {
+            values: { date: '2026-08-02', store: 'Supermarkt', amount: null },
+            candidates: {
+                dates: ['2026-08-02', 'bad-date'],
+                stores: ['Supermarkt', 'Dorpsstraat 1'],
+                amounts: [69.33, 2.6],
+            },
+        });
+        expect(valueInput('date').value).toBe('02-08-2026');
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
+        expect(valueInput('store').value).toBe('Supermarkt');
+        expect(valueInput('amount').value).toBe('');
+        expect(valueInput('amount').classList.contains('avbk-receipt-viewer-field-empty')).toBe(true);
+        expect([...dialog().querySelectorAll('datalist')].map((l) => [...l.options].map((o) => o.value))).toEqual([
+            ['02-08-2026'], ['Supermarkt', 'Dorpsstraat 1'], ['69,33', '2,60'],
+        ]);
+    });
+
+    it('lets the user edit date, store and amount directly inside the viewer', () => {
+        open();
+        const dateIn = valueInput('date');
+        dateIn.value = '4-8-26';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-04');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('04-08-2026');
+
+        dateIn.value = '1 aug 26';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-01');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('01-08-2026');
+
+        dateIn.value = 'gisteren';
+        dateIn.dispatchEvent(new Event('input'));
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(true);
+        expect(apply).toHaveBeenLastCalledWith('date', '');
+        dateIn.dispatchEvent(new Event('blur'));
+        expect(dateIn.value).toBe('gisteren');
+
+        const picker = dialog().querySelector('.avbk-receipt-viewer-date-picker');
+        const pickBtn = dialog().querySelector('.avbk-receipt-viewer-date-pick');
+        picker.showPicker = vi.fn();
+        pickBtn.click();
+        expect(picker.showPicker).toHaveBeenCalled();
+        picker.showPicker = () => { throw new Error('not allowed'); };
+        const click = vi.spyOn(picker, 'click');
+        pickBtn.click();
+        expect(click).toHaveBeenCalled();
+        picker.value = '2026-08-05';
+        picker.dispatchEvent(new Event('change'));
+        expect(dateIn.value).toBe('05-08-2026');
+        expect(dateIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(false);
+        expect(apply).toHaveBeenLastCalledWith('date', '2026-08-05');
+
+        const storeIn = valueInput('store');
+        storeIn.value = 'Markt';
+        storeIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('store', 'Markt');
+
+        const amountIn = valueInput('amount');
+        amountIn.value = '1.234,5';
+        amountIn.dispatchEvent(new Event('input'));
+        expect(apply).toHaveBeenLastCalledWith('amount', 1234.5);
+        amountIn.dispatchEvent(new Event('blur'));
+        expect(amountIn.value).toBe('1234,50');
+
+        amountIn.value = 'abc';
+        amountIn.dispatchEvent(new Event('input'));
+        expect(amountIn.classList.contains('avbk-receipt-viewer-field-invalid')).toBe(true);
+        expect(apply).toHaveBeenLastCalledWith('amount', null);
+        amountIn.dispatchEvent(new Event('blur'));
+        expect(amountIn.value).toBe('abc');
+    });
+
+    it('updates live when background reading finishes, keeping a focused field', () => {
+        const onClose = vi.fn();
+        open({ google: 'Google' }, {
+            values: { date: '', store: '', amount: null },
+            reading: true,
+            onClose,
+        });
+        expect(readingNote().hidden).toBe(false);
+        expect(valueInput('date').classList.contains('avbk-receipt-viewer-field-empty')).toBe(false);
+
+        valueInput('store').focus();
+        valueInput('store').value = 'Eigen winkel';
+        viewer.update({
+            values: { date: '2026-08-02', store: 'Gescande winkel', amount: 69.33 },
+            candidates: { dates: ['2026-08-02'], stores: ['Gescande winkel'], amounts: [69.33] },
+            reading: false,
+        });
+        expect(readingNote().hidden).toBe(true);
+        expect(valueInput('date').value).toBe('02-08-2026');
+        expect(valueInput('store').value).toBe('Eigen winkel');
+        expect(valueInput('amount').value).toBe('69,33');
+
+        dialog().close();
+        expect(onClose).toHaveBeenCalledTimes(1);
+        viewer.update({ values: { date: '2026-09-01' }, reading: false });
+        expect(valueInput('date').value).toBe('02-08-2026');
     });
 
     it('ignores a click without a real selection', async () => {
@@ -187,5 +309,45 @@ describe('the viewer', () => {
         dialog().dispatchEvent(new MouseEvent('click', { bubbles: true }));
         expect(dialog().open).toBe(false);
         expect(image().getAttribute('src')).toBeNull();
+    });
+
+    it('steps to previous and next receipts, showing x van y, without reopening the modal', () => {
+        const prev = vi.fn();
+        const next = vi.fn();
+        open({ google: 'Google' }, {
+            nav: { index: 2, total: 15, hasPrev: true, hasNext: true, prev, next },
+        });
+        const navEl = dialog().querySelector('.avbk-receipt-viewer-nav');
+        expect(navEl.hidden).toBe(false);
+        expect(dialog().querySelector('.avbk-receipt-viewer-counter').textContent).toBe('2 van 15');
+        expect(button('‹ Vorige').disabled).toBe(false);
+        expect(button('Volgende ›').disabled).toBe(false);
+
+        button('Volgende ›').click();
+        expect(next).toHaveBeenCalledTimes(1);
+        button('‹ Vorige').click();
+        expect(prev).toHaveBeenCalledTimes(1);
+
+        // Arrow keys navigate when not typing in an input, and stay out of the way inside inputs.
+        dialog().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        expect(next).toHaveBeenCalledTimes(2);
+        dialog().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        expect(prev).toHaveBeenCalledTimes(2);
+        valueInput('store').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        expect(next).toHaveBeenCalledTimes(2);
+
+        // Switching while already open does not fail and updates counter/disabled states.
+        open({ google: 'Google' }, {
+            nav: { index: 15, total: 15, hasPrev: true, hasNext: false, prev, next },
+        });
+        expect(dialog().open).toBe(true);
+        expect(dialog().querySelector('.avbk-receipt-viewer-counter').textContent).toBe('15 van 15');
+        expect(button('Volgende ›').disabled).toBe(true);
+
+        // Hidden for a single receipt.
+        open({ google: 'Google' }, {
+            nav: { index: 1, total: 1, hasPrev: false, hasNext: false, prev, next },
+        });
+        expect(navEl.hidden).toBe(true);
     });
 });

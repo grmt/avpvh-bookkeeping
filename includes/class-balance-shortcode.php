@@ -205,7 +205,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
         ob_start();
         ?>
         <div class="avbk-balance" id="bijdrage">
-            <h2>Bijdrage &mdash; <?php echo esc_html(avpvh_format_name($target_member)); ?></h2>
+            <h2>Financiële zaken &mdash; <?php echo esc_html(avpvh_format_name($target_member)); ?></h2>
 
             <?php AVBK_Reimbursements::render_member_notices($own_member, $target_member, $requested_id ? add_query_arg('member_id', $target_id, get_permalink()) : (string) get_permalink()); ?>
             <?php AVBK_Document_Requests::render_member_todos($target_member, $requested_id ? add_query_arg('member_id', $target_id, get_permalink()) : (string) get_permalink()); ?>
@@ -417,7 +417,7 @@ class AVBK_Balance_Shortcode implements AVBK_Component {
             );
             ?>
 
-            <p class="avbk-balance-declare-link"><a href="<?php echo esc_url(home_url('/leden/beheer/declareren/')); ?>">Bonnetje declareren &rarr;</a></p>
+            <?php AVBK_Reimbursements::render_member_summary($own_member, $target_member); ?>
         </div>
         <?php
         return ob_get_clean();
