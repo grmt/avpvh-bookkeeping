@@ -9,6 +9,8 @@
  * value; options.engines (code => name) offers a choice when there are two;
  * options.values ({ date, store, amount }), options.candidates and
  * options.reading show what was read so far and allow direct edits;
+ * options.nav ({ index, total, hasPrev, hasNext, prev, next }) steps
+ * between receipts without closing the dialog;
  * options.onClose() runs when the dialog closes.
  * window.AVBKReceiptViewer.update(info): refreshes values, candidates and
  * reading state while the dialog is open.
@@ -284,8 +286,24 @@
         ui.moveMode = button('Verschuiven', 'Sleep om de foto te verschuiven', function () { setMode('move'); });
         bar.appendChild(ui.selectMode);
         bar.appendChild(ui.moveMode);
+        var barEnd = el('div', 'avbk-receipt-viewer-bar-end');
+        ui.nav = el('div', 'avbk-receipt-viewer-nav');
+        ui.prev = button('‹ Vorige', 'Vorig bonnetje', function () {
+            if (state.options && state.options.nav && state.options.nav.prev) state.options.nav.prev();
+        });
+        ui.counter = el('span', 'avbk-receipt-viewer-counter');
+        ui.counter.setAttribute('aria-live', 'polite');
+        ui.next = button('Volgende ›', 'Volgend bonnetje', function () {
+            if (state.options && state.options.nav && state.options.nav.next) state.options.nav.next();
+        });
+        ui.nav.appendChild(ui.prev);
+        ui.nav.appendChild(ui.counter);
+        ui.nav.appendChild(ui.next);
+        ui.nav.hidden = true;
         var close = button('×', 'Sluiten', function () { dialog.close(); }, 'avbk-receipt-viewer-close');
-        bar.appendChild(close);
+        barEnd.appendChild(ui.nav);
+        barEnd.appendChild(close);
+        bar.appendChild(barEnd);
         dialog.appendChild(bar);
 
         var body = el('div', 'avbk-receipt-viewer-body');
@@ -318,6 +336,19 @@
         }, { passive: false });
         dialog.addEventListener('click', function (e) {
             if (e.target === dialog) dialog.close();
+        });
+        dialog.addEventListener('keydown', function (e) {
+            var nav = state.options && state.options.nav;
+            if (!nav || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+            var tag = e.target && e.target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (e.key === 'ArrowLeft' && nav.hasPrev && nav.prev) {
+                e.preventDefault();
+                nav.prev();
+            } else if (e.key === 'ArrowRight' && nav.hasNext && nav.next) {
+                e.preventDefault();
+                nav.next();
+            }
         });
         dialog.addEventListener('close', function () {
             var onClose = state.options && state.options.onClose;
@@ -483,6 +514,15 @@
         });
     }
 
+    function applyNav(nav) {
+        var show = Boolean(nav && (nav.total > 1 || nav.hasPrev || nav.hasNext));
+        ui.nav.hidden = !show;
+        if (!show) return;
+        ui.counter.textContent = nav.index + ' van ' + nav.total;
+        ui.prev.disabled = !nav.hasPrev;
+        ui.next.disabled = !nav.hasNext;
+    }
+
     function applyState(info, keepFocused) {
         state.reading = Boolean(info.reading);
         ui.reading.hidden = !state.reading;
@@ -500,6 +540,10 @@
         fillList(ui.lists.date, (candidates.dates || []).map(formatDate));
         fillList(ui.lists.store, candidates.stores);
         fillList(ui.lists.amount, (candidates.amounts || []).map(formatAmount));
+        if (!keepFocused || 'nav' in info) {
+            if (state.options && 'nav' in info) state.options.nav = info.nav;
+            applyNav(info.nav);
+        }
     }
 
     function take(field, value) {
@@ -544,9 +588,13 @@
         showStatus('Sleep over de datum, de winkel of het bedrag om het over te nemen.', false);
         updateActions();
         setMode('select');
+        ui.stage.scrollLeft = 0;
+        ui.stage.scrollTop = 0;
         ui.img.onload = fit;
         ui.img.src = src;
-        dialog.showModal();
+        if (!dialog.open) {
+            dialog.showModal();
+        }
         if (ui.img.complete && ui.img.naturalWidth) fit();
     }
 

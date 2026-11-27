@@ -310,4 +310,44 @@ describe('the viewer', () => {
         expect(dialog().open).toBe(false);
         expect(image().getAttribute('src')).toBeNull();
     });
+
+    it('steps to previous and next receipts, showing x van y, without reopening the modal', () => {
+        const prev = vi.fn();
+        const next = vi.fn();
+        open({ google: 'Google' }, {
+            nav: { index: 2, total: 15, hasPrev: true, hasNext: true, prev, next },
+        });
+        const navEl = dialog().querySelector('.avbk-receipt-viewer-nav');
+        expect(navEl.hidden).toBe(false);
+        expect(dialog().querySelector('.avbk-receipt-viewer-counter').textContent).toBe('2 van 15');
+        expect(button('‹ Vorige').disabled).toBe(false);
+        expect(button('Volgende ›').disabled).toBe(false);
+
+        button('Volgende ›').click();
+        expect(next).toHaveBeenCalledTimes(1);
+        button('‹ Vorige').click();
+        expect(prev).toHaveBeenCalledTimes(1);
+
+        // Arrow keys navigate when not typing in an input, and stay out of the way inside inputs.
+        dialog().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        expect(next).toHaveBeenCalledTimes(2);
+        dialog().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        expect(prev).toHaveBeenCalledTimes(2);
+        valueInput('store').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        expect(next).toHaveBeenCalledTimes(2);
+
+        // Switching while already open does not fail and updates counter/disabled states.
+        open({ google: 'Google' }, {
+            nav: { index: 15, total: 15, hasPrev: true, hasNext: false, prev, next },
+        });
+        expect(dialog().open).toBe(true);
+        expect(dialog().querySelector('.avbk-receipt-viewer-counter').textContent).toBe('15 van 15');
+        expect(button('Volgende ›').disabled).toBe(true);
+
+        // Hidden for a single receipt.
+        open({ google: 'Google' }, {
+            nav: { index: 1, total: 1, hasPrev: false, hasNext: false, prev, next },
+        });
+        expect(navEl.hidden).toBe(true);
+    });
 });

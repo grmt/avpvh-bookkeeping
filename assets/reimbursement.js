@@ -342,6 +342,34 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function isViewable(entry) {
+        return Boolean(entry.hasReceipt && entry.isImage);
+    }
+
+    function adjacentViewable(entry, step) {
+        const start = entries.indexOf(entry);
+        if (start < 0) return null;
+        for (let i = start + step; i >= 0 && i < entries.length; i += step) {
+            if (isViewable(entries[i])) return entries[i];
+        }
+        return null;
+    }
+
+    function viewerNav(entry) {
+        const index = entries.indexOf(entry);
+        if (index < 0) return null;
+        const prevEntry = adjacentViewable(entry, -1);
+        const nextEntry = adjacentViewable(entry, 1);
+        return {
+            index: index + 1,
+            total: entries.length,
+            hasPrev: Boolean(prevEntry),
+            hasNext: Boolean(nextEntry),
+            prev: function () { if (prevEntry) openViewer(prevEntry); },
+            next: function () { if (nextEntry) openViewer(nextEntry); }
+        };
+    }
+
     function viewerState(entry) {
         return {
             values: {
@@ -350,7 +378,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 amount: entry.amount
             },
             candidates: entry.candidates || null,
-            reading: entry.status === 'reading'
+            reading: entry.status === 'reading',
+            nav: viewerNav(entry)
         };
     }
 
@@ -379,6 +408,7 @@ document.addEventListener('DOMContentLoaded', function () {
             values: current.values,
             candidates: current.candidates,
             reading: current.reading,
+            nav: current.nav,
             apply: function (field, value) {
                 entry[field] = value;
                 entry[field + 'Edited'] = true;

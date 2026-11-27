@@ -456,8 +456,31 @@ tr.avbk-dropzone-item-reading .avbk-dropzone-item-photo {
     cursor: default;
 }
 
-.avbk-receipt-viewer-close {
+.avbk-receipt-viewer-bar-end {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.avbk-receipt-viewer-nav[hidden] {
+    display: none;
+}
+
+.avbk-receipt-viewer-nav {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.avbk-receipt-viewer-counter {
+    font-size: .9em;
+    font-variant-numeric: tabular-nums;
+    color: #555;
+    white-space: nowrap;
+}
+
+.avbk-receipt-viewer-close {
     font-size: 1.2em;
     line-height: 1;
 }

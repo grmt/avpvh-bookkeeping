@@ -250,17 +250,38 @@ describe('the rows', () => {
 
         finishFirst({ json: () => Promise.resolve({ success: true, data: found }) });
         await settle();
-        expect(viewer.update).toHaveBeenCalledWith({
+        expect(viewer.update).toHaveBeenCalledWith(expect.objectContaining({
             values: { date: '2026-08-01', store: 'Bakkerij Voorbeeld', amount: 11.8 },
             candidates: found.candidates,
             reading: false,
-        });
+            nav: expect.objectContaining({ index: 1, total: 1, hasPrev: false, hasNext: false }),
+        }));
 
         options.onClose();
         viewer.update.mockClear();
         cell(rows()[0], '.avbk-dropzone-item-retry').click();
         await settle();
         expect(viewer.update).not.toHaveBeenCalled();
+    });
+
+    it('navigates to previous and next viewable receipts with total line count', async () => {
+        await load();
+        addFiles(photo('een.jpg'));
+        document.getElementById('avbk-add-manual-row').click();
+        addFiles(photo('drie.jpg'));
+        await settle();
+
+        cell(rows()[0], '.avbk-dropzone-item-zoom').click();
+        const firstNav = viewer.open.mock.calls[0][1].nav;
+        expect([firstNav.index, firstNav.total, firstNav.hasPrev, firstNav.hasNext]).toEqual([1, 3, false, true]);
+
+        firstNav.next();
+        const thirdNav = viewer.open.mock.calls[1][1].nav;
+        expect([thirdNav.index, thirdNav.total, thirdNav.hasPrev, thirdNav.hasNext]).toEqual([3, 3, true, false]);
+        expect(rows()[2].classList.contains('avbk-dropzone-item-active')).toBe(true);
+
+        thirdNav.prev();
+        expect(viewer.open.mock.calls[2][1].nav.index).toBe(1);
     });
 
     it('removes a row and frees its photo', async () => {
