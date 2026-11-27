@@ -516,6 +516,62 @@ describe('automatic server-side drafts', () => {
         expect(sent(2)).toMatchObject({ action: 'avbk_draft_save_receipt', draft_id: '77', receipt_id: '301', store: 'Kantine' });
         expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
     });
+
+    it('attaches a photo to a draft manual row and handles duplicate and error replies', async () => {
+        await loadDraftForm({
+            draft: {
+                id: 88,
+                receipts: [
+                    { id: 401, hasReceipt: false, isImage: false, isPdf: false, photoUrl: '', date: '', store: '', description: '', amount: null },
+                ],
+            },
+        });
+        const attach = () => cell(rows()[0], '.avbk-draft-attach-input');
+        const pickFile = (file) => {
+            const input = attach();
+            Object.defineProperty(input, 'files', { writable: true, value: [file] });
+            input.dispatchEvent(new Event('change'));
+        };
+
+        // Duplicate reply restores "+ Foto" and shows error status.
+        replies.push(reply({ success: true, data: { duplicate: true } }));
+        pickFile(photo('dup.jpg'));
+        await settle();
+        expect(attach()).not.toBeNull();
+        expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+
+        // Network failure restores "+ Foto".
+        replies.push(Promise.reject(new Error('offline')));
+        pickFile(photo('fail.jpg'));
+        await settle();
+        expect(attach()).not.toBeNull();
+
+        // Successful attach replaces "+ Foto" with clickable photo and applies OCR values.
+        replies.push(reply({ success: true, data: { photo_url: '/photo/401', is_image: true, is_pdf: false, date: '2026-08-06', store: 'Bakkerij', amount: 12.5, duplicate: false } }));
+        replies.push(reply({ success: true, data: { draft_id: 88 } }));
+        pickFile(photo('ok.jpg'));
+        await settle();
+        expect(cell(rows()[0], '.avbk-dropzone-item-photo').getAttribute('src')).toBe('blob:receipt');
+        expect(cell(rows()[0], '.avbk-dropzone-item-store').value).toBe('Bakkerij');
+        expect(cell(rows()[0], '.avbk-dropzone-item-amount').value).toBe('12,50');
+    });
+
+    it('handles duplicate upload, read failure, and discard failure in draft mode', async () => {
+        await loadDraftForm();
+        replies.push(reply({ success: true, data: { draft_id: 91 } }));
+        replies.push(reply({ success: true, data: { duplicate: true } }));
+        replies.push(Promise.reject(new Error('offline')));
+        addFiles(photo('dup.jpg'), photo('err.jpg'));
+        await settle();
+        expect(rows()[0].classList.contains('avbk-dropzone-item-duplicate')).toBe(true);
+        expect(cell(rows()[1], '.avbk-dropzone-item-progress').textContent).toBe('niets gelezen – vul zelf in');
+
+        vi.stubGlobal('confirm', vi.fn(() => true));
+        replies.push(Promise.reject(new Error('offline')));
+        document.getElementById('avbk-draft-discard').click();
+        await settle();
+        expect(document.getElementById('avbk-draft-status').classList.contains('avbk-draft-status-error')).toBe(true);
+    });
 });
 
 describe('pending declaration receipt table', () => {
@@ -656,5 +712,72 @@ describe('pending declaration receipt table', () => {
         expect(kantineRow.querySelector('[data-field="date"]').value).toBe('04-08-2026');
         expect(kantineRow.querySelector('[data-field="store"]').value).toBe('Kantine');
         expect(kantineRow.querySelector('[data-field="amount"]').value).toBe('10,00');
+
+        // Date editing, calendar picker (with fallback), viewer date/amount apply, and error status on save failure.
+        const dateIn = bakkerRow.querySelector('[data-field="date"]');
+        replies.push(reply({ success: true, data: { saved: true } }));
+        type(dateIn, '4-8-26');
+        dateIn.dispatchEvent(new Event('blur'));
+        await settle();
+        expect(dateIn.value).toBe('04-08-2026');
+        type(dateIn, 'onzin');
+        expect(dateIn.classList.contains('avbk-dropzone-item-invalid')).toBe(true);
+
+        const picker = bakkerRow.querySelector('.avbk-pending-date-picker');
+        const pickBtn = bakkerRow.querySelector('.avbk-pending-date-pick');
+        picker.showPicker = vi.fn();
+        pickBtn.click();
+        expect(picker.showPicker).toHaveBeenCalled();
+        picker.showPicker = () => { throw new Error('denied'); };
+        const clickSpy = vi.spyOn(picker, 'click');
+        pickBtn.click();
+        expect(clickSpy).toHaveBeenCalled();
+        replies.push(reply({ success: true, data: { saved: true } }));
+        picker.value = '2026-08-07';
+        picker.dispatchEvent(new Event('change'));
+        await settle();
+        expect(dateIn.value).toBe('07-08-2026');
+
+        // Viewer apply date & amount + save failure indicator.
+        replies.push(reply({ success: true, data: { saved: true } }));
+        bakkerRow.querySelector('.avbk-pending-zoom').click();
+        const latestViewer = viewer.open.mock.calls.at(-1)[1];
+        latestViewer.apply('date', '2026-08-09');
+        await settle();
+        replies.push(Promise.reject(new Error('offline')));
+        latestViewer.apply('amount', 45.5);
+        await settle();
+        expect(dateIn.value).toBe('09-08-2026');
+        expect(bakkerRow.querySelector('[data-field="amount"]').value).toBe('45,50');
+        expect(document.querySelector('.avbk-pending-status').classList.contains('avbk-draft-status-error')).toBe(true);
+    });
+
+    it('handles pending photo attach duplicate, PDF link, and failure', async () => {
+        loadPendingTable();
+        const kantineRow = [...document.querySelectorAll('.avbk-pending-row')].find((r) => r.dataset.receiptId === '12');
+        kantineRow.querySelector('[data-field="store"]').value = '';
+        kantineRow.querySelector('[data-field="amount"]').value = '';
+        const attachIn = kantineRow.querySelector('.avbk-pending-attach-input');
+        const sendFile = (file) => {
+            Object.defineProperty(attachIn, 'files', { writable: true, value: [file] });
+            attachIn.dispatchEvent(new Event('change'));
+        };
+
+        replies.push(reply({ success: true, data: { duplicate: true } }));
+        sendFile(photo('dup.jpg'));
+        await settle();
+        expect(document.querySelector('.avbk-pending-status').classList.contains('avbk-draft-status-error')).toBe(true);
+
+        replies.push(Promise.reject(new Error('offline')));
+        sendFile(photo('err.jpg'));
+        await settle();
+        expect(document.querySelector('.avbk-pending-status').textContent).toContain('mislukt');
+
+        replies.push(reply({ success: true, data: { photo_url: '/doc/12', is_image: false, is_pdf: true, date: '', store: 'PDF Winkel', amount: 15.0, duplicate: false } }));
+        sendFile(new File(['%PDF'], 'bon.pdf', { type: 'application/pdf' }));
+        await settle();
+        expect(kantineRow.cells[0].textContent).toBe('pdf');
+        expect(kantineRow.querySelector('[data-field="store"]').value).toBe('PDF Winkel');
+        expect(kantineRow.querySelector('[data-field="amount"]').value).toBe('15,00');
     });
 });

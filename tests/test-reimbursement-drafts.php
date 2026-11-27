@@ -36,6 +36,15 @@ function wp_nonce_url($url, $action) { return htmlspecialchars($url . '&_wpnonce
 function wp_date($format, $timestamp = null) { return date($format, $timestamp ?? time()); }
 function esc_html($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 function esc_url($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+function esc_attr($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+function esc_textarea($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+function wp_nonce_field($action) { echo '<input type="hidden" name="_wpnonce" value="' . esc_attr($action) . '">'; }
+function selected($a, $b) { if ((string) $a === (string) $b) echo 'selected="selected"'; }
+function wp_json_encode($data) { return json_encode($data); }
+function add_action($hook, $cb) { $GLOBALS['footer_hooks'][$hook][] = $cb; }
+final class AVPVH_DB {
+    public static function get_activities(): array { return [(object) ['id' => 9, 'name' => 'Zomerkamp', 'year' => 2026]]; }
+}
 function wp_unslash($value) { return $value; }
 function sanitize_key($key) { return strtolower(preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
 function sanitize_file_name($name) { return (string) $name; }
@@ -158,6 +167,13 @@ final class AVBK_DB {
     }
     public static function remember_iban(int $member_id, string $iban, string $name): void { self::$remembered[] = [$member_id, $iban]; }
     public static function log_mail(array $data): void {}
+    public static function get_known_ibans_for_member(int $member_id): array {
+        return [
+            (object) ['iban' => 'NL00TEST0000000001', 'account_name' => 'Piet Jansen'],
+            (object) ['iban' => 'NL00TEST0000000002', 'account_name' => 'Anna Jansen'],
+        ];
+    }
+    public static function mark_reimbursement_decisions_seen(int $member_id): void {}
     public static function find_duplicate_receipt(int $member_id, string $hash, ?string $date, ?string $store, int $exclude_receipt_id = 0, bool $ignore_drafts = false): ?object {
         return $GLOBALS['duplicate'] ? (object) ['id' => 999] : null;
     }
@@ -304,6 +320,53 @@ try {
     AVBK_Reimbursements::render_member_summary((object) ['id' => 99], (object) ['id' => 7]);
     $admin_html = (string) ob_get_clean();
     check(!str_contains($admin_html, 'Concept') && str_contains($admin_html, 'In behandeling'), 'member summary hides private draft from another viewer while showing pending');
+
+    // 7. Full render() renders the draft pre-fill, wp_footer JSON payload, and pending declaration editable receipt table (with image, PDF, and photo-less + Foto rows).
+    AVBK_DB::add_reimbursement_receipt($draft_id, [
+        'receipt_path' => 'doc.pdf', 'receipt_hash' => 'hpdf', 'description' => '', 'date' => null,
+        'store' => '', 'amount' => null, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+    ]);
+    AVBK_DB::add_reimbursement_receipt($draft_id, [
+        'receipt_path' => '', 'receipt_hash' => '', 'description' => 'contant', 'date' => null,
+        'store' => 'Kantine', 'amount' => 4.5, 'ocr_amount' => null, 'ocr_date' => null, 'ocr_store' => '',
+    ]);
+    $GLOBALS['footer_hooks'] = [];
+    $page_html = $handler->render();
+    ob_start();
+    foreach ($GLOBALS['footer_hooks']['wp_footer'] ?? [] as $cb) {
+        $cb();
+    }
+    $footer_html = (string) ob_get_clean();
+    check(str_contains($page_html, 'id="avbk-draft-id"') && str_contains($page_html, 'avbk-pending-table') && str_contains($page_html, '+ Foto') && str_contains($page_html, '>pdf<'), 'render() outputs draft form and pending sortable/filterable receipt table');
+    check(str_contains($footer_html, 'id="avbk-reimbursement-draft"') && !str_contains($footer_html, '&amp;id='), 'render() emits draft JSON in wp_footer with raw receipt URLs');
+
+    // 8. Guard/error paths across draft AJAX handlers and draft submit.
+    $GLOBALS['logged_in'] = false;
+    [$kind] = run_handler([$handler, 'ajax_draft_ensure']);
+    check($kind === 'error', 'logged-out user is refused by draft endpoints');
+    $GLOBALS['logged_in'] = true;
+
+    $GLOBALS['uploaded'] = [];
+    [$kind] = run_handler([$handler, 'ajax_draft_add_receipt']);
+    check($kind === 'error', 'draft_add_receipt refuses missing upload');
+    $_POST = ['draft_id' => 9999, 'receipt_id' => 9999];
+    [$kind1] = run_handler([$handler, 'ajax_draft_retry_receipt']);
+    [$kind2] = run_handler([$handler, 'ajax_draft_save_receipt']);
+    [$kind3] = run_handler([$handler, 'ajax_draft_remove_receipt']);
+    check($kind1 === 'error' && $kind2 === 'error' && $kind3 === 'error', 'draft retry/save/remove refuse unknown receipt');
+    $_POST = ['reimbursement_id' => 9999, 'receipt_id' => 9999];
+    [$kind] = run_handler([$handler, 'ajax_member_attach_receipt_photo']);
+    check($kind === 'error', 'attach photo refuses unknown row');
+
+    // Duplicate on draft submit redirects with reimbursement_duplicate; invalid draft redirects with reimbursement_error.
+    $GLOBALS['duplicate'] = true;
+    $_POST = ['draft_id' => $d2['draft_id'], 'amount' => '10,00', 'iban' => 'NL00TEST0000000001'];
+    [$kind, $dup_url] = run_handler([$handler, 'handle_submit']);
+    check($kind === 'redirect' && str_contains($dup_url, 'reimbursement_duplicate=1'), 'duplicate receipt blocks draft submission');
+    $GLOBALS['duplicate'] = false;
+    $_POST = ['draft_id' => 9999, 'amount' => '10,00', 'iban' => 'NL00TEST0000000001'];
+    [$kind, $err_url] = run_handler([$handler, 'handle_submit']);
+    check($kind === 'redirect' && str_contains($err_url, 'reimbursement_error=1'), 'invalid draft id redirects with error');
 
     $_POST = ['draft_id' => $d2['draft_id']];
     [$kind] = run_handler([$handler, 'ajax_draft_discard']);
