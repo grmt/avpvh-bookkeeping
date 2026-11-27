@@ -15,6 +15,18 @@
     padding: .4rem .5rem;
 }
 
+.avbk-reimbursement textarea {
+    width: 100%;
+    max-width: 640px;
+    min-height: 5.5rem;
+    box-sizing: border-box;
+    padding: .45rem .55rem;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.45;
+    resize: vertical;
+}
+
 .avbk-dropzone {
     position: relative;
     display: flex;
@@ -327,6 +339,7 @@ tr.avbk-dropzone-item-active {
 
 .avbk-pending-receipts {
     margin-bottom: 1rem;
+    overflow-x: auto;
 }
 
 .avbk-pending-toolbar {
@@ -372,10 +385,86 @@ tr.avbk-dropzone-item-active {
     font-variant-numeric: tabular-nums;
 }
 
-.avbk-reimbursement-edit-form {
-    display: inline-block;
-    vertical-align: top;
-    margin-right: 1.5rem;
+.avbk-reimbursement-add-receipt-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem .75rem;
+    margin-bottom: 1rem;
+    padding-bottom: .85rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.avbk-reimbursement-add-receipt-form label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.avbk-reimbursement-edit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: .85rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.avbk-reimbursement-edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+.avbk-reimbursement-edit-field input[type="text"],
+.avbk-reimbursement-edit-field select,
+.avbk-reimbursement-edit-field textarea {
+    max-width: none;
+}
+
+.avbk-reimbursement-edit-field-full {
+    grid-column: 1 / -1;
+}
+
+.avbk-reimbursement-edit-field-full textarea {
+    min-height: 6.5rem;
+}
+
+.avbk-amount-prefix {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+.avbk-amount-prefix input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.avbk-reimbursement-edit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding-top: .5rem;
+    border-top: 1px solid #e5e5e5;
+}
+
+.avbk-reimbursement-withdraw-form {
+    margin: 0;
+}
+
+.avbk-button-danger {
+    color: #b32d2e;
+    border-color: #b32d2e;
+}
+
+.avbk-button-danger:hover {
+    background: #fbeaea;
+    color: #8a2424;
+    border-color: #8a2424;
 }
 
 /* Amounts: right-aligned, two decimals (set by the script). */

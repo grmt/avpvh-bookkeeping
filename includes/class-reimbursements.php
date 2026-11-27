@@ -382,23 +382,24 @@ class AVBK_Reimbursements implements AVBK_Component {
                                             </tfoot>
                                         </table>
                                     </div>
-                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-reimbursement-edit-form">
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" class="avbk-reimbursement-add-receipt-form">
                                         <?php wp_nonce_field('avbk_member_add_receipt'); ?>
                                         <input type="hidden" name="action" value="avbk_member_add_receipt">
                                         <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                        <label>Extra bonnetje toevoegen<br>
-                                            <input type="file" name="receipt" accept="image/*">
+                                        <label>Extra bonnetje toevoegen
+                                            <input type="file" name="receipt" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf">
                                         </label>
                                         <button type="submit" class="button">Toevoegen</button>
                                     </form>
 
-                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-edit-form">
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-edit-details" id="avbk-edit-form-<?php echo (int) $r->id; ?>">
                                         <?php wp_nonce_field('avbk_member_update_reimbursement'); ?>
                                         <input type="hidden" name="action" value="avbk_member_update_reimbursement">
                                         <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                        <p>
-                                            <label>Activiteit<br>
-                                                <select name="activity_id">
+                                        <div class="avbk-reimbursement-edit-grid">
+                                            <div class="avbk-reimbursement-edit-field">
+                                                <label for="avbk-edit-activity-<?php echo (int) $r->id; ?>">Activiteit</label>
+                                                <select name="activity_id" id="avbk-edit-activity-<?php echo (int) $r->id; ?>">
                                                     <option value="">&mdash; geen (algemene onkosten) &mdash;</option>
                                                     <?php foreach ($activities as $activity) : ?>
                                                         <option value="<?php echo esc_attr($activity->id); ?>" <?php selected((int) $r->activity_id, (int) $activity->id); ?>>
@@ -406,20 +407,13 @@ class AVBK_Reimbursements implements AVBK_Component {
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
-                                            </label>
-                                        </p>
-                                        <p>
-                                            <label>Toelichting voor de penningmeester<br>
-                                                <textarea name="member_note" rows="3" class="large-text" maxlength="2000"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
-                                            </label>
-                                        </p>
-                                        <p>
-                                            <label>Bedrag<br>
-                                                &euro; <input type="text" name="amount" value="<?php echo esc_attr(number_format((float) $r->amount, 2, ',', '')); ?>">
-                                            </label>
-                                        </p>
-                                        <p>
-                                            <label>Rekeningnummer<br>
+                                            </div>
+                                            <div class="avbk-reimbursement-edit-field">
+                                                <label for="avbk-edit-amount-<?php echo (int) $r->id; ?>">Totaal bedrag</label>
+                                                <span class="avbk-amount-prefix">&euro; <input type="text" name="amount" id="avbk-edit-amount-<?php echo (int) $r->id; ?>" value="<?php echo esc_attr(number_format((float) $r->amount, 2, ',', '')); ?>"></span>
+                                            </div>
+                                            <div class="avbk-reimbursement-edit-field">
+                                                <label for="avbk-edit-iban-<?php echo (int) $r->id; ?>">Rekeningnummer</label>
                                                 <?php if (count($known_ibans) > 1) : ?>
                                                     <select class="avbk-iban-select" data-target="avbk-edit-iban-<?php echo (int) $r->id; ?>">
                                                         <?php foreach ($known_ibans as $known) : ?>
@@ -431,18 +425,22 @@ class AVBK_Reimbursements implements AVBK_Component {
                                                     </select>
                                                 <?php endif; ?>
                                                 <input type="text" name="iban" id="avbk-edit-iban-<?php echo (int) $r->id; ?>" class="regular-text" value="<?php echo esc_attr($r->iban); ?>" <?php echo (count($known_ibans) > 1 && $iban_matches_known) ? 'hidden' : ''; ?>>
-                                            </label>
-                                        </p>
-                                        <p>
-                                            <button type="submit" class="button button-primary">Wijziging opslaan</button>
-                                        </p>
+                                            </div>
+                                            <div class="avbk-reimbursement-edit-field avbk-reimbursement-edit-field-full">
+                                                <label for="avbk-edit-note-<?php echo (int) $r->id; ?>">Toelichting voor de penningmeester</label>
+                                                <textarea name="member_note" id="avbk-edit-note-<?php echo (int) $r->id; ?>" rows="4" maxlength="2000" placeholder="Bijv.: voorgeschoten voor de hele groep, of extra uitleg bij de bonnen"><?php echo esc_textarea((string) ($r->member_note ?? '')); ?></textarea>
+                                            </div>
+                                        </div>
                                     </form>
-                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                                        <?php wp_nonce_field('avbk_withdraw_reimbursement'); ?>
-                                        <input type="hidden" name="action" value="avbk_withdraw_reimbursement">
-                                        <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
-                                        <button type="submit" class="button" onclick="return confirm('Declaratie intrekken?');">Declaratie intrekken</button>
-                                    </form>
+                                    <div class="avbk-reimbursement-edit-actions">
+                                        <button type="submit" form="avbk-edit-form-<?php echo (int) $r->id; ?>" class="button button-primary">Wijziging opslaan</button>
+                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="avbk-reimbursement-withdraw-form">
+                                            <?php wp_nonce_field('avbk_withdraw_reimbursement'); ?>
+                                            <input type="hidden" name="action" value="avbk_withdraw_reimbursement">
+                                            <input type="hidden" name="id" value="<?php echo esc_attr($r->id); ?>">
+                                            <button type="submit" class="button avbk-button-danger" onclick="return confirm('Declaratie intrekken?');">Declaratie intrekken</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endif; ?>
