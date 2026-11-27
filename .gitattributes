@@ -13,3 +13,6 @@
 /composer.json export-ignore
 /composer.lock export-ignore
 /phpunit.xml.dist export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+/vitest.config.mjs export-ignore

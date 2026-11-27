@@ -53,47 +53,39 @@ class AVBK_Reimbursements implements AVBK_Component {
      * @return string|null Normalized extension on success, null on failure.
      */
     public static function validate_receipt_file(string $tmp_path, string $original_name): ?string {
-        if (!is_uploaded_file($tmp_path)) {
-            return null;
-        }
+        return is_uploaded_file($tmp_path) ? self::validate_receipt_content($tmp_path, $original_name) : null;
+    }
+
+    /** validate_receipt_file() without the upload check: size, extension and real bytes of a file on disk. */
+    public static function validate_receipt_content(string $tmp_path, string $original_name): ?string {
         $size = filesize($tmp_path);
-        if (!$size || $size > self::MAX_BYTES) {
+        $ext = strtolower(pathinfo(sanitize_file_name($original_name), PATHINFO_EXTENSION));
+        if (!$size || $size > self::MAX_BYTES || !in_array($ext, array_merge(...array_values(self::ALLOWED_MIMES)), true)) {
             return null;
         }
-        $original_name = sanitize_file_name($original_name);
-        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        $valid = $ext === 'pdf' ? self::is_pdf($tmp_path) : self::is_image_of_type($tmp_path, $ext);
+        return $valid ? $ext : null;
+    }
 
-        $allowed_exts = [];
-        foreach (self::ALLOWED_MIMES as $exts) {
-            $allowed_exts = array_merge($allowed_exts, $exts);
-        }
-        if (!in_array($ext, $allowed_exts, true)) {
-            return null;
-        }
+    /** The file starts with the PDF signature. */
+    private static function is_pdf(string $path): bool {
+        return file_get_contents($path, false, null, 0, 5) === '%PDF-';
+    }
 
-        if ($ext === 'pdf') {
-            $handle = @fopen($tmp_path, 'rb');
-            $sig = $handle ? fread($handle, 5) : '';
-            if ($handle) {
-                fclose($handle);
-            }
-            return $sig === '%PDF-' ? 'pdf' : null;
-        }
-
-        $mime = function_exists('wp_get_image_mime') ? wp_get_image_mime($tmp_path) : (mime_content_type($tmp_path) ?: '');
+    /** The file's real image type allows this extension. */
+    private static function is_image_of_type(string $path, string $ext): bool {
+        $mime = (string) (function_exists('wp_get_image_mime') ? wp_get_image_mime($path) : mime_content_type($path));
         if ($mime === 'image/x-ms-bmp') {
             $mime = 'image/bmp';
         }
-        if (!isset(self::ALLOWED_MIMES[$mime]) || !in_array($ext, self::ALLOWED_MIMES[$mime], true)) {
-            return null;
-        }
-        return $ext;
+        return in_array($ext, self::ALLOWED_MIMES[$mime] ?? [], true);
     }
 
     public function register(): void {
         add_shortcode('avpvh_bk_reimbursement', [$this, 'render']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_ajax_avbk_ocr_receipt', [$this, 'ajax_ocr_receipt']);
+        add_action('wp_ajax_avbk_ocr_region', [$this, 'ajax_ocr_region']);
         add_action('admin_post_avbk_submit_reimbursement', [$this, 'handle_submit']);
         add_action('admin_post_avbk_update_reimbursement', [$this, 'handle_update']);
         add_action('admin_post_avbk_update_receipt', [$this, 'handle_update_receipt']);
@@ -130,11 +122,13 @@ class AVBK_Reimbursements implements AVBK_Component {
             return;
         }
         wp_enqueue_style('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.css', [], avbk_asset_version('assets/reimbursement.css'));
-        wp_enqueue_script('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.js', [], avbk_asset_version('assets/reimbursement.js'), true);
+        wp_enqueue_script('avbk-receipt-viewer', AVBK_PLUGIN_URL . 'assets/receipt-viewer.js', [], avbk_asset_version('assets/receipt-viewer.js'), true);
+        wp_enqueue_script('avbk-reimbursement', AVBK_PLUGIN_URL . 'assets/reimbursement.js', ['avbk-receipt-viewer'], avbk_asset_version('assets/reimbursement.js'), true);
 
         $config = wp_json_encode([
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('avbk_ocr_receipt'),
+            'engines' => AVBK_OCR::engines(),
         ]);
         add_action('wp_footer', function () use ($config) {
             echo '<script type="application/json" id="avbk-reimbursement-config">' . $config . '</script>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_json_encode() output containing only an admin-ajax URL and a nonce, same CSP-safe pattern as class-fee-popup.php.
@@ -196,7 +190,7 @@ class AVBK_Reimbursements implements AVBK_Component {
                     </div>
                     <button type="button" class="button" id="avbk-add-manual-row">+ Regel toevoegen zonder bonnetje</button>
                     <table class="avbk-dropzone-table" id="avbk-dropzone-table" hidden>
-                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th>Bedrag</th><th></th></tr></thead>
+                        <thead><tr><th>Foto</th><th>Datum</th><th>Winkel</th><th>Omschrijving</th><th class="avbk-dropzone-amount-head">Bedrag</th><th></th></tr></thead>
                         <tbody id="avbk-dropzone-list"></tbody>
                     </table>
                 </p>
@@ -359,25 +353,94 @@ class AVBK_Reimbursements implements AVBK_Component {
     /** AJAX: OCR a just-added photo before the real submit, purely to pre-fill the amount field (and warn early on a duplicate) — the temp upload is discarded either way, the authoritative duplicate check happens again in handle_submit(). One file per call — the dropzone calls this once per photo added. */
     public function ajax_ocr_receipt(): void {
         check_ajax_referer('avbk_ocr_receipt', 'nonce');
-        if (!is_user_logged_in() || empty($_FILES['receipt']['tmp_name']) || !is_uploaded_file($_FILES['receipt']['tmp_name'])) {
+        $tmp_path = $this->uploaded_path('receipt');
+        if (!is_user_logged_in() || $tmp_path === '') {
             avbk_send_json_error();
         }
-
-        $tmp_path = $_FILES['receipt']['tmp_name'];
-        $original_name = (string) ($_FILES['receipt']['name'] ?? '');
-        $ext = self::validate_receipt_file($tmp_path, $original_name);
-        if ($ext === null) {
+        $member = avpvh_get_member_by_wp_user(get_current_user_id());
+        $read = self::read_receipt(
+            $tmp_path,
+            (string) ($_FILES['receipt']['name'] ?? ''),
+            $member ? (int) $member->id : 0,
+            self::requested_engine(wp_unslash($_POST['engine'] ?? ''))
+        );
+        if ($read === null) {
             avbk_send_json_error('Ongeldig bestand');
         }
+        wp_send_json_success($read);
+    }
 
-        $member = avpvh_get_member_by_wp_user(get_current_user_id());
-        $hash = hash_file('sha256', $tmp_path);
-        $text = AVBK_OCR::extract_text($tmp_path);
-        $amount = $text ? AVBK_OCR::guess_total($text) : null;
-        $date = $text ? AVBK_OCR::guess_date($text) : null;
-        $store = $text ? AVBK_OCR::guess_store($text) : null;
-        $duplicate = $member && AVBK_DB::find_duplicate_receipt((int) $member->id, $hash, $date, $store);
-        wp_send_json_success(['amount' => $amount, 'date' => $date, 'store' => $store, 'duplicate' => (bool) $duplicate]);
+    /** The temporary path of the file uploaded in this request as $field, or '' when there is none. */
+    protected function uploaded_path(string $field): string {
+        $tmp_path = (string) ($_FILES[$field]['tmp_name'] ?? '');
+        return $tmp_path !== '' && is_uploaded_file($tmp_path) ? $tmp_path : '';
+    }
+
+    /**
+     * What the OCR finds on a receipt, for pre-filling its row: best guesses,
+     * everything to pick from, and whether the member declared it before.
+     * Null for a file that is no valid receipt.
+     *
+     * @return array{amount: ?float, date: ?string, store: ?string, duplicate: bool, candidates: array<string, array<mixed>>}|null
+     */
+    public static function read_receipt(string $path, string $original_name, int $member_id, ?string $engine): ?array {
+        if (self::validate_receipt_content($path, $original_name) === null) {
+            return null;
+        }
+        $text = (string) AVBK_OCR::extract_text($path, 30, $engine);
+        $date = $text !== '' ? AVBK_OCR::guess_date($text) : null;
+        $store = $text !== '' ? AVBK_OCR::guess_store($text) : null;
+        return [
+            'amount'     => $text !== '' ? AVBK_OCR::guess_total($text) : null,
+            'date'       => $date,
+            'store'      => $store,
+            'duplicate'  => $member_id > 0 && AVBK_DB::find_duplicate_receipt($member_id, (string) hash_file('sha256', $path), $date, $store),
+            'candidates' => AVBK_OCR::candidates($text),
+        ];
+    }
+
+    /**
+     * AJAX: read the part of a receipt photo the member selected in the
+     * viewer (a PNG the browser cropped), so a date, shop or amount can be
+     * taken over. Only the text comes back; nothing is stored.
+     */
+    public function ajax_ocr_region(): void {
+        check_ajax_referer('avbk_ocr_receipt', 'nonce');
+        $tmp_path = $this->uploaded_path('region');
+        if (!is_user_logged_in() || $tmp_path === '') {
+            avbk_send_json_error('Ongeldig fragment');
+        }
+        $read = self::read_region($tmp_path, self::requested_engine(wp_unslash($_POST['engine'] ?? '')));
+        if ($read['error'] !== '') {
+            avbk_send_json_error($read['error']);
+        }
+        wp_send_json_success(['text' => $read['text']]);
+    }
+
+    /**
+     * Reads a cropped part of a receipt (a PNG): its text, or why not.
+     *
+     * @return array{text: string, error: string}
+     */
+    public static function read_region(string $path, ?string $engine): array {
+        if (self::validate_receipt_content($path, 'region.png') !== 'png') {
+            return ['text' => '', 'error' => 'Ongeldig fragment'];
+        }
+        $text = self::region_text((string) AVBK_OCR::extract_text($path, 20, $engine));
+        return $text === ''
+            ? ['text' => '', 'error' => 'In dit stuk is geen tekst gevonden. Selecteer ruimer, of typ het over.']
+            : ['text' => $text, 'error' => ''];
+    }
+
+    /** The engine the member chose (a posted value), or null for the default (also for an unknown one). */
+    public static function requested_engine($posted): ?string {
+        $engine = sanitize_key(is_string($posted) ? $posted : '');
+        return isset(AVBK_OCR::engines()[$engine]) ? $engine : null;
+    }
+
+    /** The OCR text of a selected part, on one line and at most 200 characters. */
+    public static function region_text(string $text): string {
+        return mb_substr(trim((string) preg_replace('/\s+/u', ' ', $text)), 0, 200);
     }
 
     /**

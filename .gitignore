@@ -7,3 +7,5 @@
 .env.local
 /.phpunit.cache/
 /coverage.xml
+/node_modules/
+/coverage-js/

@@ -1,0 +1,15 @@
+{
+  "name": "avpvh-bookkeeping",
+  "private": true,
+  "description": "Development tooling only: Vitest for the plugin's browser scripts in assets/. Nothing here is deployed.",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^5.1.2",
+    "jsdom": "^31.0.1",
+    "vitest": "^5.1.2"
+  }
+}

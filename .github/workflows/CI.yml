@@ -109,3 +109,7 @@ jobs:
       contents: read
       id-token: write
     secrets: inherit
+    with:
+      # Vitest (tests/js) for the browser scripts in assets/, with coverage
+      # for Codecov and SonarQube Cloud.
+      vitest: true

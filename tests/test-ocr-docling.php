@@ -11,7 +11,8 @@ class WP_Error {}
 function wp_remote_post($url, $args) { global $requests, $reply; $requests[] = [$url, $args]; return $reply; }
 function wp_remote_retrieve_response_code($response) { return $response['code']; }
 function wp_remote_retrieve_body($response) { return $response['body']; }
-function get_transient($name) { return false; }
+function get_transient($name) { return $GLOBALS['token'] ?? false; }
+function wp_json_encode($data) { return json_encode($data); }
 
 require_once dirname(__DIR__) . '/includes/class-ocr.php';
 
@@ -39,6 +40,43 @@ check(AVBK_OCR::extract_text($file) === null, 'a docling error gives null, not a
 $reply = new WP_Error();
 check(AVBK_OCR::extract_text($file) === null, 'a connection failure gives null');
 check(AVBK_OCR::extract_text($file . '-missing') === null, 'a missing file gives null without a request');
+
+// Choosing an engine for one receipt.
+check(AVBK_OCR::engines() === ['docling' => 'Docling (eigen server)'], 'only docling configured: one engine');
+$before = count($requests);
+check(AVBK_OCR::extract_text($file, 30, 'google') === null && count($requests) === $before, 'an engine that is not configured is not tried, and docling is not used instead');
+$options['avbk_gcp_service_account_json'] = json_encode(['private_key' => 'fictional', 'client_email' => 'ocr@example.test']);
+check(array_keys(AVBK_OCR::engines()) === ['docling', 'google'], 'both configured: docling first, then Google');
+$reply = ['code' => 200, 'body' => json_encode(['document' => ['text_content' => 'Docling text']])];
+check(AVBK_OCR::extract_text($file, 30, 'docling') === 'Docling text', 'docling chosen: docling reads it');
+$GLOBALS['token'] = 'fictional-token';
+$reply = ['code' => 200, 'body' => json_encode(['document' => ['text' => 'Google text']])];
+check(AVBK_OCR::extract_text($file, 30, 'google') === 'Google text' && str_contains((string) end($requests)[0], 'documentai.googleapis.com'), 'Google chosen: Google reads it, docling is skipped');
+unset($GLOBALS['token']);
+$GLOBALS['token'] = 'fictional-token';
+$reply = new WP_Error();
+check(AVBK_OCR::extract_text($file, 30, 'google') === null, 'Google unreachable: null');
+unset($GLOBALS['token']);
+$key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+openssl_pkey_export($key, $pem);
+$options['avbk_gcp_service_account_json'] = json_encode(['private_key' => $pem, 'client_email' => 'ocr@example.test']);
+$reply = ['code' => 200, 'body' => '{}'];
+$before = count($requests);
+check(AVBK_OCR::extract_text($file, 30, 'google') === null && count($requests) === $before + 1 && str_contains((string) end($requests)[0], 'oauth2.googleapis.com'), 'no Google token: null, after only the token request');
+unset($options['avbk_gcp_service_account_json']);
+
+// Suggestions to pick from.
+$candidates = AVBK_OCR::candidates("Bakkerij Voorbeeld\nDorpsstraat 1\n01-08-2026 10:12\nBrood 3,50\nTaart 8,30\nTotaal 11,80\nBetaald 11,80\n02-08-2026");
+check($candidates['amounts'] === [11.8, 8.3, 3.5], 'amounts largest first, each once');
+check($candidates['dates'] === ['2026-08-01', '2026-08-02'], 'dates in order of appearance');
+check($candidates['stores'] === ['Bakkerij Voorbeeld', 'Dorpsstraat 1', 'Brood 3,50', 'Taart 8,30', 'Totaal 11,80'], 'the first five text lines as shop candidates');
+check(AVBK_OCR::candidates('') === ['amounts' => [], 'dates' => [], 'stores' => []], 'no text: no suggestions');
+
+// The best guesses that pre-fill a row.
+$receipt = "Bakkerij Voorbeeld\nDorpsstraat 1\n01-08-2026 10:12\nBrood 3,50\nTaart 8,30\nTotaal 11,80";
+check(AVBK_OCR::guess_total($receipt) === 11.8 && AVBK_OCR::guess_total("Brood 3,50\nTaart 8,30") === 8.3 && AVBK_OCR::guess_total('geen bedrag') === null, 'total: the Totaal line, else the largest amount');
+check(AVBK_OCR::guess_store($receipt) === 'Bakkerij Voorbeeld' && AVBK_OCR::guess_store("12\n--") === null, 'shop: the first line with text');
+check(AVBK_OCR::guess_date($receipt) === '2026-08-01' && AVBK_OCR::guess_date('2026-08-03') === '2026-08-03' && AVBK_OCR::guess_date('31-02-2026') === null, 'date: the first valid date');
 
 unlink($file);
 exit($failures ? 1 : 0);

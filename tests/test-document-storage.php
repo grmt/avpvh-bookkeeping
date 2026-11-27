@@ -25,3 +25,11 @@ try {
     if (file_exists($dir . '/.htaccess')) unlink($dir . '/.htaccess');
     if (is_dir($dir)) rmdir($dir);
 }
+
+// The text read from a part of a receipt the member selected in the viewer.
+if (AVBK_Reimbursements::region_text("  Boulangerie\n  Pâtisserie \t ") !== 'Boulangerie Pâtisserie'
+    || mb_strlen(AVBK_Reimbursements::region_text(str_repeat('é', 300))) !== 200
+    || AVBK_Reimbursements::region_text(" \n ") !== '') {
+    throw new RuntimeException('FAIL: Selected receipt text is not put on one line of at most 200 characters');
+}
+echo "PASS: Selected receipt text is put on one line of at most 200 characters\n";
